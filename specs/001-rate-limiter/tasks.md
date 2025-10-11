@@ -351,13 +351,13 @@ go test ./tests/integration -run=TestUS1 -v
 實作從 JSON 配置檔案載入限流規則的功能。
 
 **Acceptance Criteria**:
-- [ ] `internal/ratelimit/config.go` 新增：
+- [X] `internal/ratelimit/config.go` 新增：
   - `ConfigFile` struct（包含 Version, DefaultConfig, Domains map）
   - `LoadConfigFromFile(path)` 函式
   - `LoadConfigFromJSON(data)` 函式
   - JSON schema 驗證（version 必填，configs 合法）
-- [ ] 配置範例檔案：`docs/ratelimit/examples/config.json`
-- [ ] 單元測試涵蓋：
+- [X] 配置範例檔案：`docs/ratelimit/examples/config.json`
+- [X] 單元測試涵蓋：
   - 合法 JSON 載入成功
   - 非法 JSON 返回錯誤（格式錯誤、缺少欄位、非法值）
   - 檔案不存在返回錯誤
@@ -403,11 +403,11 @@ func TestLoadConfigFromFile_Valid(t *testing.T) {
 新增從配置檔案建立 RateLimiter 的便利建構函式。
 
 **Acceptance Criteria**:
-- [ ] `internal/ratelimit/limiter.go` 新增：
+- [X] `internal/ratelimit/limiter.go` 新增：
   - `NewFromConfig(configPath)` 函式
   - 內部呼叫 `LoadConfigFromFile` 和 `New`
   - 錯誤處理：檔案讀取失敗、配置驗證失敗
-- [ ] 單元測試驗證：
+- [X] 單元測試驗證：
   - 使用合法配置檔案建立成功
   - 使用非法配置檔案返回錯誤
   - 建立的限流器行為正確
@@ -434,11 +434,11 @@ go test ./internal/ratelimit -run=TestNewFromConfig -v
 確保未配置的網域自動使用預設限流規則（1 req/s）。
 
 **Acceptance Criteria**:
-- [ ] `RateLimiter.getOrCreateLimiter(domain)` 內部方法：
+- [X] `RateLimiter.getOrCreateLimiter(domain)` 內部方法：
   - 檢查 domain 是否已配置
   - 若未配置，使用 `defaultConfig` 建立 DomainLimiter
   - 執行緒安全：使用 double-check locking 或 sync.Map
-- [ ] 單元測試驗證：
+- [X] 單元測試驗證：
   - 請求未配置網域使用預設配置
   - 預設配置正確限流（1 req/s）
   - 並發請求到未配置網域不會建立重複 limiter
@@ -480,12 +480,12 @@ func TestRateLimiter_UnknownDomainUsesDefault(t *testing.T) {
 建立整合測試，驗證 US2 的 Acceptance Scenarios。
 
 **Acceptance Criteria**:
-- [ ] `tests/integration/ratelimit_test.go` 新增：
+- [X] `tests/integration/ratelimit_test.go` 新增：
   - Scenario 1: 三個網域不同配置，並行發送請求，驗證總時間
   - Scenario 2: 未配置網域使用預設規則
-- [ ] 使用 errgroup 並行執行請求
-- [ ] 驗證每個網域獨立計時
-- [ ] 所有測試通過
+- [X] 使用 errgroup 並行執行請求
+- [X] 驗證每個網域獨立計時
+- [X] 所有測試通過
 
 **Output Files**:
 - 更新 `tests/integration/ratelimit_test.go`

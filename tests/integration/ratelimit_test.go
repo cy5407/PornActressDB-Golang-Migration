@@ -2,6 +2,8 @@ package integration
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 // TestUS1_Scenario1_JAVDBSequentialRequests 驗證 US1 Scenario 1:
@@ -179,7 +182,7 @@ func TestUS1_EdgeCase_ContextCancellation(t *testing.T) {
 			err.Error() == "context canceled" ||
 			err.Error() == "rate: Wait(n=1) would exceed context deadline",
 		"Error should be context-related, got: %v", err)
-	
+
 	// rate.Limiter.Wait() 會立即檢測到無法滿足 deadline，所以應該在極短時間內返回
 	assert.Less(t, elapsed.Milliseconds(), int64(100),
 		"Should fail quickly (<100ms) as rate limiter detects deadline cannot be met")
@@ -251,4 +254,255 @@ func TestUS1_Integration_GetAllStats(t *testing.T) {
 	avwikiStats, ok := allStats["av-wiki.net"]
 	require.True(t, ok, "Should have AV-WIKI stats")
 	assert.Equal(t, int64(1), avwikiStats.TotalRequests, "AV-WIKI should have 1 request")
+}
+
+// ============================================================================
+// US2 Integration Tests - 網域獨立限流管理
+// ============================================================================
+
+// TestUS2_Scenario1_MultiDomainParallelWithDifferentConfigs 驗證 US2 Scenario 1:
+// 三個網域不同配置，並行發送請求，驗證總時間和獨立性
+func TestUS2_Scenario1_MultiDomainParallelWithDifferentConfigs(t *testing.T) {
+	// Arrange: 建立限流器，配置三個網域
+	configs := map[string]ratelimit.LimitConfig{
+		"javdb.com": {
+			RequestsPerSecond: 1.0, // 1 req/s (慢)
+			BurstCapacity:     1,
+		},
+		"av-wiki.net": {
+			RequestsPerSecond: 2.0, // 2 req/s (中)
+			BurstCapacity:     1,
+		},
+		"fast-site.com": {
+			RequestsPerSecond: 5.0, // 5 req/s (快)
+			BurstCapacity:     1,
+		},
+	}
+	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	ctx := context.Background()
+
+	// Act: 使用 errgroup 並行發送請求到各個網域
+	g, gctx := errgroup.WithContext(ctx)
+
+	var javdbElapsed, avwikiElapsed, fastElapsed time.Duration
+	var javdbMu, avwikiMu, fastMu sync.Mutex
+
+	// JAVDB: 3 個請求 = 0s + 1s + 1s = ~2s
+	g.Go(func() error {
+		start := time.Now()
+		for i := 0; i < 3; i++ {
+			if err := limiter.Wait(gctx, "javdb.com"); err != nil {
+				return err
+			}
+		}
+		javdbMu.Lock()
+		javdbElapsed = time.Since(start)
+		javdbMu.Unlock()
+		return nil
+	})
+
+	// AV-WIKI: 3 個請求 = 0s + 0.5s + 0.5s = ~1s
+	g.Go(func() error {
+		start := time.Now()
+		for i := 0; i < 3; i++ {
+			if err := limiter.Wait(gctx, "av-wiki.net"); err != nil {
+				return err
+			}
+		}
+		avwikiMu.Lock()
+		avwikiElapsed = time.Since(start)
+		avwikiMu.Unlock()
+		return nil
+	})
+
+	// fast-site.com: 6 個請求 = 0s + 0.2s + 0.2s + 0.2s + 0.2s + 0.2s = ~1s
+	g.Go(func() error {
+		start := time.Now()
+		for i := 0; i < 6; i++ {
+			if err := limiter.Wait(gctx, "fast-site.com"); err != nil {
+				return err
+			}
+		}
+		fastMu.Lock()
+		fastElapsed = time.Since(start)
+		fastMu.Unlock()
+		return nil
+	})
+
+	// 等待所有並行任務完成
+	err := g.Wait()
+	require.NoError(t, err, "All parallel requests should succeed")
+
+	// Assert: 驗證每個網域的執行時間
+	javdbMu.Lock()
+	assert.InDelta(t, 2000, javdbElapsed.Milliseconds(), 200,
+		"JAVDB 3 requests should take ~2s (±200ms)")
+	javdbMu.Unlock()
+
+	avwikiMu.Lock()
+	assert.InDelta(t, 1000, avwikiElapsed.Milliseconds(), 200,
+		"AV-WIKI 3 requests should take ~1s (±200ms)")
+	avwikiMu.Unlock()
+
+	fastMu.Lock()
+	assert.InDelta(t, 1000, fastElapsed.Milliseconds(), 200,
+		"fast-site.com 6 requests should take ~1s (±200ms)")
+	fastMu.Unlock()
+
+	// 驗證統計資訊
+	javdbStats, err := limiter.GetStats("javdb.com")
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), javdbStats.TotalRequests, "JAVDB should have 3 requests")
+
+	avwikiStats, err := limiter.GetStats("av-wiki.net")
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), avwikiStats.TotalRequests, "AV-WIKI should have 3 requests")
+
+	fastStats, err := limiter.GetStats("fast-site.com")
+	require.NoError(t, err)
+	assert.Equal(t, int64(6), fastStats.TotalRequests, "fast-site.com should have 6 requests")
+}
+
+// TestUS2_Scenario2_UnknownDomainUsesDefaultConfig 驗證 US2 Scenario 2:
+// 未配置網域使用預設規則（1 req/s, burst 1）
+func TestUS2_Scenario2_UnknownDomainUsesDefaultConfig(t *testing.T) {
+	// Arrange: 建立限流器，只配置一個網域，設定預設配置為 1 req/s
+	configs := map[string]ratelimit.LimitConfig{
+		"javdb.com": {
+			RequestsPerSecond: 2.0, // 已配置: 2 req/s
+			BurstCapacity:     1,
+		},
+	}
+	defaultConfig := ratelimit.LimitConfig{
+		RequestsPerSecond: 1.0, // 預設: 1 req/s
+		BurstCapacity:     1,
+	}
+	limiter := ratelimit.New(configs, defaultConfig)
+	defer limiter.Close()
+
+	ctx := context.Background()
+
+	// Act: 請求未配置的網域
+	start := time.Now()
+	for i := 0; i < 3; i++ {
+		err := limiter.Wait(ctx, "unknown-site.com")
+		require.NoError(t, err, "Wait should not return error")
+	}
+	unknownElapsed := time.Since(start)
+
+	// Assert: 驗證使用預設配置（1 req/s）
+	// 3 個請求 = 0s + 1s + 1s = ~2s
+	assert.InDelta(t, 2000, unknownElapsed.Milliseconds(), 100,
+		"Unknown domain should use default config (1 req/s), 3 requests ~2s (±100ms)")
+
+	// 驗證統計資訊
+	stats, err := limiter.GetStats("unknown-site.com")
+	require.NoError(t, err, "Should have stats for unknown domain")
+	assert.Equal(t, int64(3), stats.TotalRequests, "Should record 3 requests for unknown domain")
+
+	// 驗證已配置網域不受影響
+	start = time.Now()
+	for i := 0; i < 3; i++ {
+		err := limiter.Wait(ctx, "javdb.com")
+		require.NoError(t, err)
+	}
+	javdbElapsed := time.Since(start)
+
+	// JAVDB 使用 2 req/s，3 個請求 = 0s + 0.5s + 0.5s = ~1s
+	assert.InDelta(t, 1000, javdbElapsed.Milliseconds(), 100,
+		"JAVDB should still use configured rate (2 req/s), 3 requests ~1s (±100ms)")
+}
+
+// TestUS2_EdgeCase_LoadFromConfigFile 驗證從配置檔案載入
+func TestUS2_EdgeCase_LoadFromConfigFile(t *testing.T) {
+	// Arrange: 建立臨時配置檔案
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	configContent := `{
+		"version": "1.0",
+		"default_config": {
+			"requests_per_second": 1.0,
+			"burst_capacity": 1
+		},
+		"domains": {
+			"javdb.com": {
+				"requests_per_second": 1.0,
+				"burst_capacity": 1
+			},
+			"av-wiki.net": {
+				"requests_per_second": 2.0,
+				"burst_capacity": 1
+			}
+		}
+	}`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err, "Should create config file")
+
+	// Act: 從配置檔案建立限流器
+	limiter, err := ratelimit.NewFromConfig(configPath)
+	require.NoError(t, err, "Should create limiter from config file")
+	defer limiter.Close()
+
+	ctx := context.Background()
+
+	// 測試 JAVDB (1 req/s)
+	start := time.Now()
+	for i := 0; i < 2; i++ {
+		err := limiter.Wait(ctx, "javdb.com")
+		require.NoError(t, err)
+	}
+	javdbElapsed := time.Since(start)
+
+	// Assert: 驗證載入的配置正確
+	assert.InDelta(t, 1000, javdbElapsed.Milliseconds(), 100,
+		"JAVDB from config should be 1 req/s, 2 requests ~1s (±100ms)")
+
+	// 測試 AV-WIKI (2 req/s)
+	start = time.Now()
+	for i := 0; i < 2; i++ {
+		err := limiter.Wait(ctx, "av-wiki.net")
+		require.NoError(t, err)
+	}
+	avwikiElapsed := time.Since(start)
+
+	assert.InDelta(t, 500, avwikiElapsed.Milliseconds(), 100,
+		"AV-WIKI from config should be 2 req/s, 2 requests ~0.5s (±100ms)")
+
+	// 驗證統計資訊
+	allStats := limiter.GetAllStats()
+	require.Len(t, allStats, 2, "Should have stats for 2 configured domains")
+}
+
+// TestUS2_EdgeCase_ConcurrentAccessToUnknownDomain 驗證並發存取未配置網域的執行緒安全性
+func TestUS2_EdgeCase_ConcurrentAccessToUnknownDomain(t *testing.T) {
+	// Arrange: 建立限流器，不預先配置任何網域
+	limiter := ratelimit.New(map[string]ratelimit.LimitConfig{}, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	ctx := context.Background()
+
+	// Act: 並發存取未配置的網域
+	g, gctx := errgroup.WithContext(ctx)
+
+	for i := 0; i < 10; i++ {
+		g.Go(func() error {
+			return limiter.Wait(gctx, "concurrent-unknown.com")
+		})
+	}
+
+	err := g.Wait()
+	require.NoError(t, err, "All concurrent requests should succeed")
+
+	// Assert: 驗證只建立了一個 limiter（不重複建立）
+	stats, err := limiter.GetStats("concurrent-unknown.com")
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), stats.TotalRequests, "Should record exactly 10 requests")
+
+	// 驗證 GetAllStats 只返回一個網域的統計
+	allStats := limiter.GetAllStats()
+	require.Len(t, allStats, 1, "Should have stats for only 1 domain (no duplicate limiters)")
 }
