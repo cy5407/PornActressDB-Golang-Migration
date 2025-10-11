@@ -767,3 +767,263 @@ func TestUS3_Integration_RealWorldScraperScenario(t *testing.T) {
 	t.Logf("JAVDB: %d success, %d failed", javdbSuccess, javdbFailed)
 	t.Logf("AV-WIKI: %d success, %d failed", avwikiSuccess, avwikiFailed)
 }
+
+// ============================================================================
+// US4 Integration Tests - 限流統計和監控
+// ============================================================================
+
+// TestUS4_Scenario1_StatisticsAccuracy 驗證 US4 Scenario 1:
+// 執行 50 個請求，驗證統計準確性
+func TestUS4_Scenario1_StatisticsAccuracy(t *testing.T) {
+	// Arrange: 建立限流器，配置為 10 req/s（快速完成測試）
+	configs := map[string]ratelimit.LimitConfig{
+		"test-site.com": {
+			RequestsPerSecond: 10.0,
+			BurstCapacity:     5, // Burst 5 個
+		},
+	}
+	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	ctx := context.Background()
+
+	// Act: 執行 50 個請求
+	const totalRequests = 50
+	start := time.Now()
+
+	for i := 0; i < totalRequests; i++ {
+		err := limiter.Wait(ctx, "test-site.com")
+		require.NoError(t, err, "Request %d should succeed", i+1)
+	}
+
+	totalElapsed := time.Since(start)
+
+	// 取得統計
+	stats, err := limiter.GetStats("test-site.com")
+	require.NoError(t, err, "GetStats should succeed")
+
+	// Assert: 驗證統計準確性（100% 準確）
+	assert.Equal(t, int64(totalRequests), stats.TotalRequests,
+		"TotalRequests should be exactly %d", totalRequests)
+
+	// 計算預期的延遲請求數
+	// Burst capacity = 5，所以前 5 個請求立即通過，後 45 個需要等待
+	expectedDelayed := int64(totalRequests - 5)
+	assert.Equal(t, expectedDelayed, stats.DelayedRequests,
+		"DelayedRequests should be exactly %d (total - burst)", expectedDelayed)
+
+	// 驗證 DelayRate 計算
+	expectedDelayRate := float64(expectedDelayed) / float64(totalRequests)
+	assert.InDelta(t, expectedDelayRate, stats.DelayRate, 0.001,
+		"DelayRate should be %.4f", expectedDelayRate)
+
+	// 驗證 TotalWaitTime > 0（有延遲）
+	assert.Greater(t, stats.TotalWaitTime.Milliseconds(), int64(0),
+		"TotalWaitTime should be greater than 0")
+
+	// 驗證 AvgWaitTime 計算
+	expectedAvgWaitTime := stats.TotalWaitTime / time.Duration(expectedDelayed)
+	assert.Equal(t, expectedAvgWaitTime, stats.AvgWaitTime,
+		"AvgWaitTime should match calculation")
+
+	// 驗證總時間合理（50 個請求，10 req/s，預期約 5 秒）
+	// 前 5 個立即通過（使用 burst），後 45 個以 10 req/s 的速度，需要 4.5 秒
+	assert.InDelta(t, 4500, totalElapsed.Milliseconds(), 500,
+		"Total time should be ~4.5s for 50 requests at 10 req/s with burst 5")
+
+	// 驗證 LastRequestTime 更新
+	assert.WithinDuration(t, time.Now(), stats.LastRequestTime, 1*time.Second,
+		"LastRequestTime should be recent")
+
+	t.Logf("Statistics Summary:")
+	t.Logf("  Total Requests: %d", stats.TotalRequests)
+	t.Logf("  Delayed Requests: %d", stats.DelayedRequests)
+	t.Logf("  Delay Rate: %.2f%%", stats.DelayRate*100)
+	t.Logf("  Total Wait Time: %v", stats.TotalWaitTime)
+	t.Logf("  Avg Wait Time: %v", stats.AvgWaitTime)
+	t.Logf("  Total Elapsed: %v", totalElapsed)
+}
+
+// TestUS4_Scenario2_MultiDomainStatisticsIndependence 驗證 US4 Scenario 2:
+// 多網域統計獨立性
+func TestUS4_Scenario2_MultiDomainStatisticsIndependence(t *testing.T) {
+	// Arrange: 建立限流器，配置三個網域
+	configs := map[string]ratelimit.LimitConfig{
+		"site-a.com": {RequestsPerSecond: 5.0, BurstCapacity: 2},
+		"site-b.com": {RequestsPerSecond: 10.0, BurstCapacity: 3},
+		"site-c.com": {RequestsPerSecond: 2.0, BurstCapacity: 1},
+	}
+	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	ctx := context.Background()
+
+	// Act: 並行發送不同數量的請求到各個網域
+	g, gctx := errgroup.WithContext(ctx)
+
+	// Site A: 10 個請求
+	g.Go(func() error {
+		for i := 0; i < 10; i++ {
+			if err := limiter.Wait(gctx, "site-a.com"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	// Site B: 20 個請求
+	g.Go(func() error {
+		for i := 0; i < 20; i++ {
+			if err := limiter.Wait(gctx, "site-b.com"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	// Site C: 5 個請求
+	g.Go(func() error {
+		for i := 0; i < 5; i++ {
+			if err := limiter.Wait(gctx, "site-c.com"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	err := g.Wait()
+	require.NoError(t, err, "All requests should succeed")
+
+	// 取得所有統計
+	allStats := limiter.GetAllStats()
+
+	// Assert: 驗證統計獨立性
+	require.Len(t, allStats, 3, "Should have stats for 3 domains")
+
+	// Site A: 10 個請求，burst 2，延遲 8 個
+	statsA := allStats["site-a.com"]
+	require.NotNil(t, statsA, "Site A stats should exist")
+	assert.Equal(t, int64(10), statsA.TotalRequests, "Site A should have 10 requests")
+	assert.Equal(t, int64(8), statsA.DelayedRequests, "Site A should have 8 delayed requests")
+	assert.InDelta(t, 0.80, statsA.DelayRate, 0.01, "Site A delay rate should be 80%")
+
+	// Site B: 20 個請求，burst 3，延遲 17 個
+	statsB := allStats["site-b.com"]
+	require.NotNil(t, statsB, "Site B stats should exist")
+	assert.Equal(t, int64(20), statsB.TotalRequests, "Site B should have 20 requests")
+	assert.Equal(t, int64(17), statsB.DelayedRequests, "Site B should have 17 delayed requests")
+	assert.InDelta(t, 0.85, statsB.DelayRate, 0.01, "Site B delay rate should be 85%")
+
+	// Site C: 5 個請求，burst 1，延遲 4 個
+	statsC := allStats["site-c.com"]
+	require.NotNil(t, statsC, "Site C stats should exist")
+	assert.Equal(t, int64(5), statsC.TotalRequests, "Site C should have 5 requests")
+	assert.Equal(t, int64(4), statsC.DelayedRequests, "Site C should have 4 delayed requests")
+	assert.InDelta(t, 0.80, statsC.DelayRate, 0.01, "Site C delay rate should be 80%")
+
+	// 驗證統計彼此獨立（總數不相等）
+	assert.NotEqual(t, statsA.TotalRequests, statsB.TotalRequests, "Stats should be independent")
+	assert.NotEqual(t, statsB.TotalRequests, statsC.TotalRequests, "Stats should be independent")
+
+	t.Logf("Site A: Total=%d, Delayed=%d, Rate=%.2f%%",
+		statsA.TotalRequests, statsA.DelayedRequests, statsA.DelayRate*100)
+	t.Logf("Site B: Total=%d, Delayed=%d, Rate=%.2f%%",
+		statsB.TotalRequests, statsB.DelayedRequests, statsB.DelayRate*100)
+	t.Logf("Site C: Total=%d, Delayed=%d, Rate=%.2f%%",
+		statsC.TotalRequests, statsC.DelayedRequests, statsC.DelayRate*100)
+}
+
+// TestUS4_EdgeCase_ZeroDivisionProtection 驗證除以零保護
+func TestUS4_EdgeCase_ZeroDivisionProtection(t *testing.T) {
+	// Arrange: 建立限流器但不發送任何請求
+	limiter := ratelimit.New(map[string]ratelimit.LimitConfig{
+		"empty-site.com": {RequestsPerSecond: 1.0, BurstCapacity: 1},
+	}, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	// Act: 取得統計（沒有請求）
+	stats, err := limiter.GetStats("empty-site.com")
+	require.NoError(t, err, "GetStats should succeed even with no requests")
+
+	// Assert: 驗證除以零保護
+	assert.Equal(t, int64(0), stats.TotalRequests, "TotalRequests should be 0")
+	assert.Equal(t, int64(0), stats.DelayedRequests, "DelayedRequests should be 0")
+	assert.Equal(t, float64(0), stats.DelayRate, "DelayRate should be 0 (not NaN)")
+	assert.Equal(t, time.Duration(0), stats.AvgWaitTime, "AvgWaitTime should be 0 (not division by zero)")
+}
+
+// TestUS4_EdgeCase_OnlyImmediateRequests 驗證只有立即請求的情況
+func TestUS4_EdgeCase_OnlyImmediateRequests(t *testing.T) {
+	// Arrange: 建立限流器，burst capacity 很大
+	configs := map[string]ratelimit.LimitConfig{
+		"high-burst.com": {
+			RequestsPerSecond: 1.0,
+			BurstCapacity:     100, // 足夠容納所有請求
+		},
+	}
+	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	ctx := context.Background()
+
+	// Act: 發送 50 個請求（都應該立即通過）
+	for i := 0; i < 50; i++ {
+		err := limiter.Wait(ctx, "high-burst.com")
+		require.NoError(t, err)
+	}
+
+	stats, err := limiter.GetStats("high-burst.com")
+	require.NoError(t, err)
+
+	// Assert: 所有請求都應該是立即的（無延遲）
+	assert.Equal(t, int64(50), stats.TotalRequests, "Should have 50 requests")
+	assert.Equal(t, int64(0), stats.DelayedRequests, "No requests should be delayed")
+	assert.Equal(t, float64(0), stats.DelayRate, "DelayRate should be 0%")
+	assert.Equal(t, time.Duration(0), stats.TotalWaitTime, "TotalWaitTime should be 0")
+	assert.Equal(t, time.Duration(0), stats.AvgWaitTime, "AvgWaitTime should be 0 (no delayed requests)")
+}
+
+// TestUS4_Integration_StatisticsSnapshot 驗證統計快照的不變性
+func TestUS4_Integration_StatisticsSnapshot(t *testing.T) {
+	// Arrange: 建立限流器
+	limiter := ratelimit.New(map[string]ratelimit.LimitConfig{
+		"test.com": {RequestsPerSecond: 5.0, BurstCapacity: 1},
+	}, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	ctx := context.Background()
+
+	// Act: 發送 5 個請求
+	for i := 0; i < 5; i++ {
+		err := limiter.Wait(ctx, "test.com")
+		require.NoError(t, err)
+	}
+
+	// 取得第一個快照
+	snapshot1, err := limiter.GetStats("test.com")
+	require.NoError(t, err)
+
+	// 再發送 5 個請求
+	for i := 0; i < 5; i++ {
+		err := limiter.Wait(ctx, "test.com")
+		require.NoError(t, err)
+	}
+
+	// 取得第二個快照
+	snapshot2, err := limiter.GetStats("test.com")
+	require.NoError(t, err)
+
+	// Assert: 驗證快照不變性
+	// 第一個快照應該保持不變
+	assert.Equal(t, int64(5), snapshot1.TotalRequests, "Snapshot1 should remain unchanged")
+	
+	// 第二個快照應該反映新的請求
+	assert.Equal(t, int64(10), snapshot2.TotalRequests, "Snapshot2 should show 10 requests")
+	
+	// 快照應該是獨立的
+	assert.NotEqual(t, snapshot1.TotalRequests, snapshot2.TotalRequests,
+		"Snapshots should be independent")
+
+	t.Logf("Snapshot1: Total=%d, Delayed=%d", snapshot1.TotalRequests, snapshot1.DelayedRequests)
+	t.Logf("Snapshot2: Total=%d, Delayed=%d", snapshot2.TotalRequests, snapshot2.DelayedRequests)
+}

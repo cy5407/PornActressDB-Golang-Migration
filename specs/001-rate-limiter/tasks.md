@@ -640,11 +640,11 @@ go test ./tests/integration -run=TestUS3 -v
 實作統計資訊查詢介面。
 
 **Acceptance Criteria**:
-- [ ] `internal/ratelimit/limiter.go` 新增：
+- [X] `internal/ratelimit/limiter.go` 新增：
   - `GetStats(domain)` 方法（返回 StatsSnapshot 或錯誤）
   - `GetAllStats()` 方法（返回 map[string]*StatsSnapshot）
   - 網域不存在時返回 ErrDomainNotFound
-- [ ] 單元測試驗證：
+- [X] 單元測試驗證：
   - 查詢已存在網域返回正確統計
   - 查詢不存在網域返回錯誤
   - 並發查詢統計不會出現競態條件
@@ -688,12 +688,12 @@ func TestRateLimiter_GetStats(t *testing.T) {
 完善統計指標的計算邏輯，確保準確性。
 
 **Acceptance Criteria**:
-- [ ] `LimitStats` 正確計算：
+- [X] `LimitStats` 正確計算：
   - DelayRate = DelayedRequests / TotalRequests
   - AvgWaitTime = TotalWaitTime / DelayedRequests
   - 處理邊界情況（除以零）
-- [ ] `StatsSnapshot` 包含所有衍生指標
-- [ ] 單元測試驗證計算準確性（100% 準確率）
+- [X] `StatsSnapshot` 包含所有衍生指標
+- [X] 單元測試驗證計算準確性（100% 準確率）
 
 **Output Files**:
 - 更新 `internal/ratelimit/stats.go`
@@ -717,11 +717,11 @@ go test ./internal/ratelimit -run=TestStatsCalculation -v
 建立整合測試，驗證 US4 的 Acceptance Scenarios。
 
 **Acceptance Criteria**:
-- [ ] `tests/integration/ratelimit_test.go` 新增：
+- [X] `tests/integration/ratelimit_test.go` 新增：
   - Scenario 1: 執行 50 個請求，驗證統計準確性
   - Scenario 2: 多網域統計獨立性
-- [ ] 驗證統計資訊 100% 準確（請求數、延遲數、等待時間）
-- [ ] 所有測試通過
+- [X] 驗證統計資訊 100% 準確（請求數、延遲數、等待時間）
+- [X] 所有測試通過
 
 **Output Files**:
 - 更新 `tests/integration/ratelimit_test.go`
