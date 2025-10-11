@@ -506,3 +506,264 @@ func TestUS2_EdgeCase_ConcurrentAccessToUnknownDomain(t *testing.T) {
 	allStats := limiter.GetAllStats()
 	require.Len(t, allStats, 1, "Should have stats for only 1 domain (no duplicate limiters)")
 }
+
+// ============================================================================
+// US3 Integration Tests - 爬蟲任務可控中斷
+// ============================================================================
+
+// TestUS3_Scenario1_CancelQueuedRequests 驗證 US3 Scenario 1:
+// 排隊 50 個請求，中途取消，驗證停止行為
+func TestUS3_Scenario1_CancelQueuedRequests(t *testing.T) {
+	// Arrange: 建立限流器，配置非常慢的速率
+	configs := map[string]ratelimit.LimitConfig{
+		"slow-site.com": {
+			RequestsPerSecond: 2.0, // 2 req/s，50 個請求需要 ~25 秒
+			BurstCapacity:     1,
+		},
+	}
+	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	// 建立可取消的 context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Act: 使用 errgroup 並發發送 50 個請求
+	g, gctx := errgroup.WithContext(ctx)
+
+	successCount := int64(0)
+	canceledCount := int64(0)
+	var mu sync.Mutex
+
+	for i := 0; i < 50; i++ {
+		g.Go(func() error {
+			err := limiter.Wait(gctx, "slow-site.com")
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				successCount++
+			} else if err == context.Canceled {
+				canceledCount++
+			}
+			return nil // 不返回錯誤，讓所有 goroutine 完成
+		})
+	}
+
+	// 等待一小段時間讓一些請求通過，然後取消
+	time.Sleep(1 * time.Second)
+	cancel()
+
+	// 等待所有 goroutine 完成
+	g.Wait()
+
+	// Assert: 驗證行為
+	mu.Lock()
+	defer mu.Unlock()
+
+	// 應該有一些請求成功（大約 2-4 個，因為等了 1 秒）
+	assert.Greater(t, successCount, int64(0), "Some requests should succeed before cancellation")
+	assert.Less(t, successCount, int64(10), "Not too many requests should succeed")
+
+	// 應該有大量請求被取消
+	assert.Greater(t, canceledCount, int64(30), "Most requests should be canceled")
+
+	// 總數應該是 50
+	assert.Equal(t, int64(50), successCount+canceledCount, "Total should be 50 requests")
+
+	// 驗證統計只記錄成功的請求
+	stats, err := limiter.GetStats("slow-site.com")
+	require.NoError(t, err)
+	assert.Equal(t, successCount, stats.TotalRequests, "Stats should only count successful requests")
+}
+
+// TestUS3_Scenario2_CloseAndRecreate 驗證 US3 Scenario 2:
+// Close 後重新建立限流器，驗證狀態重置
+func TestUS3_Scenario2_CloseAndRecreate(t *testing.T) {
+	// Arrange: 建立第一個限流器
+	configs := map[string]ratelimit.LimitConfig{
+		"test-site.com": {
+			RequestsPerSecond: 2.0,
+			BurstCapacity:     1,
+		},
+	}
+	limiter1 := ratelimit.New(configs, ratelimit.DefaultConfig)
+
+	ctx := context.Background()
+
+	// Act: 發送一些請求
+	require.NoError(t, limiter1.Wait(ctx, "test-site.com"))
+	require.NoError(t, limiter1.Wait(ctx, "test-site.com"))
+	require.NoError(t, limiter1.Wait(ctx, "test-site.com"))
+
+	// 檢查統計
+	stats1, err := limiter1.GetStats("test-site.com")
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), stats1.TotalRequests, "First limiter should have 3 requests")
+
+	// Close 第一個限流器
+	err = limiter1.Close()
+	require.NoError(t, err, "Close should succeed")
+
+	// 驗證 Close 後無法使用
+	err = limiter1.Wait(ctx, "test-site.com")
+	assert.Error(t, err, "Wait after Close should return error")
+
+	// 建立第二個限流器（使用相同配置）
+	limiter2 := ratelimit.New(configs, ratelimit.DefaultConfig)
+	defer limiter2.Close()
+
+	// 發送請求到第二個限流器
+	require.NoError(t, limiter2.Wait(ctx, "test-site.com"))
+	require.NoError(t, limiter2.Wait(ctx, "test-site.com"))
+
+	// Assert: 驗證狀態已重置
+	stats2, err := limiter2.GetStats("test-site.com")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), stats2.TotalRequests, "Second limiter should have fresh stats (2 requests)")
+	assert.NotEqual(t, stats1.TotalRequests, stats2.TotalRequests, "Stats should be independent")
+}
+
+// TestUS3_EdgeCase_CloseIdempotent 驗證 Close 方法是冪等的
+func TestUS3_EdgeCase_CloseIdempotent(t *testing.T) {
+	// Arrange: 建立限流器
+	limiter := ratelimit.New(map[string]ratelimit.LimitConfig{}, ratelimit.DefaultConfig)
+
+	// Act: 多次呼叫 Close
+	err1 := limiter.Close()
+	err2 := limiter.Close()
+	err3 := limiter.Close()
+
+	// Assert: 所有呼叫都應該成功（冪等）
+	assert.NoError(t, err1, "First Close should succeed")
+	assert.NoError(t, err2, "Second Close should succeed (idempotent)")
+	assert.NoError(t, err3, "Third Close should succeed (idempotent)")
+}
+
+// TestUS3_EdgeCase_ContextDeadlineVsCancellation 驗證 Context deadline 和取消的區別
+func TestUS3_EdgeCase_ContextDeadlineVsCancellation(t *testing.T) {
+	// Arrange: 建立限流器，配置慢速率
+	configs := map[string]ratelimit.LimitConfig{
+		"slow.com": {
+			RequestsPerSecond: 0.5, // 2 秒 1 個請求
+			BurstCapacity:     1,
+		},
+	}
+	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	// Test 1: Context with timeout
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel1()
+
+	// 第一個請求成功（使用 burst）
+	err := limiter.Wait(ctx1, "slow.com")
+	require.NoError(t, err, "First request should succeed")
+
+	// 第二個請求應該因為 deadline 而失敗
+	start := time.Now()
+	err = limiter.Wait(ctx1, "slow.com")
+	elapsed := time.Since(start)
+
+	assert.Error(t, err, "Second request should fail due to timeout")
+	// rate.Limiter.Wait() 會立即檢測到無法在 deadline 內完成
+	assert.Less(t, elapsed.Milliseconds(), int64(200),
+		"Should fail quickly when deadline cannot be met")
+
+	// Test 2: Explicit cancellation
+	ctx2, cancel2 := context.WithCancel(context.Background())
+
+	// 在另一個 goroutine 中延遲取消
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel2()
+	}()
+
+	// 第三個請求（需要等待約 2 秒）
+	start = time.Now()
+	err = limiter.Wait(ctx2, "slow.com")
+	elapsed = time.Since(start)
+
+	assert.Error(t, err, "Request should fail due to cancellation")
+	assert.Less(t, elapsed.Milliseconds(), int64(200),
+		"Should fail quickly after cancellation")
+}
+
+// TestUS3_Integration_RealWorldScraperScenario 驗證真實爬蟲場景
+func TestUS3_Integration_RealWorldScraperScenario(t *testing.T) {
+	// Arrange: 模擬真實爬蟲場景
+	// - JAVDB: 1 req/s（嚴格限流）
+	// - AV-WIKI: 2 req/s（較寬鬆）
+	configs := map[string]ratelimit.LimitConfig{
+		"javdb.com":   {RequestsPerSecond: 1.0, BurstCapacity: 1},
+		"av-wiki.net": {RequestsPerSecond: 2.0, BurstCapacity: 1},
+	}
+	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
+	defer limiter.Close()
+
+	// 建立可取消的 context（模擬用戶中斷）
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Act: 並行爬取兩個網站
+	g, gctx := errgroup.WithContext(ctx)
+
+	var javdbSuccess, javdbFailed int64
+	var avwikiSuccess, avwikiFailed int64
+	var mu sync.Mutex
+
+	// 爬取 JAVDB（嘗試 20 個請求）
+	for i := 0; i < 20; i++ {
+		g.Go(func() error {
+			err := limiter.Wait(gctx, "javdb.com")
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				javdbSuccess++
+			} else {
+				javdbFailed++
+			}
+			return nil
+		})
+	}
+
+	// 爬取 AV-WIKI（嘗試 20 個請求）
+	for i := 0; i < 20; i++ {
+		g.Go(func() error {
+			err := limiter.Wait(gctx, "av-wiki.net")
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				avwikiSuccess++
+			} else {
+				avwikiFailed++
+			}
+			return nil
+		})
+	}
+
+	// 等待所有任務完成或超時
+	g.Wait()
+
+	// Assert: 驗證行為
+	mu.Lock()
+	defer mu.Unlock()
+
+	// JAVDB 應該完成約 3-4 個請求（1 req/s * 3s）
+	assert.InDelta(t, 3, javdbSuccess, 2, "JAVDB should complete ~3 requests in 3 seconds")
+	assert.Greater(t, javdbFailed, int64(10), "Most JAVDB requests should be canceled")
+
+	// AV-WIKI 應該完成約 6-8 個請求（2 req/s * 3s）
+	assert.InDelta(t, 6, avwikiSuccess, 3, "AV-WIKI should complete ~6 requests in 3 seconds")
+	assert.Greater(t, avwikiFailed, int64(10), "Some AV-WIKI requests should be canceled")
+
+	// 驗證統計
+	javdbStats, err := limiter.GetStats("javdb.com")
+	require.NoError(t, err)
+	assert.Equal(t, javdbSuccess, javdbStats.TotalRequests, "Stats should match successful requests")
+
+	avwikiStats, err := limiter.GetStats("av-wiki.net")
+	require.NoError(t, err)
+	assert.Equal(t, avwikiSuccess, avwikiStats.TotalRequests, "Stats should match successful requests")
+
+	t.Logf("JAVDB: %d success, %d failed", javdbSuccess, javdbFailed)
+	t.Logf("AV-WIKI: %d success, %d failed", avwikiSuccess, avwikiFailed)
+}

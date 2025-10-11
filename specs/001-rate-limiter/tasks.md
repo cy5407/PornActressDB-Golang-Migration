@@ -512,9 +512,9 @@ go test ./tests/integration -run=TestUS2 -v
 確保 Context 取消信號正確傳播到所有等待中的請求。
 
 **Acceptance Criteria**:
-- [ ] `DomainLimiter.Wait(ctx)` 正確處理 ctx.Done()
-- [ ] `rate.Limiter.Wait(ctx)` 的錯誤正確返回
-- [ ] 單元測試驗證：
+- [X] `DomainLimiter.Wait(ctx)` 正確處理 ctx.Done()
+- [X] `rate.Limiter.Wait(ctx)` 的錯誤正確返回
+- [X] 單元測試驗證：
   - Context 取消時立即返回 context.Canceled
   - Context 超時返回 context.DeadlineExceeded
   - 響應時間 <100ms
@@ -564,11 +564,11 @@ func TestDomainLimiter_ContextCancellation(t *testing.T) {
 實作 RateLimiter.Close() 方法，確保資源正確釋放。
 
 **Acceptance Criteria**:
-- [ ] `internal/ratelimit/limiter.go` 新增：
+- [X] `internal/ratelimit/limiter.go` 新增：
   - `Close()` 方法
   - 內部標記為 closed（使用 atomic bool 或 closed channel）
   - 後續 Wait/Allow 呼叫返回 ErrLimiterClosed
-- [ ] 單元測試驗證：
+- [X] 單元測試驗證：
   - Close 後無法再使用
   - Close 是冪等的（重複呼叫無副作用）
   - 正在等待的請求正確完成或取消
@@ -611,11 +611,11 @@ func TestRateLimiter_CloseIdempotent(t *testing.T) {
 建立整合測試，驗證 US3 的 Acceptance Scenarios。
 
 **Acceptance Criteria**:
-- [ ] `tests/integration/ratelimit_test.go` 新增：
+- [X] `tests/integration/ratelimit_test.go` 新增：
   - Scenario 1: 排隊 50 個請求，中途取消，驗證停止行為
   - Scenario 2: Close 後重新建立限流器，驗證狀態重置
-- [ ] 使用 errgroup + context 模擬真實爬蟲場景
-- [ ] 所有測試通過
+- [X] 使用 errgroup + context 模擬真實爬蟲場景
+- [X] 所有測試通過
 
 **Output Files**:
 - 更新 `tests/integration/ratelimit_test.go`
