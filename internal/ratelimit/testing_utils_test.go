@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"actress-classifier/internal/ratelimit"
+
 	"github.com/stretchr/testify/assert"
 )
 

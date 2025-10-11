@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"actress-classifier/internal/ratelimit"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
 	configs := map[string]ratelimit.LimitConfig{
-		"javdb.com": {RequestsPerSecond: 1.0, BurstCapacity: 1},
+		"javdb.com":   {RequestsPerSecond: 1.0, BurstCapacity: 1},
 		"av-wiki.net": {RequestsPerSecond: 2.0, BurstCapacity: 2},
 	}
 
@@ -64,34 +65,34 @@ func TestRateLimiter_SingleDomain(t *testing.T) {
 	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
 
 	start := time.Now()
-	
+
 	// 第 1 個請求（立即）
 	err := limiter.Wait(context.Background(), "javdb.com")
 	assert.NoError(t, err)
-	
+
 	// 第 2 個請求（延遲 ~1s）
 	err = limiter.Wait(context.Background(), "javdb.com")
 	assert.NoError(t, err)
-	
+
 	// 第 3 個請求（延遲 ~1s）
 	err = limiter.Wait(context.Background(), "javdb.com")
 	assert.NoError(t, err)
 
 	elapsed := time.Since(start)
-	
+
 	// 總時間應該約 2 秒（第1個立即，第2、3個各延遲1秒）
 	assert.InDelta(t, 2000, elapsed.Milliseconds(), 100, "預期總時間約 2 秒")
 }
 
 func TestRateLimiter_MultipleDomains(t *testing.T) {
 	configs := map[string]ratelimit.LimitConfig{
-		"javdb.com": {RequestsPerSecond: 1, BurstCapacity: 1},
+		"javdb.com":   {RequestsPerSecond: 1, BurstCapacity: 1},
 		"av-wiki.net": {RequestsPerSecond: 2, BurstCapacity: 2},
 	}
 	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
 
 	var wg sync.WaitGroup
-	
+
 	// 並行向兩個網域發送請求
 	start := time.Now()
 
@@ -124,16 +125,16 @@ func TestRateLimiter_DefaultConfigFallback(t *testing.T) {
 	limiter := ratelimit.New(map[string]ratelimit.LimitConfig{}, ratelimit.DefaultConfig)
 
 	start := time.Now()
-	
+
 	// 未配置的網域應使用預設配置（1 req/s）
 	err := limiter.Wait(context.Background(), "unknown.com")
 	assert.NoError(t, err)
-	
+
 	err = limiter.Wait(context.Background(), "unknown.com")
 	assert.NoError(t, err)
 
 	elapsed := time.Since(start)
-	
+
 	// 預設 1 req/s，應延遲 ~1s
 	assert.InDelta(t, 1000, elapsed.Milliseconds(), 50)
 }
@@ -165,13 +166,13 @@ func TestRateLimiter_WaitN(t *testing.T) {
 	limiter := ratelimit.New(configs, ratelimit.DefaultConfig)
 
 	start := time.Now()
-	
+
 	// 一次獲取 3 個 token
 	err := limiter.WaitN(context.Background(), "test.com", 3)
 	assert.NoError(t, err)
 
 	elapsed := time.Since(start)
-	
+
 	// Burst 為 5，第一次可以立即獲取 3 個
 	assert.Less(t, elapsed.Milliseconds(), int64(100))
 }
@@ -297,7 +298,7 @@ func TestRateLimiter_ContextCancellation(t *testing.T) {
 
 	// 第二個請求（需要等待 10 秒）
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	done := make(chan error, 1)
 	go func() {
 		done <- limiter.Wait(ctx, "test.com")

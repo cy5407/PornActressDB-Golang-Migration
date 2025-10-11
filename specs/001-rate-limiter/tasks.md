@@ -319,12 +319,12 @@ func TestRateLimiter_SingleDomain(t *testing.T) {
 建立整合測試，驗證 US1 的 Acceptance Scenarios。
 
 **Acceptance Criteria**:
-- [ ] `tests/integration/ratelimit_test.go` 包含：
+- [X] `tests/integration/ratelimit_test.go` 包含：
   - Scenario 1: 1 秒內 3 個請求到 JAVDB，驗證延遲時間
   - Scenario 2: 並行請求到 JAVDB 和 AV-WIKI，驗證獨立限流
-- [ ] 使用真實時間測試（不使用 fake clock）
-- [ ] 容忍 ±50ms 時間誤差
-- [ ] 所有測試通過
+- [X] 使用真實時間測試（不使用 fake clock）
+- [X] 容忍 ±50ms 時間誤差
+- [X] 所有測試通過
 
 **Output Files**:
 - `tests/integration/ratelimit_test.go`

@@ -45,18 +45,18 @@ func (d *DomainLimiter) Wait(ctx context.Context) error {
 	}
 
 	start := time.Now()
-	
+
 	// 先檢查是否需要延遲（不消耗 token）
 	reservation := d.limiter.Reserve()
 	if !reservation.OK() {
 		return fmt.Errorf("無法獲取 token")
 	}
-	
+
 	delay := reservation.Delay()
-	
+
 	// 取消這個預約（我們只是用來檢查延遲時間）
 	reservation.Cancel()
-	
+
 	// 實際等待並消耗 token
 	if err := d.limiter.Wait(ctx); err != nil {
 		return err
@@ -65,7 +65,7 @@ func (d *DomainLimiter) Wait(ctx context.Context) error {
 	// 記錄統計
 	d.stats.IncrementTotal()
 	d.stats.UpdateLastRequestTime(time.Now())
-	
+
 	// 如果有延遲，記錄延遲統計
 	if delay > 0 {
 		actualWait := time.Since(start)
@@ -86,16 +86,16 @@ func (d *DomainLimiter) WaitN(ctx context.Context, n int) error {
 	}
 
 	start := time.Now()
-	
+
 	// 檢查是否需要延遲
 	reservation := d.limiter.ReserveN(time.Now(), n)
 	if !reservation.OK() {
 		return fmt.Errorf("無法獲取 %d 個 token", n)
 	}
-	
+
 	delay := reservation.Delay()
 	reservation.Cancel()
-	
+
 	// 實際等待並消耗 token
 	if err := d.limiter.WaitN(ctx, n); err != nil {
 		return err
@@ -104,7 +104,7 @@ func (d *DomainLimiter) WaitN(ctx context.Context, n int) error {
 	// 記錄統計
 	d.stats.IncrementTotal()
 	d.stats.UpdateLastRequestTime(time.Now())
-	
+
 	// 如果有延遲，記錄實際等待時間
 	if delay > 0 {
 		actualWait := time.Since(start)
@@ -112,7 +112,7 @@ func (d *DomainLimiter) WaitN(ctx context.Context, n int) error {
 	}
 
 	return nil
-}// Allow 非阻塞地檢查是否可以立即發送請求
+} // Allow 非阻塞地檢查是否可以立即發送請求
 func (d *DomainLimiter) Allow() bool {
 	allowed := d.limiter.Allow()
 
