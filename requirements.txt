@@ -1,0 +1,47 @@
+# 女優分類系統相依套件 v2.1
+# 核心 HTTP 和網路相關
+aiohttp>=3.8.0         # 非同步 HTTP 客戶端
+httpx>=0.25.0          # 同步/非同步 HTTP 客戶端
+requests>=2.31.0       # 傳統 HTTP 客戶端
+
+# HTML 解析和編碼處理
+beautifulsoup4>=4.12.0 # HTML 解析器
+lxml>=4.9.0           # XML/HTML 解析器
+chardet>=5.2.0        # 編碼自動檢測
+
+# GUI 相關
+# tkinter  # 內建於 Python，通常不需要安裝
+ttkbootstrap>=1.10.0  # 美化主題 (選用)
+
+# 資料處理和序列化
+# sqlite3  # 內建於 Python
+pickle                # 內建於 Python (物件序列化)
+gzip                  # 內建於 Python (壓縮)
+json                  # 內建於 Python (JSON處理)
+
+# 測試相關
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+
+# 程式碼品質
+black>=23.0.0
+flake8>=6.0.0
+isort>=5.12.0
+
+# 環境設定
+python-dotenv>=1.0.0
+
+# 如果需要資料庫，請取消註解以下套件
+# sqlalchemy>=2.0.0
+# psycopg2-binary>=2.9.0
+# pymongo>=4.4.0
+
+# 如果需要 HTTP 請求，請取消註解以下套件
+# requests>=2.31.0
+# httpx>=0.24.0
+
+# 如果需要資料處理，請取消註解以下套件
+# pandas>=2.0.0
+# numpy>=1.24.0
+# matplotlib>=3.7.0

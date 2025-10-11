@@ -1,0 +1,78 @@
+# Python 相關
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# AI 實驗區 (部分忽略)
+.ai-playground/experiments/
+.ai-playground/validations/
+.ai-playground/prototypes/
+!.ai-playground/archived/
+!.ai-playground/*.txt
+
+# 臨時檔案
+*.temp
+*.tmp
+debug_*
+temp_*
+*_backup_*
+
+# IDE 設定
+.vscode/settings.json.backup_*
+.idea/
+*.swp
+*.swo
+
+# 作業系統檔案
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# 環境設定
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# 建構輸出
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# 日誌檔案
+*.log
+logs/
+log/
+
+# 測試相關
+.coverage
+.pytest_cache/
+.tox/
+htmlcov/
+.cache
+
+# Node.js (如果有前端)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 資料庫
+*.db
+*.sqlite
+*.sqlite3
+
+# 文件建構
+_build/
