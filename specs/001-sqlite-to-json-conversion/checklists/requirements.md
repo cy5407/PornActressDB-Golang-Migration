@@ -32,9 +32,14 @@
 ## Notes
 
 - All checklist items passed ✅
+- **Clarification decision**: User explicitly chose **complete JSON migration** (no SQLite fallback)
+  - User Story 2 updated to reflect JSON-only architecture
+  - FR-002 updated to complete SQLite removal
+  - New FR-009 added for cleanup tools
+  - SC-005 and SC-007 added for post-migration verification
 - Specification is complete and ready for `/speckit.plan` phase
-- No clarifications needed - recommendations made based on project context and industry standards
-- 4 user stories defined with clear priorities (P1, P2, P3)
-- 8 functional requirements specified
-- 6 measurable success criteria established
+- No additional clarifications needed
+- 4 user stories defined with clear priorities (P1, P2, P2, P3)
+- 9 functional requirements specified (updated from 8)
+- 7 measurable success criteria established (updated from 6)
 
