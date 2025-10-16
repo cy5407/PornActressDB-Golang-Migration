@@ -195,17 +195,23 @@ JSONDBManager 框架完成，驗證機制可用。
 
 ---
 
-**T010** - JSONDBManager 基礎 CRUD 方法實作 [Story: US1] [P]
+**T010** - JSONDBManager 基礎 CRUD 方法實作 [Story: US1] [P] ✅
 - **檔案**: `src/models/json_database.py`
 - **操作**:
   1. 實作方法:
-     - `add_or_update_video(video_info)` - 新增或更新影片
-     - `get_video_info(video_id)` - 查詢影片
-     - `get_all_videos(filter_dict=None)` - 取得影片清單
-     - `delete_video(video_id)` - 刪除影片
-  2. 所有方法需支援並行鎖定
-  3. 修改後自動更新 `updated_at` 時間戳
-- **驗證**: CRUD 操作正常，資料持久化
+     - `add_or_update_video(video_info)` - 新增或更新影片 ✅
+     - `get_video_info(video_id)` - 查詢影片 ✅
+     - `get_all_videos(filter_dict=None)` - 取得影片清單 ✅
+     - `delete_video(video_id)` - 刪除影片 ✅
+     - `add_or_update_actress(actress_info)` - 新增/更新女優 ✅
+     - `get_actress_info(actress_id)` - 查詢女優 ✅
+     - `delete_actress(actress_id)` - 刪除女優 ✅
+     - `_apply_video_filters()` - 過濾輔助方法 ✅
+  2. 所有方法支援並行鎖定 ✅
+  3. 修改後自動更新 `updated_at` 時間戳 ✅
+- **驗證**: CRUD 操作正常，資料持久化 ✅
+- **實施日期**: 2025-10-16
+- **提交**: 2d6cacb
 
 ---
 
