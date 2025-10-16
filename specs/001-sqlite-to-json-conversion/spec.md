@@ -23,19 +23,19 @@
 
 ---
 
-### User Story 2 - 資料庫類型靈活切換 (Priority: P2)
+### User Story 2 - 系統完全使用 JSON 資料庫 (Priority: P2)
 
-開發者希望系統能透過設定檔選擇使用 SQLite 或 JSON 資料庫，無需修改程式碼。這讓不同部署環境可選擇最適合的儲存方式。
+系統完全遷移至 JSON 資料庫後，所有組件均應使用新的 JSON 儲存層，無 SQLite 相依性。系統啟動時應直接使用 JSON 資料庫，無需設定選擇。
 
-**Why this priority**: 支援靈活切換對於測試、漸進式遷移和降低風險至關重要。使用設定檔驅動的架構讓操作更安全。
+**Why this priority**: 完全轉換降低系統複雜度，移除雙層架構維護成本，簡化測試和部署流程。
 
-**Independent Test**: 修改設定檔切換資料庫類型後，系統應自動使用新的資料庫後端，功能無異。
+**Independent Test**: 遷移完成後移除 SQLite 相關程式碼，系統正常運作且所有功能可用。
 
 **Acceptance Scenarios**:
 
-1. **Given** 設定檔指定 `database_type = sqlite`，**When** 系統啟動，**Then** 應使用 SQLiteDBManager
-2. **Given** 設定檔指定 `database_type = json`，**When** 系統啟動，**Then** 應使用 JSONDBManager
-3. **Given** 從 SQLite 切換至 JSON，**When** 重啟系統，**Then** 應自動使用 JSON 資料庫無須人工干預
+1. **Given** SQLite 已完全遷移至 JSON，**When** 刪除 SQLiteDBManager 程式碼，**Then** 系統仍能正常啟動和運作
+2. **Given** 系統使用 JSON 資料庫，**When** 執行所有業務功能，**Then** 無任何 SQLite 相依性錯誤
+3. **Given** 舊的 SQLite 檔案仍存在，**When** 系統啟動，**Then** 系統應完全忽略 SQLite 並使用 JSON
 
 ---
 
@@ -82,13 +82,14 @@
 ### Functional Requirements
 
 - **FR-001**: 系統 MUST 提供遷移工具將 SQLite 資料完整轉移至 JSON 格式，包含所有影片、女優、關聯資料
-- **FR-002**: 系統 MUST 支援透過設定檔選擇使用 SQLite 或 JSON 資料庫，無需程式碼修改
-- **FR-003**: JSON 資料庫 MUST 實現所有 SQLiteDBManager 的公開方法，包括 add_or_update_video、get_video_info、get_all_videos
-- **FR-004**: 系統 MUST 支援統計查詢功能（女優統計、片商統計、交叉統計），結果應等同 SQLite
+- **FR-002**: 系統 MUST 完全移除 SQLite 相依性，僅使用 JSON 資料庫進行所有資料操作
+- **FR-003**: JSON 資料庫 MUST 實現所有原有 SQLiteDBManager 的公開方法，包括 add_or_update_video、get_video_info、get_all_videos
+- **FR-004**: 系統 MUST 支援統計查詢功能（女優統計、片商統計、交叉統計），結果應等同原有 SQLite 版本
 - **FR-005**: JSON 資料庫 MUST 使用檔案鎖定機制確保併行寫入的資料一致性
 - **FR-006**: 系統 MUST 提供驗證工具檢查遷移後的資料完整性（記錄計數、資料雜湊檢查）
-- **FR-007**: 系統 MUST 支援從 JSON 資料庫備份建立快照，用於災難恢復
+- **FR-007**: 系統 MUST 支援從 JSON 資料庫建立快照備份，用於災難恢復
 - **FR-008**: 系統 MUST 記錄遷移過程（開始時間、完成時間、處理筆數、任何錯誤）
+- **FR-009**: 系統 MUST 提供移除工具清理舊的 SQLite 資料庫檔案和相關程式碼
 
 ### Key Entities
 
@@ -102,9 +103,16 @@
 ### Measurable Outcomes
 
 - **SC-001**: 遷移工具能在 5 分鐘內完成 500+ 筆記錄的轉移，資料完整性 100% 驗證通過
-- **SC-002**: JSON 資料庫查詢結果與 SQLite 完全相同（統計查詢、資訊查詢、篩選結果）
+- **SC-002**: JSON 資料庫查詢結果與原有 SQLite 完全相同（統計查詢、資訊查詢、篩選結果）
 - **SC-003**: 併行操作測試中，5 個併發進程同時讀寫時無資料損壞或損失
 - **SC-004**: 遷移工具提供詳細日誌，管理員可清楚追蹤遷移進度和任何警告
-- **SC-005**: 系統可透過設定檔在 10 秒內從 SQLite 切換至 JSON 或反向切換
+- **SC-005**: 遷移完成後，系統完全移除 SQLite 相依性且無任何相關錯誤
 - **SC-006**: 備份恢復測試中，從備份還原的資料應 100% 等同備份時的狀態
+- **SC-007**: 移除工具成功清理所有 SQLite 相關檔案和程式碼
+
+## Clarifications
+
+### Session 2025-10-16
+
+- Q: 是否需要支援 SQLite 和 JSON 資料庫之間的靈活切換？ → A: 不需要。系統應完全轉換為 JSON 資料庫，移除所有 SQLite 相依性。
 
