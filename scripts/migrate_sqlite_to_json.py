@@ -42,6 +42,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# 常數定義
+# ============================================================================
+
+JSON_DB_FILENAME = 'data.json'
+
 
 # ============================================================================
 # T009: SQLite 至 JSON 資料轉換邏輯
@@ -318,7 +324,7 @@ def export_sqlite_to_json(
         data_hash = hashlib.sha256(json_str.encode('utf-8')).hexdigest()
         
         # 寫入 JSON 檔案
-        json_file = output_path / 'data.json'
+        json_file = output_path / JSON_DB_FILENAME
         logger.info(f"寫入 JSON 檔案: {json_file}")
         
         with open(json_file, 'w', encoding='utf-8') as f:
@@ -410,6 +416,131 @@ def write_json_database(
         return False, error_msg
 
 
+# ============================================================================
+# T011: 遷移資料寫入與驗證 (完整流程)
+# ============================================================================
+
+def migrate_sqlite_to_json_complete(
+    sqlite_path: str,
+    output_dir: str,
+    validate: bool = True,
+    create_backup: bool = True
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    完整的 SQLite 至 JSON 遷移流程 (T008 + T009 + T011)。
+    
+    此函式組合了遷移工具主函式、資料轉換邏輯和寫入驗證，
+    提供端到端的遷移功能。
+    
+    流程:
+    1. export_sqlite_to_json(): 從 SQLite 匯出資料
+    2. write_json_database(): 寫入至 JSON 資料庫
+    3. validate_migration(): (可選) 驗證遷移結果
+    
+    Args:
+        sqlite_path: SQLite 檔案路徑
+        output_dir: JSON 輸出目錄
+        validate: 是否驗證遷移結果 (預設: True)
+        create_backup: 是否建立備份 (預設: True)
+    
+    Returns:
+        Tuple[成功標記, 結果報告字典]
+        報告包含:
+        - 'success': 遷移是否成功
+        - 'export_report': export_sqlite_to_json() 的報告
+        - 'write_message': write_json_database() 的訊息
+        - 'validation_report': (可選) validate_migration() 的報告
+        - 'total_duration_seconds': 總耗時
+    """
+    start_time = datetime.now()
+    result = {
+        'success': False,
+        'export_report': {},
+        'write_message': '',
+        'validation_report': {},
+        'total_duration_seconds': 0,
+        'steps_completed': [],
+        'errors': [],
+    }
+    
+    try:
+        # 步驟 1: 匯出 SQLite 資料
+        logger.info("=" * 60)
+        logger.info("步驟 1: 匯出 SQLite 資料")
+        logger.info("=" * 60)
+        
+        export_success, export_report = export_sqlite_to_json(sqlite_path, output_dir)
+        result['export_report'] = export_report
+        
+        if not export_success:
+            error_msg = f"匯出失敗: {export_report.get('errors', ['未知錯誤'])}"
+            logger.error(error_msg)
+            result['errors'].append(error_msg)
+            return False, result
+        
+        result['steps_completed'].append('export_sqlite_to_json')
+        logger.info(f"✓ 匯出成功: {export_report['video_count']} 影片, {export_report['actress_count']} 女優")
+        
+        # 步驟 2: 寫入 JSON 資料庫
+        logger.info("=" * 60)
+        logger.info("步驟 2: 寫入 JSON 資料庫")
+        logger.info("=" * 60)
+        
+        json_file = Path(output_dir) / JSON_DB_FILENAME
+        with open(json_file, 'r', encoding='utf-8') as f:
+            json_data = json.load(f)
+        
+        write_success, write_message = write_json_database(json_data, output_dir, create_backup)
+        result['write_message'] = write_message
+        
+        if not write_success:
+            error_msg = f"寫入失敗: {write_message}"
+            logger.error(error_msg)
+            result['errors'].append(error_msg)
+            return False, result
+        
+        result['steps_completed'].append('write_json_database')
+        logger.info(f"✓ 寫入成功: {write_message}")
+        
+        # 步驟 3: (可選) 驗證遷移結果
+        if validate:
+            logger.info("=" * 60)
+            logger.info("步驟 3: 驗證遷移結果")
+            logger.info("=" * 60)
+            
+            validate_success, validation_report = validate_migration(sqlite_path, output_dir)
+            result['validation_report'] = validation_report
+            
+            if not validate_success:
+                warning_msg = f"驗證失敗: {validation_report.get('errors', ['未知錯誤'])}"
+                logger.warning(warning_msg)
+                result['errors'].append(warning_msg)
+                # 驗證失敗不中止流程，但標記為警告
+            else:
+                result['steps_completed'].append('validate_migration')
+                logger.info("✓ 驗證成功")
+        
+        # 最終結果
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        result['success'] = True
+        result['total_duration_seconds'] = duration
+        
+        logger.info("=" * 60)
+        logger.info("遷移完成!")
+        logger.info(f"耗時: {duration:.2f} 秒")
+        logger.info("=" * 60)
+        
+        return True, result
+        
+    except Exception as e:
+        error_msg = f"遷移流程失敗: {e}"
+        logger.error(error_msg, exc_info=True)
+        result['errors'].append(error_msg)
+        return False, result
+
+
 def validate_migration(
     sqlite_path: str,
     json_output_dir: str
@@ -445,7 +576,7 @@ def validate_migration(
         sqlite_conn.row_factory = sqlite3.Row
         sqlite_cursor = sqlite_conn.cursor()
         
-        json_file = Path(json_output_dir) / 'data.json'
+        json_file = Path(json_output_dir) / JSON_DB_FILENAME
         with open(json_file, 'r', encoding='utf-8') as f:
             json_data = json.load(f)
         
