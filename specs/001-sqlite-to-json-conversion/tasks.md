@@ -168,30 +168,34 @@ JSONDBManager 框架完成，驗證機制可用。
 
 ---
 
-**T008** - 遷移工具主函式實作 [Story: US1] [P]
+**T008** - 遷移工具主函式實作 [Story: US1] [P] ✅
 - **檔案**: `scripts/migrate_sqlite_to_json.py` (新檔案)
 - **操作**:
-  1. 建立遷移指令行工具
-  2. 實作 `export_sqlite_to_json()` 函式:
-     - 連接 SQLite 資料庫
-     - 讀取所有 videos, actresses, video_actress_links
-     - 計算資料統計
-  3. 驗證記錄計數和資料型別
-  4. 輸出遷移報告 (記錄數、處理時間等)
-- **驗證**: 工具可執行，生成遷移報告
+  1. 建立遷移指令行工具 ✅
+  2. 實作 `export_sqlite_to_json()` 函式: ✅
+     - 連接 SQLite 資料庫 ✅
+     - 讀取所有 videos, actresses, video_actress_links ✅
+     - 計算資料統計 ✅
+  3. 驗證記錄計數和資料型別 ✅
+  4. 輸出遷移報告 (記錄數、處理時間等) ✅
+- **驗證**: 工具可執行，生成遷移報告 ✅
+- **實施日期**: 2025-10-16
+- **提交**: (待提交)
 
 ---
 
-**T009** - SQLite 至 JSON 資料轉換邏輯 [Story: US1] [P]
+**T009** - SQLite 至 JSON 資料轉換邏輯 [Story: US1] [P] ✅
 - **檔案**: `scripts/migrate_sqlite_to_json.py` (同檔案)
 - **操作**:
-  1. 實作資料轉換函式:
-     - `convert_sqlite_data_to_json()` - 轉換格式
-     - `handle_datetime_conversion()` - TIMESTAMP 轉 ISO 8601
-     - `build_json_structure()` - 建構 JSON 檔案格式
-  2. 處理特殊情況: NULL 值、日期、編碼
-  3. 驗證轉換後的資料完整性
-- **驗證**: 轉換後 JSON 結構正確，資料無遺失
+  1. 實作資料轉換函式: ✅
+     - `convert_sqlite_data_to_json()` - 轉換格式 ✅
+     - `handle_datetime_conversion()` - TIMESTAMP 轉 ISO 8601 ✅
+     - `build_json_structure()` - 建構 JSON 檔案格式 ✅
+  2. 處理特殊情況: NULL 值、日期、編碼 ✅
+  3. 驗證轉換後的資料完整性 ✅
+- **驗證**: 轉換後 JSON 結構正確，資料無遺失 ✅
+- **實施日期**: 2025-10-16
+- **提交**: (待提交)
 
 ---
 
