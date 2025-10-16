@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+
+	"go.uber.org/zap"
 )
 
 // RateLimiter 速率限制器介面
@@ -24,6 +26,7 @@ type rateLimiter struct {
 	defaultConfig LimitConfig
 	mu            sync.RWMutex
 	closed        atomic.Bool
+	logger        *zap.Logger
 }
 
 // New 建立新的限流器
@@ -38,15 +41,39 @@ func New(configs map[string]LimitConfig, defaultConfig LimitConfig) RateLimiter 
 		defaultConfig = DefaultConfig
 	}
 
+	// 初始化 zap logger
+	logger, err := zap.NewProduction()
+	if err != nil {
+		// 如果初始化失敗，使用無操作 logger
+		logger = zap.NewNop()
+	}
+
 	rl := &rateLimiter{
 		limiters:      make(map[string]*DomainLimiter),
 		defaultConfig: defaultConfig,
+		logger:        logger,
 	}
+
+	logger.Info("初始化速率限制器",
+		zap.Int("已配置網域數", len(configs)),
+		zap.Float64("預設速率", defaultConfig.RequestsPerSecond),
+		zap.Int("預設爆發容量", defaultConfig.BurstCapacity),
+	)
 
 	// 預先建立已配置的網域限流器
 	for domain, config := range configs {
 		if limiter, err := newDomainLimiter(domain, config); err == nil {
 			rl.limiters[domain] = limiter
+			logger.Debug("預先建立網域限流器",
+				zap.String("domain", domain),
+				zap.Float64("speed_per_second", config.RequestsPerSecond),
+				zap.Int("burst_capacity", config.BurstCapacity),
+			)
+		} else {
+			logger.Error("建立網域限流器失敗",
+				zap.String("domain", domain),
+				zap.Error(err),
+			)
 		}
 	}
 
@@ -66,10 +93,16 @@ func NewFromConfig(configPath string) (RateLimiter, error) {
 // getOrCreateLimiter 取得或建立網域限流器（double-check locking）
 func (r *rateLimiter) getOrCreateLimiter(domain string) (*DomainLimiter, error) {
 	if r.closed.Load() {
+		r.logger.Error("嘗試存取已關閉的限流器",
+			zap.String("domain", domain),
+		)
 		return nil, ErrLimiterClosed
 	}
 
 	if domain == "" {
+		r.logger.Warn("網域名稱為空",
+			zap.Error(ErrInvalidDomain),
+		)
 		return nil, fmt.Errorf("%w: 網域名稱不能為空", ErrInvalidDomain)
 	}
 
@@ -94,10 +127,20 @@ func (r *rateLimiter) getOrCreateLimiter(domain string) (*DomainLimiter, error) 
 	// 建立新的限流器（使用預設配置）
 	limiter, err := newDomainLimiter(domain, r.defaultConfig)
 	if err != nil {
+		r.logger.Error("建立網域限流器失敗",
+			zap.String("domain", domain),
+			zap.Error(err),
+		)
 		return nil, err
 	}
 
 	r.limiters[domain] = limiter
+	r.logger.Info("建立新網域限流器",
+		zap.String("domain", domain),
+		zap.Float64("speed_per_second", r.defaultConfig.RequestsPerSecond),
+		zap.Int("burst_capacity", r.defaultConfig.BurstCapacity),
+	)
+
 	return limiter, nil
 }
 
@@ -168,10 +211,17 @@ func (r *rateLimiter) GetAllStats() map[string]*StatsSnapshot {
 // UpdateConfig 動態更新指定網域的限流配置
 func (r *rateLimiter) UpdateConfig(domain string, config LimitConfig) error {
 	if r.closed.Load() {
+		r.logger.Warn("嘗試更新已關閉限流器的配置",
+			zap.String("domain", domain),
+		)
 		return ErrLimiterClosed
 	}
 
 	if err := config.Validate(); err != nil {
+		r.logger.Error("配置驗證失敗",
+			zap.String("domain", domain),
+			zap.Error(err),
+		)
 		return err
 	}
 
@@ -181,10 +231,20 @@ func (r *rateLimiter) UpdateConfig(domain string, config LimitConfig) error {
 	// 建立新的限流器替換舊的
 	limiter, err := newDomainLimiter(domain, config)
 	if err != nil {
+		r.logger.Error("建立新網域限流器失敗",
+			zap.String("domain", domain),
+			zap.Error(err),
+		)
 		return err
 	}
 
 	r.limiters[domain] = limiter
+	r.logger.Info("更新網域限流配置",
+		zap.String("domain", domain),
+		zap.Float64("new_speed_per_second", config.RequestsPerSecond),
+		zap.Int("new_burst_capacity", config.BurstCapacity),
+	)
+
 	return nil
 }
 
@@ -192,6 +252,7 @@ func (r *rateLimiter) UpdateConfig(domain string, config LimitConfig) error {
 func (r *rateLimiter) Close() error {
 	// 冪等關閉
 	if r.closed.Swap(true) {
+		r.logger.Debug("限流器已經關閉")
 		return nil // 已經關閉
 	}
 
@@ -200,6 +261,11 @@ func (r *rateLimiter) Close() error {
 
 	// 清空限流器
 	r.limiters = make(map[string]*DomainLimiter)
+
+	r.logger.Info("關閉限流器", zap.Int("釋放網域數", 0))
+
+	// 同步 logger
+	_ = r.logger.Sync()
 
 	return nil
 }
