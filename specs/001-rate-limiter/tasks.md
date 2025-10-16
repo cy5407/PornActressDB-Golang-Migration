@@ -746,13 +746,13 @@ go test ./tests/integration -run=TestUS4 -v
 定義專案的錯誤類型常數，提供清晰的錯誤語義。
 
 **Acceptance Criteria**:
-- [ ] `internal/ratelimit/errors.go` 包含：
+- [X] `internal/ratelimit/errors.go` 包含：
   - `ErrInvalidConfig` - 配置無效
   - `ErrInvalidDomain` - 網域名稱無效
   - `ErrLimiterClosed` - 限流器已關閉
   - `ErrDomainNotFound` - 網域不存在
-- [ ] 所有錯誤使用繁體中文訊息
-- [ ] 使用 `errors.New()` 定義錯誤常數
+- [X] 所有錯誤使用繁體中文訊息
+- [X] 使用 `errors.New()` 定義錯誤常數
 
 **Output Files**:
 - `internal/ratelimit/errors.go`

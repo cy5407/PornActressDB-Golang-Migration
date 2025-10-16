@@ -83,7 +83,7 @@ func TestLimitStats_EdgeCases(t *testing.T) {
 	// 但這種情況在實際使用中不應該出現
 }
 
-func TestLimitStats_Concurrency(t *testing.T) {
+func TestLimitStats_Concurrency(t *testing.T) { //nolint:gocognit
 	stats := ratelimit.NewLimitStats()
 	const goroutines = 100
 	const iterations = 100

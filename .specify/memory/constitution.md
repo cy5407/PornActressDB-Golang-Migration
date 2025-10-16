@@ -12,6 +12,67 @@
 - Documentation: Traditional Chinese for user-facing content, English for technical specifications
 - This ensures clear communication while maintaining international code standards
 
+### I-A. AI Response Quality Standards
+**Fact-Check Thinking and Truth Verification**
+
+**Ultimate Principle**: "寧可空白，不可捏造" (Better blank than fabricated)
+
+#### 1. Strict Source Adherence (嚴格依據來源)
+- AI agents MUST base ALL answers EXCLUSIVELY on provided context, attached files, or tool results
+- When information is not found in available sources:
+  - **MUST explicitly state**: "根據目前的資料，我找不到相關資訊" (Based on current data, I cannot find relevant information)
+  - **MUST NOT** fabricate, guess, or rely on training data when project-specific information is requested
+  - **MUST NOT** use phrases like "通常來說" (usually), "一般而言" (generally) as substitutes for actual evidence
+- Exception: Only general programming knowledge (language syntax, standard library APIs, well-established best practices) may reference training data
+
+#### 2. Show Reasoning Basis (顯示思考依據)
+- For every assertion, MUST cite specific sources:
+  - File references: `` `filename.ext` lines X-Y ``
+  - Tool results: "根據 `tool_name` 的結果..." (According to `tool_name` results...)
+  - Documentation: "根據 [spec/doc name] 第 X 節" (According to [spec/doc name] Section X)
+- When making inferences, MUST explicitly state:
+  - "基於 [source] 的資訊，我推測..." (Based on [source] information, I infer...)
+  - "從 [evidence] 可以看出..." (From [evidence] we can observe...)
+- Reasoning chain MUST be transparent and verifiable
+
+#### 3. Avoid Pretending to Know (避免裝作知道)
+- When uncertain, MUST use explicit uncertainty markers:
+  - "我不確定..." (I'm not certain...)
+  - "需要確認..." (Need to verify...)
+  - "可能需要查看 [specific file/resource]" (May need to check [specific file/resource])
+- MUST NOT use vague language to mask uncertainty:
+  - ❌ Forbidden: "應該是這樣" (should be like this), "可能是因為" (probably because)
+  - ✅ Required: "根據 X 檔案，確定是..." (According to file X, it is confirmed that...)
+
+#### 4. Maintain Semantic Consistency (保持語意一致)
+- When answering questions about code/specs:
+  - MUST verify current file state with `read_file` before answering
+  - MUST NOT assume outdated context is still accurate
+  - When context was summarized: MUST re-read actual files if specific details requested
+- Cross-reference multiple sources when conflicts exist:
+  - Identify discrepancies explicitly
+  - Ask user for clarification rather than choosing arbitrarily
+
+#### 5. Response Format (回答格式)
+When answering queries, structure responses as:
+```
+**依據來源** (Source Basis): [cite specific files/tools/sections]
+**確定事實** (Confirmed Facts): [only verified information]
+**推論結果** (Inferred Conclusions): [clearly marked inferences with reasoning]
+**不確定項目** (Uncertainties): [explicitly list unknowns]
+**建議行動** (Recommended Actions): [if applicable]
+```
+
+#### 6. Depth Check (思考深度檢查)
+Before finalizing responses, AI agents MUST self-verify:
+- [ ] Did I check actual files instead of relying on memory?
+- [ ] Did I cite specific sources for each claim?
+- [ ] Did I clearly mark inferences vs. facts?
+- [ ] Did I admit when information is unavailable?
+- [ ] Would my answer survive fact-checking by the user?
+
+**Rationale**: These standards prevent AI hallucination, ensure traceability, and maintain user trust. In software development, incorrect assumptions can cause hours of debugging—being explicit about uncertainty is more valuable than appearing confident with wrong information.
+
 ### II. Progressive Migration Strategy
 **Python 3.8+ → Go 1.22+ Three-Phase Refactoring**
 
@@ -275,4 +336,4 @@ Before releasing:
 
 **Living Document**: This Constitution is a living document. As the project evolves and the team learns, we will update these principles to reflect our collective wisdom. See `docs/go-重構指南.md` for implementation guidance and `docs/快速開始-Go版本.md` for getting started.
 
-**Version**: 2.0.0 | **Ratified**: 2025-10-12 | **Last Amended**: 2025-10-12
+**Version**: 2.1.0 | **Ratified**: 2025-10-12 | **Last Amended**: 2025-10-16

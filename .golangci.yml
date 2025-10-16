@@ -1,0 +1,67 @@
+---
+# Actress Classifier Rate Limiter - Go Linter Configuration
+# Constitution: Section III - Code Quality Standards (NON-NEGOTIABLE)
+
+run:
+  timeout: 5m
+  tests: true
+  allow-parallel-runners: true
+
+linters:
+  disable-all: true
+  enable:
+    # Core linters (non-negotiable)
+    - gofmt          # Go formatting (Effective Go compliance)
+    - goimports      # Import organization
+    - govet          # Go vet - built-in analysis
+    - errcheck       # Unhandled errors
+    - staticcheck    # Static analysis (high quality)
+    
+    # Complexity & maintainability
+    - gocognit       # Cognitive complexity (Constitution III requirement)
+    - ineffassign    # Ineffective assignments
+    - unused         # Unused variables/functions
+    
+    # Go best practices
+    - gosimple       # Simplify code
+    - misspell       # Spelling mistakes
+    - prealloc       # Pre-allocate slices
+    - unconvert      # Unnecessary type conversions
+
+linters-settings:
+  # Cognitive complexity - Constitution III: "Function cognitive complexity MUST NOT exceed 15"
+  gocognit:
+    min-complexity: 15
+
+  # Format settings - Effective Go compliance
+  gofmt:
+    rewrite-rules:
+      - pattern: 'interface{}'
+        replacement: 'any'
+
+  # Error checking - Constitution III: "Error handling: MUST NOT use panic() except unrecoverable"
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    disable-default-exclusions: false
+
+  # Import checking
+  goimports:
+    local-prefixes: actress-classifier
+
+issues:
+  # Exclude test files from certain checks
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - ineffassign
+
+  # Maximum issues to report
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
