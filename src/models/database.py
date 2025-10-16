@@ -69,10 +69,20 @@ class SQLiteDBManager:
                 cursor.execute('ALTER TABLE videos ADD COLUMN release_date TEXT')
                 logger.info("已新增 release_date 欄位至資料庫")
             
+            if 'search_status' not in columns:
+                cursor.execute('ALTER TABLE videos ADD COLUMN search_status TEXT DEFAULT "not_searched"')
+                logger.info("已新增 search_status 欄位至資料庫 (値: not_searched, searched_found, searched_not_found, failed)")
+            
+            if 'last_search_date' not in columns:
+                cursor.execute('ALTER TABLE videos ADD COLUMN last_search_date TIMESTAMP')
+                logger.info("已新增 last_search_date 欄位至資料庫")
+            
             # 建立索引以提升查詢效能（在欄位確保存在之後）
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_video_code ON videos(code)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_video_studio ON videos(studio)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_actress_name ON actresses(name)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_search_status ON videos(search_status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_last_search_date ON videos(last_search_date)')
             
             # 檢查新欄位索引（只有在欄位存在時才建立）
             cursor.execute("PRAGMA table_info(videos)")
@@ -113,24 +123,27 @@ class SQLiteDBManager:
             studio = info.get('studio')
             studio_code = info.get('studio_code')
             release_date = info.get('release_date')
+            search_status = info.get('search_status', 'not_searched')
+            last_search_date = info.get('last_search_date')
             
             if video_row:
                 video_id = video_row[0]
                 cursor.execute("""UPDATE videos SET 
                     original_filename=?, file_path=?, studio=?, studio_code=?, 
-                    release_date=?, search_method=?, last_updated=? 
+                    release_date=?, search_method=?, last_updated=?, 
+                    search_status=?, last_search_date=? 
                     WHERE id=?""", 
                     (info.get('original_filename'), str(info.get('file_path')), 
                      studio, studio_code, release_date, info.get('search_method'), 
-                     datetime.now(), video_id))
+                     datetime.now(), search_status, last_search_date, video_id))
             else:
                 cursor.execute("""INSERT INTO videos 
                     (code, original_filename, file_path, studio, studio_code, 
-                     release_date, search_method, last_updated) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", 
+                     release_date, search_method, last_updated, search_status, last_search_date) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", 
                     (code, info.get('original_filename'), str(info.get('file_path')), 
                      studio, studio_code, release_date, info.get('search_method'), 
-                     datetime.now()))
+                     datetime.now(), search_status, last_search_date))
                 video_id = cursor.lastrowid
                 
             actress_names = info.get('actresses', [])

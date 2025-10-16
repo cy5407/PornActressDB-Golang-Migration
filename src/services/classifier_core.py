@@ -258,35 +258,83 @@ class UnifiedClassifierCore:
             if progress_callback: 
                 progress_callback(f"📁 發現 {len(video_files)} 個影片檔案。\n")
             
-            codes_in_db = {v['code'] for v in self.db_manager.get_all_videos()}
+            # 改進：獲取所有影片並檢查搜尋狀態
+            from datetime import datetime, timedelta
+            all_videos = self.db_manager.get_all_videos()
+            codes_in_db = {v['code']: v for v in all_videos}
+            
             new_code_file_map = {}
+            research_code_file_map = {}
+            
             for file_path in video_files:
                 code = self.code_extractor.extract_code(file_path.name)
-                if code and code not in codes_in_db:
-                    if code not in new_code_file_map: 
+                if not code:
+                    continue
+                
+                if code not in codes_in_db:
+                    # 全新番號，需要搜尋
+                    if code not in new_code_file_map:
                         new_code_file_map[code] = []
                     new_code_file_map[code].append(file_path)
+                else:
+                    # 番號已在資料庫中，檢查是否需要重新搜尋
+                    video_record = codes_in_db[code]
+                    search_status = video_record.get('search_status', 'not_searched')
+                    last_search_date = video_record.get('last_search_date')
+                    
+                    # 重新搜尋條件：
+                    # 1. 搜尋過但無結果 (searched_not_found)
+                    # 2. 搜尋失敗 (failed)
+                    # 3. 超過 7 天未搜尋
+                    should_research = False
+                    
+                    if search_status in ['searched_not_found', 'failed']:
+                        should_research = True
+                    elif last_search_date:
+                        try:
+                            last_search = datetime.fromisoformat(last_search_date.replace('Z', '+00:00'))
+                            if datetime.now(last_search.tzinfo) - last_search > timedelta(days=7):
+                                should_research = True
+                        except:
+                            pass
+                    
+                    if should_research:
+                        if code not in research_code_file_map:
+                            research_code_file_map[code] = []
+                        research_code_file_map[code].append(file_path)
+            
             if progress_callback:
                 progress_callback(f"✅ 資料庫中已存在 {len(codes_in_db)} 個影片的番號記錄。\n")
-                progress_callback(f"🎯 需要透過 JAVDB 搜尋 {len(new_code_file_map)} 個新番號。\n\n")
-            if not new_code_file_map:
+                progress_callback(f"🎯 需要搜尋 {len(new_code_file_map)} 個新番號。\n")
+                if research_code_file_map:
+                    progress_callback(f"🔄 需要重新搜尋 {len(research_code_file_map)} 個之前無結果的番號。\n\n")
+            
+            # 合併新搜尋和重新搜尋的番號
+            all_codes_to_search = dict(new_code_file_map)
+            all_codes_to_search.update(research_code_file_map)
+            
+            if not all_codes_to_search:
                 if progress_callback: 
-                    progress_callback("🎉 所有影片都已在資料庫中！\n")
+                    progress_callback("🎉 所有影片都已有最新搜尋結果！\n")
                 return {'status': 'success', 'message': '所有番號都已存在於資料庫中'}
             
             # 使用 JAVDB 專用搜尋方法
             search_results = self.web_searcher.batch_search(
-                list(new_code_file_map.keys()), 
+                list(all_codes_to_search.keys()), 
                 self.web_searcher.search_javdb_only, 
                 stop_event, 
                 progress_callback
             )
             success_count = 0
+            failed_count = 0
+            from datetime import datetime
+            current_time = datetime.now().isoformat()
+            
             for code, result in search_results.items():
                 if result and result.get('actresses'):
                     success_count += 1
-                    for file_path in new_code_file_map[code]:
-                        # 優先使用搜尋結果中的片商資訊，只有當搜尋結果沒有片商資訊時才使用本地識別
+                    # 搜尋成功的處理
+                    for file_path in all_codes_to_search.get(code, []):
                         studio = result.get('studio')
                         if not studio or studio == 'UNKNOWN':
                             studio = self.studio_identifier.identify_studio(code)
@@ -296,14 +344,35 @@ class UnifiedClassifierCore:
                             'original_filename': file_path.name, 
                             'file_path': str(file_path), 
                             'studio': studio, 
-                            'search_method': result.get('source', 'JAVDB')
+                            'search_method': result.get('source', 'JAVDB'),
+                            'search_status': 'searched_found',
+                            'last_search_date': current_time
                         }
                         self.db_manager.add_or_update_video(code, info)
+                else:
+                    # 搜尋無結果的處理
+                    failed_count += 1
+                    for file_path in all_codes_to_search.get(code, []):
+                        studio = self.studio_identifier.identify_studio(code)
+                        
+                        info = {
+                            'actresses': [], 
+                            'original_filename': file_path.name, 
+                            'file_path': str(file_path), 
+                            'studio': studio, 
+                            'search_method': 'JAVDB',
+                            'search_status': 'searched_not_found',
+                            'last_search_date': current_time
+                        }
+                        self.db_manager.add_or_update_video(code, info)
+            
             return {
                 'status': 'success', 
                 'total_files': len(video_files), 
-                'new_codes': len(new_code_file_map), 
-                'success': success_count
+                'new_codes': len(new_code_file_map),
+                'research_codes': len(research_code_file_map),
+                'success': success_count,
+                'failed': failed_count
             }
         except Exception as e:
             self.logger.error(f"JAVDB 搜尋過程中發生錯誤: {e}", exc_info=True)
