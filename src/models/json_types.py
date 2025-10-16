@@ -124,8 +124,8 @@ BACKUP_DIR = "data/json_db/backup"
 BACKUP_MANIFEST_FILE = "data/json_db/backup/BACKUP_MANIFEST.json"
 
 # 檔案鎖定
-READ_LOCK_TIMEOUT = 5        # 秒
-WRITE_LOCK_TIMEOUT = 10      # 秒
+READ_LOCK_TIMEOUT = 30       # 秒
+WRITE_LOCK_TIMEOUT = 60      # 秒
 
 # 備份設定
 MAX_BACKUP_AGE_DAYS = 30     # 天

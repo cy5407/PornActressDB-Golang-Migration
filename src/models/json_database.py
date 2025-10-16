@@ -647,3 +647,395 @@ class JSONDBManager:
         """上下文管理器退出"""
         self._release_locks()
         return False
+    
+    # ========================================================================
+    # CRUD 操作 (T010 實現)
+    # ========================================================================
+    
+    def add_or_update_video(self, video_info: VideoDict) -> str:
+        """
+        新增或更新影片
+        
+        若影片 ID 已存在則更新，否則建立新記錄。
+        
+        Args:
+            video_info: 影片資訊 (VideoDict)
+            
+        Returns:
+            影片 ID (新建或已更新)
+            
+        Raises:
+            ValidationError: 若影片資訊無效
+            LockError: 若無法獲得寫鎖定
+            CorruptedDataError: 若寫入失敗
+        """
+        try:
+            # 驗證輸入
+            if not isinstance(video_info, dict):
+                raise ValidationError("影片資訊必須是字典")
+            
+            if 'id' not in video_info:
+                raise ValidationError("影片 ID 必須存在")
+            
+            video_id = video_info.get('id')
+            
+            # 獲取寫鎖定
+            self._acquire_write_lock()
+            
+            try:
+                # 重新載入最新資料
+                self._load_all_data()
+                
+                # 準備影片資料
+                video_dict = get_empty_video()
+                video_dict.update(video_info)
+                video_dict['updated_at'] = datetime.now(timezone.utc).strftime(ISO_DATETIME_FORMAT)
+                
+                # 新增或更新
+                self.data['videos'][video_id] = video_dict
+                
+                # 驗證完整性
+                self._validate_referential_integrity(self.data)
+                
+                # 保存
+                self._save_all_data(self.data)
+                
+                logger.info(f"✅ 影片已新增/更新: {video_id}")
+                return video_id
+                
+            finally:
+                self._release_locks()
+                
+        except (ValidationError, DataIntegrityError, LockError) as e:
+            logger.error(f"❌ 新增/更新影片失敗: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ 未預期的錯誤: {e}")
+            raise CorruptedDataError(f"新增/更新影片失敗: {e}")
+    
+    def get_video_info(self, video_id: str) -> Optional[VideoDict]:
+        """
+        查詢影片資訊
+        
+        Args:
+            video_id: 影片 ID
+            
+        Returns:
+            影片資訊，若不存在則返回 None
+            
+        Raises:
+            LockError: 若無法獲得讀鎖定
+        """
+        try:
+            # 獲取讀鎖定
+            self._acquire_read_lock()
+            
+            try:
+                videos = self.data.get('videos', {})
+                video = videos.get(video_id)
+                
+                if video:
+                    logger.debug(f"✅ 查詢影片成功: {video_id}")
+                    return video
+                else:
+                    logger.debug(f"⚠️ 影片不存在: {video_id}")
+                    return None
+                    
+            finally:
+                self._release_locks()
+                
+        except LockError as e:
+            logger.error(f"❌ 無法獲取讀鎖定: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ 查詢影片失敗: {e}")
+            raise
+    
+    def get_all_videos(self, filter_dict: Optional[Dict[str, Any]] = None) -> List[VideoDict]:
+        """
+        取得所有影片清單（支援過濾）
+        
+        Args:
+            filter_dict: 過濾條件 (例如: {'studio': 'ABC'})
+                        支援的鍵: 'studio', 'release_date_after', 'release_date_before'
+            
+        Returns:
+            影片清單
+            
+        Raises:
+            LockError: 若無法獲得讀鎖定
+        """
+        try:
+            # 獲取讀鎖定
+            self._acquire_read_lock()
+            
+            try:
+                videos = self.data.get('videos', {})
+                video_list = list(videos.values())
+                
+                # 應用過濾
+                if filter_dict:
+                    video_list = self._apply_video_filters(video_list, filter_dict)
+                
+                logger.debug(f"✅ 取得 {len(video_list)} 個影片")
+                return video_list
+                
+            finally:
+                self._release_locks()
+                
+        except LockError as e:
+            logger.error(f"❌ 無法獲取讀鎖定: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ 取得影片清單失敗: {e}")
+            raise
+    
+    def delete_video(self, video_id: str) -> bool:
+        """
+        刪除影片
+        
+        同時刪除相關的影片-女優關聯記錄。
+        
+        Args:
+            video_id: 影片 ID
+            
+        Returns:
+            成功則返回 True，若影片不存在則返回 False
+            
+        Raises:
+            LockError: 若無法獲得寫鎖定
+            CorruptedDataError: 若刪除失敗
+        """
+        try:
+            # 獲取寫鎖定
+            self._acquire_write_lock()
+            
+            try:
+                # 重新載入最新資料
+                self._load_all_data()
+                
+                videos = self.data.get('videos', {})
+                
+                # 檢查影片是否存在
+                if video_id not in videos:
+                    logger.warning(f"⚠️ 影片不存在: {video_id}")
+                    return False
+                
+                # 刪除影片
+                del videos[video_id]
+                
+                # 刪除相關的影片-女優關聯
+                links = self.data.get('links', [])
+                self.data['links'] = [link for link in links if link.get('video_id') != video_id]
+                
+                # 驗證完整性
+                self._validate_referential_integrity(self.data)
+                
+                # 保存
+                self._save_all_data(self.data)
+                
+                logger.info(f"✅ 影片已刪除: {video_id}")
+                return True
+                
+            finally:
+                self._release_locks()
+                
+        except (DataIntegrityError, LockError) as e:
+            logger.error(f"❌ 刪除影片失敗: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ 未預期的錯誤: {e}")
+            raise CorruptedDataError(f"刪除影片失敗: {e}")
+    
+    def add_or_update_actress(self, actress_info: ActressDict) -> str:
+        """
+        新增或更新女優
+        
+        若女優 ID 已存在則更新，否則建立新記錄。
+        
+        Args:
+            actress_info: 女優資訊 (ActressDict)
+            
+        Returns:
+            女優 ID (新建或已更新)
+            
+        Raises:
+            ValidationError: 若女優資訊無效
+            LockError: 若無法獲得寫鎖定
+            CorruptedDataError: 若寫入失敗
+        """
+        try:
+            # 驗證輸入
+            if not isinstance(actress_info, dict):
+                raise ValidationError("女優資訊必須是字典")
+            
+            if 'id' not in actress_info:
+                raise ValidationError("女優 ID 必須存在")
+            
+            actress_id = actress_info.get('id')
+            
+            # 獲取寫鎖定
+            self._acquire_write_lock()
+            
+            try:
+                # 重新載入最新資料
+                self._load_all_data()
+                
+                # 準備女優資料
+                actress_dict = get_empty_actress()
+                actress_dict.update(actress_info)
+                actress_dict['updated_at'] = datetime.now(timezone.utc).strftime(ISO_DATETIME_FORMAT)
+                
+                # 新增或更新
+                self.data['actresses'][actress_id] = actress_dict
+                
+                # 驗證完整性
+                self._validate_referential_integrity(self.data)
+                
+                # 保存
+                self._save_all_data(self.data)
+                
+                logger.info(f"✅ 女優已新增/更新: {actress_id}")
+                return actress_id
+                
+            finally:
+                self._release_locks()
+                
+        except (ValidationError, DataIntegrityError, LockError) as e:
+            logger.error(f"❌ 新增/更新女優失敗: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ 未預期的錯誤: {e}")
+            raise CorruptedDataError(f"新增/更新女優失敗: {e}")
+    
+    def get_actress_info(self, actress_id: str) -> Optional[ActressDict]:
+        """
+        查詢女優資訊
+        
+        Args:
+            actress_id: 女優 ID
+            
+        Returns:
+            女優資訊，若不存在則返回 None
+            
+        Raises:
+            LockError: 若無法獲得讀鎖定
+        """
+        try:
+            # 獲取讀鎖定
+            self._acquire_read_lock()
+            
+            try:
+                actresses = self.data.get('actresses', {})
+                actress = actresses.get(actress_id)
+                
+                if actress:
+                    logger.debug(f"✅ 查詢女優成功: {actress_id}")
+                    return actress
+                else:
+                    logger.debug(f"⚠️ 女優不存在: {actress_id}")
+                    return None
+                    
+            finally:
+                self._release_locks()
+                
+        except LockError as e:
+            logger.error(f"❌ 無法獲取讀鎖定: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ 查詢女優失敗: {e}")
+            raise
+    
+    def delete_actress(self, actress_id: str) -> bool:
+        """
+        刪除女優
+        
+        同時刪除相關的影片-女優關聯記錄。
+        
+        Args:
+            actress_id: 女優 ID
+            
+        Returns:
+            成功則返回 True，若女優不存在則返回 False
+            
+        Raises:
+            LockError: 若無法獲得寫鎖定
+            CorruptedDataError: 若刪除失敗
+        """
+        try:
+            # 獲取寫鎖定
+            self._acquire_write_lock()
+            
+            try:
+                # 重新載入最新資料
+                self._load_all_data()
+                
+                actresses = self.data.get('actresses', {})
+                
+                # 檢查女優是否存在
+                if actress_id not in actresses:
+                    logger.warning(f"⚠️ 女優不存在: {actress_id}")
+                    return False
+                
+                # 刪除女優
+                del actresses[actress_id]
+                
+                # 刪除相關的影片-女優關聯
+                links = self.data.get('links', [])
+                self.data['links'] = [link for link in links if link.get('actress_id') != actress_id]
+                
+                # 驗證完整性
+                self._validate_referential_integrity(self.data)
+                
+                # 保存
+                self._save_all_data(self.data)
+                
+                logger.info(f"✅ 女優已刪除: {actress_id}")
+                return True
+                
+            finally:
+                self._release_locks()
+                
+        except (DataIntegrityError, LockError) as e:
+            logger.error(f"❌ 刪除女優失敗: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ 未預期的錯誤: {e}")
+            raise CorruptedDataError(f"刪除女優失敗: {e}")
+    
+    # ========================================================================
+    # 輔助方法
+    # ========================================================================
+    
+    @staticmethod
+    def _apply_video_filters(videos: List[VideoDict], filter_dict: Dict[str, Any]) -> List[VideoDict]:
+        """
+        應用過濾條件到影片清單
+        
+        支援的過濾鍵:
+        - studio: 片商名稱 (精確匹配)
+        - release_date_after: 發行日期下限 (ISO 8601)
+        - release_date_before: 發行日期上限 (ISO 8601)
+        
+        Args:
+            videos: 影片清單
+            filter_dict: 過濾條件
+            
+        Returns:
+            過濾後的影片清單
+        """
+        filtered = videos
+        
+        if 'studio' in filter_dict:
+            studio = filter_dict['studio']
+            filtered = [v for v in filtered if v.get('studio') == studio]
+        
+        if 'release_date_after' in filter_dict:
+            date_after = filter_dict['release_date_after']
+            filtered = [v for v in filtered if v.get('release_date', '') >= date_after]
+        
+        if 'release_date_before' in filter_dict:
+            date_before = filter_dict['release_date_before']
+            filtered = [v for v in filtered if v.get('release_date', '') <= date_before]
+        
+        return filtered
