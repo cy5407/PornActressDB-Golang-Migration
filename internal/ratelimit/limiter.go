@@ -265,6 +265,7 @@ func (r *rateLimiter) Close() error {
 	r.logger.Info("關閉限流器", zap.Int("釋放網域數", 0))
 
 	// 同步 logger
+	//nolint:errcheck
 	_ = r.logger.Sync()
 
 	return nil

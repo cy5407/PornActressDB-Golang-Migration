@@ -66,8 +66,6 @@ function Invoke-TestCover {
         exit 1
     }
     
-    Write-Host "`n📈 Coverage Report:" -ForegroundColor Green
-    & go tool cover -func=coverage.out | Select-Object -Last 1
     Write-Host "✅ Coverage report generated (coverage.out)" -ForegroundColor Green
 }
 
