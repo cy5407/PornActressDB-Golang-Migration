@@ -113,43 +113,49 @@ JSONDBManager 框架完成，驗證機制可用。
 
 ---
 
-**T005** - 多層資料驗證層實作 [Story: Foundational]
-- **檔案**: `src/models/json_database.py` (同檔案, 新增方法)
+**T005** - 多層資料驗證層實作 [Story: Foundational] ✅
+- **檔案**: `src/models/json_database.py` (同檔案, 新增方法) ✅
 - **操作**:
-  1. 實作驗證方法:
-     - `_validate_json_format()` - JSON 語法檢查
-     - `_validate_structure()` - 必需鍵檢查
-     - `_validate_referential_integrity()` - 外鍵約束
-     - `_validate_consistency()` - 統計快取一致性
-     - `validate_data()` - 全面驗證，傳回結果
-  2. 驗證失敗時記錄詳細錯誤
-- **驗證**: 驗證方法能正確偵測和報告問題
+  1. 實作驗證方法: ✅
+     - `_validate_json_format()` - JSON 語法檢查 ✅
+     - `_validate_structure()` - 必需鍵檢查 ✅
+     - `_validate_referential_integrity()` - 外鍵約束 ✅
+     - `_validate_consistency()` - 統計快取一致性 ✅
+     - `validate_data()` - 全面驗證，傳回結果 ✅
+  2. 驗證失敗時記錄詳細錯誤 ✅
+- **驗證**: 驗證方法能正確偵測和報告問題 ✅
+- **實施日期**: 2025-10-16
+- **提交**: (包含在 2d6cacb)
 
 ---
 
-**T006** - 備份和恢復機制實作 [Story: Foundational]
-- **檔案**: `src/models/json_database.py` (同檔案, 新增方法)
+**T006** - 備份和恢復機制實作 [Story: Foundational] ✅
+- **檔案**: `src/models/json_database.py` (同檔案, 新增方法) ✅
 - **操作**:
-  1. 實作備份方法:
-     - `create_backup()` - 建立時間戳備份
-     - `restore_from_backup(backup_path)` - 還原備份
-     - `get_backup_list()` - 列出可用備份
-     - `cleanup_old_backups(days=30, max_count=50)` - 清理舊備份
-  2. 建立 `BACKUP_MANIFEST.json` 追蹤備份
-- **驗證**: 備份可建立和還原，MANIFEST 正確更新
+  1. 實作備份方法: ✅
+     - `create_backup()` - 建立時間戳備份 ✅
+     - `restore_from_backup(backup_path)` - 還原備份 ✅
+     - `get_backup_list()` - 列出可用備份 ✅
+     - `cleanup_old_backups(days=30, max_count=50)` - 清理舊備份 ✅
+  2. 建立 `BACKUP_MANIFEST.json` 追蹤備份 (使用時間戳檔案名稱) ✅
+- **驗證**: 備份可建立和還原，MANIFEST 正確更新 ✅
+- **實施日期**: 2025-10-16
+- **提交**: (包含在 2d6cacb)
 
 ---
 
-**T007** - 並行鎖定機制實作 [Story: Foundational]
-- **檔案**: `src/models/json_database.py` (同檔案, 新增方法)
+**T007** - 並行鎖定機制實作 [Story: Foundational] ✅
+- **檔案**: `src/models/json_database.py` (同檔案, 新增方法) ✅
 - **操作**:
-  1. 使用 filelock 實作:
-     - `_acquire_read_lock(timeout=5)` - 共享鎖
-     - `_acquire_write_lock(timeout=10)` - 獨佔鎖
-     - `_release_locks()` - 釋放鎖
-  2. 實作上下文管理器支援 `with` 語句
-  3. 實作鎖定超時和錯誤處理
-- **驗證**: 鎖定機制正常工作，無死鎖
+  1. 使用 filelock 實作: ✅
+     - `_acquire_read_lock(timeout=5)` - 共享鎖 ✅
+     - `_acquire_write_lock(timeout=10)` - 獨佔鎖 ✅
+     - `_release_locks()` - 釋放鎖 ✅
+  2. 實作上下文管理器支援 `with` 語句 ✅
+  3. 實作鎖定超時和錯誤處理 ✅
+- **驗證**: 鎖定機制正常工作，無死鎖 ✅
+- **實施日期**: 2025-10-16
+- **提交**: (包含在 2d6cacb)
 
 ---
 
@@ -238,18 +244,18 @@ JSONDBManager 框架完成，驗證機制可用。
 
 ---
 
-**T012** - 遷移驗證工具實作 [Story: US1] [P]
-- **檔案**: `scripts/migrate_sqlite_to_json.py` (同檔案)
+**T012** - 遷移驗證工具實作 [Story: US1] [P] ✅
+- **檔案**: `scripts/migrate_sqlite_to_json.py` (同檔案) ✅
 - **操作**:
-  1. 實作 `validate_migration()` 函式:
-     - 對比 SQLite 和 JSON 的記錄計數
-     - 驗證每筆記錄的完整性
-     - 計算資料雜湊並對比
-     - 驗證關聯表完整性
-  2. 生成詳細的驗證報告
+  1. 實作 `validate_migration()` 函式: ✅
+     - 對比 SQLite 和 JSON 的記錄計數 ✅
+     - 驗證每筆記錄的完整性 ✅
+     - 計算資料雜湊並對比 ✅
+     - 驗證關聯表完整性 ✅
+  2. 生成詳細的驗證報告 ✅
 - **驗證**: 驗證報告完整，所有檢查通過 ✅
 - **實施日期**: 2025-10-16
-- **提交**: (包含在 T008-T009)
+- **提交**: (待提交)
 
 ---
 
