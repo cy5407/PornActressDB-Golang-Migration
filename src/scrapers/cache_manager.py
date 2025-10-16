@@ -5,7 +5,6 @@
 """
 
 import asyncio
-import sqlite3
 import json
 import hashlib
 import time
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 class CacheConfig:
     """快取配置類"""
     cache_dir: str = "cache"                    # 快取目錄
-    db_file: str = "cache_index.db"             # SQLite索引檔案
+    index_file: str = "cache_index.json"        # JSON索引檔案
     default_ttl_hours: int = 24                 # 預設TTL(小時)
     max_memory_entries: int = 1000              # 記憶體快取最大條目數
     enable_compression: bool = True             # 啟用壓縮
@@ -55,15 +54,16 @@ class CacheManager:
         self.config = config or CacheConfig()
         self.cache_dir = Path(self.config.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 記憶體快取
         self.memory_cache: Dict[str, CacheEntry] = {}
         self.memory_lock = threading.RLock()
-        
-        # 資料庫連線
-        self.db_path = self.cache_dir / self.config.db_file
-        self._init_database()
-        
+
+        # JSON 索引檔案
+        self.index_path = self.cache_dir / self.config.index_file
+        self.index_lock = threading.RLock()
+        self._init_index()
+
         # 統計資訊
         self.stats = {
             'memory_hits': 0,
@@ -74,43 +74,78 @@ class CacheManager:
             'cleanups': 0,
             'total_size_mb': 0.0
         }
-        
+
         # 啟動背景清理任務
         self._start_cleanup_task()
-        
+
         logger.info(f"💾 快取管理器已初始化 - 目錄: {self.cache_dir}")
     
-    def _init_database(self):
-        """初始化SQLite索引資料庫"""
+    def _init_index(self):
+        """初始化 JSON 索引檔案"""
         try:
-            with sqlite3.connect(str(self.db_path)) as conn:
-                conn.execute('''
-                    CREATE TABLE IF NOT EXISTS cache_index (
-                        key TEXT PRIMARY KEY,
-                        file_path TEXT,
-                        created_at REAL,
-                        ttl_seconds INTEGER,
-                        access_count INTEGER DEFAULT 0,
-                        last_accessed REAL,
-                        compressed BOOLEAN DEFAULT 0,
-                        size_bytes INTEGER DEFAULT 0
-                    )
-                ''')
-                
-                # 創建索引
-                conn.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON cache_index(created_at)')
-                conn.execute('CREATE INDEX IF NOT EXISTS idx_last_accessed ON cache_index(last_accessed)')
-                
-                conn.commit()
-                logger.debug("📊 快取索引資料庫已初始化")
-                
+            if not self.index_path.exists():
+                # 建立空索引
+                initial_index = {
+                    "_metadata": {
+                        "version": "1.0",
+                        "created_at": time.time()
+                    },
+                    "entries": {}
+                }
+                with open(self.index_path, 'w', encoding='utf-8') as f:
+                    json.dump(initial_index, f, indent=2, ensure_ascii=False)
+                logger.debug("📊 快取索引檔案已建立")
+            else:
+                # 驗證現有索引
+                with open(self.index_path, 'r', encoding='utf-8') as f:
+                    index_data = json.load(f)
+                    if "entries" not in index_data:
+                        # 修復損壞的索引
+                        index_data["entries"] = {}
+                        with open(self.index_path, 'w', encoding='utf-8') as f_write:
+                            json.dump(index_data, f_write, indent=2, ensure_ascii=False)
+                        logger.warning("📊 快取索引已修復")
+                    else:
+                        logger.debug("📊 快取索引已載入")
+
         except Exception as e:
-            logger.error(f"初始化快取資料庫失敗: {e}")
+            logger.error(f"初始化快取索引失敗: {e}")
+            # 建立新索引
+            try:
+                initial_index = {
+                    "_metadata": {"version": "1.0", "created_at": time.time()},
+                    "entries": {}
+                }
+                with open(self.index_path, 'w', encoding='utf-8') as f:
+                    json.dump(initial_index, f, indent=2, ensure_ascii=False)
+            except Exception as fallback_error:
+                logger.error(f"建立備援索引失敗: {fallback_error}")
     
+    def _load_index(self) -> dict:
+        """載入 JSON 索引"""
+        try:
+            with self.index_lock:
+                with open(self.index_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.error(f"載入索引失敗: {e}")
+            return {"_metadata": {"version": "1.0", "created_at": time.time()}, "entries": {}}
+
+    def _save_index(self, index_data: dict) -> bool:
+        """儲存 JSON 索引"""
+        try:
+            with self.index_lock:
+                with open(self.index_path, 'w', encoding='utf-8') as f:
+                    json.dump(index_data, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            logger.error(f"儲存索引失敗: {e}")
+            return False
+
     def _generate_cache_key(self, key: str) -> str:
         """生成快取鍵值"""
         return hashlib.sha256(key.encode('utf-8')).hexdigest()
-    
+
     def _get_file_path(self, cache_key: str) -> Path:
         """獲取快取檔案路徑"""
         # 使用兩層目錄結構避免單目錄檔案過多
@@ -195,22 +230,23 @@ class CacheManager:
             # 設置磁碟快取
             if self.config.enable_disk_cache:
                 file_path = self._get_file_path(cache_key)
-                
+
                 # 寫入檔案
                 with open(file_path, 'wb') as f:
                     f.write(serialized_data)
-                
-                # 更新索引
-                with sqlite3.connect(str(self.db_path)) as conn:
-                    conn.execute('''
-                        INSERT OR REPLACE INTO cache_index 
-                        (key, file_path, created_at, ttl_seconds, last_accessed, compressed, size_bytes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        cache_key, str(file_path), current_time, ttl_seconds,
-                        current_time, compressed, size_bytes
-                    ))
-                    conn.commit()
+
+                # 更新 JSON 索引
+                index_data = self._load_index()
+                index_data["entries"][cache_key] = {
+                    "file_path": str(file_path),
+                    "created_at": current_time,
+                    "ttl_seconds": ttl_seconds,
+                    "last_accessed": current_time,
+                    "access_count": 0,
+                    "compressed": compressed,
+                    "size_bytes": size_bytes
+                }
+                self._save_index(index_data)
             
             self.stats['sets'] += 1
             logger.debug(f"💾 已快取: {key} ({size_bytes} bytes)")
@@ -245,59 +281,57 @@ class CacheManager:
         # 嘗試磁碟快取
         if self.config.enable_disk_cache:
             try:
-                with sqlite3.connect(str(self.db_path)) as conn:
-                    cursor = conn.execute('''
-                        SELECT file_path, created_at, ttl_seconds, compressed, access_count
-                        FROM cache_index WHERE key = ?
-                    ''', (cache_key,))
-                    
-                    result = cursor.fetchone()
-                    if result:
-                        file_path, created_at, ttl_seconds, compressed, access_count = result
-                        
-                        # 檢查是否過期
-                        if not self._is_expired(created_at, ttl_seconds):
-                            file_path_obj = Path(file_path)
-                            
-                            if file_path_obj.exists():
-                                # 讀取檔案
-                                with open(file_path_obj, 'rb') as f:
-                                    data = f.read()
-                                
-                                # 反序列化
-                                value = self._deserialize_value(data, compressed)
-                                
-                                if value is not None:
-                                    # 更新訪問統計
-                                    conn.execute('''
-                                        UPDATE cache_index 
-                                        SET access_count = access_count + 1, last_accessed = ?
-                                        WHERE key = ?
-                                    ''', (current_time, cache_key))
-                                    conn.commit()
-                                    
-                                    # 載入到記憶體快取
-                                    if self.config.enable_memory_cache:
-                                        with self.memory_lock:
-                                            entry = CacheEntry(
-                                                key=cache_key,
-                                                value=value,
-                                                created_at=created_at,
-                                                ttl_seconds=ttl_seconds,
-                                                access_count=access_count + 1,
-                                                last_accessed=current_time,
-                                                compressed=compressed,
-                                                size_bytes=len(data)
-                                            )
-                                            self.memory_cache[cache_key] = entry
-                                    
-                                    self.stats['disk_hits'] += 1
-                                    logger.debug(f"💿 磁碟快取命中: {key}")
-                                    return value
-                        else:
-                            # 過期，清理
-                            self._delete_cache_entry(cache_key, file_path)
-                            
+                index_data = self._load_index()
+                entry_data = index_data.get("entries", {}).get(cache_key)
+
+                if entry_data:
+                    file_path = entry_data["file_path"]
+                    created_at = entry_data["created_at"]
+                    ttl_seconds = entry_data["ttl_seconds"]
+                    compressed = entry_data["compressed"]
+                    access_count = entry_data.get("access_count", 0)
+
+                    # 檢查是否過期
+                    if not self._is_expired(created_at, ttl_seconds):
+                        file_path_obj = Path(file_path)
+
+                        if file_path_obj.exists():
+                            # 讀取檔案
+                            with open(file_path_obj, 'rb') as f:
+                                data = f.read()
+
+                            # 反序列化
+                            value = self._deserialize_value(data, compressed)
+
+                            if value is not None:
+                                # 更新訪問統計
+                                entry_data["access_count"] = access_count + 1
+                                entry_data["last_accessed"] = current_time
+                                index_data["entries"][cache_key] = entry_data
+                                self._save_index(index_data)
+
+                                # 載入到記憶體快取
+                                if self.config.enable_memory_cache:
+                                    with self.memory_lock:
+                                        entry = CacheEntry(
+                                            key=cache_key,
+                                            value=value,
+                                            created_at=created_at,
+                                            ttl_seconds=ttl_seconds,
+                                            access_count=access_count + 1,
+                                            last_accessed=current_time,
+                                            compressed=compressed,
+                                            size_bytes=len(data)
+                                        )
+                                        self.memory_cache[cache_key] = entry
+
+                                self.stats['disk_hits'] += 1
+                                logger.debug(f"💿 磁碟快取命中: {key}")
+                                return value
+                    else:
+                        # 過期，清理
+                        self._delete_cache_entry(cache_key, file_path)
+
             except Exception as e:
                 logger.error(f"讀取磁碟快取失敗: {e}")
         
@@ -308,27 +342,26 @@ class CacheManager:
     def delete(self, key: str) -> bool:
         """刪除快取條目"""
         cache_key = self._generate_cache_key(key)
-        
+
         try:
             # 從記憶體移除
             if self.config.enable_memory_cache:
                 with self.memory_lock:
                     self.memory_cache.pop(cache_key, None)
-            
+
             # 從磁碟移除
             if self.config.enable_disk_cache:
-                with sqlite3.connect(str(self.db_path)) as conn:
-                    cursor = conn.execute('SELECT file_path FROM cache_index WHERE key = ?', (cache_key,))
-                    result = cursor.fetchone()
-                    
-                    if result:
-                        file_path = result[0]
-                        self._delete_cache_entry(cache_key, file_path)
-            
+                index_data = self._load_index()
+                entry_data = index_data.get("entries", {}).get(cache_key)
+
+                if entry_data:
+                    file_path = entry_data["file_path"]
+                    self._delete_cache_entry(cache_key, file_path)
+
             self.stats['deletes'] += 1
             logger.debug(f"🗑️ 已刪除快取: {key}")
             return True
-            
+
         except Exception as e:
             logger.error(f"刪除快取失敗: {e}")
             return False
@@ -340,12 +373,13 @@ class CacheManager:
             file_path_obj = Path(file_path)
             if file_path_obj.exists():
                 file_path_obj.unlink()
-            
-            # 從索引移除
-            with sqlite3.connect(str(self.db_path)) as conn:
-                conn.execute('DELETE FROM cache_index WHERE key = ?', (cache_key,))
-                conn.commit()
-                
+
+            # 從 JSON 索引移除
+            index_data = self._load_index()
+            if cache_key in index_data.get("entries", {}):
+                del index_data["entries"][cache_key]
+                self._save_index(index_data)
+
         except Exception as e:
             logger.error(f"刪除快取條目失敗: {e}")
     
@@ -389,21 +423,23 @@ class CacheManager:
             
             # 清理磁碟快取
             if self.config.enable_disk_cache:
-                with sqlite3.connect(str(self.db_path)) as conn:
-                    # 查找過期條目
-                    cursor = conn.execute('''
-                        SELECT key, file_path FROM cache_index 
-                        WHERE ? - created_at > ttl_seconds
-                    ''', (current_time,))
-                    
-                    expired_entries = cursor.fetchall()
-                    
-                    # 刪除過期條目
-                    for cache_key, file_path in expired_entries:
-                        self._delete_cache_entry(cache_key, file_path)
-                    
-                    if expired_entries:
-                        logger.info(f"🧹 磁碟快取清理: {len(expired_entries)} 個過期條目")
+                index_data = self._load_index()
+                expired_entries = []
+
+                # 查找過期條目
+                for cache_key, entry_data in list(index_data.get("entries", {}).items()):
+                    created_at = entry_data.get("created_at", 0)
+                    ttl_seconds = entry_data.get("ttl_seconds", 0)
+
+                    if self._is_expired(created_at, ttl_seconds):
+                        expired_entries.append((cache_key, entry_data.get("file_path")))
+
+                # 刪除過期條目
+                for cache_key, file_path in expired_entries:
+                    self._delete_cache_entry(cache_key, file_path)
+
+                if expired_entries:
+                    logger.info(f"🧹 磁碟快取清理: {len(expired_entries)} 個過期條目")
             
             self.stats['cleanups'] += 1
             
@@ -431,7 +467,7 @@ class CacheManager:
             if self.config.enable_memory_cache:
                 with self.memory_lock:
                     self.memory_cache.clear()
-            
+
             # 清空磁碟快取
             if self.config.enable_disk_cache:
                 # 刪除所有快取檔案
@@ -440,14 +476,16 @@ class CacheManager:
                         cache_file.unlink()
                     except:
                         pass
-                
-                # 清空索引
-                with sqlite3.connect(str(self.db_path)) as conn:
-                    conn.execute('DELETE FROM cache_index')
-                    conn.commit()
-            
+
+                # 清空 JSON 索引
+                index_data = {
+                    "_metadata": {"version": "1.0", "created_at": time.time()},
+                    "entries": {}
+                }
+                self._save_index(index_data)
+
             logger.info("🧹 已清空所有快取")
-            
+
         except Exception as e:
             logger.error(f"清空快取失敗: {e}")
     
@@ -457,21 +495,19 @@ class CacheManager:
             # 計算總大小
             total_size_bytes = 0
             if self.config.enable_disk_cache:
-                with sqlite3.connect(str(self.db_path)) as conn:
-                    cursor = conn.execute('SELECT SUM(size_bytes) FROM cache_index')
-                    result = cursor.fetchone()
-                    if result and result[0]:
-                        total_size_bytes = result[0]
-            
+                index_data = self._load_index()
+                for entry_data in index_data.get("entries", {}).values():
+                    total_size_bytes += entry_data.get("size_bytes", 0)
+
             # 記憶體快取大小
             memory_size_bytes = sum(entry.size_bytes for entry in self.memory_cache.values())
-            
+
             total_requests = self.stats['memory_hits'] + self.stats['disk_hits'] + self.stats['misses']
             hit_rate = (
                 (self.stats['memory_hits'] + self.stats['disk_hits']) / total_requests * 100
                 if total_requests > 0 else 0
             )
-            
+
             return {
                 **self.stats,
                 'total_size_mb': total_size_bytes / (1024 * 1024),
@@ -482,7 +518,7 @@ class CacheManager:
                 'disk_hit_rate': f"{(self.stats['disk_hits'] / total_requests * 100):.1f}%" if total_requests > 0 else "0%",
                 'config': asdict(self.config)
             }
-            
+
         except Exception as e:
             logger.error(f"獲取快取統計失敗: {e}")
             return self.stats

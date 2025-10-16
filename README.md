@@ -21,8 +21,8 @@
 - **路徑管理**: 安全的檔案移動與重新組織
 
 ### 💾 資料庫系統
-- **SQLite 支援**: 輕量級本地資料庫
-- **自動升級**: 資料庫結構自動升級機制
+- **JSON 儲存**: 輕量級檔案型資料庫，無需額外安裝
+- **並行安全**: 支援多執行緒讀寫，檔案鎖定保護
 - **備份管理**: 自動備份與恢復功能
 - **統計分析**: 完整的女優與片商統計資訊
 
@@ -65,7 +65,7 @@
 
 ### 首次使用
 
-1. 程式會自動建立資料庫檔案於 `Documents/ActressClassifier/`
+1. 程式會自動建立 JSON 資料庫於 `data/json_db/` 目錄
 2. 可透過「偏好設定」調整分類參數
 3. 建議先使用小量檔案測試功能
 
@@ -114,7 +114,7 @@ src/
 ### 核心技術
 - **Python 3.8+**: 主要開發語言
 - **tkinter**: GUI 框架
-- **SQLite**: 資料庫系統
+- **JSON**: 輕量級資料儲存 (檔案型資料庫)
 - **httpx/requests**: HTTP 客戶端
 - **BeautifulSoup**: HTML 解析
 - **pathlib**: 現代化路徑處理
@@ -124,8 +124,15 @@ src/
 ### 資料庫設定
 ```ini
 [database]
-database_path = C:\Users\{USERNAME}\Documents\ActressClassifier\actress_database.db
+json_data_dir = data/json_db
 ```
+
+**JSON 資料庫優勢**:
+- ✓ 無需額外安裝資料庫軟體
+- ✓ 易於備份和遷移 (單一 JSON 檔案)
+- ✓ 支援並行讀寫 (檔案鎖定機制)
+- ✓ 人類可讀的資料格式
+- ✓ 輕量級部署,適合個人使用
 
 ### 搜尋設定
 ```ini

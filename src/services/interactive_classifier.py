@@ -7,7 +7,7 @@ from tkinter import ttk
 import logging
 from typing import List, Tuple
 
-from models.config import PreferenceManager
+from src.models.config import PreferenceManager
 
 logger = logging.getLogger(__name__)
 

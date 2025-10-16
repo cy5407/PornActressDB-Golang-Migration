@@ -17,7 +17,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from models.config import ConfigManager
-from models.database import SQLiteDBManager
+from models.json_database import JSONDBManager
 from models.extractor import UnifiedCodeExtractor
 from models.studio import StudioIdentifier
 from utils.scanner import UnifiedFileScanner
@@ -33,7 +33,7 @@ class UnifiedClassifierCore:
     
     def __init__(self, config: ConfigManager):
         self.config = config
-        self.db_manager = SQLiteDBManager(config.get('database', 'database_path'))
+        self.db_manager = JSONDBManager()
         self.code_extractor = UnifiedCodeExtractor()
         self.file_scanner = UnifiedFileScanner()
         self.studio_identifier = StudioIdentifier()
