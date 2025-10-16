@@ -32,6 +32,9 @@ isort>=5.12.0
 # 環境設定
 python-dotenv>=1.0.0
 
+# 檔案鎖定和並行控制
+filelock>=3.13.0       # 檔案級鎖定，用於並行存取控制
+
 # 如果需要資料庫，請取消註解以下套件
 # sqlalchemy>=2.0.0
 # psycopg2-binary>=2.9.0
