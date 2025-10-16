@@ -27,6 +27,7 @@ from src.models.json_types import (
     DataIntegrityError,
     CorruptedDataError,
     JSONDatabaseError,
+    BackupError,
     SCHEMA_VERSION,
     JSON_DB_FILE,
     BACKUP_DIR,
@@ -54,6 +55,11 @@ class JSONDBManager:
         write_lock: 寫操作鎖定物件
         data: 記憶體中的資料快取
     """
+    
+    # 常數定義
+    BACKUP_PATTERN = "backup_*.json"
+    DEFAULT_BACKUP_DAYS = 30
+    DEFAULT_BACKUP_MAX_COUNT = 50
     
     def __init__(self, data_dir: str = "data/json_db"):
         """
@@ -252,20 +258,114 @@ class JSONDBManager:
                     f"連結中的 actress_id '{actress_id}' 不存在"
                 )
         
+        # 檢查影片中的 actresses 清單是否有效
+        for video_id, video in videos.items():
+            actresses_list = video.get('actresses', [])
+            for actress_id in actresses_list:
+                if actress_id not in actresses:
+                    raise DataIntegrityError(
+                        f"影片 '{video_id}' 中的女優 ID '{actress_id}' 不存在"
+                    )
+        
         logger.debug("✅ 參照完整性驗證通過")
+    
+    def _validate_structure(self, data: Dict[str, Any]) -> None:
+        """
+        驗證資料結構和欄位類型（第二層驗證）
+        
+        Args:
+            data: 要驗證的資料
+            
+        Raises:
+            ValidationError: 若結構或欄位類型不正確
+        """
+        # 驗證 videos 結構
+        videos = data.get('videos', {})
+        if not isinstance(videos, dict):
+            raise ValidationError("'videos' 必須是字典")
+        
+        for video_id, video in videos.items():
+            if not isinstance(video, dict):
+                raise ValidationError(f"影片 '{video_id}' 必須是字典")
+            
+            # 必需欄位
+            required_video_fields = {'id', 'title', 'studio', 'release_date'}
+            missing = required_video_fields - set(video.keys())
+            if missing:
+                raise ValidationError(f"影片 '{video_id}' 缺少欄位: {missing}")
+            
+            # 欄位類型檢查
+            if not isinstance(video.get('id'), str):
+                raise ValidationError(f"影片 '{video_id}' 的 'id' 必須是字串")
+            if not isinstance(video.get('actresses'), list):
+                raise ValidationError(f"影片 '{video_id}' 的 'actresses' 必須是清單")
+        
+        # 驗證 actresses 結構
+        actresses = data.get('actresses', {})
+        if not isinstance(actresses, dict):
+            raise ValidationError("'actresses' 必須是字典")
+        
+        for actress_id, actress in actresses.items():
+            if not isinstance(actress, dict):
+                raise ValidationError(f"女優 '{actress_id}' 必須是字典")
+            
+            required_actress_fields = {'id', 'name'}
+            missing = required_actress_fields - set(actress.keys())
+            if missing:
+                raise ValidationError(f"女優 '{actress_id}' 缺少欄位: {missing}")
+        
+        # 驗證 links 結構
+        links = data.get('links', [])
+        if not isinstance(links, list):
+            raise ValidationError("'links' 必須是清單")
+        
+        for idx, link in enumerate(links):
+            if not isinstance(link, dict):
+                raise ValidationError(f"連結 {idx} 必須是字典")
+            
+            required_link_fields = {'video_id', 'actress_id'}
+            missing = required_link_fields - set(link.keys())
+            if missing:
+                raise ValidationError(f"連結 {idx} 缺少欄位: {missing}")
+        
+        logger.debug("✅ 資料結構驗證通過")
     
     def _validate_consistency(self) -> bool:
         """
-        驗證統計快取一致性
+        驗證統計快取一致性（第四層驗證）
+        
+        驗證快取統計是否與實際資料一致。
         
         Returns:
             bool: 一致則 True
         """
         try:
-            # 這個方法將在 Phase 5 實現
-            # 目前先返回 True
-            logger.debug("統計快取一致性檢查 (待實現)")
+            data = self.data
+            actresses = data.get('actresses', {})
+            links = data.get('links', [])
+            
+            # 計算實際的女優出演部數
+            actual_actress_counts = {}
+            for link in links:
+                actress_id = link.get('actress_id')
+                if actress_id:
+                    actual_actress_counts[actress_id] = actual_actress_counts.get(actress_id, 0) + 1
+            
+            # 驗證 actresses 的 video_count 是否一致
+            for actress_id, actress in actresses.items():
+                expected_count = actual_actress_counts.get(actress_id, 0)
+                actual_count = actress.get('video_count', 0)
+                
+                if expected_count != actual_count:
+                    logger.warning(
+                        f"女優 '{actress_id}' 的 video_count 不一致: "
+                        f"預期 {expected_count}, 實際 {actual_count}"
+                    )
+                    return False
+            
+            logger.debug("✅ 一致性驗證通過")
             return True
+            
         except Exception as e:
             logger.error(f"❌ 一致性檢查失敗: {e}")
             return False
@@ -327,41 +427,217 @@ class JSONDBManager:
     # ========================================================================
     
     def create_backup(self) -> str:
-        """建立備份 (待實現)"""
-        pass
+        """
+        建立備份
+        
+        建立當前資料的時間戳備份檔案。
+        
+        Returns:
+            建立的備份檔案路徑
+            
+        Raises:
+            BackupError: 若備份失敗
+        """
+        try:
+            from datetime import datetime, timezone
+            
+            timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+            backup_filename = f"backup_{timestamp}.json"
+            backup_path = self.backup_dir / backup_filename
+            
+            # 複製資料
+            with open(self.data_file, 'r', encoding='utf-8') as src:
+                content = src.read()
+            
+            with open(backup_path, 'w', encoding='utf-8') as dst:
+                dst.write(content)
+            
+            logger.info(f"✅ 備份建立成功: {backup_path}")
+            return str(backup_path)
+            
+        except Exception as e:
+            logger.error(f"❌ 備份失敗: {e}")
+            raise BackupError(f"備份失敗: {e}")
     
     def restore_from_backup(self, backup_path: str) -> bool:
-        """還原備份 (待實現)"""
-        pass
+        """
+        還原備份
+        
+        從備份檔案恢復資料。
+        
+        Args:
+            backup_path: 備份檔案路徑
+            
+        Returns:
+            成功則 True
+            
+        Raises:
+            BackupError: 若還原失敗
+        """
+        try:
+            backup_file = Path(backup_path)
+            
+            if not backup_file.exists():
+                raise BackupError(f"備份檔案不存在: {backup_path}")
+            
+            # 載入備份資料
+            with open(backup_file, 'r', encoding='utf-8') as f:
+                backup_data = json.load(f)
+            
+            # 驗證備份資料
+            self._validate_json_format(backup_data)
+            self._validate_referential_integrity(backup_data)
+            
+            # 寫入
+            self._save_all_data(backup_data)
+            self.data = backup_data
+            
+            logger.info(f"✅ 備份還原成功: {backup_path}")
+            return True
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ 備份檔案損壞: {e}")
+            raise BackupError(f"備份檔案損壞: {e}")
+        except Exception as e:
+            logger.error(f"❌ 還原失敗: {e}")
+            raise BackupError(f"還原失敗: {e}")
+    
+    def get_backup_list(self) -> List[str]:
+        """
+        列出可用備份
+        
+        Returns:
+            備份檔案路徑清單 (按時間排序)
+        """
+        try:
+            backup_files = sorted(self.backup_dir.glob(self.BACKUP_PATTERN))
+            return [str(f) for f in backup_files]
+        except Exception as e:
+            logger.error(f"❌ 無法列出備份: {e}")
+            return []
+    
+    def cleanup_old_backups(self, days: int = None, max_count: int = None) -> int:
+        """
+        清理舊備份
+        
+        按日期和數量限制清理備份。
+        
+        Args:
+            days: 保留天數 (預設: 30)
+            max_count: 最大備份數 (預設: 50)
+            
+        Returns:
+            刪除的備份數
+        """
+        if days is None:
+            days = self.DEFAULT_BACKUP_DAYS
+        if max_count is None:
+            max_count = self.DEFAULT_BACKUP_MAX_COUNT
+            
+        try:
+            from datetime import timedelta
+            
+            deleted_count = 0
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+            
+            # 按時間刪除
+            backup_files = list(self.backup_dir.glob(self.BACKUP_PATTERN))
+            for backup_file in backup_files:
+                if self._is_backup_expired(backup_file, cutoff_date):
+                    backup_file.unlink()
+                    deleted_count += 1
+                    logger.info(f"刪除舊備份: {backup_file}")
+            
+            # 按數量刪除
+            backup_files = sorted(self.backup_dir.glob(self.BACKUP_PATTERN))
+            while len(backup_files) > max_count:
+                oldest = backup_files[0]
+                oldest.unlink()
+                deleted_count += 1
+                logger.info(f"刪除超限備份: {oldest}")
+                backup_files = sorted(self.backup_dir.glob(self.BACKUP_PATTERN))
+            
+            logger.info(f"✅ 備份清理完成，刪除 {deleted_count} 個備份")
+            return deleted_count
+            
+        except Exception as e:
+            logger.error(f"❌ 備份清理失敗: {e}")
+            return 0
+    
+    @staticmethod
+    def _is_backup_expired(backup_file: Path, cutoff_date: datetime) -> bool:
+        """檢查備份是否過期"""
+        try:
+            date_str = backup_file.stem.replace("backup_", "")
+            date_part = date_str.split("_")[0]  # YYYY-MM-DD
+            file_date = datetime.strptime(date_part, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            return file_date < cutoff_date
+        except Exception as e:
+            logger.warning(f"無法解析備份檔案日期: {backup_file}, {e}")
+            return False
     
     # ========================================================================
     # 並行鎖定 (已在 __init__ 實現)
     # ========================================================================
     
     def _acquire_read_lock(self, timeout: int = READ_LOCK_TIMEOUT) -> None:
-        """取得讀鎖定"""
+        """
+        獲取讀鎖定
+        
+        允許多個讀操作並行執行。
+        
+        Args:
+            timeout: 等待超時 (秒)
+            
+        Raises:
+            LockError: 若無法獲取鎖定
+        """
         try:
             self.read_lock.acquire(timeout=timeout)
+            logger.debug("✅ 讀鎖定已獲取")
         except Exception as e:
+            logger.error(f"❌ 無法獲得讀鎖定: {e}")
             raise LockError(f"無法獲得讀鎖定: {e}")
     
     def _acquire_write_lock(self, timeout: int = WRITE_LOCK_TIMEOUT) -> None:
-        """取得寫鎖定"""
+        """
+        獲取寫鎖定
+        
+        獨佔鎖定，確保寫操作不被干擾。
+        
+        Args:
+            timeout: 等待超時 (秒)
+            
+        Raises:
+            LockError: 若無法獲取鎖定
+        """
         try:
             self.write_lock.acquire(timeout=timeout)
+            logger.debug("✅ 寫鎖定已獲取")
         except Exception as e:
+            logger.error(f"❌ 無法獲得寫鎖定: {e}")
             raise LockError(f"無法獲得寫鎖定: {e}")
     
     def _release_locks(self) -> None:
-        """釋放所有鎖定"""
+        """
+        釋放所有鎖定
+        
+        在操作完成後釋放已獲取的鎖定。
+        安全處理已釋放的鎖定物件。
+        """
         try:
-            self.read_lock.release()
-        except:
-            pass
+            if self.read_lock.is_locked:
+                self.read_lock.release()
+                logger.debug("✅ 讀鎖定已釋放")
+        except Exception as e:
+            logger.warning(f"⚠️ 釋放讀鎖定時發生錯誤: {e}")
+        
         try:
-            self.write_lock.release()
-        except:
-            pass
+            if self.write_lock.is_locked:
+                self.write_lock.release()
+                logger.debug("✅ 寫鎖定已釋放")
+        except Exception as e:
+            logger.warning(f"⚠️ 釋放寫鎖定時發生錯誤: {e}")
     
     def __enter__(self):
         """上下文管理器進入"""
