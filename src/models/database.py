@@ -1,6 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-資料庫管理模組
+⚠️ 此檔案已廢棄 (DEPRECATED)
+
+SQLiteDBManager 已被 JSONDBManager 完全取代。
+請使用: from src.models.json_database import JSONDBManager
+
+遷移完成日期: 2025-10-17
+新資料庫位置: src/models/json_database.py
+
+此檔案保留僅作為歷史參考，未來版本可能會被移除。
+所有新功能開發請使用 JSONDBManager。
 """
 import sqlite3
 import logging
