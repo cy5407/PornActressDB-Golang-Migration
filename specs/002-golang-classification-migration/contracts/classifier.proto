@@ -1,0 +1,222 @@
+syntax = "proto3";
+
+package classifier;
+
+option go_package = "github.com/cy5407/porn-actress-classifier/pkg/proto";
+
+// ClassifierService 提供影片分類功能
+service ClassifierService {
+  // ScanFiles 掃描資料夾中的影片檔案並提取番號 (Server Streaming)
+  rpc ScanFiles(ScanRequest) returns (stream ScanProgress);
+  
+  // ClassifyActress 女優資料夾分類 (Bidirectional Streaming for interactive mode)
+  rpc ClassifyActress(stream ClassifyActressRequest) returns (stream ClassifyActressResponse);
+  
+  // ClassifyStudio 片商資料夾分類 (Server Streaming)
+  rpc ClassifyStudio(ClassifyStudioRequest) returns (stream ClassifyStudioProgress);
+  
+  // GetVersion 取得伺服器版本資訊
+  rpc GetVersion(VersionRequest) returns (VersionResponse);
+  
+  // HealthCheck 健康檢查
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ===== Scan Files Messages =====
+
+// ScanRequest 掃描請求
+message ScanRequest {
+  string folder_path = 1;  // 資料夾路徑
+  bool recursive = 2;      // 是否遞迴掃描子資料夾
+  repeated string extensions = 3;  // 支援的副檔名 (e.g., ["mp4", "mkv"])
+  int32 workers = 4;       // 並行 worker 數量
+}
+
+// ScanProgress 掃描進度
+message ScanProgress {
+  string current_file = 1;        // 當前處理檔案
+  int32 processed_count = 2;      // 已處理數量
+  int32 total_count = 3;          // 總數量
+  float percentage = 4;           // 完成百分比 (0.0-100.0)
+  int64 estimated_remaining_ms = 5; // 預估剩餘時間 (毫秒)
+  
+  // 掃描結果 (僅在完成時填充)
+  ScanResult result = 6;
+}
+
+// ScanResult 掃描結果摘要
+message ScanResult {
+  int32 total_files = 1;          // 總檔案數
+  int32 success_count = 2;        // 成功提取番號數
+  repeated string failed_files = 3; // 失敗檔案列表
+  int64 duration_ms = 4;          // 耗時 (毫秒)
+  string timestamp = 5;           // 時間戳 (RFC3339)
+}
+
+// ===== Classify Actress Messages =====
+
+// ClassifyActressRequest 女優分類請求 (雙向串流)
+message ClassifyActressRequest {
+  oneof request_type {
+    StartClassificationRequest start = 1;  // 開始分類
+    UserChoiceRequest choice = 2;          // 使用者選擇
+    CancelRequest cancel = 3;              // 取消操作
+  }
+}
+
+// StartClassificationRequest 開始分類請求
+message StartClassificationRequest {
+  string folder_path = 1;         // 來源資料夾路徑
+  string target_path = 2;         // 目標資料夾路徑
+  string mode = 3;                // 模式: "auto" (僅單女優), "all" (所有)
+  string conflict_strategy = 4;   // 衝突策略: "ask", "skip", "overwrite", "rename"
+  string database_path = 5;       // 資料庫檔案路徑
+  int32 workers = 6;              // 並行 worker 數量
+}
+
+// UserChoiceRequest 使用者選擇請求 (互動模式)
+message UserChoiceRequest {
+  string video_path = 1;          // 影片路徑
+  string chosen_actress = 2;      // 選擇的女優名稱
+  bool remember_choice = 3;       // 是否記住此選擇
+}
+
+// CancelRequest 取消請求
+message CancelRequest {
+  string reason = 1;              // 取消原因
+}
+
+// ClassifyActressResponse 女優分類回應
+message ClassifyActressResponse {
+  oneof response_type {
+    ProgressUpdate progress = 1;           // 進度更新
+    ActressChoicePrompt prompt = 2;        // 需要使用者選擇
+    OperationComplete complete = 3;        // 操作完成
+    ErrorResponse error = 4;               // 錯誤回應
+  }
+}
+
+// ProgressUpdate 進度更新
+message ProgressUpdate {
+  string current_file = 1;        // 當前處理檔案
+  int32 processed = 2;            // 已處理數量
+  int32 total = 3;                // 總數量
+  float percentage = 4;           // 完成百分比
+  int64 estimated_remaining_ms = 5; // 預估剩餘時間 (毫秒)
+}
+
+// ActressChoicePrompt 需要使用者選擇女優 (多女優影片)
+message ActressChoicePrompt {
+  string video_path = 1;                // 影片路徑
+  repeated string actress_options = 2;  // 女優候選列表
+  string video_code = 3;                // 影片番號
+  int64 file_size = 4;                  // 檔案大小 (bytes)
+}
+
+// OperationComplete 操作完成
+message OperationComplete {
+  int32 total_videos = 1;         // 總影片數
+  int32 moved = 2;                // 成功移動數
+  int32 skipped = 3;              // 跳過數
+  int32 failed = 4;               // 失敗數
+  int64 duration_ms = 5;          // 耗時 (毫秒)
+  repeated OperationDetail details = 6; // 操作詳情
+}
+
+// OperationDetail 單一操作詳情
+message OperationDetail {
+  string source_path = 1;         // 來源路徑
+  string target_path = 2;         // 目標路徑
+  string status = 3;              // 狀態: "success", "failed", "skipped"
+  string error_message = 4;       // 錯誤訊息 (if failed)
+  string actress_name = 5;        // 女優名稱
+  int64 file_size = 6;            // 檔案大小
+}
+
+// ErrorResponse 錯誤回應
+message ErrorResponse {
+  string error_message = 1;       // 錯誤訊息
+  string error_code = 2;          // 錯誤碼
+  string timestamp = 3;           // 時間戳
+}
+
+// ===== Classify Studio Messages =====
+
+// ClassifyStudioRequest 片商分類請求
+message ClassifyStudioRequest {
+  string folder_path = 1;         // 女優資料夾根目錄
+  string target_path = 2;         // 目標資料夾路徑
+  float threshold = 3;            // 信心度閾值 (0.5-0.9)
+  int32 workers = 4;              // 並行 worker 數量
+  string database_path = 5;       // 資料庫檔案路徑
+  bool dry_run = 6;               // 是否為模擬執行
+  bool report_only = 7;           // 僅生成報告，不移動
+}
+
+// ClassifyStudioProgress 片商分類進度
+message ClassifyStudioProgress {
+  string current_actress = 1;     // 當前處理的女優
+  int32 processed = 2;            // 已處理數量
+  int32 total = 3;                // 總數量
+  float percentage = 4;           // 完成百分比
+  
+  // 統計資訊 (即時更新)
+  repeated StudioStatistic statistics = 5;
+  
+  // 完成結果 (僅在完成時填充)
+  ClassifyStudioResult result = 6;
+}
+
+// StudioStatistic 片商統計
+message StudioStatistic {
+  string actress_name = 1;                     // 女優名稱
+  map<string, int32> studio_distribution = 2;  // 片商分佈 (片商名 -> 數量)
+  string primary_studio = 3;                   // 主要片商
+  float confidence = 4;                        // 信心度 (0.0-1.0)
+  string recommended_class = 5;                // 推薦分類
+  int32 total_videos = 6;                      // 總影片數
+}
+
+// ClassifyStudioResult 片商分類結果
+message ClassifyStudioResult {
+  int32 total_actresses = 1;      // 總女優數
+  int32 classified = 2;           // 已分類數
+  int32 solo_actress = 3;         // 單體藝人數
+  int64 duration_ms = 4;          // 耗時 (毫秒)
+  repeated OperationDetail operations = 5; // 操作詳情
+}
+
+// ===== Version & Health Check Messages =====
+
+// VersionRequest 版本請求
+message VersionRequest {
+  // 空請求
+}
+
+// VersionResponse 版本回應
+message VersionResponse {
+  string version = 1;             // 版本號 (e.g., "1.0.0")
+  string build_time = 2;          // 建置時間
+  string go_version = 3;          // Go 版本
+  string commit_hash = 4;         // Git commit hash
+}
+
+// HealthCheckRequest 健康檢查請求
+message HealthCheckRequest {
+  // 空請求
+}
+
+// HealthCheckResponse 健康檢查回應
+message HealthCheckResponse {
+  string status = 1;              // 狀態: "healthy", "unhealthy"
+  string message = 2;             // 訊息
+  int64 uptime_seconds = 3;       // 運行時間 (秒)
+  HealthStats stats = 4;          // 統計資訊
+}
+
+// HealthStats 健康統計
+message HealthStats {
+  int64 memory_usage_mb = 1;      // 記憶體使用量 (MB)
+  int32 goroutines = 2;           // Goroutine 數量
+  int32 active_connections = 3;   // 活躍連線數
+}
