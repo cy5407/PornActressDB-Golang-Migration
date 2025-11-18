@@ -10,6 +10,7 @@ JSON 資料庫管理器 (JSONDBManager)
 """
 
 import json
+import orjson
 import logging
 import hashlib
 import time
@@ -149,13 +150,13 @@ class JSONDBManager:
                 self._ensure_data_file_exists()
                 return
             
-            with open(self.data_file, 'r', encoding='utf-8') as f:
+            with open(self.data_file, 'rb') as f:
                 file_content = f.read()
             
-            # 試圖解析 JSON
+            # 試圖解析 JSON (使用 orjson 加速)
             try:
-                loaded_data = json.loads(file_content)
-            except json.JSONDecodeError as e:
+                loaded_data = orjson.loads(file_content)
+            except orjson.JSONDecodeError as e:
                 logger.error(f"❌ JSON 解析失敗: {e}")
                 raise CorruptedDataError(f"JSON 格式錯誤: {e}")
             
@@ -196,11 +197,11 @@ class JSONDBManager:
                 self._validate_json_format(data)
                 self._validate_referential_integrity(data)
                 
-                # 計算資料雜湊
+                # 計算資料雜湊 (使用 orjson 加速)
                 data_copy = data.copy()
                 data_copy['data_hash'] = ''  # 暫時清空以計算雜湊
-                data_str = json.dumps(data_copy, ensure_ascii=False, sort_keys=True)
-                data_hash = hashlib.sha256(data_str.encode('utf-8')).hexdigest()
+                data_bytes = orjson.dumps(data_copy, option=orjson.OPT_SORT_KEYS)
+                data_hash = hashlib.sha256(data_bytes).hexdigest()
                 data['data_hash'] = data_hash
                 
                 # 更新時間戳
@@ -217,8 +218,9 @@ class JSONDBManager:
                         except Exception:
                             pass
                     
-                    with open(temp_file, 'w', encoding='utf-8') as f:
-                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    with open(temp_file, 'wb') as f:
+                        # 使用 orjson 加速，OPT_INDENT_2 提供格式化輸出
+                        f.write(orjson.dumps(data, option=orjson.OPT_INDENT_2))
                     
                     # 在替換前確保原檔案可訪問
                     if self.data_file.exists():

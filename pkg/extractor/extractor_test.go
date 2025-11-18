@@ -1,0 +1,78 @@
+package extractor
+
+import "testing"
+
+func TestExtractCode(t *testing.T) {
+	extractor := NewCodeExtractor()
+
+	tests := []struct {
+		filename string
+		expected string
+	}{
+		{"STARS-707.mp4", "STARS-707"},
+		{"STARS707.mp4", "STARS-707"},
+		{"SSIS-999[H265].mp4", "SSIS-999"},
+		{"IPX-123 (1080p).mp4", "IPX-123"},
+		{"MIDV-456-C.mp4", "MIDV-456"},
+		{"JUL-789.H265.mp4", "JUL-789"},
+		{"CAWD_123.mp4", "CAWD-123"},
+		{"CAWD.456.mp4", "CAWD-456"},
+		{"SONE-123CH.mp4", "SONE-123"},
+		{"hhd800.com@MIAB-789.mp4", "MIAB-789"},
+		{"FC2-PPV-123456.mp4", ""},
+		{"FC2PPV-999999.mp4", ""},
+		{"PPV-555555.mp4", ""},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		result := extractor.ExtractCode(tt.filename)
+		if result != tt.expected {
+			t.Errorf("ExtractCode(%q) = %q; want %q", tt.filename, result, tt.expected)
+		}
+	}
+}
+
+func TestShouldSkip(t *testing.T) {
+	extractor := NewCodeExtractor()
+
+	tests := []struct {
+		filename   string
+		shouldSkip bool
+	}{
+		{"FC2-PPV-123456", true},
+		{"FC2PPV-999999", true},
+		{"FC2_PPV_888888", true},
+		{"PPV-777777", true},
+		{"STARS-707", false},
+		{"SSIS-999", false},
+	}
+
+	for _, tt := range tests {
+		result := extractor.shouldSkip(tt.filename)
+		if result != tt.shouldSkip {
+			t.Errorf("shouldSkip(%q) = %v; want %v", tt.filename, result, tt.shouldSkip)
+		}
+	}
+}
+
+func TestNormalizeCode(t *testing.T) {
+	extractor := NewCodeExtractor()
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"STARS707", "STARS-707"},
+		{"STARS.707", "STARS-707"},
+		{"STARS_707", "STARS-707"},
+		{"STARS-707", "STARS-707"},
+	}
+
+	for _, tt := range tests {
+		result := extractor.normalizeCode(tt.input)
+		if result != tt.expected {
+			t.Errorf("normalizeCode(%q) = %q; want %q", tt.input, result, tt.expected)
+		}
+	}
+}
