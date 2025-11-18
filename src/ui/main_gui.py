@@ -86,12 +86,20 @@ class UnifiedActressClassifierGUI:
         self.standard_move_btn = ttk.Button(row2_frame, text="📁 標準移動", command=self.start_standard_move)
         self.standard_move_btn.grid(row=0, column=1, padx=2, sticky="ew", ipady=5)
         
-        # 新增片商分類按鈕
-        self.studio_classify_btn = ttk.Button(row2_frame, text="🏢 片商分類", command=self.start_studio_classification)
-        self.studio_classify_btn.grid(row=0, column=2, padx=2, sticky="ew", ipady=5)
+        # 新增智慧搜尋並分類按鈕
+        self.smart_search_move_btn = ttk.Button(row2_frame, text="🔍📁 智慧搜尋並分類", command=self.start_smart_search_and_move)
+        self.smart_search_move_btn.grid(row=0, column=2, padx=2, sticky="ew", ipady=5)
         
         self.stop_btn = ttk.Button(row2_frame, text="🛑 中止任務", command=self.stop_task, state="disabled")
         self.stop_btn.grid(row=0, column=3, padx=(2, 0), sticky="ew", ipady=5)
+        
+        # 第三排按鈕 - 片商分類
+        row3_frame = ttk.Frame(button_frame)
+        row3_frame.pack(fill="x")
+        row3_frame.columnconfigure(0, weight=1)
+        
+        self.studio_classify_btn = ttk.Button(row3_frame, text="🏢 片商分類", command=self.start_studio_classification)
+        self.studio_classify_btn.grid(row=0, column=0, sticky="ew", ipady=5)
         
         # 結果顯示區域
         result_frame = ttk.LabelFrame(main_frame, text="📋 執行結果", padding="10")
@@ -178,7 +186,8 @@ class UnifiedActressClassifierGUI:
         # 更新按鈕列表，包含分離搜尋按鈕和片商分類按鈕
         buttons = [
             self.browse_btn, self.search_japanese_btn, self.search_javdb_btn,
-            self.interactive_move_btn, self.standard_move_btn, self.studio_classify_btn, self.settings_btn
+            self.interactive_move_btn, self.standard_move_btn, self.smart_search_move_btn, 
+            self.studio_classify_btn, self.settings_btn
         ]
         
         for btn in buttons:
@@ -351,6 +360,83 @@ class UnifiedActressClassifierGUI:
             else:
                 self.update_progress(f"\n💥 錯誤: {result.get('message', '未知錯誤')}\n")
                 self.status_var.set(f"錯誤: {result.get('message', '未知錯誤')}")
+
+    def start_smart_search_and_move(self):
+        """開始智慧搜尋並分類"""
+        path = self.selected_path.get()
+        if not Path(path).is_dir():
+            messagebox.showerror("錯誤", "請選擇一個有效的資料夾！")
+            return
+        
+        # 詢問搜尋方式
+        use_full_search = messagebox.askyesno(
+            "選擇搜尋方式",
+            "🔍 智慧搜尋並分類\n\n"
+            "系統會自動搜尋無資料的番號，然後進行智慧分類。\n\n"
+            "請選擇搜尋方式：\n\n"
+            "• 是 → 使用完整搜尋（AV-WIKI → chiba-f → JAVDB）\n"
+            "• 否 → 僅使用日文網站（AV-WIKI → chiba-f）\n\n"
+            "建議：如果 AV-WIKI 找不到，選擇完整搜尋"
+        )
+        
+        if not messagebox.askyesno(
+            "確認智慧搜尋並分類",
+            f"確定要對 '{path}' 執行智慧搜尋並分類嗎？\n\n"
+            f"🔍 搜尋方式: {'完整搜尋（含 JAVDB）' if use_full_search else '日文網站搜尋'}\n\n"
+            f"流程：\n"
+            f"1. 掃描影片檔案\n"
+            f"2. 搜尋無資料番號\n"
+            f"3. 自動智慧分類\n\n"
+            f"（只會處理此資料夾根目錄下的檔案）"
+        ):
+            return
+        
+        self.clear_results()
+        self.update_progress(f"🔍📁 智慧搜尋並分類模式\n目標資料夾: {path}\n{'='*60}\n")
+        self.stop_event.clear()
+        
+        # 在背景執行
+        threading.Thread(
+            target=self._run_task, 
+            args=(self._smart_search_and_move_worker, path, use_full_search), 
+            daemon=True
+        ).start()
+
+    def _smart_search_and_move_worker(self, path, use_full_search):
+        """智慧搜尋並分類工作執行緒"""
+        self.status_var.set("執行中：智慧搜尋並分類...")
+        
+        try:
+            result = self.core.smart_search_and_move(
+                path, 
+                self.stop_event, 
+                self.update_progress,
+                use_full_search=use_full_search
+            )
+            
+            if self.is_running:
+                if self.stop_event.is_set():
+                    self.update_progress(f"\n🛑 任務已由使用者中止。\n")
+                    self.status_var.set("任務已中止")
+                elif result.get('status') == 'success':
+                    stats = result.get('stats', {})
+                    interactive_info = f"  🤝 互動處理: {stats['interactive']}\n" if stats.get('interactive', 0) > 0 else ""
+                    summary = (f"\n{'='*60}\n🎉 智慧搜尋並分類完成！\n\n"
+                              f"  ✅ 成功: {stats.get('success', 0)}\n"
+                              f"  ⚠️ 已存在: {stats.get('exists', 0)}\n"
+                              f"  ❓ 無資料: {stats.get('no_data', 0)}\n"
+                              f"  ❌ 失敗: {stats.get('failed', 0)}\n"
+                              f"{interactive_info}")
+                    self.update_progress(summary)
+                    self.status_var.set("就緒")
+                else:
+                    self.update_progress(f"\n💥 錯誤: {result.get('message', '未知錯誤')}\n")
+                    self.status_var.set(f"錯誤: {result.get('message', '未知錯誤')}")
+        except Exception as e:
+            logger.error(f"智慧搜尋並分類失敗: {e}", exc_info=True)
+            if self.is_running:
+                self.update_progress(f"\n💥 錯誤: {e}\n")
+                self.status_var.set(f"錯誤: {e}")
 
     def start_studio_classification(self):
         """開始片商分類功能"""

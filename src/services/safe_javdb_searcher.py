@@ -233,6 +233,16 @@ class SafeJAVDBSearcher:
                     return self.safe_request(url, retry_count + 1)
                 return None
 
+    def clear_cache_for_code(self, video_id: str) -> bool:
+        """清除特定番號的快取 - 用於二次搜尋"""
+        cache_key = f"javdb_{video_id.upper()}"
+        if cache_key in self.cache:
+            del self.cache[cache_key]
+            self.save_cache()
+            logger.info(f"🧹 已清除 {video_id} 的 JAVDB 快取")
+            return True
+        return False
+
     def search_javdb(self, video_id: str) -> Optional[Dict[str, Any]]:
         """在 JAVDB 搜尋影片資訊"""
         if not video_id:

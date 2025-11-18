@@ -21,8 +21,11 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from models.config import ConfigManager
+from models.studio import StudioIdentifier
 from .safe_searcher import SafeSearcher, RequestConfig
 from .safe_javdb_searcher import SafeJAVDBSearcher
+import asyncio
+from scrapers.sources.avwiki_scraper import AVWikiScraper
 # 移除不必要的 create_japanese_soup 匯入，直接使用 JapaneseSiteEnhancer 類別
 
 logger = logging.getLogger(__name__)
@@ -91,9 +94,19 @@ class WebSearcher:
         self.thread_count = config.getint('search', 'thread_count', fallback=5)
         self.batch_delay = config.getfloat('search', 'batch_delay', fallback=2.0)
         self.timeout = config.getint('search', 'request_timeout', fallback=20)
+        
+        # 初始化片商識別器（用於標準化片商名稱）
+        self.studio_identifier = StudioIdentifier()
+        
+        # AV-WIKI 批次併發配置
+        self.avwiki_concurrent_enabled = config.getboolean('search', 'avwiki_concurrent_enabled', fallback=True)
+        self.avwiki_max_concurrent = config.getint('search', 'avwiki_max_concurrent', fallback=15)
+        
         logger.info("🛡️ 已啟用安全搜尋器功能")
         logger.info("🇯🇵 已啟用日文網站快速搜尋功能")
         logger.info("🎬 已啟用 JAVDB 安全搜尋功能")
+        if self.avwiki_concurrent_enabled:
+            logger.info(f"🚀 已啟用 AV-WIKI 批次併發搜尋 (併發數: {self.avwiki_max_concurrent})")
 
     def search_info(self, code: str, stop_event: threading.Event) -> Optional[Dict]:
         """多層級搜尋策略 - AV-WIKI -> chiba-f.net -> JAVDB"""
@@ -123,11 +136,15 @@ class WebSearcher:
                 logger.debug(f"🔍 第三層搜尋 - JAVDB: {code}")
                 javdb_result = self.javdb_searcher.search_javdb(code)
                 if javdb_result and javdb_result.get('actresses'):
+                    # 🔧 標準化片商名稱
+                    raw_studio = javdb_result.get('studio')
+                    normalized_studio = self.studio_identifier.normalize_studio_name(raw_studio, code)
+                    
                     # 轉換為統一格式
                     result = {
                         'source': javdb_result['source'],
                         'actresses': javdb_result['actresses'],
-                        'studio': javdb_result.get('studio'),
+                        'studio': normalized_studio,
                         'studio_code': javdb_result.get('studio_code'),
                         'release_date': javdb_result.get('release_date'),
                         'title': javdb_result.get('title'),
@@ -199,16 +216,24 @@ class WebSearcher:
                         logger.info(f"AV-WIKI 明確顯示沒有找到 {code} 的結果")
                         return None
                         
-            # 正確解析女優名稱：<li class="actress-name"><a>女優名稱</a></li>
-            actress_elements = soup.find_all("li", class_="actress-name")
+            # 🔧 修正女優解析邏輯：使用 rel="tag" 且 href 包含 /av-actress/
+            tag_links = soup.find_all("a", rel="tag")
             actresses = []
-            logger.info(f"AV-WIKI 解析: 找到 {len(actress_elements)} 個 actress-name 元素")
-            for li in actress_elements:
-                link = li.find("a")
-                if link and link.text.strip():
-                    actress_name = link.text.strip()
-                    actresses.append(actress_name)
-                    logger.info(f"AV-WIKI 提取到女優名稱: {actress_name}")
+            seen_actresses = set()  # 避免重複
+            
+            logger.info(f"AV-WIKI 解析: 找到 {len(tag_links)} 個 tag 連結")
+            
+            for link in tag_links:
+                href = link.get('href', '')
+                text = link.get_text(strip=True)
+                
+                # 只提取女優標籤（href 包含 /av-actress/）
+                if '/av-actress/' in href and text and text not in seen_actresses:
+                    seen_actresses.add(text)
+                    actresses.append(text)
+                    logger.info(f"AV-WIKI 提取到女優: {text} (來自 {href})")
+            
+            logger.info(f"AV-WIKI 最終找到 {len(actresses)} 位女優: {actresses}")
             
             if not actresses:
                 logger.warning(f"AV-WIKI 未找到女優名稱，HTML開頭: {str(soup)[:200]}...")
@@ -226,11 +251,22 @@ class WebSearcher:
                             if potential_name and self._is_actress_name(potential_name):
                                 if potential_name not in actresses: 
                                     actresses.append(potential_name)                
+            # 品質檢查：如果找到超過 10 位女優，很可能是錯誤解析
             if actresses:
+                if len(actresses) > 10:
+                    logger.warning(f"番號 {code} 找到 {len(actresses)} 位女優，可能是解析錯誤，已清空結果")
+                    return None
+                elif len(actresses) > 3:
+                    logger.warning(f"番號 {code} 找到 {len(actresses)} 位女優: {', '.join(actresses[:5])}...（可能需要確認）")
+                
+                # 🔧 標準化片商名稱
+                raw_studio = studio_info.get('studio')
+                normalized_studio = self.studio_identifier.normalize_studio_name(raw_studio, code)
+                
                 result = {
                     'source': 'AV-WIKI (安全增強版)', 
                     'actresses': actresses,
-                    'studio': studio_info.get('studio'),
+                    'studio': normalized_studio,
                     'studio_code': studio_info.get('studio_code'),
                     'release_date': studio_info.get('release_date')
                 }
@@ -556,6 +592,10 @@ class WebSearcher:
             if not result['studio_code']:
                 result['studio_code'] = self._extract_studio_code_from_number(code)
             
+            # 🔧 標準化片商名稱
+            if result.get('studio'):
+                result['studio'] = self.studio_identifier.normalize_studio_name(result['studio'], code)
+            
             if result['actresses']:
                 self.search_cache[code] = result
                 logger.info(f"番號 {code} 透過 {result['source']} 找到: {', '.join(result['actresses'])}, 片商: {result.get('studio', '未知')}")
@@ -775,11 +815,15 @@ class WebSearcher:
             logger.debug(f"📊 JAVDB 搜尋: {code}")
             javdb_result = self.javdb_searcher.search_javdb(code)
             if javdb_result and javdb_result.get('actresses'):
+                # 🔧 標準化片商名稱
+                raw_studio = javdb_result.get('studio')
+                normalized_studio = self.studio_identifier.normalize_studio_name(raw_studio, code) if raw_studio else None
+                
                 # 轉換為統一格式
                 result = {
                     'source': javdb_result['source'],
                     'actresses': javdb_result['actresses'],
-                    'studio': javdb_result.get('studio'),
+                    'studio': normalized_studio,
                     'studio_code': javdb_result.get('studio_code'),
                     'release_date': javdb_result.get('release_date'),
                     'title': javdb_result.get('title'),
@@ -827,4 +871,73 @@ class WebSearcher:
         except Exception as e:
             logger.error(f"日文網站搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
             return None
+
+    def batch_search_avwiki_concurrent(self, codes: list, stop_event: threading.Event, progress_callback=None) -> Dict[str, Optional[Dict]]:
+        """使用 AV-WIKI 批次併發搜尋
+        
+        Args:
+            codes: 番號列表
+            stop_event: 停止事件
+            progress_callback: 進度回調函式
+            
+        Returns:
+            Dict[番號, 搜尋結果]
+        """
+        if not codes:
+            return {}
+            
+        # 過濾已快取的番號
+        uncached_codes = [code for code in codes if code not in self.search_cache]
+        cached_results = {code: self.search_cache[code] for code in codes if code in self.search_cache}
+        
+        if progress_callback and cached_results:
+            progress_callback(f"📦 使用快取: {len(cached_results)} 個番號\n")
+        
+        if not uncached_codes:
+            return cached_results
+        
+        # 定義進度回調轉換
+        def wrapped_progress_callback(current, total, code):
+            if progress_callback:
+                # 簡單的進度顯示
+                progress_callback(f"[{current}/{total}] 搜尋 {code}\n")
+        
+        # 定義異步執行函式
+        async def run_batch_search():
+            # 在 async 環境中初始化 AVWikiScraper
+            avwiki_scraper = AVWikiScraper()
+            
+            return await avwiki_scraper.search_batch_concurrent(
+                uncached_codes,
+                max_concurrent=self.avwiki_max_concurrent,
+                progress_callback=wrapped_progress_callback
+            )
+        
+        try:
+            # 使用 asyncio.run 執行併發搜尋
+            if progress_callback:
+                progress_callback(f"🚀 開始 AV-WIKI 批次併發搜尋 ({len(uncached_codes)} 個番號)...\n")
+            
+            batch_results = asyncio.run(run_batch_search())
+            
+            # 將結果加入快取
+            for code, result in batch_results.items():
+                if result and result.get('actresses'):
+                    self.search_cache[code] = result
+            
+            # 合併快取結果和新結果
+            all_results = {**cached_results, **batch_results}
+            
+            # 統計
+            success_count = sum(1 for r in batch_results.values() if r and r.get('actresses'))
+            if progress_callback:
+                progress_callback(f"\n✅ AV-WIKI 批次搜尋完成: {success_count}/{len(uncached_codes)} 個番號找到資料\n")
+            
+            return all_results
+            
+        except Exception as e:
+            logger.error(f"AV-WIKI 批次併發搜尋發生錯誤: {e}", exc_info=True)
+            if progress_callback:
+                progress_callback(f"❌ AV-WIKI 批次搜尋失敗: {e}\n")
+            return cached_results
 

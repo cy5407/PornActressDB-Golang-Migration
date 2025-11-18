@@ -12,6 +12,7 @@ JSON 資料庫管理器 (JSONDBManager)
 import json
 import logging
 import hashlib
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
@@ -175,9 +176,9 @@ class JSONDBManager:
     
     def _save_all_data(self, data: JSONDatabaseDict) -> None:
         """
-        原子寫入資料到磁碟
+        原子寫入資料到磁碟（支援重試）
         
-        包含資料雜湊計算和備份。
+        包含資料雜湊計算和備份，並處理 OneDrive 鎖定問題。
         
         Args:
             data: 要儲存的資料字典
@@ -186,39 +187,77 @@ class JSONDBManager:
             LockError: 若無法獲得寫鎖定
             DataIntegrityError: 若寫入驗證失敗
         """
-        try:
-            # 驗證資料
-            self._validate_json_format(data)
-            self._validate_referential_integrity(data)
-            
-            # 計算資料雜湊
-            data_copy = data.copy()
-            data_copy['data_hash'] = ''  # 暫時清空以計算雜湊
-            data_str = json.dumps(data_copy, ensure_ascii=False, sort_keys=True)
-            data_hash = hashlib.sha256(data_str.encode('utf-8')).hexdigest()
-            data['data_hash'] = data_hash
-            
-            # 更新時間戳
-            data['updated_at'] = datetime.now(timezone.utc).strftime(ISO_DATETIME_FORMAT)
-            
-            with self.write_lock:
-                # 原子寫入
-                temp_file = self.data_file.parent / f"{self.data_file.name}.tmp"
+        max_retries = 5
+        retry_delay = 0.5  # 秒
+        
+        for attempt in range(max_retries):
+            try:
+                # 驗證資料
+                self._validate_json_format(data)
+                self._validate_referential_integrity(data)
                 
-                with open(temp_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
+                # 計算資料雜湊
+                data_copy = data.copy()
+                data_copy['data_hash'] = ''  # 暫時清空以計算雜湊
+                data_str = json.dumps(data_copy, ensure_ascii=False, sort_keys=True)
+                data_hash = hashlib.sha256(data_str.encode('utf-8')).hexdigest()
+                data['data_hash'] = data_hash
                 
-                # 替換原檔案
-                temp_file.replace(self.data_file)
+                # 更新時間戳
+                data['updated_at'] = datetime.now(timezone.utc).strftime(ISO_DATETIME_FORMAT)
                 
-                logger.info(f"✅ 資料儲存成功: {self.data_file}")
-                
-        except LockError as e:
-            logger.error(f"❌ 寫鎖定失敗: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 資料儲存失敗: {e}")
-            raise DataIntegrityError(f"儲存失敗: {e}")
+                with self.write_lock:
+                    # 原子寫入
+                    temp_file = self.data_file.parent / f"{self.data_file.name}.tmp"
+                    
+                    # 確保 temp 檔案不存在
+                    if temp_file.exists():
+                        try:
+                            temp_file.unlink()
+                        except Exception:
+                            pass
+                    
+                    with open(temp_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    
+                    # 在替換前確保原檔案可訪問
+                    if self.data_file.exists():
+                        # 在 Windows OneDrive 環境下，需要等待檔案完全釋放
+                        try:
+                            self.data_file.unlink()
+                        except PermissionError as pe:
+                            if attempt < max_retries - 1:
+                                logger.warning(f"檔案被鎖定（嘗試 {attempt + 1}/{max_retries}），等待後重試: {pe}")
+                                time.sleep(retry_delay * (attempt + 1))
+                                continue
+                            raise
+                    
+                    # 重新命名 temp 檔案
+                    temp_file.rename(self.data_file)
+                    
+                    logger.info(f"✅ 資料儲存成功: {self.data_file}")
+                    return  # 成功，退出循環
+                    
+            except PermissionError as pe:
+                if attempt < max_retries - 1:
+                    logger.warning(f"PermissionError（嘗試 {attempt + 1}/{max_retries}），等待後重試: {pe}")
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                logger.error(f"❌ 資料儲存失敗（所有重試已用盡）: {pe}")
+                raise DataIntegrityError(f"儲存失敗: {pe}")
+            except LockError as e:
+                logger.error(f"❌ 寫鎖定失敗: {e}")
+                raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"儲存失敗（嘗試 {attempt + 1}/{max_retries}），等待後重試: {e}")
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                logger.error(f"❌ 資料儲存失敗: {e}")
+                raise DataIntegrityError(f"儲存失敗: {e}")
+        
+        # 如果所有重試都失敗
+        raise DataIntegrityError("儲存失敗: 所有重試都已用盡")
     
     def _validate_json_format(self, data: Any) -> None:
         """
@@ -261,14 +300,14 @@ class JSONDBManager:
         actresses = data.get('actresses', {})
         links = data.get('links', [])
         
-        # 檢查連結中的 video_id 和 actress_id 是否存在
+        # 檢查連結中的 video_code 和 actress_id 是否存在
         for link in links:
-            video_id = link.get('video_id')
+            video_code = link.get('video_code')
             actress_id = link.get('actress_id')
             
-            if video_id and video_id not in videos:
+            if video_code and video_code not in videos:
                 raise DataIntegrityError(
-                    f"連結中的 video_id '{video_id}' 不存在"
+                    f"連結中的 video_code '{video_code}' 不存在"
                 )
             
             if actress_id and actress_id not in actresses:
@@ -277,13 +316,15 @@ class JSONDBManager:
                 )
         
         # 檢查影片中的 actresses 清單是否有效
-        for video_id, video in videos.items():
+        for code, video in videos.items():
             actresses_list = video.get('actresses', [])
-            for actress_id in actresses_list:
-                if actress_id not in actresses:
-                    raise DataIntegrityError(
-                        f"影片 '{video_id}' 中的女優 ID '{actress_id}' 不存在"
-                    )
+            # actresses 現在儲存的是女優名稱列表(字串),而非 ID
+            # 所以不需要驗證是否存在於 actresses 字典中
+            # 只需要驗證格式是否正確
+            if not isinstance(actresses_list, list):
+                raise DataIntegrityError(
+                    f"影片 '{code}' 的 actresses 必須是列表"
+                )
         
         logger.debug("✅ 參照完整性驗證通過")
     
@@ -302,21 +343,21 @@ class JSONDBManager:
         if not isinstance(videos, dict):
             raise ValidationError("'videos' 必須是字典")
         
-        for video_id, video in videos.items():
+        for code, video in videos.items():
             if not isinstance(video, dict):
-                raise ValidationError(f"影片 '{video_id}' 必須是字典")
+                raise ValidationError(f"影片 '{code}' 必須是字典")
             
             # 必需欄位
-            required_video_fields = {'id', 'title', 'studio', 'release_date'}
+            required_video_fields = {'code', 'title', 'studio', 'release_date'}
             missing = required_video_fields - set(video.keys())
             if missing:
-                raise ValidationError(f"影片 '{video_id}' 缺少欄位: {missing}")
+                raise ValidationError(f"影片 '{code}' 缺少欄位: {missing}")
             
             # 欄位類型檢查
-            if not isinstance(video.get('id'), str):
-                raise ValidationError(f"影片 '{video_id}' 的 'id' 必須是字串")
+            if not isinstance(video.get('code'), str):
+                raise ValidationError(f"影片 '{code}' 的 'code' 必須是字串")
             if not isinstance(video.get('actresses'), list):
-                raise ValidationError(f"影片 '{video_id}' 的 'actresses' 必須是清單")
+                raise ValidationError(f"影片 '{code}' 的 'actresses' 必須是清單")
         
         # 驗證 actresses 結構
         actresses = data.get('actresses', {})
@@ -341,7 +382,7 @@ class JSONDBManager:
             if not isinstance(link, dict):
                 raise ValidationError(f"連結 {idx} 必須是字典")
             
-            required_link_fields = {'video_id', 'actress_id'}
+            required_link_fields = {'video_code', 'actress_id'}
             missing = required_link_fields - set(link.keys())
             if missing:
                 raise ValidationError(f"連結 {idx} 缺少欄位: {missing}")
@@ -424,11 +465,11 @@ class JSONDBManager:
     # 基本 CRUD 方法 (將在 T010 實現)
     # ========================================================================
     
-    def add_or_update_video(self, video_info: VideoDict) -> str:
+    def add_or_update_video(self, code: str, info: Dict) -> str:
         """新增或更新影片 (待實現)"""
         pass
     
-    def get_video_info(self, video_id: str) -> Optional[VideoDict]:
+    def get_video_info(self, code: str) -> Optional[VideoDict]:
         """查詢影片 (待實現)"""
         pass
     
@@ -436,7 +477,7 @@ class JSONDBManager:
         """取得影片清單 (待實現)"""
         pass
     
-    def delete_video(self, video_id: str) -> bool:
+    def delete_video(self, code: str) -> bool:
         """刪除影片 (待實現)"""
         pass
     
@@ -670,17 +711,18 @@ class JSONDBManager:
     # CRUD 操作 (T010 實現)
     # ========================================================================
     
-    def add_or_update_video(self, video_info: VideoDict) -> str:
+    def add_or_update_video(self, code: str, info: Dict) -> str:
         """
         新增或更新影片
         
-        若影片 ID 已存在則更新，否則建立新記錄。
+        若影片番號已存在則更新，否則建立新記錄。
         
         Args:
-            video_info: 影片資訊 (VideoDict)
+            code: 影片番號 (例如: "DOCZ-004")
+            info: 影片資訊字典
             
         Returns:
-            影片 ID (新建或已更新)
+            影片番號 (新建或已更新)
             
         Raises:
             ValidationError: 若影片資訊無效
@@ -689,13 +731,11 @@ class JSONDBManager:
         """
         try:
             # 驗證輸入
-            if not isinstance(video_info, dict):
+            if not isinstance(info, dict):
                 raise ValidationError("影片資訊必須是字典")
             
-            if 'id' not in video_info:
-                raise ValidationError("影片 ID 必須存在")
-            
-            video_id = video_info.get('id')
+            if not code:
+                raise ValidationError("影片番號必須存在")
             
             # 獲取寫鎖定
             self._acquire_write_lock()
@@ -706,11 +746,12 @@ class JSONDBManager:
                 
                 # 準備影片資料
                 video_dict = get_empty_video()
-                video_dict.update(video_info)
+                video_dict['code'] = code
+                video_dict.update(info)
                 video_dict['updated_at'] = datetime.now(timezone.utc).strftime(ISO_DATETIME_FORMAT)
                 
                 # 新增或更新
-                self.data['videos'][video_id] = video_dict
+                self.data['videos'][code] = video_dict
                 
                 # 驗證完整性
                 self._validate_referential_integrity(self.data)
@@ -721,8 +762,8 @@ class JSONDBManager:
                 # 保存
                 self._save_all_data(self.data)
 
-                logger.info(f"✅ 影片已新增/更新: {video_id}")
-                return video_id
+                logger.info(f"✅ 影片已新增/更新: {code}")
+                return code
                 
             finally:
                 self._release_locks()
@@ -734,12 +775,12 @@ class JSONDBManager:
             logger.error(f"❌ 未預期的錯誤: {e}")
             raise CorruptedDataError(f"新增/更新影片失敗: {e}")
     
-    def get_video_info(self, video_id: str) -> Optional[VideoDict]:
+    def get_video_info(self, code: str) -> Optional[VideoDict]:
         """
         查詢影片資訊
         
         Args:
-            video_id: 影片 ID
+            code: 影片番號
             
         Returns:
             影片資訊，若不存在則返回 None
@@ -753,13 +794,13 @@ class JSONDBManager:
             
             try:
                 videos = self.data.get('videos', {})
-                video = videos.get(video_id)
+                video = videos.get(code)
                 
                 if video:
-                    logger.debug(f"✅ 查詢影片成功: {video_id}")
+                    logger.debug(f"✅ 查詢影片成功: {code}")
                     return video
                 else:
-                    logger.debug(f"⚠️ 影片不存在: {video_id}")
+                    logger.debug(f"⚠️ 影片不存在: {code}")
                     return None
                     
             finally:
@@ -792,7 +833,17 @@ class JSONDBManager:
             
             try:
                 videos = self.data.get('videos', {})
-                video_list = list(videos.values())
+                video_list = []
+                
+                # 處理每個影片，確保有 code 欄位（統一格式）
+                for code, video in videos.items():
+                    # 如果影片字典中沒有 code 欄位，但有 id 欄位，則使用 id 或鍵值作為 code
+                    if 'code' not in video:
+                        if 'id' in video:
+                            video['code'] = video['id']
+                        else:
+                            video['code'] = code
+                    video_list.append(video)
                 
                 # 應用過濾
                 if filter_dict:
@@ -811,14 +862,14 @@ class JSONDBManager:
             logger.error(f"❌ 取得影片清單失敗: {e}")
             raise
     
-    def delete_video(self, video_id: str) -> bool:
+    def delete_video(self, code: str) -> bool:
         """
         刪除影片
         
         同時刪除相關的影片-女優關聯記錄。
         
         Args:
-            video_id: 影片 ID
+            code: 影片番號
             
         Returns:
             成功則返回 True，若影片不存在則返回 False
@@ -838,16 +889,16 @@ class JSONDBManager:
                 videos = self.data.get('videos', {})
                 
                 # 檢查影片是否存在
-                if video_id not in videos:
-                    logger.warning(f"⚠️ 影片不存在: {video_id}")
+                if code not in videos:
+                    logger.warning(f"⚠️ 影片不存在: {code}")
                     return False
                 
                 # 刪除影片
-                del videos[video_id]
+                del videos[code]
                 
                 # 刪除相關的影片-女優關聯
                 links = self.data.get('links', [])
-                self.data['links'] = [link for link in links if link.get('video_id') != video_id]
+                self.data['links'] = [link for link in links if link.get('video_code') != code]
 
                 # 驗證完整性
                 self._validate_referential_integrity(self.data)
@@ -858,7 +909,7 @@ class JSONDBManager:
                 # 保存
                 self._save_all_data(self.data)
 
-                logger.info(f"✅ 影片已刪除: {video_id}")
+                logger.info(f"✅ 影片已刪除: {code}")
                 return True
                 
             finally:
@@ -1252,15 +1303,15 @@ class JSONDBManager:
         videos = self.data.get('videos', {})
         links = self.data.get('links', [])
 
-        # 建立 actress_id → video_ids 映射
+        # 建立 actress_id → codes 映射
         actress_video_map: Dict[str, List[str]] = {}
         for link in links:
             actress_id = link.get('actress_id')
-            video_id = link.get('video_id')
-            if actress_id and video_id:
+            video_code = link.get('video_code')
+            if actress_id and video_code:
                 if actress_id not in actress_video_map:
                     actress_video_map[actress_id] = []
-                actress_video_map[actress_id].append(video_id)
+                actress_video_map[actress_id].append(video_code)
 
         # 統計每位女優的資訊
         statistics = []
@@ -1268,15 +1319,15 @@ class JSONDBManager:
             actress_name = actress.get('name', '')
 
             # 取得該女優的所有影片
-            video_ids = actress_video_map.get(actress_id, [])
-            video_count = len(video_ids)
+            video_codes = actress_video_map.get(actress_id, [])
+            video_count = len(video_codes)
 
             # 收集片商資訊
             studios = set()
             studio_codes = set()
 
-            for video_id in video_ids:
-                video = videos.get(video_id)
+            for code in video_codes:
+                video = videos.get(code)
                 if video:
                     studio = video.get('studio')
                     studio_code = video.get('studio_code')
@@ -1347,18 +1398,18 @@ class JSONDBManager:
         # 建立片商統計映射 {(studio, studio_code): {...}}
         studio_stats: Dict[tuple, Dict[str, Any]] = {}
 
-        # 建立 video_id → actress_ids 映射
+        # 建立 code → actress_ids 映射
         video_actress_map: Dict[str, set] = {}
         for link in links:
-            video_id = link.get('video_id')
+            video_code = link.get('video_code')
             actress_id = link.get('actress_id')
-            if video_id and actress_id:
-                if video_id not in video_actress_map:
-                    video_actress_map[video_id] = set()
-                video_actress_map[video_id].add(actress_id)
+            if video_code and actress_id:
+                if video_code not in video_actress_map:
+                    video_actress_map[video_code] = set()
+                video_actress_map[video_code].add(actress_id)
 
         # 遍歷所有影片
-        for video_id, video in videos.items():
+        for code, video in videos.items():
             studio = video.get('studio')
             studio_code = video.get('studio_code', '')
 
@@ -1381,8 +1432,8 @@ class JSONDBManager:
             studio_stats[key]['video_count'] += 1
 
             # 收集女優 ID
-            if video_id in video_actress_map:
-                studio_stats[key]['actress_ids'].update(video_actress_map[video_id])
+            if code in video_actress_map:
+                studio_stats[key]['actress_ids'].update(video_actress_map[code])
 
         # 轉換為結果格式
         statistics = []
@@ -1475,11 +1526,11 @@ class JSONDBManager:
         # 遍歷所有關聯
         for link in links:
             actress_id = link.get('actress_id')
-            video_id = link.get('video_id')
+            video_code = link.get('video_code')
             role_type = link.get('role_type', 'primary')  # 預設為 primary
             timestamp = link.get('timestamp', '')
 
-            if not actress_id or not video_id:
+            if not actress_id or not video_code:
                 continue
 
             # 取得女優名稱
@@ -1490,13 +1541,13 @@ class JSONDBManager:
                 continue
 
             # 取得影片資訊
-            video = videos.get(video_id)
+            video = videos.get(video_code)
             if not video:
                 continue
 
             studio = video.get('studio', '')
             studio_code = video.get('studio_code', '')
-            video_code = video.get('id', '')
+            video_code_value = video.get('code', '')
 
             # 過濾掉無片商或 UNKNOWN 的影片
             if not studio or studio == 'UNKNOWN':
@@ -1577,3 +1628,132 @@ class JSONDBManager:
             filtered = [v for v in filtered if v.get('release_date', '') <= date_before]
         
         return filtered
+    
+    def analyze_actress_primary_studio(self, actress_name: str, major_studios: set = None) -> Dict:
+        """
+        分析女優的主要片商
+        
+        根據女優的影片分布分析其主要片商,並提供分類建議。
+        
+        Args:
+            actress_name: 女優名稱
+            major_studios: 大片商集合 (可選)
+            
+        Returns:
+            包含以下鍵值的字典:
+            - actress_name: 女優名稱
+            - primary_studio: 主要片商
+            - confidence: 信心度 (0-100)
+            - total_videos: 總影片數
+            - studio_distribution: 片商分布統計
+            - recommendation: 分類建議 ('studio_classification' 或 'solo_artist')
+        """
+        try:
+            self._acquire_read_lock()
+            
+            try:
+                videos = self.data.get('videos', {})
+                
+                # 找出該女優的所有影片
+                actress_videos = []
+                for code, video in videos.items():
+                    actresses = video.get('actresses', [])
+                    if actress_name in actresses:
+                        actress_videos.append(video)
+                
+                # 統計片商分布
+                studio_stats = {}
+                total_videos = 0
+                
+                for video in actress_videos:
+                    studio = video.get('studio')
+                    if not studio or studio == 'UNKNOWN':
+                        continue
+                    
+                    studio_code = video.get('studio_code', '')
+                    total_videos += 1
+                    
+                    if studio not in studio_stats:
+                        studio_stats[studio] = {
+                            'studio_code': studio_code,
+                            'primary_count': 1,  # JSON 資料庫中沒有 association_type,全部視為 primary
+                            'collaboration_count': 0,
+                            'total_count': 0,
+                            'codes': []
+                        }
+                    
+                    studio_stats[studio]['total_count'] += 1
+                    studio_stats[studio]['codes'].append(video.get('code', ''))
+                
+                # 如果沒有影片資料
+                if not studio_stats:
+                    return {
+                        'actress_name': actress_name,
+                        'primary_studio': 'UNKNOWN',
+                        'confidence': 0.0,
+                        'total_videos': 0,
+                        'studio_distribution': {},
+                        'recommendation': 'solo_artist'
+                    }
+                
+                # 找出作品數最多的片商
+                best_studio = max(studio_stats.items(), key=lambda x: x[1]['total_count'])[0]
+                best_stats = studio_stats[best_studio]
+                
+                # 計算信心度
+                confidence = (best_stats['total_count'] / total_videos) * 100 if total_videos > 0 else 0
+                
+                # 決定推薦分類
+                recommendation = 'solo_artist'
+                has_major_studio_work = False
+                major_studio_work_count = 0
+                minor_studio_work_count = 0
+                best_major_studio = None
+                best_major_confidence = 0
+                
+                if major_studios:
+                    for studio, stats in studio_stats.items():
+                        if studio in major_studios:
+                            has_major_studio_work = True
+                            major_studio_work_count += stats['total_count']
+                            if stats['total_count'] > best_major_confidence:
+                                best_major_confidence = stats['total_count']
+                                best_major_studio = studio
+                        else:
+                            minor_studio_work_count += stats['total_count']
+                
+                # 分類邏輯
+                if has_major_studio_work:
+                    if best_major_studio and best_major_studio == best_studio:
+                        # 最佳片商就是大片商
+                        if best_stats['total_count'] >= 3 and confidence >= 70:
+                            recommendation = 'studio_classification'
+                        elif best_stats['total_count'] >= 1 and minor_studio_work_count < 10:
+                            recommendation = 'studio_classification'
+                            confidence = max(confidence, 60.0)
+                    elif best_major_studio:
+                        # 最佳片商不是大片商,但有大片商作品
+                        if major_studio_work_count >= 1 and minor_studio_work_count < 10:
+                            recommendation = 'studio_classification'
+                            best_studio = best_major_studio
+                            major_studio_confidence = (studio_stats[best_major_studio]['total_count'] / total_videos) * 100
+                            confidence = max(major_studio_confidence, 60.0)
+                
+                return {
+                    'actress_name': actress_name,
+                    'primary_studio': best_studio or 'UNKNOWN',
+                    'confidence': round(confidence, 1),
+                    'total_videos': total_videos,
+                    'studio_distribution': studio_stats,
+                    'recommendation': recommendation
+                }
+                
+            finally:
+                self._release_locks()
+                
+        except LockError as e:
+            logger.error(f"❌ 無法獲取讀鎖定: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ 分析女優主要片商失敗: {e}")
+            raise

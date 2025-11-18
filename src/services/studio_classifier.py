@@ -76,31 +76,73 @@ class StudioClassificationCore:
     def _scan_actress_folders(self, root_folder: Path, progress_callback=None) -> List[Path]:
         """只掃描根目錄第一層的女優資料夾（避免遞迴問題）"""
         actress_folders = []
+        skipped_by_parent = []  # 記錄因父資料夾而被跳過的資料夾
         
         if progress_callback:
             progress_callback("🔍 正在掃描根目錄的女優資料夾（僅第一層）...\n")
         
         try:
             # 只掃描第一層子目錄，避免遞迴掃描已分類的片商資料夾
-            for item in root_folder.iterdir():
-                if item.is_dir() and self._is_actress_folder(item):
-                    actress_folders.append(item)
+            all_dirs = list(root_folder.iterdir())
+            dir_count = sum(1 for item in all_dirs if item.is_dir())
+            
+            if progress_callback:
+                progress_callback(f"📊 發現 {dir_count} 個子資料夾，正在檢查...\n")
+            
+            for item in all_dirs:
+                if item.is_dir():
+                    # 檢查是否已在片商資料夾內
+                    parent_name = item.parent.name
+                    studio_folders = {
+                        'E-BODY', 'FALENO', 'S1', 'SOD', 'PRESTIGE', 
+                        'MOODYZ', 'MADONNA', 'IdeaPocket', 'KAWAII',
+                        '單體企劃女優', 'SOLO_ACTRESS', 'INDEPENDENT',
+                        'OPPAI', 'FITCH', 'ATTACKERS', 'PREMIUM', 'DAS',
+                        'WANZ FACTORY', 'kira☆kira', 'Moody\'s',
+                        'kawaii*', 'S1 NO.1 STYLE', 'IDEAPOCKET'
+                    }
+                    
+                    if parent_name.upper() in studio_folders:
+                        skipped_by_parent.append(item.name)
+                        continue
+                    
+                    is_actress = self._is_actress_folder(item, progress_callback)
+                    if is_actress:
+                        actress_folders.append(item)
+            
+            # 如果有資料夾因為已在片商資料夾內而被跳過，顯示提示
+            if skipped_by_parent and progress_callback:
+                progress_callback(f"\n⚠️ 發現 {len(skipped_by_parent)} 個女優資料夾已在片商資料夾「{parent_name}」內\n")
+                progress_callback("💡 若需重新分類這些女優，請先將她們的資料夾移出片商資料夾\n")
+                if len(skipped_by_parent) <= 10:
+                    progress_callback(f"   已跳過: {', '.join(skipped_by_parent)}\n")
+                else:
+                    progress_callback(f"   已跳過: {', '.join(skipped_by_parent[:10])}... 等 {len(skipped_by_parent)} 個\n")
+                progress_callback("\n")
                     
             return actress_folders
             
         except Exception as e:
             self.logger.error(f"掃描女優資料夾失敗: {e}")
+            if progress_callback:
+                progress_callback(f"❌ 掃描失敗: {e}\n")
             return []
 
-    def _is_actress_folder(self, folder_path: Path) -> bool:
-        """判斷是否為女優資料夾"""
+    def _is_actress_folder(self, folder_path: Path, progress_callback=None) -> bool:
+        """
+        判斷是否為女優資料夾
+        策略：優先檢查資料庫，資料夾名稱在資料庫中 = 女優資料夾
+        """
         folder_name = folder_path.name
         folder_name_upper = folder_name.upper()
           # 排除明顯的片商資料夾名稱（使用統一的大片商名單）
         studio_folders = {
             'E-BODY', 'FALENO', 'S1', 'SOD', 'PRESTIGE', 
             'MOODYZ', 'MADONNA', 'IdeaPocket', 'KAWAII',
-            '單體企劃女優', 'SOLO_ACTRESS', 'INDEPENDENT'
+            '單體企劃女優', 'SOLO_ACTRESS', 'INDEPENDENT',
+            'OPPAI', 'FITCH', 'ATTACKERS', 'PREMIUM', 'DAS',
+            'WANZ FACTORY', 'kira☆kira', 'Moody\'s',
+            'kawaii*', 'S1 NO.1 STYLE', 'IDEAPOCKET'
         }
         
         # 排除通用/系統資料夾名稱
@@ -112,51 +154,85 @@ class StudioClassificationCore:
             'COLLECTION', 'COLLECTIONS', 'SERIES', '系列', '合集',
             'FOLDER', 'FOLDERS', 'DIR', 'DIRECTORY', 'DATA',
             'UNCENSORED', 'CENSORED', '無碼', '有碼', 'FC2', 'PPV',
-            'DELETED', 'TRASH', 'RECYCLE', '回收站', '垃圾桶'
+            'DELETED', 'TRASH', 'RECYCLE', '回收站', '垃圾桶',
+            '轉檔1', '轉檔2', '轉檔3', '轉檔', 'CONVERT', 'ENCODING',
+            'AV2', '20251110', '轉編1'
         }
         
         # 組合所有需要排除的資料夾
         all_excluded = studio_folders | excluded_folders
         
         if folder_name_upper in all_excluded:
+            self.logger.debug(f"排除片商/系統資料夾: {folder_name}")
             return False
         
         # 檢查是否已經在片商資料夾內（避免重複處理）
         parent_name = folder_path.parent.name.upper()
         if parent_name in studio_folders:
+            self.logger.debug(f"排除已在片商資料夾內: {folder_name}")
             return False
         
         # 排除過短或過長的資料夾名稱（可能不是女優名稱）
         if len(folder_name) < 2 or len(folder_name) > 30:
+            self.logger.debug(f"排除名稱長度不符: {folder_name} (長度: {len(folder_name)})")
             return False
         
         # 排除純數字資料夾名稱
         if folder_name.isdigit():
+            self.logger.debug(f"排除純數字資料夾: {folder_name}")
             return False
         
         # 排除看起來像番號的資料夾名稱
         import re
         if re.match(r'^[A-Z]{2,6}-?\d{3,5}[A-Z]?$', folder_name_upper):
+            self.logger.debug(f"排除番號格式資料夾: {folder_name}")
             return False
         
-        # 檢查資料夾內是否有影片檔案
+        # 🔑 關鍵邏輯：優先檢查資料庫中是否有該女優
+        # 使用 analyze_actress_primary_studio 來檢查女優是否存在
         try:
-            video_count = 0
-            total_files = 0
+            analysis_result = self.db_manager.analyze_actress_primary_studio(folder_name, self._major_studios)
+            total_videos = analysis_result.get('total_videos', 0)
+            
+            if total_videos > 0:
+                # 資料庫中有該女優的影片記錄
+                if progress_callback:
+                    progress_callback(f"  ✅ {folder_name} (資料庫中有 {total_videos} 部影片)\n")
+                self.logger.debug(f"✅ 資料庫確認女優: {folder_name} (影片數: {total_videos})")
+                return True
+            else:
+                if progress_callback:
+                    progress_callback(f"  ⚠️ {folder_name} (資料庫中無影片記錄)\n")
+                self.logger.debug(f"⚠️ 資料庫中無此女優影片: {folder_name}")
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"  ❌ {folder_name} (檢查失敗: {str(e)[:50]})\n")
+            self.logger.warning(f"檢查女優資料庫時發生錯誤 ({folder_name}): {e}", exc_info=True)
+        
+        # 次要檢查：如果資料庫中沒有，檢查資料夾內是否有檔案
+        try:
+            has_any_files = False
             
             for file_path in folder_path.iterdir():
                 if file_path.is_file():
-                    total_files += 1
+                    has_any_files = True
+                    # 如果有影片檔案，也認定為女優資料夾
                     if file_path.suffix.lower() in self.supported_formats:
-                        video_count += 1
-                        
-            # 必須至少有一個影片檔案，且影片檔案佔一定比例
-            if video_count >= 1 and (total_files <= 10 or video_count / total_files >= 0.3):
-                return True
+                        self.logger.debug(f"✅ 發現影片檔案: {folder_name}")
+                        return True
+            
+            # 如果有任何檔案（字幕、圖片等），也可能是女優資料夾
+            if has_any_files:
+                self.logger.debug(f"⚠️ 有檔案但不在資料庫中: {folder_name}")
+                # 不直接返回 True，讓後續邏輯決定
                 
         except PermissionError:
+            self.logger.debug(f"無權限存取資料夾: {folder_name}")
             return False
+        except Exception as e:
+            self.logger.debug(f"檢查資料夾檔案時發生錯誤 ({folder_name}): {e}")
         
+        self.logger.debug(f"❌ 不符合條件: {folder_name} (不在資料庫且無影片檔案)")
         return False
 
     def _update_actress_statistics(self, actress_folders: List[Path], progress_callback=None) -> Dict[str, Dict]:
@@ -256,10 +332,16 @@ class StudioClassificationCore:
         """
         識別所有定義為「大片商」的片商名稱集合。
         使用用戶指定的大片商名單。
-        """        # 用戶指定的大片商名單
+        注意：片商名稱需與資料庫中的實際名稱大小寫完全一致
+        """        
+        # 用戶指定的大片商名單（需與資料庫中的實際名稱一致）
         major_studios = {
             'E-BODY', 'FALENO', 'S1', 'SOD', 'PRESTIGE', 
-            'MOODYZ', 'MADONNA', 'IdeaPocket', 'KAWAII'
+            'MOODYZ', 'MADONNA', 'IdeaPocket', 'kawaii',  # kawaii 是小寫
+            'OPPAI', 'FITCH', 'ATTACKERS', 'PREMIUM', 'DAS',
+            'MOODYZ DIVA',  # 新增
+            'FALENO star', 'FALENO TUBE',  # FALENO 相關
+            'kira☆kira', 'WANZ FACTORY'
         }
         return major_studios
 
@@ -338,8 +420,15 @@ class StudioClassificationCore:
         if progress_callback:
             progress_callback("🚚 開始按片商移動女優資料夾...\n")
         
+        total_to_process = len(actress_stats)
+        processed_count = 0
+        
         for actress_name, stats in actress_stats.items():
             try:
+                processed_count += 1
+                if progress_callback:
+                    progress_callback(f"📍 處理進度: {processed_count}/{total_to_process} ({actress_name})\n")
+                
                 source_folder = stats['folder_path']
                 main_studio = stats['main_studio']
                 confidence = stats['confidence']
@@ -376,12 +465,12 @@ class StudioClassificationCore:
                         progress_callback(f"⏩ 跳過 {actress_name}: 重新檢查後不符合女優資料夾條件\n")
                     continue
                 
-                # 決定目標片商資料夾（使用增強版推薦系統）
+                # 決定目標片商資料夾（完全信任資料庫的推薦系統）
                 recommendation = stats.get('recommendation', 'solo_artist')
                 
-                if (recommendation == 'studio_classification' and 
-                    confidence >= confidence_threshold and 
-                    main_studio != 'UNKNOWN'):
+                # 使用資料庫的智慧推薦,不再額外檢查信心度
+                # 因為 analyze_actress_primary_studio 已經包含了完整的分類邏輯
+                if recommendation == 'studio_classification' and main_studio != 'UNKNOWN':
                     target_studio_folder = root_folder / main_studio
                     category = 'studio'
                 else:
@@ -485,10 +574,20 @@ class StudioClassificationCore:
         
         try:
             self.logger.info(f"開始合併資料夾: {source_folder} → {target_folder}")
+            if progress_callback:
+                progress_callback(f"  🔄 開始合併資料夾內容...\n")
             
             # 遍歷來源資料夾中的所有檔案和子資料夾
-            for item in source_folder.iterdir():
+            items = list(source_folder.iterdir())
+            total_items = len(items)
+            processed_items = 0
+            
+            for item in items:
                 try:
+                    processed_items += 1
+                    if progress_callback and processed_items % 10 == 0:
+                        progress_callback(f"  🔄 合併進度: {processed_items}/{total_items}\n")
+                    
                     target_item = target_folder / item.name
                     
                     if item.is_file():
@@ -498,14 +597,21 @@ class StudioClassificationCore:
                             base_name = item.stem
                             extension = item.suffix
                             counter = 1
+                            max_attempts = 1000  # 防止無限迴圈
                             
                             # 找一個不衝突的檔案名稱
-                            while target_item.exists():
+                            while target_item.exists() and counter < max_attempts:
                                 new_name = f"{base_name}_{counter}{extension}"
                                 target_item = target_folder / new_name
                                 counter += 1
                             
-                            self.logger.info(f"檔案重名，重新命名: {item.name} → {target_item.name}")
+                            if counter >= max_attempts:
+                                self.logger.error(f"無法找到唯一檔案名稱: {item.name}")
+                                merge_result['files_failed'] += 1
+                                continue
+                            
+                            if counter > 1:
+                                self.logger.info(f"檔案重名，重新命名: {item.name} → {target_item.name}")
                         
                         # 移動檔案
                         shutil.move(str(item), str(target_item))

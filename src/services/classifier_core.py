@@ -68,7 +68,16 @@ class UnifiedClassifierCore:
         """按片商分類女優資料夾"""
         if not self.studio_classifier:
             return {'status': 'error', 'message': '片商分類器未初始化'}
-        return self.studio_classifier.classify_actresses_by_studio(folder_path, progress_callback)
+        
+        # 建立一個同時輸出到終端機和原始 callback 的包裝函式
+        def terminal_progress_callback(message: str):
+            # 輸出到終端機
+            print(message, end='', flush=True)
+            # 如果有原始 callback，也呼叫它
+            if progress_callback:
+                progress_callback(message)
+        
+        return self.studio_classifier.classify_actresses_by_studio(folder_path, terminal_progress_callback)
 
     def get_actress_studio_distribution(self, actress_name: str) -> Dict:
         """取得指定女優的片商分佈統計"""
@@ -155,6 +164,9 @@ class UnifiedClassifierCore:
                 progress_callback
             )
             success_count = 0
+            from datetime import datetime
+            current_time = datetime.now().isoformat()
+            
             for code, result in search_results.items():
                 if result and result.get('actresses'):
                     success_count += 1
@@ -169,7 +181,9 @@ class UnifiedClassifierCore:
                             'original_filename': file_path.name, 
                             'file_path': str(file_path), 
                             'studio': studio, 
-                            'search_method': result.get('source', 'AV-WIKI')
+                            'search_method': result.get('source', 'AV-WIKI'),
+                            'search_status': 'searched_found',
+                            'last_search_date': current_time
                         }
                         self.db_manager.add_or_update_video(code, info)
             return {
@@ -181,8 +195,15 @@ class UnifiedClassifierCore:
             self.logger.error(f"搜尋過程中發生錯誤: {e}", exc_info=True)
             return {'status': 'error', 'message': str(e)}
 
-    def process_and_search_japanese_sites(self, folder_path: str, stop_event: threading.Event, progress_callback=None):
-        """僅使用日文網站搜尋 (AV-WIKI 和 chiba-f.net)"""
+    def process_and_search_japanese_sites(self, folder_path: str, stop_event: threading.Event, progress_callback=None, use_avwiki_concurrent=True):
+        """僅使用日文網站搜尋 (AV-WIKI 和 chiba-f.net)
+        
+        Args:
+            folder_path: 資料夾路徑
+            stop_event: 停止事件
+            progress_callback: 進度回調函式
+            use_avwiki_concurrent: 是否使用 AV-WIKI 批次併發搜尋（預設 True）
+        """
         try:
             if progress_callback: 
                 progress_callback("🇯🇵 開始掃描資料夾 (日文網站搜尋模式)...\n")
@@ -210,14 +231,27 @@ class UnifiedClassifierCore:
                     progress_callback("🎉 所有影片都已在資料庫中！\n")
                 return {'status': 'success', 'message': '所有番號都已存在於資料庫中'}
             
-            # 使用日文網站專用搜尋方法
-            search_results = self.web_searcher.batch_search(
-                list(new_code_file_map.keys()), 
-                self.web_searcher.search_japanese_sites, 
-                stop_event, 
-                progress_callback
-            )
+            # 使用 AV-WIKI 批次併發搜尋（如果啟用）
+            if use_avwiki_concurrent and self.web_searcher.avwiki_concurrent_enabled:
+                if progress_callback:
+                    progress_callback(f"🚀 使用 AV-WIKI 批次併發搜尋 (併發數: {self.web_searcher.avwiki_max_concurrent})...\n")
+                search_results = self.web_searcher.batch_search_avwiki_concurrent(
+                    list(new_code_file_map.keys()),
+                    stop_event,
+                    progress_callback
+                )
+            else:
+                # 使用傳統日文網站專用搜尋方法
+                search_results = self.web_searcher.batch_search(
+                    list(new_code_file_map.keys()), 
+                    self.web_searcher.search_japanese_sites, 
+                    stop_event, 
+                    progress_callback
+                )
             success_count = 0
+            from datetime import datetime
+            current_time = datetime.now().isoformat()
+            
             for code, result in search_results.items():
                 if result and result.get('actresses'):
                     success_count += 1
@@ -232,7 +266,9 @@ class UnifiedClassifierCore:
                             'original_filename': file_path.name, 
                             'file_path': str(file_path), 
                             'studio': studio, 
-                            'search_method': result.get('source', '日文網站')
+                            'search_method': result.get('source', '日文網站'),
+                            'search_status': 'searched_found',
+                            'last_search_date': current_time
                         }
                         self.db_manager.add_or_update_video(code, info)
             return {
@@ -246,7 +282,7 @@ class UnifiedClassifierCore:
             return {'status': 'error', 'message': str(e)}
 
     def process_and_search_javdb(self, folder_path: str, stop_event: threading.Event, progress_callback=None):
-        """僅使用 JAVDB 搜尋"""
+        """僅使用 JAVDB 搜尋 - 支援零女優番號的二次搜尋"""
         try:
             if progress_callback: 
                 progress_callback("📊 開始掃描資料夾 (JAVDB 搜尋模式)...\n")
@@ -265,6 +301,7 @@ class UnifiedClassifierCore:
             
             new_code_file_map = {}
             research_code_file_map = {}
+            zero_actress_code_map = {}  # 專門追蹤零女優番號
             
             for file_path in video_files:
                 code = self.code_extractor.extract_code(file_path.name)
@@ -281,15 +318,23 @@ class UnifiedClassifierCore:
                     video_record = codes_in_db[code]
                     search_status = video_record.get('search_status', 'not_searched')
                     last_search_date = video_record.get('last_search_date')
+                    actresses = video_record.get('actresses', [])
                     
                     # 重新搜尋條件：
                     # 1. 搜尋過但無結果 (searched_not_found)
                     # 2. 搜尋失敗 (failed)
-                    # 3. 超過 7 天未搜尋
+                    # 3. 有 0 位女優的記錄（新增：零女優番號）
+                    # 4. 超過 7 天未搜尋
                     should_research = False
                     
                     if search_status in ['searched_not_found', 'failed']:
                         should_research = True
+                    elif not actresses or len(actresses) == 0:
+                        # 特別處理零女優番號
+                        if code not in zero_actress_code_map:
+                            zero_actress_code_map[code] = []
+                        zero_actress_code_map[code].append(file_path)
+                        should_research = False  # 在第二輪單獨處理
                     elif last_search_date:
                         try:
                             last_search = datetime.fromisoformat(last_search_date.replace('Z', '+00:00'))
@@ -307,16 +352,30 @@ class UnifiedClassifierCore:
                 progress_callback(f"✅ 資料庫中已存在 {len(codes_in_db)} 個影片的番號記錄。\n")
                 progress_callback(f"🎯 需要搜尋 {len(new_code_file_map)} 個新番號。\n")
                 if research_code_file_map:
-                    progress_callback(f"🔄 需要重新搜尋 {len(research_code_file_map)} 個之前無結果的番號。\n\n")
+                    progress_callback(f"🔄 需要重新搜尋 {len(research_code_file_map)} 個之前無結果的番號。\n")
+                if zero_actress_code_map:
+                    progress_callback(f"⚠️ 發現 {len(zero_actress_code_map)} 個零女優番號，將進行重新搜尋。\n")
+                if research_code_file_map or zero_actress_code_map:
+                    progress_callback("\n")
             
             # 合併新搜尋和重新搜尋的番號
             all_codes_to_search = dict(new_code_file_map)
             all_codes_to_search.update(research_code_file_map)
             
+            # 添加零女優番號到搜尋清單
+            for code in zero_actress_code_map:
+                if code not in all_codes_to_search:
+                    all_codes_to_search[code] = []
+                all_codes_to_search[code].extend(zero_actress_code_map[code])
+            
             if not all_codes_to_search:
                 if progress_callback: 
                     progress_callback("🎉 所有影片都已有最新搜尋結果！\n")
                 return {'status': 'success', 'message': '所有番號都已存在於資料庫中'}
+            
+            # ===== 第一輪搜尋 =====
+            if progress_callback:
+                progress_callback(f"🔍 開始第一輪搜尋 ({len(all_codes_to_search)} 個番號)...\n\n")
             
             # 使用 JAVDB 專用搜尋方法
             search_results = self.web_searcher.batch_search(
@@ -325,15 +384,19 @@ class UnifiedClassifierCore:
                 stop_event, 
                 progress_callback
             )
+            
             success_count = 0
             failed_count = 0
-            from datetime import datetime
+            second_round_codes = {}  # 第二輪搜尋的番號
             current_time = datetime.now().isoformat()
             
             for code, result in search_results.items():
                 if result and result.get('actresses'):
                     success_count += 1
                     # 搜尋成功的處理
+                    if progress_callback:
+                        progress_callback(f"✅ {code}: 找到 {len(result.get('actresses', []))} 位女優\n")
+                    
                     for file_path in all_codes_to_search.get(code, []):
                         studio = result.get('studio')
                         if not studio or studio == 'UNKNOWN':
@@ -352,27 +415,104 @@ class UnifiedClassifierCore:
                 else:
                     # 搜尋無結果的處理
                     failed_count += 1
-                    for file_path in all_codes_to_search.get(code, []):
-                        studio = self.studio_identifier.identify_studio(code)
+                    
+                    # 如果是零女優番號，標記為需要二次搜尋
+                    if code in zero_actress_code_map:
+                        if progress_callback:
+                            progress_callback(f"⚠️ {code}: 仍無女優資訊，標記為二次搜尋\n")
+                        second_round_codes[code] = all_codes_to_search[code]
+                    else:
+                        if progress_callback:
+                            progress_callback(f"❌ {code}: 搜尋無結果\n")
                         
-                        info = {
-                            'actresses': [], 
-                            'original_filename': file_path.name, 
-                            'file_path': str(file_path), 
-                            'studio': studio, 
-                            'search_method': 'JAVDB',
-                            'search_status': 'searched_not_found',
-                            'last_search_date': current_time
-                        }
-                        self.db_manager.add_or_update_video(code, info)
+                        for file_path in all_codes_to_search.get(code, []):
+                            studio = self.studio_identifier.identify_studio(code)
+                            
+                            info = {
+                                'actresses': [], 
+                                'original_filename': file_path.name, 
+                                'file_path': str(file_path), 
+                                'studio': studio, 
+                                'search_method': 'JAVDB',
+                                'search_status': 'searched_not_found',
+                                'last_search_date': current_time
+                            }
+                            self.db_manager.add_or_update_video(code, info)
+            
+            # ===== 第二輪搜尋（清除快取重新搜尋零女優番號） =====
+            second_round_success = 0
+            if second_round_codes:
+                if progress_callback:
+                    progress_callback(f"\n🔄 開始第二輪搜尋（清除快取，重新查詢 {len(second_round_codes)} 個零女優番號）...\n\n")
+                
+                # 清除這些番號的快取
+                for code in second_round_codes:
+                    if hasattr(self.web_searcher, 'javdb_searcher'):
+                        self.web_searcher.javdb_searcher.clear_cache_for_code(code)
+                        if progress_callback:
+                            progress_callback(f"🧹 已清除 {code} 的快取\n")
+                
+                if progress_callback:
+                    progress_callback(f"\n🔍 重新查詢...\n\n")
+                
+                # 第二輪搜尋
+                second_search_results = self.web_searcher.batch_search(
+                    list(second_round_codes.keys()), 
+                    self.web_searcher.search_javdb_only, 
+                    stop_event, 
+                    progress_callback
+                )
+                
+                for code, result in second_search_results.items():
+                    if result and result.get('actresses'):
+                        second_round_success += 1
+                        if progress_callback:
+                            progress_callback(f"✅ 二次搜尋成功 {code}: 找到 {len(result.get('actresses', []))} 位女優\n")
+                        
+                        # 複寫資料庫記錄
+                        for file_path in second_round_codes.get(code, []):
+                            studio = result.get('studio')
+                            if not studio or studio == 'UNKNOWN':
+                                studio = self.studio_identifier.identify_studio(code)
+                            
+                            info = {
+                                'actresses': result['actresses'], 
+                                'original_filename': file_path.name, 
+                                'file_path': str(file_path), 
+                                'studio': studio, 
+                                'search_method': f"{result.get('source', 'JAVDB')} (二次搜尋)",
+                                'search_status': 'searched_found',
+                                'last_search_date': current_time
+                            }
+                            self.db_manager.add_or_update_video(code, info)
+                    else:
+                        if progress_callback:
+                            progress_callback(f"❌ 二次搜尋失敗 {code}: 仍無女優資訊\n")
+                        
+                        # 仍然複寫為 searched_not_found
+                        for file_path in second_round_codes.get(code, []):
+                            studio = self.studio_identifier.identify_studio(code)
+                            
+                            info = {
+                                'actresses': [], 
+                                'original_filename': file_path.name, 
+                                'file_path': str(file_path), 
+                                'studio': studio, 
+                                'search_method': 'JAVDB (二次搜尋)',
+                                'search_status': 'searched_not_found',
+                                'last_search_date': current_time
+                            }
+                            self.db_manager.add_or_update_video(code, info)
             
             return {
                 'status': 'success', 
                 'total_files': len(video_files), 
                 'new_codes': len(new_code_file_map),
                 'research_codes': len(research_code_file_map),
-                'success': success_count,
-                'failed': failed_count
+                'zero_actress_codes': len(zero_actress_code_map),
+                'first_round_success': success_count,
+                'first_round_failed': failed_count,
+                'second_round_success': second_round_success
             }
         except Exception as e:
             self.logger.error(f"JAVDB 搜尋過程中發生錯誤: {e}", exc_info=True)
@@ -392,9 +532,11 @@ class UnifiedClassifierCore:
             
             move_stats = {'success': 0, 'exists': 0, 'no_data': 0, 'failed': 0, 'skipped': 0}
             skip_all = False
-              # 分析需要互動選擇的檔案
+            
+            # 分析需要互動選擇的檔案
             collaboration_files = []
             single_files = []
+            no_data_files = []
             
             for file_path in video_files:
                 code = self.code_extractor.extract_code(file_path.name)
@@ -402,6 +544,8 @@ class UnifiedClassifierCore:
                     continue
                 info = self.db_manager.get_video_info(code)
                 if not info or not info.get('actresses'):
+                    # 記錄沒有資料的檔案
+                    no_data_files.append((file_path, code))
                     continue
                 
                 actresses = info['actresses']
@@ -415,8 +559,23 @@ class UnifiedClassifierCore:
                     # 多人共演作品
                     collaboration_files.append((file_path, code, parsed_actresses, info))
             
+            # 如果所有檔案都沒有資料,提示使用者先進行搜尋
+            if no_data_files and not single_files and not collaboration_files:
+                if progress_callback:
+                    progress_callback(f"\n⚠️ 發現 {len(no_data_files)} 個檔案沒有女優資料。\n")
+                    progress_callback("💡 建議先使用「日文網站搜尋」或「JAVDB 搜尋」功能取得女優資訊。\n")
+                return {
+                    'status': 'no_data',
+                    'message': f'找到 {len(no_data_files)} 個檔案,但資料庫中沒有女優資訊。請先進行搜尋。',
+                    'no_data_count': len(no_data_files)
+                }
+            
             if progress_callback:
-                progress_callback(f"📊 分析結果: {len(single_files)} 個單人作品, {len(collaboration_files)} 個多人共演作品\n")
+                progress_callback(f"📊 分析結果: {len(single_files)} 個單人作品, {len(collaboration_files)} 個多人共演作品")
+                if no_data_files:
+                    progress_callback(f", {len(no_data_files)} 個無資料檔案\n")
+                else:
+                    progress_callback("\n")
                 if collaboration_files:
                     progress_callback("🤝 開始處理多人共演作品的分類選擇...\n\n")
               # 處理所有檔案
@@ -504,6 +663,139 @@ class UnifiedClassifierCore:
             self.logger.error(f"互動式檔案移動過程中發生錯誤: {e}", exc_info=True)
             return {'status': 'error', 'message': str(e)}
 
+    def smart_search_and_move(self, folder_path: str, stop_event: threading.Event, progress_callback=None, use_full_search=False):
+        """智慧搜尋並分類：自動搜尋無資料番號，然後執行智慧分類
+        
+        Args:
+            folder_path: 資料夾路徑
+            stop_event: 停止事件
+            progress_callback: 進度回調函式
+            use_full_search: 是否使用完整搜尋（包含 JAVDB），預設 False（只用日文網站）
+        """
+        try:
+            if progress_callback:
+                progress_callback(f"🔍📁 智慧搜尋並分類模式\n目標資料夾: {folder_path}\n{'='*60}\n")
+            
+            # 步驟 1: 掃描檔案
+            if progress_callback:
+                progress_callback("📂 步驟 1/3: 掃描影片檔案...\n")
+            
+            folder_path_obj = Path(folder_path)
+            video_files = self.file_scanner.scan_directory(folder_path, recursive=False)
+            
+            if not video_files:
+                if progress_callback:
+                    progress_callback("🤷 目標資料夾中沒有影片檔案。\n")
+                return {'status': 'success', 'message': '目標資料夾中沒有影片檔案。'}
+            
+            if progress_callback:
+                progress_callback(f"✅ 找到 {len(video_files)} 個影片檔案\n\n")
+            
+            # 步驟 2: 檢查哪些需要搜尋
+            if progress_callback:
+                progress_callback("🔍 步驟 2/3: 檢查並搜尋無資料番號...\n")
+            
+            codes_need_search = []
+            code_file_map = {}
+            
+            for file_path in video_files:
+                if stop_event.is_set():
+                    if progress_callback:
+                        progress_callback("\n🛑 任務已中止。\n")
+                    return {'status': 'cancelled', 'message': '任務已中止'}
+                
+                code = self.code_extractor.extract_code(file_path.name)
+                if not code:
+                    continue
+                
+                info = self.db_manager.get_video_info(code)
+                # 需要搜尋的條件：
+                # 1. 資料庫中沒有此番號
+                # 2. 有番號但女優列表為空
+                # 3. 搜尋狀態為 search_error 或 no_actress_found
+                if (not info or 
+                    not info.get('actresses') or 
+                    info.get('search_status') in ['search_error', 'no_actress_found']):
+                    codes_need_search.append(code)
+                    code_file_map[code] = file_path
+            
+            # 執行搜尋
+            if codes_need_search:
+                if progress_callback:
+                    progress_callback(f"📊 需要搜尋 {len(codes_need_search)} 個番號\n\n")
+                
+                # 根據參數選擇搜尋方法
+                if use_full_search:
+                    if progress_callback:
+                        progress_callback("🌐 使用完整搜尋（AV-WIKI → chiba-f → JAVDB）...\n")
+                    search_method = self.web_searcher.search_info
+                else:
+                    if progress_callback:
+                        progress_callback("🇯🇵 使用日文網站搜尋（AV-WIKI → chiba-f）...\n")
+                    search_method = self.web_searcher.search_japanese_sites
+                
+                # 批次搜尋
+                search_results = self.web_searcher.batch_search(
+                    codes_need_search,
+                    search_method,
+                    stop_event,
+                    progress_callback
+                )
+                
+                # 儲存搜尋結果
+                from datetime import datetime
+                current_time = datetime.now().isoformat()
+                success_count = 0
+                
+                for code, result in search_results.items():
+                    if stop_event.is_set():
+                        break
+                    
+                    if result and result.get('actresses'):
+                        success_count += 1
+                        file_path = code_file_map.get(code)
+                        if file_path:
+                            studio = result.get('studio')
+                            if not studio or studio == 'UNKNOWN':
+                                studio = self.studio_identifier.identify_studio(code)
+                            
+                            info = {
+                                'actresses': result['actresses'],
+                                'original_filename': file_path.name,
+                                'file_path': str(file_path),
+                                'studio': studio,
+                                'search_method': result.get('source', '未知'),
+                                'search_status': 'searched_found',
+                                'last_search_date': current_time
+                            }
+                            self.db_manager.add_or_update_video(code, info)
+                
+                if progress_callback:
+                    progress_callback(f"\n✅ 搜尋完成: {success_count}/{len(codes_need_search)} 個番號找到資料\n\n")
+            else:
+                if progress_callback:
+                    progress_callback("✅ 所有番號都已有資料，跳過搜尋步驟\n\n")
+            
+            # 步驟 3: 執行智慧分類
+            if stop_event.is_set():
+                if progress_callback:
+                    progress_callback("\n🛑 任務已中止。\n")
+                return {'status': 'cancelled', 'message': '任務已中止'}
+            
+            if progress_callback:
+                progress_callback("📁 步驟 3/3: 執行智慧分類...\n\n")
+            
+            # 呼叫原有的智慧分類方法
+            result = self.move_files(folder_path, progress_callback)
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"智慧搜尋並分類過程中發生錯誤: {e}", exc_info=True)
+            if progress_callback:
+                progress_callback(f"❌ 發生錯誤: {e}\n")
+            return {'status': 'error', 'message': str(e)}
+
     def move_files(self, folder_path_str: str, progress_callback=None):
         """智慧檔案移動 - 單人自動分類，多人共演啟動互動選擇"""
         try:
@@ -579,11 +871,23 @@ class UnifiedClassifierCore:
                             progress_callback(f"❌ [{processed}/{total_files}] {file_path.name}: 移動失敗\n")
             
             # 處理無資料檔案
+            if no_data_files and progress_callback:
+                progress_callback(f"\n{'='*60}\n")
+                progress_callback(f"❓ 發現 {len(no_data_files)} 個無資料檔案:\n")
+                for i, file_path in enumerate(no_data_files[:5], 1):
+                    progress_callback(f"  {i}. {file_path.name}\n")
+                if len(no_data_files) > 5:
+                    progress_callback(f"  ... 還有 {len(no_data_files) - 5} 個檔案\n")
+                
+                progress_callback(f"\n💡 建議操作：\n")
+                progress_callback(f"  1. 先對此資料夾執行「完整搜尋」或「日文網站搜尋」\n")
+                progress_callback(f"  2. 等待搜尋完成後，再執行「智慧分類」\n")
+                progress_callback(f"  \n  或使用「🔍📁 智慧搜尋並分類」功能（一鍵完成）\n")
+                progress_callback(f"{'='*60}\n\n")
+            
             for file_path in no_data_files:
                 processed += 1
                 move_stats['no_data'] += 1
-                if progress_callback: 
-                    progress_callback(f"❓ [{processed}/{total_files}] {file_path.name}: 資料庫中無資料\n")
             
             # 處理多人共演作品（互動式分類）
             if collaboration_files:
@@ -711,11 +1015,13 @@ class UnifiedClassifierCore:
                 progress_callback
             )
             success_count = 0
+            from datetime import datetime
+            current_time = datetime.now().isoformat()
+            
             for code, result in search_results.items():
                 if result and result.get('actresses'):
-                    success_count += 1
                     for file_path in new_code_file_map[code]:
-                        # 優先使用搜尋結果中的片商資訊，只有當搜尋結果沒有片商資訊時才使用本地識別
+                        # 優先使用搜尋結果中的片商資訊,只有當搜尋結果沒有片商資訊時才使用本地識別
                         studio = result.get('studio')
                         if not studio or studio == 'UNKNOWN':
                             studio = self.studio_identifier.identify_studio(code)
@@ -725,7 +1031,10 @@ class UnifiedClassifierCore:
                             'original_filename': file_path.name, 
                             'file_path': str(file_path), 
                             'studio': studio, 
-                            'search_method': result.get('source', 'JAVDB')                        }
+                            'search_method': result.get('source', 'JAVDB'),
+                            'search_status': 'searched_found',
+                            'last_search_date': current_time
+                        }
                         self.db_manager.add_or_update_video(code, info)
                     success_count += 1
                     if progress_callback: 

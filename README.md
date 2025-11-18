@@ -111,6 +111,19 @@ src/
     └── scanner.py          # 檔案掃描
 ```
 
+### 工具目錄結構
+```
+tools/
+├── analysis/         # 資料品質與數據分析腳本 (ex: analyze_actresses.py)
+├── diagnostics/      # 一次性偵錯、修復與批次檢查腳本
+├── manual_tests/     # 非自動化測試與臨時驗證流程
+├── studio_updates/   # 特定片商資料維護腳本
+└── verify/           # 修復驗證與回歸確認腳本
+```
+
+- 以上腳本預設依賴 `data/json_db/data.json` 與 `config.ini`，建議從專案根目錄執行。
+- 若需要新增自訂工具，請放入對應子資料夾並附上 README 或註解，保持整體一致性。
+
 ### 核心技術
 - **Python 3.8+**: 主要開發語言
 - **tkinter**: GUI 框架
