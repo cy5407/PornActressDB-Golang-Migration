@@ -18,6 +18,7 @@ sys.path.insert(0, str(project_root))
 
 from models.config import ConfigManager
 from models.json_database import JSONDBManager
+from models.incremental_json_database import IncrementalJSONDB
 from models.extractor import UnifiedCodeExtractor
 from models.studio import StudioIdentifier
 from utils.scanner import UnifiedFileScanner
@@ -33,7 +34,8 @@ class UnifiedClassifierCore:
     
     def __init__(self, config: ConfigManager):
         self.config = config
-        self.db_manager = JSONDBManager()
+        # 使用增量資料庫管理器替代標準管理器
+        self.db_manager = IncrementalJSONDB('data/json_db')
         self.code_extractor = UnifiedCodeExtractor()
         self.file_scanner = UnifiedFileScanner()
         self.studio_identifier = StudioIdentifier()

@@ -256,7 +256,11 @@ class IncrementalJSONDB:
         # 追加到 journal（快速）
         self._append_journal(entry)
         
-        logger.debug(f"✅ 快速更新影片 {code} 到 journal")
+        # 立即更新記憶體中的資料，確保讀取一致性
+        video.update(updates)
+        self.base_db.data['videos'][code] = video
+        
+        logger.debug(f"✅ 快速更新影片 {code} 到 journal 並同步記憶體")
     
     def add_video(self, video: VideoDict):
         """
@@ -273,7 +277,11 @@ class IncrementalJSONDB:
         )
         
         self._append_journal(entry)
-        logger.debug(f"✅ 快速新增影片 {video['code']} 到 journal")
+        
+        # 立即更新記憶體中的資料
+        self.base_db.data['videos'][video['code']] = video
+        
+        logger.debug(f"✅ 快速新增影片 {video['code']} 到 journal 並同步記憶體")
     
     def delete_video(self, code: str):
         """
@@ -289,7 +297,55 @@ class IncrementalJSONDB:
         )
         
         self._append_journal(entry)
-        logger.debug(f"✅ 快速刪除影片 {code} 標記到 journal")
+        
+        # 立即更新記憶體中的資料
+        if code in self.base_db.data['videos']:
+            del self.base_db.data['videos'][code]
+            
+        logger.debug(f"✅ 快速刪除影片 {code} 標記到 journal 並同步記憶體")
+    
+    # ========================================================================
+    # 相容性介面 (與 JSONDBManager 一致)
+    # ========================================================================
+    
+    def get_all_videos(self, filter_dict: Optional[Dict[str, Any]] = None) -> List[VideoDict]:
+        """取得所有影片清單（委派給 base_db）"""
+        return self.base_db.get_all_videos(filter_dict)
+        
+    def get_video_info(self, code: str) -> Optional[VideoDict]:
+        """取得影片資訊（委派給 base_db）"""
+        return self.base_db.get_video_info(code)
+        
+    def add_or_update_video(self, code: str, info: Dict) -> str:
+        """
+        新增或更新影片（增量實作）
+        
+        Args:
+            code: 影片番號
+            info: 影片資訊字典
+            
+        Returns:
+            影片番號
+        """
+        # 檢查是否已存在
+        existing_video = self.base_db.get_video_info(code)
+        
+        if existing_video:
+            # 更新現有影片
+            self.update_video(code, info)
+        else:
+            # 準備新影片資料
+            from src.models.json_types import get_empty_video, ISO_DATETIME_FORMAT
+            
+            video_dict = get_empty_video()
+            video_dict['code'] = code
+            video_dict.update(info)
+            video_dict['updated_at'] = datetime.now(timezone.utc).strftime(ISO_DATETIME_FORMAT)
+            
+            # 新增影片
+            self.add_video(video_dict)
+            
+        return code
     
     def compact_if_needed(self) -> bool:
         """

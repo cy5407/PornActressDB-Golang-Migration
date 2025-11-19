@@ -14,11 +14,6 @@ chardet>=5.2.0        # 編碼自動檢測
 ttkbootstrap>=1.10.0  # 美化主題 (選用)
 
 # 資料處理和序列化
-# sqlite3  # 內建於 Python
-pickle                # 內建於 Python (物件序列化)
-gzip                  # 內建於 Python (壓縮)
-json                  # 內建於 Python (JSON處理)
-
 # 測試相關
 pytest>=7.0.0
 pytest-cov>=4.0.0
@@ -34,17 +29,3 @@ python-dotenv>=1.0.0
 
 # 檔案鎖定和並行控制
 filelock>=3.13.0       # 檔案級鎖定，用於並行存取控制
-
-# 如果需要資料庫，請取消註解以下套件
-# sqlalchemy>=2.0.0
-# psycopg2-binary>=2.9.0
-# pymongo>=4.4.0
-
-# 如果需要 HTTP 請求，請取消註解以下套件
-# requests>=2.31.0
-# httpx>=0.24.0
-
-# 如果需要資料處理，請取消註解以下套件
-# pandas>=2.0.0
-# numpy>=1.24.0
-# matplotlib>=3.7.0

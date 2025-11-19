@@ -152,6 +152,15 @@ class UnifiedActressClassifierGUI:
     def on_closing(self):
         self.is_running = False
         self.stop_event.set()
+        
+        # 嘗試合併增量資料庫
+        try:
+            if hasattr(self.core, 'db_manager') and hasattr(self.core.db_manager, 'compact_if_needed'):
+                print("正在檢查是否需要合併資料庫...")
+                self.core.db_manager.compact_if_needed()
+        except Exception as e:
+            print(f"資料庫合併失敗: {e}")
+            
         self.root.destroy()
 
     def browse_folder(self):

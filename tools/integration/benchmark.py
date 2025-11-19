@@ -1,158 +1,66 @@
-#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Performance benchmark: Go vs Python scanner
+Python 效能測試腳本
 """
-import json
-import subprocess
+import os
 import time
+import shutil
 from pathlib import Path
-import sys
+import threading
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+from src.services.classifier_core import UnifiedClassifierCore
+from src.models.config import ConfigManager
 
-from models.extractor import UnifiedCodeExtractor
-
-
-def benchmark_python(directory: str) -> tuple:
-    """Benchmark Python scanner"""
-    extractor = UnifiedCodeExtractor()
-    results = []
-    
-    start = time.perf_counter()
-    
-    for path in Path(directory).rglob("*"):
-        if path.is_file():
-            code = extractor.extract_code(str(path))
-            if code:
-                results.append({"path": str(path), "code": code})
-    
-    elapsed = time.perf_counter() - start
-    return results, elapsed
-
-
-def benchmark_go(directory: str) -> tuple:
-    """Benchmark Go scanner"""
-    scanner_exe = Path(__file__).parent.parent.parent / "classifier.exe"
-    
-    if not scanner_exe.exists():
-        raise FileNotFoundError(f"Go scanner not found: {scanner_exe}")
-    
-    start = time.perf_counter()
-    
-    result = subprocess.run(
-        [str(scanner_exe), "-dir", directory, "-workers", "20"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8"
-    )
-    
-    elapsed = time.perf_counter() - start
-    
-    if result.returncode != 0:
-        raise RuntimeError(f"Scanner failed: {result.stderr}")
-    
-    results = json.loads(result.stdout)
-    return results, elapsed
-
-
-def create_test_files(directory: str, count: int) -> Path:
-    """Create test files for benchmarking"""
-    test_dir = Path(directory)
-    test_dir.mkdir(parents=True, exist_ok=True)
-    
-    patterns = [
-        "STARS-{}.mp4", "SSIS-{}.mkv", "IPX-{}.avi",
-        "MIDV-{}.mp4", "CAWD-{}.mkv", "JUL-{}.mp4",
-        "PRED-{}.avi", "FSDSS-{}.mp4", "EBOD-{}.mkv", "ABW-{}.mp4",
-    ]
-    
-    print(f"Creating {count} test files...")
-    for i in range(count):
-        pattern = patterns[i % len(patterns)]
-        filename = pattern.format(100 + i)
-        (test_dir / filename).touch()
-    
-    return test_dir
-
+def create_dummy_files(directory: Path, num_files: int):
+    """建立測試用的虛擬影片檔案"""
+    directory.mkdir(exist_ok=True)
+    for i in range(num_files):
+        # 使用常見的番號格式
+        code = f"TEST-{i:03d}"
+        file_path = directory / f"{code}.mp4"
+        file_path.touch()
 
 def main():
-    test_sizes = [10, 100, 1000]
-    
-    print("=" * 60)
-    print("Performance Benchmark: Go vs Python Scanner")
-    print("=" * 60)
-    
-    results_summary = []
-    
-    for size in test_sizes:
-        test_dir = Path(f"C:/Users/cy540/Downloads/benchmark_test_{size}")
-        
-        create_test_files(str(test_dir), size)
-        
-        print(f"\n{chr(9472) * 60}")
-        print(f"Testing with {size} files")
-        print(f"{chr(9472) * 60}")
-        
-        try:
-            # Python
-            print("Running Python scanner...")
-            py_results, py_time = benchmark_python(str(test_dir))
-            print(f"  OK Found {len(py_results)} videos in {py_time:.3f}s")
-            
-            # Go
-            print("Running Go scanner...")
-            go_results, go_time = benchmark_go(str(test_dir))
-            print(f"  OK Found {len(go_results)} videos in {go_time:.3f}s")
-            
-            # Compare
-            speedup = py_time / go_time if go_time > 0 else float("inf")
-            print(f"\n  Results:")
-            print(f"     Python: {py_time:.3f}s")
-            print(f"     Go:     {go_time:.3f}s")
-            print(f"     Speedup: {speedup:.2f}x")
-            
-            # Verify
-            py_codes = sorted([r["code"] for r in py_results])
-            go_codes = sorted([r["code"] for r in go_results])
-            
-            if py_codes == go_codes:
-                print(f"     OK Results match perfectly")
-            else:
-                print(f"     WARNING Results differ:")
-                print(f"        Python: {len(py_codes)} codes")
-                print(f"        Go:     {len(go_codes)} codes")
-            
-            results_summary.append({
-                "size": size,
-                "python": py_time,
-                "go": go_time,
-                "speedup": speedup
-            })
-            
-        finally:
-            # Cleanup
-            import shutil
-            if test_dir.exists():
-                shutil.rmtree(test_dir)
-    
-    print("\n" + "=" * 60)
-    print("Benchmark Summary")
-    print("=" * 60)
-    for r in results_summary:
-        print(f"{r['size']:4d} files: Python {r['python']:.3f}s | Go {r['go']:.3f}s | Speedup {r['speedup']:.2f}x")
-    
-    avg_speedup = sum(r["speedup"] for r in results_summary) / len(results_summary)
-    print(f"\nAverage speedup: {avg_speedup:.2f}x")
-    
-    print("\nRecommendation:")
-    if avg_speedup >= 5:
-        print("  >> Integrate Go into GUI (5x+ faster)")
-    elif avg_speedup >= 2:
-        print("  >> Use Go for large scans only (2-5x faster)")
-    else:
-        print("  >> Stick with Python (< 2x improvement not worth complexity)")
+    """主函式"""
+    num_files = 10  # 測試檔案數量
+    temp_dir = Path("temp_benchmark")
 
+    print("🐍 Python 效能測試")
+    print("="*30)
+    print(f"測試檔案數量: {num_files}")
+    print(f"測試目錄: {temp_dir.resolve()}")
+    print("-"*30)
+
+    # 建立虛擬檔案
+    print("1. 正在建立虛擬檔案...")
+    create_dummy_files(temp_dir, num_files)
+    print(f"✅ {num_files} 個虛擬檔案已建立")
+
+    # 初始化核心元件
+    print("\n2. 正在初始化核心元件...")
+    config_manager = ConfigManager()
+    core = UnifiedClassifierCore(config_manager)
+    print("✅ 核心元件已初始化")
+
+    # 執行智慧搜尋並分類
+    print("\n3. 正在執行智慧搜尋並分類...")
+    stop_event = threading.Event()
+    start_time = time.time()
+    core.smart_search_and_move(str(temp_dir), stop_event=stop_event, use_full_search=True)
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print(f"✅ 智慧搜尋並分類完成")
+
+    # 顯示結果
+    print("\n📊 測試結果")
+    print("-"*30)
+    print(f"總執行時間: {execution_time:.2f} 秒")
+    print(f"平均每個檔案處理時間: {execution_time / num_files:.4f} 秒")
+
+    # 清理虛擬檔案
+    print("\n4. 正在清理測試資料...")
+    shutil.rmtree(temp_dir)
+    print("✅ 清理完成")
 
 if __name__ == "__main__":
     main()
