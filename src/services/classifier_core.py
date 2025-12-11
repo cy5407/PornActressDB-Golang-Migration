@@ -10,7 +10,6 @@ from typing import Dict, List
 from collections import defaultdict
 
 import sys
-from pathlib import Path
 
 # 添加專案根目錄到系統路徑
 project_root = Path(__file__).parent.parent
@@ -520,6 +519,145 @@ class UnifiedClassifierCore:
             self.logger.error(f"JAVDB 搜尋過程中發生錯誤: {e}", exc_info=True)
             return {'status': 'error', 'message': str(e)}
     
+    def process_and_search_cascade(self, folder_path: str, stop_event: threading.Event, 
+                                    progress_callback=None, enable_cascade: bool = True):
+        """使用級聯搜尋策略（AV-WIKI → chiba-f → JAVDB）
+        
+        此方法會先使用 AV-WIKI 批次搜尋，對於未找到的番號再依序
+        使用 chiba-f 和 JAVDB 進行補充搜尋，最大化搜尋成功率。
+        
+        Args:
+            folder_path: 資料夾路徑
+            stop_event: 停止事件
+            progress_callback: 進度回調函式
+            enable_cascade: 是否啟用級聯搜尋（True: 完整級聯, False: 僅 AV-WIKI）
+            
+        Returns:
+            dict: 包含搜尋統計的結果字典
+        """
+        try:
+            if progress_callback: 
+                mode_text = "級聯搜尋" if enable_cascade else "AV-WIKI 搜尋"
+                progress_callback(f"🔄 開始掃描資料夾 ({mode_text}模式)...\n")
+            
+            video_files = self.file_scanner.scan_directory(folder_path)
+            if not video_files:
+                if progress_callback: 
+                    progress_callback("🤷 未發現任何影片檔案。\n")
+                return {'status': 'success', 'message': '未發現影片檔案'}
+            
+            if progress_callback: 
+                progress_callback(f"📁 發現 {len(video_files)} 個影片檔案。\n")
+            
+            # 取得資料庫中已有的番號
+            codes_in_db = {v['code'] for v in self.db_manager.get_all_videos()}
+            new_code_file_map = {}
+            
+            for file_path in video_files:
+                code = self.code_extractor.extract_code(file_path.name)
+                if code and code not in codes_in_db:
+                    if code not in new_code_file_map: 
+                        new_code_file_map[code] = []
+                    new_code_file_map[code].append(file_path)
+            
+            if progress_callback:
+                progress_callback(f"✅ 資料庫中已存在 {len(codes_in_db)} 個影片的番號記錄。\n")
+                progress_callback(f"🎯 需要搜尋 {len(new_code_file_map)} 個新番號。\n\n")
+            
+            if not new_code_file_map:
+                if progress_callback: 
+                    progress_callback("🎉 所有影片都已在資料庫中！\n")
+                return {'status': 'success', 'message': '所有番號都已存在於資料庫中'}
+            
+            # 使用級聯搜尋
+            if progress_callback:
+                if enable_cascade:
+                    progress_callback("🚀 啟用級聯搜尋策略：AV-WIKI → chiba-f → JAVDB\n\n")
+                else:
+                    progress_callback("🔍 使用 AV-WIKI 單一搜尋模式\n\n")
+            
+            search_results = self.web_searcher.batch_cascade_search(
+                list(new_code_file_map.keys()),
+                stop_event,
+                progress_callback,
+                enable_javdb=enable_cascade  # 級聯搜尋時啟用 JAVDB 備援
+            )
+            
+            # 處理搜尋結果
+            success_count = 0
+            failed_codes = []
+            from datetime import datetime
+            current_time = datetime.now().isoformat()
+            
+            # 統計各來源成功數
+            source_stats = {}
+            
+            for code, result in search_results.items():
+                if result and result.get('actresses'):
+                    success_count += 1
+                    source = result.get('source', 'unknown')
+                    source_stats[source] = source_stats.get(source, 0) + 1
+                    
+                    for file_path in new_code_file_map.get(code, []):
+                        # 優先使用搜尋結果中的片商資訊
+                        studio = result.get('studio')
+                        if not studio or studio == 'UNKNOWN':
+                            studio = self.studio_identifier.identify_studio(code)
+                        
+                        info = {
+                            'actresses': result['actresses'], 
+                            'original_filename': file_path.name, 
+                            'file_path': str(file_path), 
+                            'studio': studio, 
+                            'search_method': source,
+                            'search_status': 'searched_found',
+                            'last_search_date': current_time
+                        }
+                        self.db_manager.add_or_update_video(code, info)
+                else:
+                    failed_codes.append(code)
+                    for file_path in new_code_file_map.get(code, []):
+                        studio = self.studio_identifier.identify_studio(code)
+                        info = {
+                            'actresses': [], 
+                            'original_filename': file_path.name, 
+                            'file_path': str(file_path), 
+                            'studio': studio, 
+                            'search_method': 'cascade' if enable_cascade else 'AV-WIKI',
+                            'search_status': 'searched_not_found',
+                            'last_search_date': current_time
+                        }
+                        self.db_manager.add_or_update_video(code, info)
+            
+            # 輸出統計摘要
+            if progress_callback:
+                progress_callback("\n" + "=" * 50 + "\n")
+                progress_callback("📊 搜尋結果摘要\n")
+                progress_callback("=" * 50 + "\n")
+                progress_callback(f"✅ 成功: {success_count}/{len(new_code_file_map)}\n")
+                progress_callback(f"❌ 失敗: {len(failed_codes)}/{len(new_code_file_map)}\n")
+                if source_stats:
+                    progress_callback("\n📈 各來源貢獻:\n")
+                    for source, count in sorted(source_stats.items(), key=lambda x: -x[1]):
+                        progress_callback(f"  • {source}: {count} 個\n")
+                if failed_codes and len(failed_codes) <= 10:
+                    progress_callback(f"\n⚠️ 未找到的番號: {', '.join(failed_codes)}\n")
+                elif failed_codes:
+                    progress_callback(f"\n⚠️ 未找到的番號: {', '.join(failed_codes[:10])}... 等 {len(failed_codes)} 個\n")
+            
+            return {
+                'status': 'success', 
+                'total_files': len(video_files), 
+                'new_codes': len(new_code_file_map), 
+                'success': success_count,
+                'failed': len(failed_codes),
+                'failed_codes': failed_codes,
+                'source_stats': source_stats
+            }
+        except Exception as e:
+            self.logger.error(f"級聯搜尋過程中發生錯誤: {e}", exc_info=True)
+            return {'status': 'error', 'message': str(e)}
+
     def interactive_move_files(self, folder_path_str: str, progress_callback=None):
         """互動式檔案移動 - 支援多女優共演的偏好選擇"""
         try:

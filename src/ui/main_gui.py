@@ -6,6 +6,8 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
+import time
+import logging
 from pathlib import Path
 
 from models.config import ConfigManager
@@ -13,13 +15,56 @@ from services.classifier_core import UnifiedClassifierCore
 from services.interactive_classifier import InteractiveClassifier
 from ui.preferences_dialog import PreferenceDialog
 
+logger = logging.getLogger(__name__)
+
+
+class ProgressThrottler:
+    """
+    進度更新節流器
+    避免過於頻繁的 GUI 更新導致卡頓
+    """
+    
+    def __init__(self, min_interval_ms: int = 100):
+        self.min_interval = min_interval_ms / 1000
+        self.last_update = 0.0
+        self.pending_message = None
+        self.lock = threading.Lock()
+    
+    def should_update(self, message: str, force: bool = False) -> bool:
+        current_time = time.time()
+        
+        with self.lock:
+            # 重要訊息強制更新
+            if force or self._is_important(message):
+                self.last_update = current_time
+                self.pending_message = None
+                return True
+            
+            if (current_time - self.last_update) >= self.min_interval:
+                self.last_update = current_time
+                self.pending_message = None
+                return True
+            else:
+                self.pending_message = message
+                return False
+    
+    def _is_important(self, message: str) -> bool:
+        important_keywords = ['完成', '錯誤', '開始', '====', '階段', '失敗', '摘要', '💥', '🎉', '⚠️']
+        return any(keyword in message for keyword in important_keywords)
+    
+    def flush(self):
+        with self.lock:
+            msg = self.pending_message
+            self.pending_message = None
+            return msg
+
 
 class UnifiedActressClassifierGUI:
     """整合版圖形介面 - 包含片商分類功能"""
     
     def __init__(self, root):
         self.root = root
-        self.root.title("女優分類系統 - v5.1 (包含片商分類功能)")
+        self.root.title("女優分類系統 - v5.2 (級聯搜尋版)")
         self.root.geometry("900x750")
         self.is_running = True
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -38,6 +83,13 @@ class UnifiedActressClassifierGUI:
         
         self.selected_path = tk.StringVar(value=self.config_manager.get('paths', 'default_input_dir', '.'))
         self.stop_event = threading.Event()
+        
+        # 新增進度節流器
+        self.progress_throttler = ProgressThrottler(min_interval_ms=100)
+        
+        # 搜尋結果暫存（用於結果預覽）
+        self.last_search_results = {}
+        
         self.setup_ui()
 
     def setup_ui(self):
@@ -47,8 +99,8 @@ class UnifiedActressClassifierGUI:
         # 標題區域
         title_frame = ttk.Frame(main_frame)
         title_frame.pack(fill="x", pady=(0, 10))
-        ttk.Label(title_frame, text="🎬 女優分類系統 v5.1", font=("Arial", 16, "bold")).pack()
-        ttk.Label(title_frame, text="互動式分類版 - 支援多女優共演的個人偏好選擇 + 片商分類功能", font=("Arial", 10)).pack()
+        ttk.Label(title_frame, text="🎬 女優分類系統 v5.2", font=("Arial", 16, "bold")).pack()
+        ttk.Label(title_frame, text="級聯搜尋版 - 支援 AV-WIKI → chiba-f → JAVDB 自動備援", font=("Arial", 10)).pack()
         
         # 路徑選擇區域
         path_frame = ttk.LabelFrame(main_frame, text="📁 目標資料夾", padding="10")
@@ -57,6 +109,26 @@ class UnifiedActressClassifierGUI:
         path_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self.browse_btn = ttk.Button(path_frame, text="瀏覽...", command=self.browse_folder)
         self.browse_btn.pack(side="left")
+        
+        # 搜尋選項區域（新增）
+        options_frame = ttk.LabelFrame(main_frame, text="🔧 搜尋選項", padding="5")
+        options_frame.pack(fill="x", pady=5)
+        
+        self.cascade_var = tk.BooleanVar(value=True)
+        cascade_check = ttk.Checkbutton(
+            options_frame, 
+            text="🔄 啟用級聯搜尋 (找不到時自動嘗試其他來源)",
+            variable=self.cascade_var
+        )
+        cascade_check.pack(side="left", padx=5)
+        
+        self.show_results_var = tk.BooleanVar(value=True)
+        results_check = ttk.Checkbutton(
+            options_frame, 
+            text="📊 搜尋完成後顯示結果預覽",
+            variable=self.show_results_var
+        )
+        results_check.pack(side="left", padx=15)
         
         # 功能按鈕區域
         button_frame = ttk.LabelFrame(main_frame, text="🔧 功能選擇", padding="10")
@@ -150,16 +222,34 @@ class UnifiedActressClassifierGUI:
         PreferenceDialog(self.root, self.core.preference_manager)
 
     def on_closing(self):
+        """程式關閉時的處理"""
         self.is_running = False
         self.stop_event.set()
         
-        # 嘗試合併增量資料庫
+        # 1. 嘗試合併增量資料庫
         try:
             if hasattr(self.core, 'db_manager') and hasattr(self.core.db_manager, 'compact_if_needed'):
                 print("正在檢查是否需要合併資料庫...")
                 self.core.db_manager.compact_if_needed()
         except Exception as e:
             print(f"資料庫合併失敗: {e}")
+        
+        # 2. 清理過期快取（新增）
+        try:
+            from scrapers.cache_manager import CacheManager
+            cache_mgr = CacheManager()
+            
+            # 讀取設定
+            ttl_days = self.config_manager.getint('cache', 'ttl_days', fallback=7)
+            max_size_mb = self.config_manager.getint('cache', 'max_size_mb', fallback=500)
+            auto_cleanup = self.config_manager.getboolean('cache', 'auto_cleanup_on_exit', fallback=True)
+            
+            if auto_cleanup:
+                result = cache_mgr.auto_cleanup(ttl_days=ttl_days, max_size_mb=max_size_mb)
+                if result.get('total_deleted', 0) > 0:
+                    print(f"已清理 {result['total_deleted']} 個快取檔案，釋放 {result['total_freed_mb']:.1f} MB")
+        except Exception as e:
+            print(f"快取清理失敗: {e}")
             
         self.root.destroy()
 
@@ -178,13 +268,22 @@ class UnifiedActressClassifierGUI:
             self.result_text.delete(1.0, tk.END)
 
     def update_progress(self, message: str):
+        """更新進度顯示（有節流機制）"""
         if self.is_running and self.root.winfo_exists():
-            self.root.after(0, self._insert_text, message)
+            # 使用節流器判斷是否更新
+            if self.progress_throttler.should_update(message):
+                self.root.after(0, self._insert_text, message)
 
     def _insert_text(self, message: str):
         if self.is_running and self.result_text.winfo_exists():
             self.result_text.insert(tk.END, message)
             self.result_text.see(tk.END)
+            
+            # 檢查是否有待處理的訊息
+            pending = self.progress_throttler.flush()
+            if pending:
+                self.result_text.insert(tk.END, pending)
+                self.result_text.see(tk.END)
 
     def _toggle_buttons(self, is_task_running: bool):
         if not self.is_running: 
@@ -215,8 +314,17 @@ class UnifiedActressClassifierGUI:
                 self.root.after(0, self._toggle_buttons, False)
 
     def stop_task(self):
-        self.update_progress("\n⚠️ 正在中止任務，請稍候...\n")
-        self.stop_event.set()
+        """中止當前任務"""
+        if not self.stop_event.is_set():
+            self.stop_event.set()
+            
+            # 更新 UI 回饋
+            self.status_var.set("🛑 正在中止任務...")
+            if self.stop_btn.winfo_exists():
+                self.stop_btn.config(state="disabled")
+            
+            # 顯示中止訊息
+            self.update_progress("\n⚠️ 使用者要求中止，正在等待當前操作完成...\n")
 
     def start_search(self):
         path = self.selected_path.get()
@@ -269,16 +377,38 @@ class UnifiedActressClassifierGUI:
         threading.Thread(target=self._run_task, args=(self._javdb_search_worker, path), daemon=True).start()
 
     def _japanese_search_worker(self, path):
-        """日文網站搜尋工作者"""
+        """日文網站搜尋工作者（支援級聯搜尋和結果預覽）"""
         self.status_var.set("執行中：日文網站搜尋...")
-        result = self.core.process_and_search_japanese_sites(path, self.stop_event, self.update_progress)
+        
+        # 檢查是否啟用級聯搜尋
+        use_cascade = self.cascade_var.get()
+        
+        if use_cascade:
+            # 使用級聯搜尋
+            result = self.core.process_and_search_cascade(
+                path, 
+                self.stop_event, 
+                self.update_progress,
+                enable_cascade=True
+            )
+        else:
+            # 使用原有的日文網站搜尋
+            result = self.core.process_and_search_japanese_sites(path, self.stop_event, self.update_progress)
+        
         if self.is_running:
             if self.stop_event.is_set():
                 self.update_progress(f"\n🛑 任務已由使用者中止。\n")
                 self.status_var.set("任務已中止")
-            elif result['status'] == 'success':
+            elif result.get('status') == 'success':
                 self.update_progress(f"\n{'='*60}\n🎉 日文網站搜尋任務完成！\n")
                 self.status_var.set("就緒")
+                
+                # 儲存搜尋結果供預覽使用
+                self.last_search_results = result
+                
+                # 顯示結果預覽（如果啟用）
+                if self.show_results_var.get():
+                    self.root.after(100, self._show_search_results_dialog)
             else:
                 self.update_progress(f"\n💥 錯誤: {result['message']}\n")
                 self.status_var.set(f"錯誤: {result.get('message', '未知錯誤')}")
@@ -508,3 +638,43 @@ class UnifiedActressClassifierGUI:
             if self.is_running:
                 self.update_progress(f"\n💥 片商分類發生未預期錯誤: {str(e)}\n")
                 self.status_var.set(f"錯誤: {str(e)}")
+
+    # ============================================================
+    # 搜尋結果預覽功能（新增）
+    # ============================================================
+    
+    def _show_search_results_dialog(self):
+        """顯示搜尋結果預覽對話框"""
+        if not self.last_search_results:
+            messagebox.showinfo("無結果", "沒有搜尋結果可顯示", parent=self.root)
+            return
+        
+        try:
+            from ui.search_result_dialog import SearchResultDialog, SearchResultItem
+            
+            # 轉換結果格式
+            search_results = {}
+            for code, detail in self.last_search_results.items():
+                if isinstance(detail, dict):
+                    actresses = detail.get('actresses', [])
+                    search_results[code] = SearchResultItem(
+                        code=code,
+                        actresses=actresses,
+                        source=detail.get('final_source', detail.get('source', '')),
+                        status='success' if actresses else 'not_found',
+                        studio=detail.get('studio', ''),
+                        tried_sources=detail.get('tried_sources', [])
+                    )
+            
+            if search_results:
+                SearchResultDialog(self.root, search_results, "🔍 搜尋結果預覽")
+            else:
+                messagebox.showinfo("無結果", "沒有搜尋結果可顯示", parent=self.root)
+                
+        except ImportError as e:
+            logger.error(f"無法匯入搜尋結果對話框: {e}")
+            messagebox.showerror("錯誤", f"無法顯示搜尋結果預覽:\n{e}", parent=self.root)
+        except Exception as e:
+            logger.error(f"顯示搜尋結果預覽失敗: {e}")
+            messagebox.showerror("錯誤", f"顯示搜尋結果預覽失敗:\n{e}", parent=self.root)
+

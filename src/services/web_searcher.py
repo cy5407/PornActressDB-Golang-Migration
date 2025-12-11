@@ -46,6 +46,9 @@ class WebSearcher:
             rotate_headers=config.getboolean('search', 'rotate_headers', fallback=True)
         )
         
+        # 初始化安全搜尋器
+        self.safe_searcher = SafeSearcher(safe_config)
+
         # 初始化日文網站專用的更快速配置（av-wiki 和 chiba-f 比較不會擋爬蟲）
         japanese_config = RequestConfig(
             min_interval=config.getfloat('search', 'japanese_min_interval', fallback=0.5),
@@ -56,21 +59,7 @@ class WebSearcher:
             backoff_factor=config.getfloat('search', 'backoff_factor', fallback=1.5),
             rotate_headers=config.getboolean('search', 'rotate_headers', fallback=True)
         )
-          # 初始化安全搜尋器
-        self.safe_searcher = SafeSearcher(safe_config)
-        
-        # 為日文網站建立更快速的搜尋器（av-wiki 和 chiba-f 比較不會擋爬蟲）
-        japanese_config = RequestConfig(
-            min_interval=0.5,  # 日文網站較短延遲
-            max_interval=1.5,
-            enable_cache=True,
-            cache_duration=86400,
-            max_retries=3,
-            backoff_factor=1.5,
-            rotate_headers=True
-        )
         self.japanese_searcher = SafeSearcher(japanese_config)
-        self.japanese_searcher = SafeSearcher(japanese_config)  # 日文網站專用
         
         # 初始化 JAVDB 安全搜尋器
         cache_dir = config.get('search', 'cache_dir', fallback=None)
@@ -896,11 +885,21 @@ class WebSearcher:
         if not uncached_codes:
             return cached_results
         
+        # 使用 threading.Lock 確保進度計數的執行緒安全
+        import threading as _threading
+        progress_lock = _threading.Lock()
+        displayed_codes = set()  # 追蹤已顯示的番號
+        
         # 定義進度回調轉換
         def wrapped_progress_callback(current, total, code):
             if progress_callback:
-                # 簡單的進度顯示
-                progress_callback(f"[{current}/{total}] 搜尋 {code}\n")
+                with progress_lock:
+                    # 避免重複顯示同一番號
+                    if code not in displayed_codes:
+                        displayed_codes.add(code)
+                        # 使用已顯示的數量作為進度，確保順序一致
+                        display_num = len(displayed_codes)
+                        progress_callback(f"[{display_num}/{total}] 搜尋 {code}\n")
         
         # 定義異步執行函式
         async def run_batch_search():
@@ -941,3 +940,243 @@ class WebSearcher:
                 progress_callback(f"❌ AV-WIKI 批次搜尋失敗: {e}\n")
             return cached_results
 
+    # ============================================================
+    # 級聯搜尋功能（新增）
+    # ============================================================
+    
+    def batch_cascade_search(
+        self, 
+        codes: List[str], 
+        stop_event: threading.Event, 
+        progress_callback=None,
+        enable_javdb: bool = True,
+        javdb_delay: float = 2.0
+    ) -> Dict[str, Dict]:
+        """
+        批次級聯搜尋
+        
+        策略：
+        1. 先用 AV-WIKI 批次併發搜尋所有番號
+        2. 收集失敗的番號
+        3. 對失敗番號逐一嘗試 chiba-f
+        4. 再對仍失敗的嘗試 JAVDB（可選）
+        
+        Args:
+            codes: 番號列表
+            stop_event: 停止事件
+            progress_callback: 進度回調函式
+            enable_javdb: 是否啟用 JAVDB 作為最後的備援來源
+            javdb_delay: JAVDB 搜尋延遲（秒）
+            
+        Returns:
+            Dict[番號, 搜尋結果（含 tried_sources 欄位）]
+        """
+        from utils.progress_tracker import SearchProgressInfo
+        
+        if not codes:
+            return {}
+        
+        total_codes = len(codes)
+        results = {}
+        
+        # 初始化進度追蹤
+        progress = SearchProgressInfo(total=total_codes)
+        
+        # 第一階段：AV-WIKI 批次併發搜尋
+        if progress_callback:
+            progress_callback(f"\n{'='*60}\n")
+            progress_callback(f"📡 第一階段：AV-WIKI 批次併發搜尋 ({total_codes} 個番號)\n")
+            progress_callback(f"{'='*60}\n")
+        
+        progress.set_phase(1, "AV-WIKI 批次搜尋", 3 if enable_javdb else 2)
+        
+        def phase1_callback(msg):
+            if progress_callback:
+                progress_callback(msg)
+        
+        avwiki_results = self.batch_search_avwiki_concurrent(codes, stop_event, phase1_callback)
+        
+        # 處理 AV-WIKI 結果
+        failed_codes = []
+        for code in codes:
+            if stop_event.is_set():
+                break
+            
+            result = avwiki_results.get(code)
+            if result and result.get('actresses'):
+                results[code] = {
+                    **result,
+                    'tried_sources': ['AV-WIKI'],
+                    'final_source': 'AV-WIKI'
+                }
+                progress.update(code, is_success=True, source='AV-WIKI')
+            else:
+                failed_codes.append(code)
+                results[code] = {
+                    'actresses': [],
+                    'source': None,
+                    'tried_sources': ['AV-WIKI'],
+                    'final_source': None
+                }
+        
+        if stop_event.is_set():
+            return results
+        
+        # 第二階段：chiba-f 逐筆搜尋失敗的番號
+        if failed_codes:
+            if progress_callback:
+                progress_callback(f"\n{'='*60}\n")
+                progress_callback(f"🔄 第二階段：chiba-f 備援搜尋 ({len(failed_codes)} 個番號)\n")
+                progress_callback(f"{'='*60}\n")
+            
+            progress.set_phase(2, "chiba-f 備援搜尋")
+            still_failed = []
+            
+            for i, code in enumerate(failed_codes):
+                if stop_event.is_set():
+                    break
+                
+                # 更新進度
+                progress.current = len(codes) - len(failed_codes) + i + 1
+                progress.current_code = code
+                progress.current_source = 'chiba-f'
+                
+                if progress_callback:
+                    progress_callback(progress.format_progress() + "\n")
+                
+                # 搜尋 chiba-f
+                result = self._search_chiba_f_net(code, stop_event)
+                
+                if result and result.get('actresses'):
+                    results[code] = {
+                        **result,
+                        'tried_sources': ['AV-WIKI', 'chiba-f'],
+                        'final_source': 'chiba-f'
+                    }
+                    progress.update(code, is_success=True, source='chiba-f', increment=False)
+                    self.search_cache[code] = result
+                else:
+                    results[code]['tried_sources'].append('chiba-f')
+                    still_failed.append(code)
+                
+                # 短延遲避免請求過快
+                time.sleep(0.5)
+            
+            failed_codes = still_failed
+        
+        if stop_event.is_set():
+            return results
+        
+        # 第三階段：JAVDB 逐筆搜尋仍然失敗的番號
+        if failed_codes and enable_javdb:
+            if progress_callback:
+                progress_callback(f"\n{'='*60}\n")
+                progress_callback(f"📊 第三階段：JAVDB 備援搜尋 ({len(failed_codes)} 個番號)\n")
+                progress_callback(f"⚠️ 注意：JAVDB 有速率限制，每次搜尋間隔 {javdb_delay} 秒\n")
+                progress_callback(f"{'='*60}\n")
+            
+            progress.set_phase(3, "JAVDB 備援搜尋")
+            
+            for i, code in enumerate(failed_codes):
+                if stop_event.is_set():
+                    break
+                
+                # 更新進度
+                progress.current = len(codes) - len(failed_codes) + i + 1
+                progress.current_code = code
+                progress.current_source = 'JAVDB'
+                
+                if progress_callback:
+                    progress_callback(progress.format_progress() + "\n")
+                
+                # 搜尋 JAVDB
+                result = self.search_javdb_only(code, stop_event)
+                
+                if result and result.get('actresses'):
+                    results[code] = {
+                        **result,
+                        'tried_sources': results[code].get('tried_sources', []) + ['JAVDB'],
+                        'final_source': 'JAVDB'
+                    }
+                    progress.update(code, is_success=True, source='JAVDB', increment=False)
+                else:
+                    results[code]['tried_sources'].append('JAVDB')
+                    progress.update(code, is_success=False, increment=False)
+                
+                # JAVDB 需要較長延遲
+                if i < len(failed_codes) - 1:  # 最後一個不需要等待
+                    time.sleep(javdb_delay)
+        else:
+            # 標記剩餘失敗
+            for code in failed_codes:
+                progress.update(code, is_success=False, increment=False)
+        
+        # 輸出摘要
+        if progress_callback:
+            progress_callback(f"\n{progress.format_summary()}\n")
+        
+        return results
+    
+    def cascade_search_single(
+        self, 
+        code: str, 
+        stop_event: threading.Event,
+        sources: List[str] = None
+    ) -> Dict:
+        """
+        對單一番號執行級聯搜尋
+        
+        Args:
+            code: 影片番號
+            stop_event: 停止事件
+            sources: 搜尋來源順序，預設 ['avwiki', 'chibaf', 'javdb']
+            
+        Returns:
+            搜尋結果（含 tried_sources 欄位）
+        """
+        sources = sources or ['avwiki', 'chibaf', 'javdb']
+        tried = []
+        
+        # 檢查快取
+        if code in self.search_cache:
+            return {
+                **self.search_cache[code],
+                'tried_sources': ['cache'],
+                'final_source': 'cache'
+            }
+        
+        for source in sources:
+            if stop_event.is_set():
+                break
+            
+            tried.append(source)
+            result = None
+            
+            try:
+                if source == 'avwiki':
+                    result = self._search_av_wiki(code, stop_event)
+                elif source == 'chibaf':
+                    result = self._search_chiba_f_net(code, stop_event)
+                elif source == 'javdb':
+                    time.sleep(2.0)  # JAVDB 速率限制
+                    result = self.search_javdb_only(code, stop_event)
+                
+                if result and result.get('actresses'):
+                    result['tried_sources'] = tried
+                    result['final_source'] = source
+                    self.search_cache[code] = result
+                    return result
+                    
+            except Exception as e:
+                logger.warning(f"[級聯搜尋] {code} 在 {source} 失敗: {e}")
+                continue
+        
+        # 全部失敗
+        return {
+            'code': code,
+            'actresses': [],
+            'source': None,
+            'tried_sources': tried,
+            'final_source': None,
+            'status': 'not_found'
+        }

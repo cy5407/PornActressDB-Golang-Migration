@@ -6,7 +6,7 @@ JSON 資料庫型別定義和常數
 """
 
 from typing import TypedDict, List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ============================================================================
 # 資料結構型別定義 (TypedDict)
@@ -187,8 +187,6 @@ def get_empty_json_database() -> JSONDatabaseDict:
     Returns:
         JSONDatabaseDict: 初始化的空資料庫結構
     """
-    from datetime import datetime, timezone
-    
     now = datetime.now(timezone.utc).strftime(ISO_DATETIME_FORMAT)
     
     return {
@@ -214,8 +212,6 @@ def get_empty_json_database() -> JSONDatabaseDict:
 
 def get_empty_video() -> VideoDict:
     """取得空的影片資料結構"""
-    from datetime import datetime, timezone
-    
     now = datetime.now(timezone.utc).strftime(ISO_DATETIME_FORMAT)
     
     return {
@@ -238,8 +234,6 @@ def get_empty_video() -> VideoDict:
 
 def get_empty_actress() -> ActressDict:
     """取得空的女優資料結構"""
-    from datetime import datetime, timezone
-    
     now = datetime.now(timezone.utc).strftime(ISO_DATETIME_FORMAT)
     
     return {

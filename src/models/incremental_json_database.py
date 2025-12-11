@@ -151,12 +151,49 @@ class IncrementalJSONDB:
         if self.journal_file.exists():
             # 載入現有 journal
             self._load_journal_stats()
+            # 重播 journal 到記憶體
+            self._replay_journal()
         else:
             # 建立新 journal
             self.journal_file.touch()
             self.journal_size = 0
             self.journal_created_at = datetime.now(timezone.utc)
             self._save_index()
+
+    def _replay_journal(self):
+        """重播 journal 到記憶體"""
+        try:
+            count = 0
+            with open(self.journal_file, 'rb') as f:
+                for line in f:
+                    if line.strip():
+                        try:
+                            entry_dict = orjson.loads(line)
+                            entry = JournalEntry.from_dict(entry_dict)
+                            self._apply_entry_to_memory(entry)
+                            count += 1
+                        except Exception as e:
+                            logger.warning(f"⚠️ 重播 journal 記錄失敗: {line}, 錯誤: {e}")
+            
+            if count > 0:
+                logger.info(f"🔄 已重播 {count} 條 journal 記錄到記憶體")
+        except Exception as e:
+            logger.error(f"❌ 重播 journal 失敗: {e}")
+
+    def _apply_entry_to_memory(self, entry: JournalEntry):
+        """將單條 journal 記錄套用到記憶體"""
+        if entry.entity_type == 'video':
+            if entry.operation == JOURNAL_OP_ADD:
+                if entry.data:
+                    self.base_db.data['videos'][entry.entity_id] = entry.data
+            elif entry.operation == JOURNAL_OP_UPDATE:
+                video = self.base_db.get_video_info(entry.entity_id)
+                if video and entry.data:
+                    video.update(entry.data)
+                    self.base_db.data['videos'][entry.entity_id] = video
+            elif entry.operation == JOURNAL_OP_DELETE:
+                if entry.entity_id in self.base_db.data['videos']:
+                    del self.base_db.data['videos'][entry.entity_id]
     
     def _load_journal_stats(self):
         """載入 journal 統計資訊"""
@@ -347,6 +384,10 @@ class IncrementalJSONDB:
             
         return code
     
+    def analyze_actress_primary_studio(self, actress_name: str, major_studios: set = None) -> Dict:
+        """分析女優的主要片商（委派給 base_db）"""
+        return self.base_db.analyze_actress_primary_studio(actress_name, major_studios)
+
     def compact_if_needed(self) -> bool:
         """
         根據閾值自動判斷是否需要合併
@@ -396,22 +437,7 @@ class IncrementalJSONDB:
                 # 套用到主資料庫
                 for entry in entries:
                     try:
-                        if entry.entity_type == 'video':
-                            if entry.operation == JOURNAL_OP_ADD:
-                                # 新增影片（使用 base_db）
-                                # 這裡需要 base_db 提供 add_video API
-                                pass  # TODO: 實作
-                            elif entry.operation == JOURNAL_OP_UPDATE:
-                                # 更新影片
-                                video = self.base_db.get_video_info(entry.entity_id)
-                                if video and entry.data:
-                                    video.update(entry.data)
-                                    # 直接更新內部資料
-                                    self.base_db.data['videos'][entry.entity_id] = video
-                            elif entry.operation == JOURNAL_OP_DELETE:
-                                # 刪除影片
-                                if entry.entity_id in self.base_db.data['videos']:
-                                    del self.base_db.data['videos'][entry.entity_id]
+                        self._apply_entry_to_memory(entry)
                     except Exception as e:
                         logger.error(f"❌ 套用 journal 記錄失敗: {entry.to_dict()}, 錯誤: {e}")
                 

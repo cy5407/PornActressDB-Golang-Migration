@@ -1,4 +1,7 @@
 {
+    "chat.useClaudeSkills": true,
+    "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+    "chat.agent.thinkingStyle": "collapsed",
     "chat.promptFilesRecommendations": {
         "speckit.constitution": true,
         "speckit.specify": true,

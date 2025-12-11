@@ -118,7 +118,8 @@ class AVWikiScraper(BaseScraper):
                 'search_results': [],
                 'total_results': 0,
                 'unique_actresses': [],
-                'actress_elements': []
+                'actress_elements': [],
+                'found': False
             }
         
         # 方法1: 使用 rel="tag" 且 href 包含 /av-actress/ 的連結（最可靠）
@@ -213,7 +214,8 @@ class AVWikiScraper(BaseScraper):
             'search_results': unique_actresses,
             'total_results': len(unique_actresses),
             'unique_actresses': unique_actresses,
-            'actress_elements': actress_elements
+            'actress_elements': actress_elements,
+            'found': True
         }
     
     def _parse_detail_page(self, soup: BeautifulSoup) -> Dict[str, Any]:
@@ -285,6 +287,7 @@ class AVWikiScraper(BaseScraper):
         if date_match:
             result['release_date'] = date_match.group(1)
         
+        result['found'] = True
         return result
     
     def _extract_actresses_from_text(self, text: str) -> List[str]:
@@ -572,9 +575,16 @@ class AVWikiScraper(BaseScraper):
                     
                     # 品質檢查：如果找到超過 10 位女優，很可能是錯誤解析
                     search_status = 'searched_found'
-                    if len(actresses) == 0:
+                    
+                    # 檢查是否找到影片
+                    found = result.get('found', True)
+                    
+                    if not found:
+                        search_status = 'video_not_found'
+                        logger.info(f"番號 {code} 在 AV-WIKI 上未找到")
+                    elif len(actresses) == 0:
                         search_status = 'no_actress_found'
-                        logger.warning(f"番號 {code} 未找到女優資訊 (返回字段: {list(result.keys())})")
+                        logger.warning(f"番號 {code} 已找到頁面但未提取到女優資訊 (返回字段: {list(result.keys())})")
                     elif len(actresses) > 10:
                         logger.warning(f"番號 {code} 找到 {len(actresses)} 位女優，可能是解析錯誤: {actresses[:10]}...")
                         search_status = 'search_error'
