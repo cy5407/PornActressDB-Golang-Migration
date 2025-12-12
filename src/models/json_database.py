@@ -98,7 +98,7 @@ class JSONDBManager:
 
         except Exception as e:
             logger.error(f"❌ JSONDBManager 初始化失敗: {e}")
-            raise JSONDatabaseError(f"初始化失敗: {e}")
+            raise JSONDatabaseError(f"初始化失敗: {e}") from e
 
     def _ensure_data_file_exists(self) -> None:
         """
@@ -131,7 +131,7 @@ class JSONDBManager:
             raise
         except Exception as e:
             logger.error(f"❌ 資料載入失敗: {e}")
-            raise CorruptedDataError(f"載入失敗: {e}")
+            raise CorruptedDataError(f"載入失敗: {e}") from e
 
     def _load_data_internal(self) -> None:
         """
@@ -155,7 +155,7 @@ class JSONDBManager:
                 loaded_data = orjson.loads(file_content)
             except orjson.JSONDecodeError as e:
                 logger.error(f"❌ JSON 解析失敗: {e}")
-                raise CorruptedDataError(f"JSON 格式錯誤: {e}")
+                raise CorruptedDataError(f"JSON 格式錯誤: {e}") from e
 
             # 驗證資料結構
             self._validate_json_format(loaded_data)
@@ -172,7 +172,7 @@ class JSONDBManager:
             raise
         except Exception as e:
             logger.error(f"❌ 內部資料載入失敗: {e}")
-            raise CorruptedDataError(f"內部載入失敗: {e}")
+            raise CorruptedDataError(f"內部載入失敗: {e}") from e
 
     def _save_all_data(self, data: JSONDatabaseDict) -> None:
         """
@@ -249,7 +249,7 @@ class JSONDBManager:
                     time.sleep(retry_delay * (attempt + 1))
                     continue
                 logger.error(f"❌ 資料儲存失敗（所有重試已用盡）: {pe}")
-                raise DataIntegrityError(f"儲存失敗: {pe}")
+                raise DataIntegrityError(f"儲存失敗: {pe}") from pe
             except LockError as e:
                 logger.error(f"❌ 寫鎖定失敗: {e}")
                 raise
@@ -261,7 +261,7 @@ class JSONDBManager:
                     time.sleep(retry_delay * (attempt + 1))
                     continue
                 logger.error(f"❌ 資料儲存失敗: {e}")
-                raise DataIntegrityError(f"儲存失敗: {e}")
+                raise DataIntegrityError(f"儲存失敗: {e}") from e
 
         # 如果所有重試都失敗
         raise DataIntegrityError("儲存失敗: 所有重試都已用盡")
@@ -527,7 +527,7 @@ class JSONDBManager:
 
         except Exception as e:
             logger.error(f"❌ 備份失敗: {e}")
-            raise BackupError(f"備份失敗: {e}")
+            raise BackupError(f"備份失敗: {e}") from e
 
     def restore_from_backup(self, backup_path: str) -> bool:
         """
@@ -567,10 +567,10 @@ class JSONDBManager:
 
         except json.JSONDecodeError as e:
             logger.error(f"❌ 備份檔案損壞: {e}")
-            raise BackupError(f"備份檔案損壞: {e}")
+            raise BackupError(f"備份檔案損壞: {e}") from e
         except Exception as e:
             logger.error(f"❌ 還原失敗: {e}")
-            raise BackupError(f"還原失敗: {e}")
+            raise BackupError(f"還原失敗: {e}") from e
 
     def get_backup_list(self) -> list[str]:
         """
@@ -667,7 +667,7 @@ class JSONDBManager:
             logger.debug("✅ 讀鎖定已獲取")
         except Exception as e:
             logger.error(f"❌ 無法獲得讀鎖定: {e}")
-            raise LockError(f"無法獲得讀鎖定: {e}")
+            raise LockError(f"無法獲得讀鎖定: {e}") from e
 
     def _acquire_write_lock(self, timeout: int = WRITE_LOCK_TIMEOUT) -> None:
         """
@@ -686,7 +686,7 @@ class JSONDBManager:
             logger.debug("✅ 寫鎖定已獲取")
         except Exception as e:
             logger.error(f"❌ 無法獲得寫鎖定: {e}")
-            raise LockError(f"無法獲得寫鎖定: {e}")
+            raise LockError(f"無法獲得寫鎖定: {e}") from e
 
     def _release_locks(self) -> None:
         """
@@ -786,7 +786,7 @@ class JSONDBManager:
             raise
         except Exception as e:
             logger.error(f"❌ 未預期的錯誤: {e}")
-            raise CorruptedDataError(f"新增/更新影片失敗: {e}")
+            raise CorruptedDataError(f"新增/更新影片失敗: {e}") from e
 
     def get_video_info(self, code: str) -> VideoDict | None:
         """
@@ -937,7 +937,7 @@ class JSONDBManager:
             raise
         except Exception as e:
             logger.error(f"❌ 未預期的錯誤: {e}")
-            raise CorruptedDataError(f"刪除影片失敗: {e}")
+            raise CorruptedDataError(f"刪除影片失敗: {e}") from e
 
     def add_or_update_actress(self, actress_info: ActressDict) -> str:
         """
@@ -1003,7 +1003,7 @@ class JSONDBManager:
             raise
         except Exception as e:
             logger.error(f"❌ 未預期的錯誤: {e}")
-            raise CorruptedDataError(f"新增/更新女優失敗: {e}")
+            raise CorruptedDataError(f"新增/更新女優失敗: {e}") from e
 
     def get_actress_info(self, actress_id: str) -> ActressDict | None:
         """
@@ -1103,7 +1103,7 @@ class JSONDBManager:
             raise
         except Exception as e:
             logger.error(f"❌ 未預期的錯誤: {e}")
-            raise CorruptedDataError(f"刪除女優失敗: {e}")
+            raise CorruptedDataError(f"刪除女優失敗: {e}") from e
 
     # ========================================================================
     # 輔助方法
@@ -1363,8 +1363,8 @@ class JSONDBManager:
                 {
                     "actress_name": actress_name,
                     "video_count": video_count,
-                    "studios": sorted(list(studios)),
-                    "studio_codes": sorted(list(studio_codes)),
+                    "studios": sorted(studios),
+                    "studio_codes": sorted(studio_codes),
                 }
             )
 
@@ -1574,7 +1574,7 @@ class JSONDBManager:
 
             studio = video.get("studio", "")
             studio_code = video.get("studio_code", "")
-            video_code_value = video.get("code", "")
+            video.get("code", "")
 
             # 過濾掉無片商或 UNKNOWN 的影片
             if not studio or studio == "UNKNOWN":
@@ -1693,7 +1693,7 @@ class JSONDBManager:
 
                 # 找出該女優的所有影片
                 actress_videos = []
-                for code, video in videos.items():
+                for _code, video in videos.items():
                     actresses = video.get("actresses", [])
                     if actress_name in actresses:
                         actress_videos.append(video)

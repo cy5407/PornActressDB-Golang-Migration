@@ -23,7 +23,7 @@ for actress, count in actress_counts.most_common(20):
 # 檢查是否有異常的女優名稱
 print("\n異常的女優名稱（包含特殊字符）:")
 abnormal = []
-for actress in actress_counts.keys():
+for actress in actress_counts:
     if "#" in actress or len(actress) > 20 or len(actress) < 2:
         abnormal.append(actress)
         print(f"  - {actress}")

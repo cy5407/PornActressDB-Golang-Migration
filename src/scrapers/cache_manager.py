@@ -4,6 +4,8 @@
 """
 
 import asyncio
+import builtins
+import contextlib
 import gzip
 import hashlib
 import json
@@ -407,7 +409,7 @@ class CacheManager:
     def _cleanup_expired_cache(self):
         """清理過期快取"""
         try:
-            current_time = time.time()
+            time.time()
 
             # 清理記憶體快取
             if self.config.enable_memory_cache:
@@ -482,10 +484,8 @@ class CacheManager:
             if self.config.enable_disk_cache:
                 # 刪除所有快取檔案
                 for cache_file in self.cache_dir.rglob("*.cache"):
-                    try:
+                    with contextlib.suppress(builtins.BaseException):
                         cache_file.unlink()
-                    except:
-                        pass
 
                 # 清空 JSON 索引
                 index_data = {

@@ -560,7 +560,7 @@ class StudioClassificationCore:
 
         # 取得單體企劃女優資料夾名稱
         solo_folder_name = self.preference_manager.get_solo_folder_name()
-        confidence_threshold = self.preference_manager.get_confidence_threshold()
+        self.preference_manager.get_confidence_threshold()
 
         if progress_callback:
             progress_callback("🚚 開始按片商移動女優資料夾...\n")

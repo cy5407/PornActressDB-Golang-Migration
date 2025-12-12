@@ -2,6 +2,8 @@
 安全搜尋器模組 - 防止被網站封鎖的網路搜尋增強功能
 """
 
+import builtins
+import contextlib
 import hashlib
 import json
 import logging
@@ -365,10 +367,8 @@ class SafeSearcher:
 
     def __del__(self):
         """析構函數 - 保存快取"""
-        try:
+        with contextlib.suppress(builtins.BaseException):
             self._save_cache()
-        except:
-            pass
 
     def get_stats(self) -> dict[str, Any]:
         """獲取統計資訊"""

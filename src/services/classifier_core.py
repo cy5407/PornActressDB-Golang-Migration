@@ -370,7 +370,7 @@ class UnifiedClassifierCore:
                                 last_search.tzinfo
                             ) - last_search > timedelta(days=7):
                                 should_research = True
-                        except:
+                        except Exception:  # noqa: BLE001
                             pass
 
                     if should_research:
@@ -936,7 +936,7 @@ class UnifiedClassifierCore:
             if progress_callback:
                 progress_callback("📂 步驟 1/3: 掃描影片檔案...\n")
 
-            folder_path_obj = Path(folder_path)
+            Path(folder_path)
             video_files = self.file_scanner.scan_directory(folder_path, recursive=False)
 
             if not video_files:

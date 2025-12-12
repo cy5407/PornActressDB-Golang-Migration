@@ -46,60 +46,46 @@ class JAVDBScraper(BaseScraper):
 
             async with aiohttp.ClientSession(
                 headers=self.headers, timeout=timeout
-            ) as session:
-                async with session.get(url) as response:
-                    if response.status == 404:
-                        raise ScrapingException(
-                            "頁面不存在", ErrorType.CLIENT_ERROR, url, 404
-                        )
-                    elif response.status >= 500:
-                        raise ScrapingException(
-                            "伺服器錯誤", ErrorType.SERVER_ERROR, url, response.status
-                        )
-                    elif response.status == 429:
-                        retry_after = response.headers.get("Retry-After")
-                        raise ScrapingException(
-                            "請求過於頻繁", ErrorType.RATE_LIMIT_ERROR, url, 429
-                        )
+            ) as session, session.get(url) as response:
+                if response.status == 404:
+                    raise ScrapingException(
+                        "頁面不存在", ErrorType.CLIENT_ERROR, url, 404
+                    )
+                elif response.status >= 500:
+                    raise ScrapingException(
+                        "伺服器錯誤", ErrorType.SERVER_ERROR, url, response.status
+                    )
+                elif response.status == 429:
+                    response.headers.get("Retry-After")
+                    raise ScrapingException(
+                        "請求過於頻繁", ErrorType.RATE_LIMIT_ERROR, url, 429
+                    )
 
-                    response.raise_for_status()
+                response.raise_for_status()
 
-                    # 讀取內容並進行編碼檢測
-                    content_bytes = await response.read()
-                    soup, encoding = create_safe_soup(content_bytes)
+                # 讀取內容並進行編碼檢測
+                content_bytes = await response.read()
+                soup, encoding = create_safe_soup(content_bytes)
 
-                    logger.debug(f"✅ JAVDB 頁面載入成功，編碼: {encoding}")
+                logger.debug(f"✅ JAVDB 頁面載入成功，編碼: {encoding}")
 
-                    # 解析內容
-                    parsed_data = self.parse_content(str(soup), url)
-                    parsed_data["source"] = "JAVDB"
-                    parsed_data["encoding"] = encoding
+                # 解析內容
+                parsed_data = self.parse_content(str(soup), url)
+                parsed_data["source"] = "JAVDB"
+                parsed_data["encoding"] = encoding
 
-                    return parsed_data
+                return parsed_data
 
         except aiohttp.ClientError as e:
-            raise ScrapingException(f"網路連線錯誤: {e}", ErrorType.NETWORK_ERROR, url)
+            raise ScrapingException(f"網路連線錯誤: {e}", ErrorType.NETWORK_ERROR, url) from e
         except Exception as e:
             if isinstance(e, ScrapingException):
                 raise
-            raise ScrapingException(f"未知錯誤: {e}", ErrorType.UNKNOWN_ERROR, url)
+            raise ScrapingException(f"未知錯誤: {e}", ErrorType.UNKNOWN_ERROR, url) from e
 
     def parse_content(self, content: str, url: str) -> dict[str, Any]:
         """解析 JAVDB 頁面內容"""
         soup = BeautifulSoup(content, "html.parser")
-        result = {
-            "actresses": [],
-            "studio": None,
-            "studio_code": None,
-            "title": None,
-            "release_date": None,
-            "duration": None,
-            "director": None,
-            "series": None,
-            "rating": None,
-            "categories": [],
-            "cover_url": None,
-        }
 
         try:
             # 檢查是否為搜尋結果頁面
@@ -110,7 +96,7 @@ class JAVDBScraper(BaseScraper):
 
         except Exception as e:
             logger.error(f"解析 JAVDB 內容失敗: {e}")
-            raise ScrapingException(f"內容解析錯誤: {e}", ErrorType.PARSING_ERROR, url)
+            raise ScrapingException(f"內容解析錯誤: {e}", ErrorType.PARSING_ERROR, url) from e
 
     def _parse_search_results(self, soup: BeautifulSoup) -> dict[str, Any]:
         """解析搜尋結果頁面"""
@@ -269,7 +255,7 @@ class JAVDBScraper(BaseScraper):
                 rating_match = re.search(r"([\d.]+)", rating_text)
                 if rating_match:
                     result["rating"] = float(rating_match.group(1))
-            except:
+            except Exception:  # noqa: BLE001
                 pass
 
         # 從標題中提取片商代碼
@@ -308,10 +294,7 @@ class JAVDBScraper(BaseScraper):
             return True
 
         # 檢查是否為西方名字格式
-        if re.match(r"^[A-Za-z\s]+$", name) and " " in name:
-            return True
-
-        return False
+        return bool(re.match(r"^[A-Za-z\s]+$", name) and " " in name)
 
     async def search_video(self, video_code: str) -> dict[str, Any]:
         """搜尋指定番號的影片"""
@@ -361,7 +344,7 @@ class JAVDBScraper(BaseScraper):
             logger.error(f"搜尋 JAVDB 影片 {video_code} 失敗: {e}")
             raise ScrapingException(
                 f"搜尋失敗: {e}", ErrorType.UNKNOWN_ERROR, search_url
-            )
+            ) from e
 
     async def get_actress_info(self, actress_name: str) -> dict[str, Any]:
         """獲取女優資訊"""
@@ -401,4 +384,4 @@ class JAVDBScraper(BaseScraper):
             logger.error(f"獲取 JAVDB 女優資訊 {actress_name} 失敗: {e}")
             raise ScrapingException(
                 f"獲取女優資訊失敗: {e}", ErrorType.UNKNOWN_ERROR, search_url
-            )
+            ) from e

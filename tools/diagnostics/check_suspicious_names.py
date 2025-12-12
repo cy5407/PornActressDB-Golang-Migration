@@ -75,10 +75,7 @@ def is_valid_actress_name(name: str) -> bool:
     if re.match(r"^\d+$", name) or len(re.findall(r"\d", name)) > len(name) // 2:
         return False
 
-    if re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]", name):
-        return True
-
-    return False
+    return bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]", name))
 
 
 # 可疑名稱檢查

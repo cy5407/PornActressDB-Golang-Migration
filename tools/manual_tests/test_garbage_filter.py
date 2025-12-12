@@ -92,11 +92,7 @@ def is_valid_actress_name(name: str) -> bool:
         "ムーディーズ",
     ]
 
-    for keyword in exclude_keywords:
-        if keyword in name:
-            return False
-
-    return True
+    return all(keyword not in name for keyword in exclude_keywords)
 
 
 # 從分析結果中提取的垃圾文本樣本

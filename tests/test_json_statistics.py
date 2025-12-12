@@ -42,9 +42,7 @@ class TestActressStatistics:
         )
 
         # 新增影片
-        db.add_or_update_video(
-            {
-                "id": "video_1",
+        db.add_or_update_video("video_1", {,
                 "title": "Test Video 1",
                 "studio": "S1",
                 "studio_code": "SNIS",
@@ -52,9 +50,7 @@ class TestActressStatistics:
                 "actresses": ["actress_1"],
             }
         )
-        db.add_or_update_video(
-            {
-                "id": "video_2",
+        db.add_or_update_video("video_2", {,
                 "title": "Test Video 2",
                 "studio": "S1",
                 "studio_code": "SNIS",
@@ -62,9 +58,7 @@ class TestActressStatistics:
                 "actresses": ["actress_1"],
             }
         )
-        db.add_or_update_video(
-            {
-                "id": "video_3",
+        db.add_or_update_video("video_3", {,
                 "title": "Test Video 3",
                 "studio": "PREMIUM",
                 "studio_code": "PGD",
@@ -72,9 +66,7 @@ class TestActressStatistics:
                 "actresses": ["actress_1", "actress_2"],
             }
         )
-        db.add_or_update_video(
-            {
-                "id": "video_4",
+        db.add_or_update_video("video_4", {,
                 "title": "Test Video 4",
                 "studio": "IDEA POCKET",
                 "studio_code": "IPX",
@@ -192,9 +184,7 @@ class TestStudioStatistics:
         )
 
         # 新增影片
-        db.add_or_update_video(
-            {
-                "id": "video_1",
+        db.add_or_update_video("video_1", {,
                 "title": "S1 Video 1",
                 "studio": "S1",
                 "studio_code": "SNIS",
@@ -202,9 +192,7 @@ class TestStudioStatistics:
                 "actresses": ["actress_1"],
             }
         )
-        db.add_or_update_video(
-            {
-                "id": "video_2",
+        db.add_or_update_video("video_2", {,
                 "title": "S1 Video 2",
                 "studio": "S1",
                 "studio_code": "SNIS",
@@ -212,9 +200,7 @@ class TestStudioStatistics:
                 "actresses": ["actress_2"],
             }
         )
-        db.add_or_update_video(
-            {
-                "id": "video_3",
+        db.add_or_update_video("video_3", {,
                 "title": "S1 Video 3",
                 "studio": "S1",
                 "studio_code": "SSNI",
@@ -222,9 +208,7 @@ class TestStudioStatistics:
                 "actresses": ["actress_1", "actress_2"],
             }
         )
-        db.add_or_update_video(
-            {
-                "id": "video_4",
+        db.add_or_update_video("video_4", {,
                 "title": "PREMIUM Video",
                 "studio": "PREMIUM",
                 "studio_code": "PGD",
@@ -320,7 +304,7 @@ class TestEnhancedActressStudioStatistics:
         temp_dir = tempfile.mkdtemp()
         db = JSONDBManager(data_dir=temp_dir)
 
-        now = datetime.now(UTC).strftime(ISO_DATETIME_FORMAT)
+        datetime.now(UTC).strftime(ISO_DATETIME_FORMAT)
 
         # 新增女優
         db.add_or_update_actress(
@@ -331,9 +315,7 @@ class TestEnhancedActressStudioStatistics:
         )
 
         # 新增影片
-        db.add_or_update_video(
-            {
-                "id": "video_1",
+        db.add_or_update_video("video_1", {,
                 "title": "S1 Video 1",
                 "studio": "S1",
                 "studio_code": "SNIS",
@@ -341,9 +323,7 @@ class TestEnhancedActressStudioStatistics:
                 "actresses": ["actress_1"],
             }
         )
-        db.add_or_update_video(
-            {
-                "id": "video_2",
+        db.add_or_update_video("video_2", {,
                 "title": "S1 Video 2",
                 "studio": "S1",
                 "studio_code": "SNIS",
@@ -351,9 +331,7 @@ class TestEnhancedActressStudioStatistics:
                 "actresses": ["actress_1"],
             }
         )
-        db.add_or_update_video(
-            {
-                "id": "video_3",
+        db.add_or_update_video("video_3", {,
                 "title": "PREMIUM Video",
                 "studio": "PREMIUM",
                 "studio_code": "PGD",

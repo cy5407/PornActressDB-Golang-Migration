@@ -93,7 +93,7 @@ class UnifiedCodeExtractor:
         cleaned_name = re.sub(r"-+", "-", cleaned_name)  # 將多個連字符合併為一個
 
         # 使用增強的模式進行匹配
-        for pattern, format_name in self.code_patterns:
+        for pattern, _format_name in self.code_patterns:
             match = re.search(pattern, cleaned_name, re.IGNORECASE)
             if match:
                 code = match.group(1).upper()
@@ -135,11 +135,7 @@ class UnifiedCodeExtractor:
             r"^\d{6}-\d{3}$",  # 240101-001
         ]
 
-        for pattern in valid_patterns:
-            if re.match(pattern, code):
-                return True
-
-        return False
+        return any(re.match(pattern, code) for pattern in valid_patterns)
 
     def _should_skip_file(self, base_name: str) -> bool:
         """檢查是否應該跳過此檔案（FC2/PPV 相關）"""
@@ -160,10 +156,7 @@ class UnifiedCodeExtractor:
                 return True
 
         # 額外檢查：檔名中包含明顯的 FC2/PPV 標識
-        if any(marker in upper_name for marker in ["FC2PPV", "FC2-PPV", "FC2_PPV"]):
-            return True
-
-        return False
+        return bool(any(marker in upper_name for marker in ["FC2PPV", "FC2-PPV", "FC2_PPV"]))
 
     def _should_skip_file(self, base_name: str) -> bool:
         """檢查是否應該跳過此檔案（FC2/PPV 相關）"""
@@ -184,7 +177,4 @@ class UnifiedCodeExtractor:
                 return True
 
         # 額外檢查：檔名中包含明顯的 FC2/PPV 標識
-        if any(marker in upper_name for marker in ["FC2PPV", "FC2-PPV", "FC2_PPV"]):
-            return True
-
-        return False
+        return bool(any(marker in upper_name for marker in ["FC2PPV", "FC2-PPV", "FC2_PPV"]))

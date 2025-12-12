@@ -513,5 +513,5 @@ class SafeJAVDBSearcher:
                 self.save_cache()
             if hasattr(self, "stats"):
                 self.save_stats()
-        except:
+        except Exception:  # noqa: BLE001
             pass

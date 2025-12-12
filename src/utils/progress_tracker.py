@@ -3,6 +3,8 @@
 提供搜尋進度追蹤、時間預估與格式化輸出
 """
 
+import builtins
+import contextlib
 import threading
 import time
 from dataclasses import dataclass, field
@@ -347,10 +349,8 @@ class LoadingIndicator:
         """停止動畫"""
         self.running = False
         if self._timer:
-            try:
+            with contextlib.suppress(builtins.BaseException):
                 self._timer.cancel()
-            except:
-                pass
         self.update_callback(final_text)
 
     def update_text(self, text: str):

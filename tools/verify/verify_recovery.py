@@ -126,7 +126,7 @@ async def test_failed_codes_recovery():
 
     if success_count > 0:
         print("\n🎉 成功恢復的番號範例:")
-        for code, count, actresses in results["success"][:5]:
+        for code, _count, actresses in results["success"][:5]:
             print(f"  • {code}: {', '.join(actresses)}")
 
     if failed_count > 0 and failed_count <= 10:

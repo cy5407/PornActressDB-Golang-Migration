@@ -94,7 +94,7 @@ async def test_regression():
         print("⚠️  警告：有回歸問題")
         print()
         print("失敗的番號:")
-        for code, count, success in results:
+        for code, _count, success in results:
             if not success:
                 print(f"  ✗ {code}")
 

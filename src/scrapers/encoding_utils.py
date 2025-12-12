@@ -249,9 +249,7 @@ class EncodingWarningFilter(logging.Filter):
         # 過濾掉特定的 BeautifulSoup 編碼警告
         if "Some characters could not be decoded" in record.getMessage():
             return False
-        if "REPLACEMENT CHARACTER" in record.getMessage():
-            return False
-        return True
+        return "REPLACEMENT CHARACTER" not in record.getMessage()
 
 
 def install_encoding_warning_filter():

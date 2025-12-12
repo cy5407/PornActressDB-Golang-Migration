@@ -267,7 +267,7 @@ class IncrementalJSONDB:
 
         except Exception as e:
             logger.error(f"❌ 寫入 journal 失敗: {e}")
-            raise JSONDatabaseError(f"Journal 寫入失敗: {e}")
+            raise JSONDatabaseError(f"Journal 寫入失敗: {e}") from e
 
     def update_video(self, code: str, updates: dict[str, Any]):
         """
@@ -483,7 +483,7 @@ class IncrementalJSONDB:
 
         except Exception as e:
             logger.error(f"❌ Journal 合併失敗: {e}")
-            raise JSONDatabaseError(f"合併失敗: {e}")
+            raise JSONDatabaseError(f"合併失敗: {e}") from e
 
     def get_stats(self) -> dict[str, Any]:
         """

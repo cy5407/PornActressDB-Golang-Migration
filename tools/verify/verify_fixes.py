@@ -29,7 +29,7 @@ def verify_fixes():
 
         # 檢查大女優數
         max_actresses = 0
-        for code, video in data["videos"].items():
+        for _code, video in data["videos"].items():
             actress_count = len(video.get("actresses", []))
             if actress_count > max_actresses:
                 max_actresses = actress_count

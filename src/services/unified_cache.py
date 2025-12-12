@@ -132,7 +132,7 @@ class UnifiedCacheManager:
                 return
 
         # 使用第一個可用的快取來源
-        for name, cache in self._cache_sources.items():
+        for _name, cache in self._cache_sources.items():
             if hasattr(cache, "set"):
                 cache.set(key, value, ttl_hours=ttl)
                 return

@@ -81,7 +81,7 @@ def verify_zero_actress_detection():
 1️⃣  偵測階段: 識別零女優番號（actresses 列表為空或長度為 0）
 2️⃣  清快取: 調用 clear_cache_for_code() 清除該番號的 JAVDB 快取
 3️⃣  重新查詢: 使用 batch_search() 重新搜尋
-4️⃣  複寫資料庫: 
+4️⃣  複寫資料庫:
    - 如果第二輪找到女優: 更新 actresses 列表，search_status = 'searched_found'
    - 如果仍無結果: 保持 actresses 為空，search_status = 'searched_not_found'
 5️⃣  記錄方法: search_method 標記為 'JAVDB (二次搜尋)'

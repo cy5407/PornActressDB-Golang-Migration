@@ -335,9 +335,7 @@ class WebSearcher:
             return False
         if re.match(r"^\d+$", text) or len(re.findall(r"\d", text)) > len(text) // 2:
             return False
-        if re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]", text):
-            return True
-        return False
+        return bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]", text))
 
     def _detect_and_decode_content(self, response: httpx.Response) -> str:
         """多重編碼檢測和解碼機制（支援壓縮內容處理）"""
@@ -456,10 +454,7 @@ class WebSearcher:
 
         # 檢查是否有過多的非ASCII字符（可能是壓縮數據）
         non_ascii_count = sum(1 for b in first_bytes if b > 127)
-        if non_ascii_count > len(first_bytes) * 0.5:
-            return True
-
-        return False
+        return non_ascii_count > len(first_bytes) * 0.5
 
     def _force_decompress(self, content_bytes: bytes) -> bytes:
         """強制嘗試所有可能的解壓方法"""
@@ -744,7 +739,7 @@ class WebSearcher:
                     (r"品番[：:]\s*([A-Z]+)-?\d+", r"\1"),
                 ]
 
-                for pattern, replacement in studio_patterns:
+                for pattern, _replacement in studio_patterns:
                     match = re.search(pattern, page_text, re.IGNORECASE)
                     if match:
                         extracted_studio = match.group(1).strip()

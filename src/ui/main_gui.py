@@ -160,9 +160,8 @@ class SafeGUIUpdater:
                 if self._widget_exists(self.result_text):
                     self.result_text.delete(1.0, tk.END)
 
-            elif msg.msg_type == GUIMessageType.CALLBACK:
-                if msg.callback:
-                    msg.callback()
+            elif msg.msg_type == GUIMessageType.CALLBACK and msg.callback:
+                msg.callback()
 
         except tk.TclError as e:
             logger.warning(f"⚠️ GUI 元件已銷毀，忽略訊息: {e}")

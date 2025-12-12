@@ -281,7 +281,7 @@ class RateLimiter:
         """從URL提取域名"""
         try:
             return urlparse(url).netloc.lower()
-        except:
+        except Exception:  # noqa: BLE001
             return "unknown"
 
     def can_make_request(self, url: str) -> tuple[bool, float]:

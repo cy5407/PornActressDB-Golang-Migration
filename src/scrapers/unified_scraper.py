@@ -390,7 +390,7 @@ class UnifiedWebScraper:
         all_works = []
         studio_count = {}
 
-        for source, result in results.items():
+        for _source, result in results.items():
             works = result.get("works", [])
             all_works.extend(works)
 
@@ -520,7 +520,7 @@ class UnifiedWebScraper:
         for source, scraper in self.scrapers.items():
             try:
                 # 嘗試搜尋一個常見番號進行健康檢查
-                test_result = await asyncio.wait_for(
+                await asyncio.wait_for(
                     scraper.search_video("test-001"), timeout=10.0
                 )
                 health_results[source.value] = {

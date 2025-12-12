@@ -14,15 +14,15 @@ chardet>=5.2.0        # 編碼自動檢測
 ttkbootstrap>=1.10.0  # 美化主題 (選用)
 
 # 資料處理和序列化
+orjson>=3.9.0          # 高效能 JSON 序列化
+
 # 測試相關
 pytest>=7.0.0
 pytest-cov>=4.0.0
 pytest-mock>=3.10.0
 
 # 程式碼品質
-black>=23.0.0
-flake8>=6.0.0
-isort>=5.12.0
+ruff>=0.1.0            # Linter + Formatter (取代 black/flake8/isort)
 
 # 環境設定
 python-dotenv>=1.0.0

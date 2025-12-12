@@ -30,7 +30,7 @@ def test_zero_actress_codes():
     print("=" * 80 + "\n")
 
     # 初始化管理器
-    config = ConfigManager()
+    ConfigManager()
     db_manager = IncrementalJSONDB()
 
     # 測試番號（都是已知的零女優番號）

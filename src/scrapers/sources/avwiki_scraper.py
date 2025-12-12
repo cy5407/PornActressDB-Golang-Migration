@@ -44,55 +44,45 @@ class AVWikiScraper(BaseScraper):
 
             async with aiohttp.ClientSession(
                 headers=self.headers, timeout=timeout
-            ) as session:
-                async with session.get(url) as response:
-                    if response.status == 404:
-                        raise ScrapingException(
-                            "頁面不存在", ErrorType.CLIENT_ERROR, url, 404
-                        )
-                    elif response.status >= 500:
-                        raise ScrapingException(
-                            "伺服器錯誤", ErrorType.SERVER_ERROR, url, response.status
-                        )
-                    elif response.status == 429:
-                        raise ScrapingException(
-                            "請求過於頻繁", ErrorType.RATE_LIMIT_ERROR, url, 429
-                        )
+            ) as session, session.get(url) as response:
+                if response.status == 404:
+                    raise ScrapingException(
+                        "頁面不存在", ErrorType.CLIENT_ERROR, url, 404
+                    )
+                elif response.status >= 500:
+                    raise ScrapingException(
+                        "伺服器錯誤", ErrorType.SERVER_ERROR, url, response.status
+                    )
+                elif response.status == 429:
+                    raise ScrapingException(
+                        "請求過於頻繁", ErrorType.RATE_LIMIT_ERROR, url, 429
+                    )
 
-                    response.raise_for_status()
+                response.raise_for_status()
 
-                    # 讀取內容並進行編碼檢測
-                    content_bytes = await response.read()
-                    soup, encoding = create_safe_soup(content_bytes)
+                # 讀取內容並進行編碼檢測
+                content_bytes = await response.read()
+                soup, encoding = create_safe_soup(content_bytes)
 
-                    logger.debug(f"✅ AV-WIKI 頁面載入成功，編碼: {encoding}")
+                logger.debug(f"✅ AV-WIKI 頁面載入成功，編碼: {encoding}")
 
-                    # 解析內容
-                    parsed_data = self.parse_content(str(soup), url)
-                    parsed_data["source"] = "AV-WIKI"
-                    parsed_data["encoding"] = encoding
+                # 解析內容
+                parsed_data = self.parse_content(str(soup), url)
+                parsed_data["source"] = "AV-WIKI"
+                parsed_data["encoding"] = encoding
 
-                    return parsed_data
+                return parsed_data
 
         except aiohttp.ClientError as e:
-            raise ScrapingException(f"網路連線錯誤: {e}", ErrorType.NETWORK_ERROR, url)
+            raise ScrapingException(f"網路連線錯誤: {e}", ErrorType.NETWORK_ERROR, url) from e
         except Exception as e:
             if isinstance(e, ScrapingException):
                 raise
-            raise ScrapingException(f"未知錯誤: {e}", ErrorType.UNKNOWN_ERROR, url)
+            raise ScrapingException(f"未知錯誤: {e}", ErrorType.UNKNOWN_ERROR, url) from e
 
     def parse_content(self, content: str, url: str) -> dict[str, Any]:
         """解析 AV-WIKI 頁面內容"""
         soup = BeautifulSoup(content, "html.parser")
-        result = {
-            "actresses": [],
-            "studio": None,
-            "studio_code": None,
-            "title": None,
-            "release_date": None,
-            "series": None,
-            "categories": [],
-        }
 
         try:
             # 檢查是否為搜尋結果頁面
@@ -103,7 +93,7 @@ class AVWikiScraper(BaseScraper):
 
         except Exception as e:
             logger.error(f"解析 AV-WIKI 內容失敗: {e}")
-            raise ScrapingException(f"內容解析錯誤: {e}", ErrorType.PARSING_ERROR, url)
+            raise ScrapingException(f"內容解析錯誤: {e}", ErrorType.PARSING_ERROR, url) from e
 
     def _parse_search_results(self, soup: BeautifulSoup) -> dict[str, Any]:
         """解析搜尋結果頁面"""
@@ -469,10 +459,7 @@ class AVWikiScraper(BaseScraper):
             return False
 
         # 必須包含日文字符
-        if re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]", name):
-            return True
-
-        return False
+        return bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]", name))
 
     async def search_video(self, video_code: str) -> dict[str, Any]:
         """搜尋指定番號的影片"""
@@ -512,7 +499,7 @@ class AVWikiScraper(BaseScraper):
             logger.error(f"搜尋 AV-WIKI 影片 {video_code} 失敗: {e}")
             raise ScrapingException(
                 f"搜尋失敗: {e}", ErrorType.UNKNOWN_ERROR, search_url
-            )
+            ) from e
 
     async def get_actress_info(self, actress_name: str) -> dict[str, Any]:
         """獲取女優資訊"""
@@ -694,7 +681,6 @@ class AVWikiScraper(BaseScraper):
 
         # 整理結果並統計
         success_count = 0
-        failed_count = 0
         error_count = 0
         no_actress_count = 0
 
@@ -720,7 +706,7 @@ class AVWikiScraper(BaseScraper):
                     f"[批次搜尋] 任務執行發生例外: {type(item).__name__} - {item}"
                 )
 
-        failed_count = error_count + no_actress_count
+        error_count + no_actress_count
 
         # 詳細的完成報告
         logger.info(

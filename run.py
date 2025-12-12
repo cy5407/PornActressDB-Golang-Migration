@@ -84,4 +84,4 @@ if __name__ == "__main__":
                 f"程式發生無法處理的錯誤，請查看日誌檔案 'unified_classifier.log'。\n\n錯誤: {e}",
             )
         except:
-            print(f"致命錯誤: {e}")
+            print(f"致命錯誤: {e}")  # noqa: E722
