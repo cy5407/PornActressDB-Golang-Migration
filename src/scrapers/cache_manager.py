@@ -124,9 +124,8 @@ class CacheManager:
     def _load_index(self) -> dict:
         """載入 JSON 索引"""
         try:
-            with self.index_lock:
-                with open(self.index_path, encoding="utf-8") as f:
-                    return json.load(f)
+            with self.index_lock, open(self.index_path, encoding="utf-8") as f:
+                return json.load(f)
         except Exception as e:
             logger.error(f"載入索引失敗: {e}")
             return {
@@ -137,9 +136,8 @@ class CacheManager:
     def _save_index(self, index_data: dict) -> bool:
         """儲存 JSON 索引"""
         try:
-            with self.index_lock:
-                with open(self.index_path, "w", encoding="utf-8") as f:
-                    json.dump(index_data, f, indent=2, ensure_ascii=False)
+            with self.index_lock, open(self.index_path, "w", encoding="utf-8") as f:
+                json.dump(index_data, f, indent=2, ensure_ascii=False)
             return True
         except Exception as e:
             logger.error(f"儲存索引失敗: {e}")

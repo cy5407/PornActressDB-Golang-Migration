@@ -317,7 +317,7 @@ class UnifiedWebScraper:
         all_actresses = set()
         actress_votes = {}
 
-        for source, result in results.items():
+        for _, result in results.items():
             actresses = result.get("actresses", [])
             for actress in actresses:
                 all_actresses.add(actress)

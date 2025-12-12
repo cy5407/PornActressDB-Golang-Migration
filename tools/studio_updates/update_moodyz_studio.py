@@ -71,7 +71,7 @@ def update_moodyz_studios():
     # 驗證
     print("\n🔍 驗證更新結果...")
     remaining = 0
-    for code, info in db.data.get("videos", {}).items():
+    for _, info in db.data.get("videos", {}).items():
         if info.get("studio") == "MOODYZ DIVA":
             remaining += 1
 

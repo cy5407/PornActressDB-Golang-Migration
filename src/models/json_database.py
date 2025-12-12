@@ -1434,7 +1434,7 @@ class JSONDBManager:
 
         # 轉換為結果格式
         statistics = []
-        for key, stats in studio_stats.items():
+        for _, stats in studio_stats.items():
             statistics.append(
                 {
                     "studio": stats["studio"],
@@ -1749,19 +1749,15 @@ class JSONDBManager:
                         ):
                             recommendation = "studio_classification"
                             confidence = max(confidence, 60.0)
-                    elif best_major_studio:
+                    elif best_major_studio and major_studio_work_count >= 1 and minor_studio_work_count < 10:
                         # 最佳片商不是大片商,但有大片商作品
-                        if (
-                            major_studio_work_count >= 1
-                            and minor_studio_work_count < 10
-                        ):
-                            recommendation = "studio_classification"
-                            best_studio = best_major_studio
-                            major_studio_confidence = (
-                                studio_stats[best_major_studio]["total_count"]
-                                / total_videos
-                            ) * 100
-                            confidence = max(major_studio_confidence, 60.0)
+                        recommendation = "studio_classification"
+                        best_studio = best_major_studio
+                        major_studio_confidence = (
+                            studio_stats[best_major_studio]["total_count"]
+                            / total_videos
+                        ) * 100
+                        confidence = max(major_studio_confidence, 60.0)
 
                 return {
                     "actress_name": actress_name,

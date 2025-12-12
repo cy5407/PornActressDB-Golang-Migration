@@ -18,9 +18,11 @@ async def check_snis_539():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(search_url, headers=headers) as response:
-            html = await response.text()
+    async with (
+        aiohttp.ClientSession() as session,
+        session.get(search_url, headers=headers) as response,
+    ):
+        html = await response.text()
 
     soup = BeautifulSoup(html, "html.parser")
 

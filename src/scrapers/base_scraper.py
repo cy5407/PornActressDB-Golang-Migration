@@ -248,9 +248,11 @@ class HealthChecker:
             check_url = f"https://{domain}/"
 
             timeout = aiohttp.ClientTimeout(total=self.config.timeout)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(check_url) as response:
-                    return response.status < 500  # 5xx錯誤視為不健康
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.get(check_url) as response,
+            ):
+                return response.status < 500  # 5xx錯誤視為不健康
 
         except Exception as e:
             logger.debug(f"域名健康檢查失敗 {domain}: {e}")

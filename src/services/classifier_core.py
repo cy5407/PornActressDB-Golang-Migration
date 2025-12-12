@@ -13,14 +13,14 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from models.config import ConfigManager
-from models.extractor import UnifiedCodeExtractor
-from models.incremental_json_database import IncrementalJSONDB
-from models.studio import StudioIdentifier
-from services.interactive_classifier import InteractiveClassifier
-from services.studio_classifier import StudioClassificationCore
-from services.web_searcher import WebSearcher
-from utils.scanner import UnifiedFileScanner
+from models.config import ConfigManager  # noqa: E402
+from models.extractor import UnifiedCodeExtractor  # noqa: E402
+from models.incremental_json_database import IncrementalJSONDB  # noqa: E402
+from models.studio import StudioIdentifier  # noqa: E402
+from services.interactive_classifier import InteractiveClassifier  # noqa: E402
+from services.studio_classifier import StudioClassificationCore  # noqa: E402
+from services.web_searcher import WebSearcher  # noqa: E402
+from utils.scanner import UnifiedFileScanner  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -807,7 +807,7 @@ class UnifiedClassifierCore:
             # 處理所有檔案
             all_files = single_files + collaboration_files
 
-            for i, (file_path, code, actresses, info) in enumerate(all_files, 1):
+            for i, (file_path, code, actresses, _) in enumerate(all_files, 1):
                 if skip_all:
                     move_stats["skipped"] += 1
                     continue
@@ -1132,7 +1132,7 @@ class UnifiedClassifierCore:
                         f"🏃 開始自動處理 {len(single_actress_files)} 個單人作品...\n"
                     )
 
-                for file_path, code, main_actress, info in single_actress_files:
+                for file_path, _, main_actress, _ in single_actress_files:
                     processed += 1
                     target_folder = folder_path / main_actress
                     target_folder.mkdir(exist_ok=True)
@@ -1180,7 +1180,7 @@ class UnifiedClassifierCore:
                 )
                 progress_callback(f"{'=' * 60}\n\n")
 
-            for file_path in no_data_files:
+            for _ in no_data_files:
                 processed += 1
                 move_stats["no_data"] += 1
 
@@ -1193,7 +1193,7 @@ class UnifiedClassifierCore:
 
                 skip_all = False
 
-                for file_path, code, actresses, info in collaboration_files:
+                for file_path, code, actresses, _ in collaboration_files:
                     processed += 1
 
                     if skip_all:

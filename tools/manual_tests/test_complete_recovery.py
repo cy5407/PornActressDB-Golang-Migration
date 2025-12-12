@@ -108,13 +108,13 @@ async def test_all_codes():
 
     # 分別列出成功和失敗
     print("成功的番號:")
-    for code, count, actresses, success in results:
+    for code, count, _, success in results:
         if success:
             print(f"  ✓ {code}: {count} 位")
 
     print()
     print("失敗的番號:")
-    for code, count, actresses, success in results:
+    for code, _, _, success in results:
         if not success:
             print(f"  ✗ {code}")
 

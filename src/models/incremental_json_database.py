@@ -187,9 +187,8 @@ class IncrementalJSONDB:
                 if video and entry.data:
                     video.update(entry.data)
                     self.base_db.data["videos"][entry.entity_id] = video
-            elif entry.operation == JOURNAL_OP_DELETE:
-                if entry.entity_id in self.base_db.data["videos"]:
-                    del self.base_db.data["videos"][entry.entity_id]
+            elif entry.operation == JOURNAL_OP_DELETE and entry.entity_id in self.base_db.data["videos"]:
+                del self.base_db.data["videos"][entry.entity_id]
 
     def _load_journal_stats(self):
         """載入 journal 統計資訊"""

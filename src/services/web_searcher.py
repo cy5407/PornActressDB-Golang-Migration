@@ -19,15 +19,15 @@ from bs4 import BeautifulSoup
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import asyncio
+import asyncio  # noqa: E402
 
-from models.config import ConfigManager
-from models.studio import StudioIdentifier
-from scrapers.sources.avwiki_scraper import AVWikiScraper
+from models.config import ConfigManager  # noqa: E402
+from models.studio import StudioIdentifier  # noqa: E402
+from scrapers.sources.avwiki_scraper import AVWikiScraper  # noqa: E402
 
-from .safe_javdb_searcher import SafeJAVDBSearcher
-from .safe_searcher import RequestConfig, SafeSearcher
-from .unified_cache import get_cache_manager
+from .safe_javdb_searcher import SafeJAVDBSearcher  # noqa: E402
+from .safe_searcher import RequestConfig, SafeSearcher  # noqa: E402
+from .unified_cache import get_cache_manager  # noqa: E402
 
 # 移除不必要的 create_japanese_soup 匯入，直接使用 JapaneseSiteEnhancer 類別
 
@@ -267,9 +267,8 @@ class WebSearcher:
                     if code in line:
                         for j in range(max(0, i - 3), min(len(lines), i + 1)):
                             potential_name = lines[j].strip()
-                            if potential_name and self._is_actress_name(potential_name):
-                                if potential_name not in actresses:
-                                    actresses.append(potential_name)
+                            if potential_name and self._is_actress_name(potential_name) and potential_name not in actresses:
+                                actresses.append(potential_name)
             # 品質檢查：如果找到超過 10 位女優，很可能是錯誤解析
             if actresses:
                 if len(actresses) > 10:

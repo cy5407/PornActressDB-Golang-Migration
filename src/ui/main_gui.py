@@ -135,10 +135,9 @@ class SafeGUIUpdater:
         finally:
             # 排程下一次處理
             if self.is_running:
-                try:
+                from contextlib import suppress
+                with suppress(tk.TclError):
                     self.root.after(50, self._process_queue)
-                except tk.TclError:
-                    pass  # root 已被銷毀
 
     def _process_message(self, msg: GUIMessage):
         """處理單一訊息"""
@@ -523,10 +522,9 @@ class UnifiedActressClassifierGUI:
             except Exception as e:
                 logger.error(f"❌ GUI 更新失敗: {e}", exc_info=True)
 
-        try:
+        from contextlib import suppress
+        with suppress(tk.TclError):
             self.root.after(0, wrapped_callback)
-        except tk.TclError:
-            pass  # root 已被銷毀
 
     def _insert_text(self, message: str):
         """插入文字到結果區域（內部使用）"""

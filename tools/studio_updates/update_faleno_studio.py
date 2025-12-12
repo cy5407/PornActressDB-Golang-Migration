@@ -71,7 +71,7 @@ def update_faleno_studios():
     print("\n🔄 正在更新...")
     updated_count = 0
 
-    for variant, codes in codes_to_update.items():
+    for _, codes in codes_to_update.items():
         for code in codes:
             video_info = all_videos[code]
             video_info["studio"] = "FALENO"
@@ -83,7 +83,7 @@ def update_faleno_studios():
     # 驗證
     print("\n🔍 驗證更新結果...")
     remaining = 0
-    for code, info in db.data.get("videos", {}).items():
+    for _, info in db.data.get("videos", {}).items():
         studio = info.get("studio", "")
         if studio in faleno_variants:
             remaining += 1

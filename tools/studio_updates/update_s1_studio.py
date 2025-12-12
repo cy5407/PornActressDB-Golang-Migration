@@ -71,7 +71,7 @@ def update_s1_studios():
     print("\n🔄 正在更新...")
     updated_count = 0
 
-    for variant, codes in codes_to_update.items():
+    for _, codes in codes_to_update.items():
         for code in codes:
             video_info = all_videos[code]
             video_info["studio"] = "S1"
@@ -86,7 +86,7 @@ def update_s1_studios():
     for variant in s1_variants:
         remaining[variant] = 0
 
-    for code, info in db.data.get("videos", {}).items():
+    for _, info in db.data.get("videos", {}).items():
         studio = info.get("studio", "")
         if studio in s1_variants:
             remaining[studio] += 1
