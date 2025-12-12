@@ -1,12 +1,12 @@
 import sys
 sys.path.insert(0, 'src')
 
-from models.json_database import JSONDBManager
+from models.incremental_json_database import IncrementalJSONDB
 from models.config import ConfigManager
 from services.web_searcher import WebSearcher
 import threading
 
-db = JSONDBManager()
+db = IncrementalJSONDB()
 config = ConfigManager()
 searcher = WebSearcher(config)
 stop_event = threading.Event()

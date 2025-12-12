@@ -11,12 +11,12 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root / "src"))
 
-from models.json_database import JSONDBManager
+from models.incremental_json_database import IncrementalJSONDB
 
 def check_faleno_studios():
     """查詢 FALENO 的所有片商名稱變體"""
     
-    db = JSONDBManager()
+    db = IncrementalJSONDB()
     all_videos = db.data.get('videos', {})
     
     # 找出所有包含 FALENO 的片商名稱

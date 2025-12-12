@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 src_path = Path(__file__).parent / 'src'
 sys.path.insert(0, str(src_path))
 
-from src.models.json_database import JSONDBManager
+from src.models.incremental_json_database import IncrementalJSONDB
 from src.services.classifier_core import UnifiedClassifierCore
 from src.models.config import ConfigManager
 
@@ -34,7 +34,7 @@ def test_zero_actress_codes():
     
     # 初始化管理器
     config = ConfigManager()
-    db_manager = JSONDBManager()
+    db_manager = IncrementalJSONDB()
     
     # 測試番號（都是已知的零女優番號）
     test_codes = [

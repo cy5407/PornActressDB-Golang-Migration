@@ -8,7 +8,11 @@ from tkinter import ttk, filedialog, messagebox
 import threading
 import time
 import logging
+import queue
 from pathlib import Path
+from dataclasses import dataclass
+from enum import Enum
+from typing import Callable, Optional, Any
 
 from models.config import ConfigManager
 from services.classifier_core import UnifiedClassifierCore
@@ -59,6 +63,130 @@ class ProgressThrottler:
             return msg
 
 
+class GUIMessageType(Enum):
+    """GUI 訊息類型"""
+    TEXT = "text"           # 一般文字
+    ERROR = "error"         # 錯誤訊息
+    STATUS = "status"       # 狀態列更新
+    CLEAR = "clear"         # 清除文字
+    CALLBACK = "callback"   # 執行回呼函式
+
+
+@dataclass
+class GUIMessage:
+    """執行緒安全的 GUI 訊息"""
+    msg_type: GUIMessageType
+    content: Any = None
+    callback: Optional[Callable] = None
+
+
+class SafeGUIUpdater:
+    """
+    執行緒安全的 GUI 更新器
+    
+    使用 Queue 實現執行緒間通訊，避免競爭條件
+    """
+    
+    def __init__(self, root: tk.Tk, result_text: tk.Text, status_var: tk.StringVar):
+        self.root = root
+        self.result_text = result_text
+        self.status_var = status_var
+        self.message_queue: queue.Queue[GUIMessage] = queue.Queue()
+        self.is_running = True
+        self._start_queue_processor()
+    
+    def _start_queue_processor(self):
+        """啟動訊息佇列處理器"""
+        self._process_queue()
+    
+    def _process_queue(self):
+        """處理訊息佇列（每 50ms 執行一次）"""
+        if not self.is_running:
+            return
+        
+        try:
+            # 批次處理訊息以提高效率
+            messages_processed = 0
+            max_messages_per_cycle = 10
+            
+            while messages_processed < max_messages_per_cycle:
+                try:
+                    msg = self.message_queue.get_nowait()
+                    self._process_message(msg)
+                    messages_processed += 1
+                except queue.Empty:
+                    break
+        except Exception as e:
+            logger.error(f"❌ 處理 GUI 訊息佇列時發生錯誤: {e}")
+        finally:
+            # 排程下一次處理
+            if self.is_running:
+                try:
+                    self.root.after(50, self._process_queue)
+                except tk.TclError:
+                    pass  # root 已被銷毀
+    
+    def _process_message(self, msg: GUIMessage):
+        """處理單一訊息"""
+        try:
+            if msg.msg_type == GUIMessageType.TEXT:
+                if self._widget_exists(self.result_text):
+                    self.result_text.insert(tk.END, msg.content)
+                    self.result_text.see(tk.END)
+            
+            elif msg.msg_type == GUIMessageType.ERROR:
+                if self._widget_exists(self.result_text):
+                    self.result_text.insert(tk.END, f"❌ {msg.content}\n")
+                    self.result_text.see(tk.END)
+            
+            elif msg.msg_type == GUIMessageType.STATUS:
+                self.status_var.set(msg.content)
+            
+            elif msg.msg_type == GUIMessageType.CLEAR:
+                if self._widget_exists(self.result_text):
+                    self.result_text.delete(1.0, tk.END)
+            
+            elif msg.msg_type == GUIMessageType.CALLBACK:
+                if msg.callback:
+                    msg.callback()
+        
+        except tk.TclError as e:
+            logger.warning(f"⚠️ GUI 元件已銷毀，忽略訊息: {e}")
+        except Exception as e:
+            logger.error(f"❌ 處理 GUI 訊息時發生錯誤: {e}")
+    
+    def _widget_exists(self, widget) -> bool:
+        """安全檢查元件是否存在"""
+        try:
+            return widget.winfo_exists()
+        except tk.TclError:
+            return False
+    
+    def send_text(self, text: str):
+        """發送文字訊息到 GUI"""
+        self.message_queue.put(GUIMessage(GUIMessageType.TEXT, text))
+    
+    def send_error(self, error: str):
+        """發送錯誤訊息到 GUI"""
+        self.message_queue.put(GUIMessage(GUIMessageType.ERROR, error))
+    
+    def send_status(self, status: str):
+        """發送狀態更新到 GUI"""
+        self.message_queue.put(GUIMessage(GUIMessageType.STATUS, status))
+    
+    def send_clear(self):
+        """發送清除訊息"""
+        self.message_queue.put(GUIMessage(GUIMessageType.CLEAR))
+    
+    def send_callback(self, callback: Callable):
+        """發送回呼函式到 GUI 執行緒執行"""
+        self.message_queue.put(GUIMessage(GUIMessageType.CALLBACK, callback=callback))
+    
+    def stop(self):
+        """停止處理器"""
+        self.is_running = False
+
+
 class UnifiedActressClassifierGUI:
     """整合版圖形介面 - 包含片商分類功能"""
     
@@ -90,7 +218,14 @@ class UnifiedActressClassifierGUI:
         # 搜尋結果暫存（用於結果預覽）
         self.last_search_results = {}
         
+        # 安全 GUI 更新器（在 setup_ui 後初始化）
+        self.gui_updater: Optional[SafeGUIUpdater] = None
+        
         self.setup_ui()
+        
+        # 初始化安全 GUI 更新器
+        self.gui_updater = SafeGUIUpdater(self.root, self.result_text, self.status_var)
+        logger.info("✅ SafeGUIUpdater 已初始化")
 
     def setup_ui(self):
         main_frame = ttk.Frame(self.root, padding="10")
@@ -234,10 +369,10 @@ class UnifiedActressClassifierGUI:
         except Exception as e:
             print(f"資料庫合併失敗: {e}")
         
-        # 2. 清理過期快取（新增）
+        # 2. 清理過期快取（使用統一快取管理器）
         try:
-            from scrapers.cache_manager import CacheManager
-            cache_mgr = CacheManager()
+            from services.unified_cache import get_cache_manager
+            cache_mgr = get_cache_manager(self.config_manager)
             
             # 讀取設定
             ttl_days = self.config_manager.getint('cache', 'ttl_days', fallback=7)
@@ -245,11 +380,15 @@ class UnifiedActressClassifierGUI:
             auto_cleanup = self.config_manager.getboolean('cache', 'auto_cleanup_on_exit', fallback=True)
             
             if auto_cleanup:
-                result = cache_mgr.auto_cleanup(ttl_days=ttl_days, max_size_mb=max_size_mb)
+                result = cache_mgr.cleanup_all(ttl_days=ttl_days, max_size_mb=max_size_mb)
                 if result.get('total_deleted', 0) > 0:
-                    print(f"已清理 {result['total_deleted']} 個快取檔案，釋放 {result['total_freed_mb']:.1f} MB")
+                    print(f"已清理 {result['total_deleted']} 個快取項目，釋放 {result['total_freed_mb']:.1f} MB")
         except Exception as e:
             print(f"快取清理失敗: {e}")
+        
+        # 3. 停止安全 GUI 更新器
+        if self.gui_updater:
+            self.gui_updater.stop()
             
         self.root.destroy()
 
@@ -264,26 +403,65 @@ class UnifiedActressClassifierGUI:
             self.config_manager.save_config()
 
     def clear_results(self):
-        if self.is_running and self.result_text.winfo_exists():
+        """清除結果文字（執行緒安全）"""
+        if self.gui_updater:
+            self.gui_updater.send_clear()
+        elif self.is_running and self.result_text.winfo_exists():
             self.result_text.delete(1.0, tk.END)
 
     def update_progress(self, message: str):
-        """更新進度顯示（有節流機制）"""
-        if self.is_running and self.root.winfo_exists():
-            # 使用節流器判斷是否更新
-            if self.progress_throttler.should_update(message):
-                self.root.after(0, self._insert_text, message)
+        """更新進度顯示（執行緒安全，有節流機制）"""
+        if not self.is_running:
+            return
+            
+        # 使用節流器判斷是否更新
+        if self.progress_throttler.should_update(message):
+            if self.gui_updater:
+                self.gui_updater.send_text(message)
+            else:
+                # 備用方案：直接使用 after
+                self.safe_gui_update(lambda: self._insert_text(message))
+    
+    def safe_gui_update(self, callback: Callable):
+        """
+        安全的 GUI 更新包裝器
+        
+        確保 GUI 操作在主執行緒執行，並處理元件已銷毀的情況
+        
+        Args:
+            callback: 要執行的 GUI 更新函式
+        """
+        def wrapped_callback():
+            try:
+                if not self.is_running:
+                    return
+                if not self.root.winfo_exists():
+                    return
+                callback()
+            except tk.TclError as e:
+                logger.warning(f"⚠️ GUI 元件已銷毀: {e}")
+            except Exception as e:
+                logger.error(f"❌ GUI 更新失敗: {e}", exc_info=True)
+        
+        try:
+            self.root.after(0, wrapped_callback)
+        except tk.TclError:
+            pass  # root 已被銷毀
 
     def _insert_text(self, message: str):
-        if self.is_running and self.result_text.winfo_exists():
-            self.result_text.insert(tk.END, message)
-            self.result_text.see(tk.END)
-            
-            # 檢查是否有待處理的訊息
-            pending = self.progress_throttler.flush()
-            if pending:
-                self.result_text.insert(tk.END, pending)
+        """插入文字到結果區域（內部使用）"""
+        try:
+            if self.is_running and self.result_text.winfo_exists():
+                self.result_text.insert(tk.END, message)
                 self.result_text.see(tk.END)
+                
+                # 檢查是否有待處理的訊息
+                pending = self.progress_throttler.flush()
+                if pending:
+                    self.result_text.insert(tk.END, pending)
+                    self.result_text.see(tk.END)
+        except tk.TclError as e:
+            logger.warning(f"⚠️ 文字插入失敗，元件可能已銷毀: {e}")
 
     def _toggle_buttons(self, is_task_running: bool):
         if not self.is_running: 

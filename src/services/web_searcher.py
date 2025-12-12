@@ -24,6 +24,7 @@ from models.config import ConfigManager
 from models.studio import StudioIdentifier
 from .safe_searcher import SafeSearcher, RequestConfig
 from .safe_javdb_searcher import SafeJAVDBSearcher
+from .unified_cache import get_cache_manager
 import asyncio
 from scrapers.sources.avwiki_scraper import AVWikiScraper
 # 移除不必要的 create_japanese_soup 匯入，直接使用 JapaneseSiteEnhancer 類別
@@ -90,6 +91,11 @@ class WebSearcher:
         # AV-WIKI 批次併發配置
         self.avwiki_concurrent_enabled = config.getboolean('search', 'avwiki_concurrent_enabled', fallback=True)
         self.avwiki_max_concurrent = config.getint('search', 'avwiki_max_concurrent', fallback=15)
+        
+        # 註冊到統一快取管理器
+        cache_manager = get_cache_manager(config)
+        cache_manager.register_cache_source('web_searcher', self.search_cache)
+        cache_manager.register_cache_source('javdb_searcher', self.javdb_searcher.cache)
         
         logger.info("🛡️ 已啟用安全搜尋器功能")
         logger.info("🇯🇵 已啟用日文網站快速搜尋功能")

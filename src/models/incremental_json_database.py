@@ -345,6 +345,19 @@ class IncrementalJSONDB:
     # 相容性介面 (與 JSONDBManager 一致)
     # ========================================================================
     
+    @property
+    def data(self) -> Dict[str, Any]:
+        """
+        相容性屬性：取得底層資料字典
+        
+        注意：直接修改返回的字典不會觸發 journal 記錄，
+        請使用 add_or_update_video 等方法進行修改。
+        
+        Returns:
+            包含 'videos', 'actresses', 'video_actress_links' 的資料字典
+        """
+        return self.base_db.data
+    
     def get_all_videos(self, filter_dict: Optional[Dict[str, Any]] = None) -> List[VideoDict]:
         """取得所有影片清單（委派給 base_db）"""
         return self.base_db.get_all_videos(filter_dict)

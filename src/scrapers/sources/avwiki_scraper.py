@@ -537,14 +537,27 @@ class AVWikiScraper(BaseScraper):
         """
         results = {}
         semaphore = asyncio.Semaphore(max_concurrent)
-        completed_count = 0
+        started_count = 0  # 改為追蹤「開始」的數量
         total_count = len(video_codes)
+        count_lock = asyncio.Lock()  # 使用 asyncio.Lock 保護計數器
         
         async def search_single_video(code: str) -> Tuple[str, Dict[str, Any]]:
             """直接搜尋單個影片（繞過 rate_limiter）"""
-            nonlocal completed_count
+            nonlocal started_count
             
             async with semaphore:
+                # 在開始搜尋時就更新進度（而非完成後）
+                async with count_lock:
+                    started_count += 1
+                    current_num = started_count
+                
+                # 呼叫進度回調 - 顯示「開始搜尋」
+                if progress_callback:
+                    try:
+                        progress_callback(current_num, total_count, code)
+                    except Exception as e:
+                        logger.warning(f"進度回調函式執行失敗: {e}")
+                
                 try:
                     # 直接使用 scrape_url 繞過 rate_limiter
                     search_url = f"{self.base_url}/?s={quote(code)}&post_type=product"
@@ -596,15 +609,6 @@ class AVWikiScraper(BaseScraper):
                     else:
                         logger.debug(f"[批次搜尋] 番號 {code} 搜尋成功，找到 {len(actresses)} 位女優: {actresses}")
                     
-                    completed_count += 1
-                    
-                    # 呼叫進度回調
-                    if progress_callback:
-                        try:
-                            progress_callback(completed_count, total_count, code)
-                        except Exception as e:
-                            logger.warning(f"進度回調函式執行失敗: {e}")
-                    
                     return code, {
                         'video_code': code,
                         'actresses': actresses,
@@ -615,7 +619,6 @@ class AVWikiScraper(BaseScraper):
                     }
                     
                 except Exception as e:
-                    completed_count += 1
                     error_type = type(e).__name__
                     error_detail = str(e)
                     
@@ -625,12 +628,6 @@ class AVWikiScraper(BaseScraper):
                     # 記錄完整的堆疊追蹤（僅在 DEBUG 模式）
                     import traceback
                     logger.debug(f"[批次搜尋] 番號 {code} 完整錯誤堆疊:\n{traceback.format_exc()}")
-                    
-                    if progress_callback:
-                        try:
-                            progress_callback(completed_count, total_count, code)
-                        except Exception as e:
-                            logger.warning(f"進度回調函式執行失敗: {e}")
                     
                     return code, {
                         'video_code': code,

@@ -11,12 +11,12 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root / "src"))
 
-from models.json_database import JSONDBManager
+from models.incremental_json_database import IncrementalJSONDB
 
 def update_s1_studios():
     """將所有 S1 相關片商名稱統一為 S1"""
     
-    db = JSONDBManager()
+    db = IncrementalJSONDB()
     
     # 載入所有資料
     all_videos = db.data.get('videos', {})

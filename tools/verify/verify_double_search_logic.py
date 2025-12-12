@@ -11,7 +11,7 @@ src_path = Path(__file__).parent / 'src'
 sys.path.insert(0, str(src_path))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.models.json_database import JSONDBManager
+from src.models.incremental_json_database import IncrementalJSONDB
 from datetime import datetime
 
 def verify_zero_actress_detection():
@@ -22,7 +22,7 @@ def verify_zero_actress_detection():
     print("="*80 + "\n")
     
     # 初始化資料庫
-    db_manager = JSONDBManager()
+    db_manager = IncrementalJSONDB()
     
     # 測試番號
     test_codes = [

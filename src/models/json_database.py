@@ -215,8 +215,8 @@ class JSONDBManager:
                     if temp_file.exists():
                         try:
                             temp_file.unlink()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"清理暫存檔失敗: {e}")
                     
                     with open(temp_file, 'wb') as f:
                         # 使用 orjson 加速，OPT_INDENT_2 提供格式化輸出
@@ -469,19 +469,19 @@ class JSONDBManager:
     
     def add_or_update_video(self, code: str, info: Dict) -> str:
         """新增或更新影片 (待實現)"""
-        pass
+        raise NotImplementedError("JSONDBBase 的 add_or_update_video 尚未實現，請使用 JSONDBManager")
     
     def get_video_info(self, code: str) -> Optional[VideoDict]:
         """查詢影片 (待實現)"""
-        pass
+        raise NotImplementedError("JSONDBBase 的 get_video_info 尚未實現，請使用 JSONDBManager")
     
     def get_all_videos(self, filter_dict: Optional[Dict] = None) -> List[VideoDict]:
         """取得影片清單 (待實現)"""
-        pass
+        raise NotImplementedError("JSONDBBase 的 get_all_videos 尚未實現，請使用 JSONDBManager")
     
     def delete_video(self, code: str) -> bool:
         """刪除影片 (待實現)"""
-        pass
+        raise NotImplementedError("JSONDBBase 的 delete_video 尚未實現，請使用 JSONDBManager")
     
     # ========================================================================
     # 備份和恢復 (將在 T006 實現)
@@ -1217,8 +1217,8 @@ class JSONDBManager:
                         statistics = self.data.get('statistics', {})
 
                     finally:
-                        # 寫鎖會在 finally 外層釋放
-                        pass
+                        # 寫鎖會在外層 with 區塊結束時自動釋放
+                        logger.debug("統計快取操作完成")
 
                 logger.info("✅ 取得統計快取成功")
                 return statistics

@@ -586,26 +586,27 @@ except Exception:
 
 ## 🟢 中等嚴重性問題
 
-### 6. config.ini 配置管理不一致
+### 6. ~~config.ini 配置管理不一致~~
 
-**狀態**: 📝 待修正
+**狀態**: ✅ 已完成 (2025-12-12)
 **預估工作量**: 2-3 小時
 
-**問題**:
-- 路徑分隔符混雜（`C:/` vs `C:\`）
-- 配置項缺乏驗證
-- 部分配置項未在 ConfigManager 中處理
+**修正內容**:
+- 新增 `normalize_path()` 函式，統一使用 POSIX 風格路徑 (/)
+- 新增 `VALIDATION_RULES` 驗證規則字典，支援類型、範圍驗證
+- 新增 `_normalize_path_settings()` 方法，自動標準化路徑設定
+- 新增 `_validate_config()` 方法，驗證配置值有效性
+- 新增 `getpath()`, `set()`, `get_all_settings()` 方法
+- 新增 `cache` section 預設配置
 
-**修正步驟**:
-1. 統一使用 `pathlib.Path` 處理路徑
-2. 在 ConfigManager 中添加配置驗證
-3. 建立配置遷移機制
+**修正檔案**:
+- `src/models/config.py`
 
 ---
 
 ### 7. 重複的 sys.path 操作
 
-**狀態**: 📝 待修正
+**狀態**: 📝 待修正（較低優先級）
 **預估工作量**: 1-2 小時
 
 **問題**: 多個模組重複執行 `sys.path.insert(0, ...)`
@@ -617,23 +618,46 @@ except Exception:
 
 ---
 
-### 8. 快取機制未整合
+### 8. ~~快取機制未整合~~
 
-**狀態**: 📝 待修正
+**狀態**: ✅ 已完成 (2025-12-12)
 **預估工作量**: 4-5 小時
 
-**問題**: 3 個獨立的快取實現缺乏統一管理
+**修正內容**:
+- 建立 `UnifiedCacheManager` 類別，整合 3 個獨立快取系統
+- 實現統一的快取介面：`get()`, `set()`, `delete()`
+- 實現 `cleanup_all()` 方法，支援 TTL 和大小限制
+- 實現 `get_stats()` 方法，提供快取統計
+- 提供 `get_cache_manager()` 單例函式
+- 整合到 `WebSearcher` 和 `main_gui.py`
 
-**修正步驟**:
-1. 設計統一的快取介面
-2. 實現 TTL 管理
-3. 提供手動清理 API
+**修正檔案**:
+- `src/services/unified_cache.py` (新建)
+- `src/services/web_searcher.py`
+- `src/ui/main_gui.py`
+
+---
+
+### 9. ~~Go 模組未使用的依賴~~
+
+**狀態**: ✅ 已完成 (2025-12-12)
+**預估工作量**: 1 小時
+
+**修正內容**:
+- 刪除壞的測試檔案 `tests/integration/ratelimit_test.go`（引用不存在的 `internal/ratelimit` 套件）
+- 移除空的 `tests/integration/` 資料夾
+- 移除 go.mod 中未使用的依賴：
+  - `golang.org/x/time`
+  - `golang.org/x/sync`
+  - `go.uber.org/zap`
+  - `go.uber.org/multierr`
+- 執行 `go mod tidy` 清理
 
 ---
 
 ## 🟡 低嚴重性問題
 
-### 9. 未使用的變數和函式
+### 10. 未使用的變數和函式
 
 **狀態**: 📝 待修正
 **預估工作量**: 1-2 小時

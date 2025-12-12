@@ -11,12 +11,12 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root / "src"))
 
-from models.json_database import JSONDBManager
+from models.incremental_json_database import IncrementalJSONDB
 
 def update_moodyz_studios():
     """將所有 MOODYZ DIVA 更新為 MOODYZ"""
     
-    db = JSONDBManager()
+    db = IncrementalJSONDB()
     
     # 載入所有資料
     all_videos = db.data.get('videos', {})
