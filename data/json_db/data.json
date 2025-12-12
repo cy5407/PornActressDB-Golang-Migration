@@ -4,9 +4,9 @@
     "description": "Python 女優分類系統 JSON 資料庫",
     "encoding": "UTF-8"
   },
-  "data_hash": "a89f52cfe0b36898cedf936093274b6da604a966acb2fda0101d87c4747f7955",
+  "data_hash": "d37f7d3c4e5f274c6ad3443158a3edffd4ee4a82bd5de02ad3677f4b02d5927a",
   "created_at": "2025-10-16T16:19:46Z",
-  "updated_at": "2025-12-12T17:45:48Z",
+  "updated_at": "2025-12-12T17:49:12Z",
   "videos": {
     "FNS-080": {
       "code": "FNS-080",

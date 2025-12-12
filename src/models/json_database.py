@@ -465,34 +465,6 @@ class JSONDBManager:
         return result
 
     # ========================================================================
-    # 基本 CRUD 方法 (將在 T010 實現)
-    # ========================================================================
-
-    def add_or_update_video(self, code: str, info: dict) -> str:
-        """新增或更新影片 (待實現)"""
-        raise NotImplementedError(
-            "JSONDBBase 的 add_or_update_video 尚未實現，請使用 JSONDBManager"
-        )
-
-    def get_video_info(self, code: str) -> VideoDict | None:
-        """查詢影片 (待實現)"""
-        raise NotImplementedError(
-            "JSONDBBase 的 get_video_info 尚未實現，請使用 JSONDBManager"
-        )
-
-    def get_all_videos(self, filter_dict: dict | None = None) -> list[VideoDict]:
-        """取得影片清單 (待實現)"""
-        raise NotImplementedError(
-            "JSONDBBase 的 get_all_videos 尚未實現，請使用 JSONDBManager"
-        )
-
-    def delete_video(self, code: str) -> bool:
-        """刪除影片 (待實現)"""
-        raise NotImplementedError(
-            "JSONDBBase 的 delete_video 尚未實現，請使用 JSONDBManager"
-        )
-
-    # ========================================================================
     # 備份和恢復 (將在 T006 實現)
     # ========================================================================
 
