@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Normalize legacy video studios based on code prefixes."""
+
 from __future__ import annotations
 
 import argparse
 import json
 import shutil
-from collections import Counter
-from datetime import datetime, timezone
-from pathlib import Path
 import sys
-from typing import List, Set
+from collections import Counter
+from datetime import UTC, datetime
+from pathlib import Path
 
 # Ensure project src/ is importable
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -53,14 +53,14 @@ def load_data(data_path: Path) -> dict:
     return json.loads(data_path.read_text(encoding="utf-8"))
 
 
-def determine_targets(identifier: StudioIdentifier, override: str | None) -> List[str]:
+def determine_targets(identifier: StudioIdentifier, override: str | None) -> list[str]:
     if override:
         return [studio.strip() for studio in override.split(",") if studio.strip()]
     # Preserve ordering defined in studios.json and cover all entries
     return list(identifier.studio_patterns.keys())
 
 
-def normalize_studios(data: dict, target_set: Set[str]) -> dict:
+def normalize_studios(data: dict, target_set: set[str]) -> dict:
     videos = data.get("videos", {})
     identifier = StudioIdentifier(rules_file=str(REPO_ROOT / "studios.json"))
     matched_counts = Counter()
@@ -100,8 +100,10 @@ def write_updates(data_path: Path, data: dict) -> Path:
     backup_path = backup_dir / f"data_backup_{timestamp}_pre_studio_fix.json"
     shutil.copy2(data_path, backup_path)
 
-    data["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    data_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    data["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+    data_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return backup_path
 
 
@@ -131,9 +133,7 @@ def main() -> None:
     if change_records:
         print("\nSample changes:")
         for record in change_records[: args.sample]:
-            print(
-                f"  {record['code']}: {record['old'] or 'None'} -> {record['new']}"
-            )
+            print(f"  {record['code']}: {record['old'] or 'None'} -> {record['new']}")
     else:
         print("\nNo studio entries require normalization.")
 

@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
 """
 Python 效能測試腳本
 """
-import os
-import time
-import shutil
-from pathlib import Path
-import threading
 
-from src.services.classifier_core import UnifiedClassifierCore
+import shutil
+import threading
+import time
+from pathlib import Path
+
 from src.models.config import ConfigManager
+from src.services.classifier_core import UnifiedClassifierCore
+
 
 def create_dummy_files(directory: Path, num_files: int):
     """建立測試用的虛擬影片檔案"""
@@ -20,16 +20,17 @@ def create_dummy_files(directory: Path, num_files: int):
         file_path = directory / f"{code}.mp4"
         file_path.touch()
 
+
 def main():
     """主函式"""
     num_files = 10  # 測試檔案數量
     temp_dir = Path("temp_benchmark")
 
     print("🐍 Python 效能測試")
-    print("="*30)
+    print("=" * 30)
     print(f"測試檔案數量: {num_files}")
     print(f"測試目錄: {temp_dir.resolve()}")
-    print("-"*30)
+    print("-" * 30)
 
     # 建立虛擬檔案
     print("1. 正在建立虛擬檔案...")
@@ -46,14 +47,16 @@ def main():
     print("\n3. 正在執行智慧搜尋並分類...")
     stop_event = threading.Event()
     start_time = time.time()
-    core.smart_search_and_move(str(temp_dir), stop_event=stop_event, use_full_search=True)
+    core.smart_search_and_move(
+        str(temp_dir), stop_event=stop_event, use_full_search=True
+    )
     end_time = time.time()
     execution_time = end_time - start_time
-    print(f"✅ 智慧搜尋並分類完成")
+    print("✅ 智慧搜尋並分類完成")
 
     # 顯示結果
     print("\n📊 測試結果")
-    print("-"*30)
+    print("-" * 30)
     print(f"總執行時間: {execution_time:.2f} 秒")
     print(f"平均每個檔案處理時間: {execution_time / num_files:.4f} 秒")
 
@@ -61,6 +64,7 @@ def main():
     print("\n4. 正在清理測試資料...")
     shutil.rmtree(temp_dir)
     print("✅ 清理完成")
+
 
 if __name__ == "__main__":
     main()

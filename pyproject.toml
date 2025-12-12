@@ -1,0 +1,66 @@
+[project]
+name = "pornactressdb"
+version = "5.4.3"
+description = "女優分類系統 - Python/Tkinter GUI 桌面應用"
+requires-python = ">=3.11"
+
+[tool.ruff]
+# 基本設定
+line-length = 88
+target-version = "py311"
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "*.pyc",
+    "backups",
+    "cache",
+    "logs",
+    "temp_benchmark",
+]
+
+[tool.ruff.lint]
+# 啟用的規則
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort (import 排序)
+    "UP",     # pyupgrade (升級語法)
+    "B",      # flake8-bugbear (常見錯誤)
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+]
+
+# 忽略的規則
+ignore = [
+    "E501",   # 行長度由 formatter 處理
+    "B008",   # 函式呼叫作為預設參數 (有時是必要的)
+    "SIM108", # 三元運算符 (可讀性優先)
+]
+
+# 允許自動修復的規則
+fixable = ["ALL"]
+unfixable = []
+
+# 允許未使用的變數以底線開頭
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+# 測試檔案可以有未使用的 import
+"tests/*.py" = ["F401"]
+# 工具腳本允許 sys.path 操作
+"tools/**/*.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+# import 排序設定
+known-first-party = ["src"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.format]
+# 格式化設定
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
