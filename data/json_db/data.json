@@ -4,9 +4,9 @@
     "description": "Python 女優分類系統 JSON 資料庫",
     "encoding": "UTF-8"
   },
-  "data_hash": "658555222b92da1e7a2d7b424fcbc24011f8cbc825536dba02500a6aa86b059a",
+  "data_hash": "9aa35a46a80df1d4c721a9efe9de897228e494f37c196982e5bb2b080fe0bd55",
   "created_at": "2025-10-16T16:19:46Z",
-  "updated_at": "2025-12-18T16:31:20Z",
+  "updated_at": "2025-12-18T16:42:30Z",
   "videos": {
     "FNS-080": {
       "code": "FNS-080",
@@ -27794,9 +27794,11 @@
       "studio": "SOD",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "imported",
-      "last_search_date": "2025-10-17T14:48:57Z",
+      "actresses": [
+        "神木麗"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-10-17T14:48:57Z",
       "updated_at": "2025-10-17T14:48:57Z",
       "metadata": {
@@ -27804,8 +27806,8 @@
         "confidence": 0.0
       },
       "original_filename": "START-405-UC.mp4",
-      "file_path": "C:\\Users\\cy540\\Downloads\\AV\\分類結果\\SOD\\天使もえ\\START-405-UC.mp4",
-      "search_method": "legacy-import",
+      "file_path": "W:\\Downloads\\20251110\\轉檔1\\SOD\\神木麗\\START-405-UC.mp4",
+      "search_method": "AV-WIKI",
       "code": "START-405"
     },
     "MVSD-656": {
@@ -30479,17 +30481,19 @@
       "studio": "E-BODY",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:09:33.883314",
+      "actresses": [
+        "雪咲すみれ"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:09:33Z",
       "updated_at": "2025-11-15T13:09:33Z",
       "metadata": {
         "source": "",
         "confidence": 0.0
       },
-      "original_filename": "ebwh-110-un.mp4",
-      "file_path": "W:\\Downloads\\瀧本雫葉\\www.98T.la@雪咲蓳\\雪咲蓳\\ebwh-110-un.mp4",
+      "original_filename": "ebwh-110.mp4",
+      "file_path": "W:\\Downloads\\瀧本雫葉\\www.98T.la@雪咲蓳\\雪咲蓳\\ebwh-110.mp4",
       "search_method": "AV-WIKI",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 2
@@ -30637,8 +30641,8 @@
       "release_date": "",
       "url": "",
       "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:09:33.883314",
+      "search_status": "searched_not_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:09:34Z",
       "updated_at": "2025-11-15T13:09:34Z",
       "metadata": {
@@ -30647,7 +30651,7 @@
       },
       "original_filename": "hhd800.com@h_346rebd00835hhb.mp4",
       "file_path": "W:\\Downloads\\瀧本雫葉\\hhd800.com@h_346rebd00835hhb.mp4",
-      "search_method": "AV-WIKI",
+      "search_method": "cascade",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 717
     },
@@ -30722,9 +30726,11 @@
       "studio": "PRESTIGE",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:09:33.883314",
+      "actresses": [
+        "瀧本雫葉"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:09:34Z",
       "updated_at": "2025-11-15T13:09:34Z",
       "metadata": {
@@ -30811,8 +30817,8 @@
       "release_date": "",
       "url": "",
       "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:09:33.883314",
+      "search_status": "searched_not_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:09:34Z",
       "updated_at": "2025-11-15T13:09:34Z",
       "metadata": {
@@ -30821,7 +30827,7 @@
       },
       "original_filename": "hhd800.com@h_346rebd00898hhb.mp4",
       "file_path": "W:\\Downloads\\瀧本雫葉\\hhd800.com@h_346rebd00898hhb.mp4",
-      "search_method": "AV-WIKI",
+      "search_method": "cascade",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 717
     },
@@ -31412,9 +31418,11 @@
       "studio": "FALENO",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "actresses": [
+        "浜辺やよい"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:01Z",
       "updated_at": "2025-11-15T13:10:01Z",
       "metadata": {
@@ -31422,7 +31430,7 @@
         "confidence": 0.0
       },
       "original_filename": "hhd800.com@FNS-117.mp4",
-      "file_path": "W:\\Downloads\\FNS-117\\hhd800.com@FNS-117.mp4",
+      "file_path": "W:\\Downloads\\20251110\\轉檔2\\hhd800.com@FNS-117.mp4",
       "search_method": "AV-WIKI",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 717
@@ -31499,9 +31507,11 @@
       "studio": "MOODYZ",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "actresses": [
+        "石川澪"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:02Z",
       "updated_at": "2025-11-15T13:10:02Z",
       "metadata": {
@@ -31542,9 +31552,11 @@
       "studio": "FALENO",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "actresses": [
+        "篠宮るい"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:02Z",
       "updated_at": "2025-11-15T13:10:02Z",
       "metadata": {
@@ -31552,7 +31564,7 @@
         "confidence": 0.0
       },
       "original_filename": "hhd800.com@FNS-157.mp4",
-      "file_path": "W:\\Downloads\\FNS-157\\hhd800.com@FNS-157.mp4",
+      "file_path": "W:\\Downloads\\20251110\\轉檔2\\hhd800.com@FNS-157.mp4",
       "search_method": "AV-WIKI",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 717
@@ -31808,9 +31820,11 @@
       "studio": "UNKNOWN",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "actresses": [
+        "澪奈あすみ"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:02Z",
       "updated_at": "2025-11-15T13:10:02Z",
       "metadata": {
@@ -31818,7 +31832,7 @@
         "confidence": 0.0
       },
       "original_filename": "hhd800.com@MGOLD-048.mp4",
-      "file_path": "W:\\Downloads\\MGOLD-048\\hhd800.com@MGOLD-048.mp4",
+      "file_path": "W:\\Downloads\\20251110\\轉檔2\\hhd800.com@MGOLD-048.mp4",
       "search_method": "AV-WIKI",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 717
@@ -31986,9 +32000,11 @@
       "studio": "MOODYZ",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "actresses": [
+        "石川澪"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:03Z",
       "updated_at": "2025-11-15T13:10:03Z",
       "metadata": {
@@ -32076,9 +32092,11 @@
       "studio": "E-BODY",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "actresses": [
+        "設楽ゆうひ"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:03Z",
       "updated_at": "2025-11-15T13:10:03Z",
       "metadata": {
@@ -32086,7 +32104,7 @@
         "confidence": 0.0
       },
       "original_filename": "hhd800.com@EBWH-277.mp4",
-      "file_path": "W:\\Downloads\\EBWH-277\\hhd800.com@EBWH-277.mp4",
+      "file_path": "W:\\Downloads\\20251110\\轉檔2\\hhd800.com@EBWH-277.mp4",
       "search_method": "AV-WIKI",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 2
@@ -32141,9 +32159,11 @@
       "studio": "S1",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "actresses": [
+        "宇野みれい"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:03Z",
       "updated_at": "2025-11-15T13:10:03Z",
       "metadata": {
@@ -32185,8 +32205,8 @@
       "release_date": "",
       "url": "",
       "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "search_status": "searched_not_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:03Z",
       "updated_at": "2025-11-15T13:10:03Z",
       "metadata": {
@@ -32195,7 +32215,7 @@
       },
       "original_filename": "SAVR00410_1_8K.mp4",
       "file_path": "W:\\Downloads\\測試\\SAVR00410_1_8K.mp4",
-      "search_method": "AV-WIKI",
+      "search_method": "cascade",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 717
     },
@@ -32250,9 +32270,11 @@
       "studio": "UNKNOWN",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "actresses": [
+        "瀧本くるみ"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:04Z",
       "updated_at": "2025-11-15T13:10:04Z",
       "metadata": {
@@ -32260,7 +32282,7 @@
         "confidence": 0.0
       },
       "original_filename": "hhd800.com@MGOLD-050.mp4",
-      "file_path": "W:\\Downloads\\MGOLD-050\\hhd800.com@MGOLD-050.mp4",
+      "file_path": "W:\\Downloads\\20251110\\轉檔2\\hhd800.com@MGOLD-050.mp4",
       "search_method": "AV-WIKI",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 717
@@ -32430,17 +32452,17 @@
       "release_date": "",
       "url": "",
       "actresses": [],
-      "search_status": "search_error",
-      "last_search_date": "2025-11-15T21:10:00.670135",
+      "search_status": "searched_not_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-11-15T13:10:04Z",
       "updated_at": "2025-11-15T13:10:04Z",
       "metadata": {
         "source": "",
         "confidence": 0.0
       },
-      "original_filename": "[H.265]FC4049436_2.mp4",
-      "file_path": "W:\\Downloads\\20251110\\轉檔1\\[H.265]FC4049436_2.mp4",
-      "search_method": "AV-WIKI",
+      "original_filename": "[H.265]FC4049436_1.mp4",
+      "file_path": "W:\\Downloads\\20251110\\轉檔1\\[H.265]FC4049436_1.mp4",
+      "search_method": "cascade",
       "search_error_reason": "too_many_suspicious_results",
       "original_actress_count": 717
     },
@@ -52110,12 +52132,17 @@
     "RHE-432": {
       "code": "RHE-432",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "ホットエンターテイメント",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "向井藍",
+        "あけみみう",
+        "今井まい",
+        "清本玲奈"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52124,7 +52151,7 @@
       },
       "original_filename": "www.98T.la@RHE-432_[原]_part☆.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@RHE-432_[原]_part☆.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "SCOP-546": {
       "code": "SCOP-546",
@@ -52156,9 +52183,15 @@
       "studio": "SOD",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "あけみみう",
+        "大島美緒",
+        "花咲いあん",
+        "桜木優希音",
+        "桃菜あこ"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52167,7 +52200,7 @@
       },
       "original_filename": "www.98T.la@SDMU-690_[原]_part.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@SDMU-690_[原]_part.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "ORETD-208": {
       "code": "ORETD-208",
@@ -52293,12 +52326,16 @@
     "NNPJ-229": {
       "code": "NNPJ-229",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "ナンパJAPAN",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "浅井美穂",
+        "あけみみう",
+        "青山はな"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52307,17 +52344,26 @@
       },
       "original_filename": "www.98T.la@NNPJ-229_[thz水]_part.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@NNPJ-229_[thz水]_part.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "GRGR-029": {
       "code": "GRGR-029",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "グリグリ",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "とみの伊織",
+        "あけみみう",
+        "今井ゆあ",
+        "ゆうひ菜那",
+        "青木玲",
+        "櫻美雪",
+        "柊さき",
+        "彩奈リナ"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52326,7 +52372,7 @@
       },
       "original_filename": "www.98T.la@GRGR-029_[原]_part☆.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@GRGR-029_[原]_part☆.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "SVDVD-637": {
       "code": "SVDVD-637",
@@ -52354,12 +52400,15 @@
     "TKI-067": {
       "code": "TKI-067",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "MAD",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "あけみみう",
+        "あやね遥菜"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52368,17 +52417,19 @@
       },
       "original_filename": "www.98T.la@TKI-067_[原]单共.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@TKI-067_[原]单共.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "YRMN-047": {
       "code": "YRMN-047",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "ヤリマン伝説",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "あけみみう"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52387,7 +52438,7 @@
       },
       "original_filename": "www.98T.la@YRMN-047_[thz水]★.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@YRMN-047_[thz水]★.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "RCTD-192": {
       "code": "RCTD-192",
@@ -52441,12 +52492,14 @@
     "NKD-235": {
       "code": "NKD-235",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "KI Planning",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "あけみみう"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52455,7 +52508,7 @@
       },
       "original_filename": "www.98T.la@NKD-235_[原].mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@NKD-235_[原].mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "ORETD-168": {
       "code": "ORETD-168",
@@ -52582,7 +52635,7 @@
       "url": "",
       "actresses": [],
       "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52601,7 +52654,7 @@
       "url": "",
       "actresses": [],
       "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52642,9 +52695,11 @@
       "studio": "SOD",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "あけみみう"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52653,7 +52708,7 @@
       },
       "original_filename": "www.98T.la@SDMU-434_[原].mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@SDMU-434_[原].mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "HAVD-979": {
       "code": "HAVD-979",
@@ -52706,7 +52761,7 @@
       "url": "",
       "actresses": [],
       "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52890,7 +52945,7 @@
       "url": "",
       "actresses": [],
       "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -52993,12 +53048,16 @@
     "KRI-040": {
       "code": "KRI-040",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "MAD",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "あけみみう",
+        "清本玲奈",
+        "しほのちさ"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -53007,7 +53066,7 @@
       },
       "original_filename": "www.98T.la@KRI-040_[6000k]_part.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@KRI-040_[6000k]_part.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "SCPX-194": {
       "code": "SCPX-194",
@@ -53135,7 +53194,7 @@
       "url": "",
       "actresses": [],
       "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -53241,12 +53300,15 @@
     "GDHH-132": {
       "code": "GDHH-132",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "ゴールデンタイム",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "あけみみう",
+        "藤本紫媛"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -53255,17 +53317,19 @@
       },
       "original_filename": "www.98T.la@GDHH-132_[原]_part.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@GDHH-132_[原]_part.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "KHC-006": {
       "code": "KHC-006",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "秘密クラブ",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "あけみみう"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -53274,7 +53338,7 @@
       },
       "original_filename": "www.98T.la@KHC-006_[原].mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@KHC-006_[原].mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "SDMU-635": {
       "code": "SDMU-635",
@@ -53282,9 +53346,17 @@
       "studio": "SOD",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "白川まお",
+        "あけみみう",
+        "紗東みお",
+        "大橋優子",
+        "星空もあ",
+        "白井ゆずか",
+        "桐條紗綾"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -53293,7 +53365,7 @@
       },
       "original_filename": "www.98T.la@SDMU-635_[原]_part.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@SDMU-635_[原]_part.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "FGAN-023": {
       "code": "FGAN-023",
@@ -53343,12 +53415,17 @@
     "DIY-104": {
       "code": "DIY-104",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "DIY",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "あけみみう",
+        "あやね遥菜",
+        "柊木友美",
+        "羽山美雪"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -53357,7 +53434,7 @@
       },
       "original_filename": "www.98T.la@DIY-104_[原]_part.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@DIY-104_[原]_part.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "GDHH-077": {
       "code": "GDHH-077",
@@ -53367,7 +53444,7 @@
       "url": "",
       "actresses": [],
       "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -53386,7 +53463,7 @@
       "url": "",
       "actresses": [],
       "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -53445,12 +53522,16 @@
     "KAGP-070": {
       "code": "KAGP-070",
       "title": "",
-      "studio": "UNKNOWN",
+      "studio": "かぐや姫Pt/妄想族",
       "release_date": "",
       "url": "",
-      "actresses": [],
-      "search_status": "searched_not_found",
-      "last_search_date": "2025-12-19T00:18:30.556724",
+      "actresses": [
+        "青山はな",
+        "あけみみう",
+        "七海りな"
+      ],
+      "search_status": "searched_found",
+      "last_search_date": "2025-12-19T00:36:10.824112",
       "created_at": "2025-12-18T16:18:30Z",
       "updated_at": "2025-12-18T16:18:30Z",
       "metadata": {
@@ -53459,7 +53540,7 @@
       },
       "original_filename": "www.98T.la@KAGP-070_[原]_part.mp4",
       "file_path": "W:\\Downloads\\あけみみう (1)\\www.98T.la@KAGP-070_[原]_part.mp4",
-      "search_method": "cascade"
+      "search_method": "JAVDB (安全增強版)"
     },
     "ORETD-327": {
       "code": "ORETD-327",
