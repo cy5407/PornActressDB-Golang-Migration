@@ -63,6 +63,33 @@ indent-style = "space"
 - **Git** - 版本控制系統
 - **GitHub** - 程式碼託管
 
+### 搜尋工具
+
+#### **grep 工具** ⚡ - 程式碼內容搜尋 (基於 ripgrep)
+**一般搜尋場景** (95% 情況)：
+```bash
+# 使用 grep 工具 (推薦)
+- 搜尋檔案內容
+- 顯示上下文 (-A, -B, -C)
+- 複雜正則表達式
+- 統計匹配數量 (output_mode: "count")
+```
+
+#### **ripgrep (rg)** 🔍 - 進階搜尋場景
+**特殊需求時使用** (5% 情況)：
+```bash
+# 直接使用 rg 指令
+rg "pattern" --json          # JSON 格式輸出
+rg "pattern" --stats         # 詳細統計資訊
+rg "pattern" --type-list     # 列出支援的檔案類型
+rg "pattern" --pcre2         # 使用 PCRE2 正則引擎
+```
+
+**效能比較**：
+- 兩者基於相同引擎，速度相同（毫秒級差異）
+- grep 工具更簡潔，輸出結構化
+- rg 指令提供更多進階選項
+
 ---
 
 ## 📏 程式碼風格標準

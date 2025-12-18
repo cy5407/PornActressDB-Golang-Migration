@@ -254,6 +254,38 @@ auto_apply_preferences = true
 3. 使用 `root.after()` 更新 GUI 元件
 4. 新增對應的 `services` 層方法
 
+## 開發工具最佳實踐
+
+### 程式碼搜尋策略
+
+**使用 `grep` 工具** (預設，95% 情況)：
+```python
+# 一般搜尋
+grep pattern: "def search", glob: "*.py"
+
+# 顯示上下文
+grep pattern: "class.*Config", output_mode: "content", -C: 3
+
+# 統計匹配數
+grep pattern: "import requests", output_mode: "count"
+```
+
+**使用 `rg` 指令** (特殊需求，5% 情況)：
+```bash
+# JSON 輸出（用於程式化處理）
+rg "TODO|FIXME" --json | python parse.py
+
+# 詳細統計（搜尋速度、檔案數等）
+rg "pattern" --stats
+
+# 特殊正則引擎
+rg "(?P<name>pattern)" --pcre2
+```
+
+**選擇原則**：
+- ✅ 預設用 `grep` 工具（簡潔、結構化輸出）
+- 🔧 需要 JSON/stats 時才用 `rg` 指令
+
 ## 關鍵檔案位置
 
 - **資料庫**: `data/json_db/data.json`
