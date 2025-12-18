@@ -1652,9 +1652,13 @@ class JSONDBManager:
         self, actress_name: str, major_studios: set = None
     ) -> dict:
         """
-        分析女優的主要片商
+        分析女優的主要片商（三層分類策略）
 
-        根據女優的影片分布分析其主要片商,並提供分類建議。
+        根據女優的影片分布分析其主要片商，並提供分類建議。
+        採用三層分類策略：
+        1. 專屬女優快速通道：單一片商且 >= 3 部影片
+        2. 高忠誠度女優：大片商占比 >= 70% 且 >= 5 部
+        3. 跨片商女優：5+ 片商或 3+ 片商且無主導（< 40%）
 
         Args:
             actress_name: 女優名稱
@@ -1668,6 +1672,8 @@ class JSONDBManager:
             - total_videos: 總影片數
             - studio_distribution: 片商分布統計
             - recommendation: 分類建議 ('studio_classification' 或 'solo_artist')
+            - classification_type: 分類類型 ('exclusive', 'high_loyalty', 'multi_studio', 'standard')
+            - studio_count: 片商數量
         """
         try:
             self._acquire_read_lock()
@@ -1715,6 +1721,30 @@ class JSONDBManager:
                         "total_videos": 0,
                         "studio_distribution": {},
                         "recommendation": "solo_artist",
+                        "classification_type": "no_data",
+                        "studio_count": 0,
+                    }
+
+                studio_count = len(studio_stats)
+
+                # ========== 第一層：專屬女優快速通道 ==========
+                # 條件：只有 1 個片商且至少 3 部影片
+                if studio_count == 1 and total_videos >= 3:
+                    studio = list(studio_stats.keys())[0]
+                    is_major = major_studios and studio in major_studios
+                    logger.debug(
+                        f"🎯 專屬女優: {actress_name} → {studio} "
+                        f"({total_videos} 部, 大片商: {is_major})"
+                    )
+                    return {
+                        "actress_name": actress_name,
+                        "primary_studio": studio,
+                        "confidence": 100.0,
+                        "total_videos": total_videos,
+                        "studio_distribution": studio_stats,
+                        "recommendation": "studio_classification" if is_major else "solo_artist",
+                        "classification_type": "exclusive",
+                        "studio_count": 1,
                     }
 
                 # 找出作品數最多的片商
@@ -1723,33 +1753,90 @@ class JSONDBManager:
                 )[0]
                 best_stats = studio_stats[best_studio]
 
-                # 計算信心度
-                confidence = (
-                    (best_stats["total_count"] / total_videos) * 100
-                    if total_videos > 0
-                    else 0
-                )
+                # 計算最高占比
+                max_ratio = best_stats["total_count"] / total_videos if total_videos > 0 else 0
 
-                # 決定推薦分類
+                # ========== 第二層：高忠誠度女優 ==========
+                # 條件：大片商占比 >= 70% 且至少 5 部作品
+                if major_studios:
+                    for studio, stats in studio_stats.items():
+                        if studio in major_studios:
+                            studio_ratio = stats["total_count"] / total_videos
+                            if studio_ratio >= 0.70 and stats["total_count"] >= 5:
+                                confidence = round(studio_ratio * 100, 1)
+                                logger.debug(
+                                    f"💎 高忠誠度女優: {actress_name} → {studio} "
+                                    f"({stats['total_count']}/{total_videos} = {confidence}%)"
+                                )
+                                return {
+                                    "actress_name": actress_name,
+                                    "primary_studio": studio,
+                                    "confidence": confidence,
+                                    "total_videos": total_videos,
+                                    "studio_distribution": studio_stats,
+                                    "recommendation": "studio_classification",
+                                    "classification_type": "high_loyalty",
+                                    "studio_count": studio_count,
+                                }
+
+                # ========== 第三層：跨片商女優判定 ==========
+                # 條件 A：跨 5+ 片商，直接歸入單體企劃
+                if studio_count >= 5:
+                    confidence = round(max_ratio * 100, 1)
+                    logger.debug(
+                        f"🎭 跨片商女優 (5+): {actress_name} "
+                        f"({studio_count} 片商, 主要 {best_studio} {confidence}%)"
+                    )
+                    return {
+                        "actress_name": actress_name,
+                        "primary_studio": best_studio,
+                        "confidence": confidence,
+                        "total_videos": total_videos,
+                        "studio_distribution": studio_stats,
+                        "recommendation": "solo_artist",
+                        "classification_type": "multi_studio",
+                        "studio_count": studio_count,
+                    }
+
+                # 條件 B：跨 3+ 片商且最高占比 < 40%
+                if studio_count >= 3 and max_ratio < 0.40:
+                    confidence = round(max_ratio * 100, 1)
+                    logger.debug(
+                        f"🎭 跨片商女優 (無主導): {actress_name} "
+                        f"({studio_count} 片商, 最高 {best_studio} {confidence}%)"
+                    )
+                    return {
+                        "actress_name": actress_name,
+                        "primary_studio": best_studio,
+                        "confidence": confidence,
+                        "total_videos": total_videos,
+                        "studio_distribution": studio_stats,
+                        "recommendation": "solo_artist",
+                        "classification_type": "multi_studio",
+                        "studio_count": studio_count,
+                    }
+
+                # ========== 第四層：標準分類邏輯 ==========
+                confidence = round(max_ratio * 100, 1)
                 recommendation = "solo_artist"
                 has_major_studio_work = False
                 major_studio_work_count = 0
                 minor_studio_work_count = 0
                 best_major_studio = None
-                best_major_confidence = 0
+                best_major_count = 0
 
                 if major_studios:
                     for studio, stats in studio_stats.items():
                         if studio in major_studios:
                             has_major_studio_work = True
                             major_studio_work_count += stats["total_count"]
-                            if stats["total_count"] > best_major_confidence:
-                                best_major_confidence = stats["total_count"]
+                            if stats["total_count"] > best_major_count:
+                                best_major_count = stats["total_count"]
                                 best_major_studio = studio
                         else:
                             minor_studio_work_count += stats["total_count"]
 
-                # 分類邏輯
+                # 標準分類邏輯
                 if has_major_studio_work:
                     if best_major_studio and best_major_studio == best_studio:
                         # 最佳片商就是大片商
@@ -1769,7 +1856,12 @@ class JSONDBManager:
                             studio_stats[best_major_studio]["total_count"]
                             / total_videos
                         ) * 100
-                        confidence = max(major_studio_confidence, 60.0)
+                        confidence = max(round(major_studio_confidence, 1), 60.0)
+
+                logger.debug(
+                    f"📊 標準分類: {actress_name} → {best_studio} "
+                    f"({confidence}%, {recommendation})"
+                )
 
                 return {
                     "actress_name": actress_name,
@@ -1778,6 +1870,8 @@ class JSONDBManager:
                     "total_videos": total_videos,
                     "studio_distribution": studio_stats,
                     "recommendation": recommendation,
+                    "classification_type": "standard",
+                    "studio_count": studio_count,
                 }
 
             finally:
