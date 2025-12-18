@@ -2,10 +2,16 @@
 片商識別器模組
 """
 
-import json
 import logging
 import re
 from pathlib import Path
+
+try:
+    from utils.json_utils import dump as json_dump
+    from utils.json_utils import load as json_load
+except ImportError:  # pragma: no cover
+    from src.utils.json_utils import dump as json_dump
+    from src.utils.json_utils import load as json_load
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +91,15 @@ class StudioIdentifier:
             }
             try:
                 with self.rules_file.open("w", encoding="utf-8") as f:
-                    json.dump(default_rules, f, ensure_ascii=False, indent=4)
+                    json_dump(default_rules, f, ensure_ascii=False, indent=4)
                 return default_rules
             except OSError as e:
                 logger.error(f"無法建立預設片商規則檔案: {e}")
                 return {}
         try:
             with self.rules_file.open("r", encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError) as e:
+                return json_load(f)
+        except (OSError, ValueError) as e:
             logger.error(f"讀取片商規則檔案失敗: {e}, 將使用空規則。")
             return {}
 

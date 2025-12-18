@@ -3,6 +3,8 @@ AV-WIKI 專用爬蟲
 針對 av-wiki.net 優化的爬蟲實作
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -14,6 +16,11 @@ from bs4 import BeautifulSoup
 
 from ..base_scraper import BaseScraper, ErrorType, ScrapingException
 from ..encoding_utils import create_safe_soup, validate_japanese_content
+
+try:
+    from ...utils.retry_utils import AdaptiveConcurrencyController, ExponentialBackoff
+except ImportError:  # pragma: no cover
+    from src.utils.retry_utils import AdaptiveConcurrencyController, ExponentialBackoff
 
 logger = logging.getLogger(__name__)
 
@@ -540,6 +547,7 @@ class AVWikiScraper(BaseScraper):
 
         根據測試結果，AV-WIKI 沒有速率限制，支援高併發（15 併發 24 請求/秒）。
         此方法直接使用 scrape_url 繞過 rate_limiter，避免誤觸保護機制。
+        整合自適應併發控制：連續錯誤時自動降載併發數，恢復後逐步升載。
 
         Args:
             video_codes: 影片番號列表
@@ -550,16 +558,28 @@ class AVWikiScraper(BaseScraper):
             Dict[番號, 搜尋結果]
         """
         results = {}
-        semaphore = asyncio.Semaphore(max_concurrent)
-        started_count = 0  # 改為追蹤「開始」的數量
+        started_count = 0  # 追蹤「開始」的數量
         total_count = len(video_codes)
         count_lock = asyncio.Lock()  # 使用 asyncio.Lock 保護計數器
+
+        # 初始化自適應併發控制器與退避計算器
+        concurrency_controller = AdaptiveConcurrencyController(
+            initial=max_concurrent,
+            minimum=2,
+            maximum=max_concurrent
+        )
+        backoff = ExponentialBackoff(base_delay=0.5, max_delay=10.0)
 
         async def search_single_video(code: str) -> tuple[str, dict[str, Any]]:
             """直接搜尋單個影片（繞過 rate_limiter）"""
             nonlocal started_count
 
-            async with semaphore:
+            # 動態建立 semaphore（每次取得併發控制器的最新值）
+            current_semaphore = asyncio.Semaphore(
+                concurrency_controller.get_concurrency()
+            )
+
+            async with current_semaphore:
                 # 在開始搜尋時就更新進度（而非完成後）
                 async with count_lock:
                     started_count += 1
@@ -637,6 +657,10 @@ class AVWikiScraper(BaseScraper):
                             f"[批次搜尋] 番號 {code} 搜尋成功，找到 {len(actresses)} 位女優: {actresses}"
                         )
 
+                    # 搜尋成功，回報給併發控制器
+                    concurrency_controller.report_success()
+                    backoff.reset()
+
                     return code, {
                         "video_code": code,
                         "actresses": actresses,
@@ -644,6 +668,40 @@ class AVWikiScraper(BaseScraper):
                         "search_url": search_url,
                         "search_status": search_status,
                         "actress_count": len(actresses),
+                    }
+
+                except (TimeoutError, aiohttp.ClientResponseError, aiohttp.ClientConnectionError) as e:
+                    # 暫時性錯誤：回報失敗並加退避
+                    error_type = type(e).__name__
+                    is_temporary = True
+
+                    # 檢查是否為 HTTP 錯誤且狀態碼表示暫時性問題
+                    if isinstance(e, aiohttp.ClientResponseError):
+                        if e.status in (429, 500, 502, 503, 504):
+                            is_temporary = True
+                        elif e.status == 404:
+                            is_temporary = False
+
+                    if is_temporary:
+                        concurrency_controller.report_failure()
+                        backoff_delay = backoff.next_delay()
+                        logger.warning(
+                            f"[批次搜尋] 番號 {code} 暫時性錯誤 ({error_type})，"
+                            f"退避 {backoff_delay:.1f}s，併發降至 {concurrency_controller.get_concurrency()}"
+                        )
+                        await asyncio.sleep(backoff_delay)
+
+                    error_detail = str(e)
+                    logger.error(
+                        f"[批次搜尋] 番號 {code} 搜尋失敗 - 錯誤類型: {error_type}, 錯誤訊息: {error_detail}"
+                    )
+
+                    return code, {
+                        "video_code": code,
+                        "actresses": [],
+                        "error": error_detail,
+                        "error_type": error_type,
+                        "source": "AV-WIKI",
                     }
 
                 except Exception as e:

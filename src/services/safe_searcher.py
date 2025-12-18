@@ -5,7 +5,6 @@
 import builtins
 import contextlib
 import hashlib
-import json
 import logging
 import random
 import threading
@@ -14,6 +13,15 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+try:
+    from utils.json_utils import dump as json_dump
+    from utils.json_utils import dumps as json_dumps
+    from utils.json_utils import load as json_load
+except ImportError:  # pragma: no cover
+    from src.utils.json_utils import dump as json_dump
+    from src.utils.json_utils import dumps as json_dumps
+    from src.utils.json_utils import load as json_load
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +73,10 @@ class SafeSearcher:
         )
 
     def _init_browser_headers(self) -> list[dict[str, str]]:
-        """初始化真實瀏覽器標頭池"""
+        """初始化真實瀏覽器標頭池 (2024-12 更新版本號)"""
         return [
             {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
                 "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8,ja;q=0.7",
                 "Accept-Encoding": "gzip, deflate, br",
@@ -78,14 +86,15 @@ class SafeSearcher:
                 "Sec-Fetch-Dest": "document",
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
-                "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                "Sec-Fetch-User": "?1",
+                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
                 "Sec-Ch-Ua-Mobile": "?0",
                 "Sec-Ch-Ua-Platform": '"Windows"',
             },
             {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Language": "zh-TW,zh;q=0.8,en-US;q=0.5,en;q=0.3",
+                "Accept-Language": "zh-TW,zh;q=0.8,en-US;q=0.5,en;q=0.3,ja;q=0.2",
                 "Accept-Encoding": "gzip, deflate, br",
                 "DNT": "1",
                 "Connection": "keep-alive",
@@ -93,11 +102,12 @@ class SafeSearcher:
                 "Sec-Fetch-Dest": "document",
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
             },
             {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8,ja;q=0.7",
                 "Accept-Encoding": "gzip, deflate, br",
                 "DNT": "1",
                 "Connection": "keep-alive",
@@ -105,14 +115,15 @@ class SafeSearcher:
                 "Sec-Fetch-Dest": "document",
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
-                "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                "Sec-Fetch-User": "?1",
+                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
                 "Sec-Ch-Ua-Mobile": "?0",
                 "Sec-Ch-Ua-Platform": '"macOS"',
             },
             {
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8,ja;q=0.7",
                 "Accept-Encoding": "gzip, deflate, br",
                 "DNT": "1",
                 "Connection": "keep-alive",
@@ -120,14 +131,15 @@ class SafeSearcher:
                 "Sec-Fetch-Dest": "document",
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
-                "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                "Sec-Fetch-User": "?1",
+                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
                 "Sec-Ch-Ua-Mobile": "?0",
                 "Sec-Ch-Ua-Platform": '"Linux"',
             },
             {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8,ja;q=0.7",
                 "Accept-Encoding": "gzip, deflate, br",
                 "DNT": "1",
                 "Connection": "keep-alive",
@@ -135,7 +147,8 @@ class SafeSearcher:
                 "Sec-Fetch-Dest": "document",
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
-                "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
+                "Sec-Fetch-User": "?1",
+                "Sec-Ch-Ua": '"Microsoft Edge";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
                 "Sec-Ch-Ua-Mobile": "?0",
                 "Sec-Ch-Ua-Platform": '"Windows"',
             },
@@ -197,7 +210,7 @@ class SafeSearcher:
             cache_path = Path(self.cache_file)
             if cache_path.exists():
                 with open(cache_path, encoding="utf-8") as f:
-                    cache_data = json.load(f)
+                    cache_data = json_load(f)
 
                 # 轉換為 CacheEntry 物件
                 for key, value in cache_data.items():
@@ -232,14 +245,14 @@ class SafeSearcher:
 
                 try:
                     # 測試是否可序列化
-                    json.dumps(entry.data, ensure_ascii=False)
+                    json_dumps(entry.data, ensure_ascii=False)
                     cache_data[key] = asdict(entry)
                 except (TypeError, ValueError):
                     logger.debug(f"跳過不可序列化資料: {entry.url}")
                     continue
 
             with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                json_dump(cache_data, f, ensure_ascii=False, indent=2)
 
             logger.debug(
                 f"💾 已儲存 {len(cache_data)} 個快取項目 (跳過 {len(self.cache) - len(cache_data)} 個不可序列化項目)"
@@ -287,8 +300,6 @@ class SafeSearcher:
         # 檢查資料是否可序列化
         try:
             # 嘗試序列化測試
-            import json
-
             from bs4 import BeautifulSoup
 
             # 如果是 BeautifulSoup 物件，則不快取
@@ -297,7 +308,7 @@ class SafeSearcher:
                 return
 
             # 測試是否可以序列化為 JSON
-            json.dumps(data, ensure_ascii=False)
+            json_dumps(data, ensure_ascii=False)
 
         except (TypeError, ValueError) as e:
             logger.debug(f"🚫 資料不可序列化，跳過快取: {url} - {e}")

@@ -2,7 +2,6 @@
 安全的 JAVDB 搜尋器 - 整合反爬蟲策略
 """
 
-import json
 import logging
 import random
 import threading
@@ -14,6 +13,13 @@ from urllib.parse import quote, urljoin
 
 import httpx
 from bs4 import BeautifulSoup
+
+try:
+    from utils.json_utils import dump as json_dump
+    from utils.json_utils import load as json_load
+except ImportError:  # pragma: no cover
+    from src.utils.json_utils import dump as json_dump
+    from src.utils.json_utils import load as json_load
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +73,7 @@ class SafeJAVDBSearcher:
         if self.cache_file.exists():
             try:
                 with open(self.cache_file, encoding="utf-8") as f:
-                    self.cache = json.load(f)
+                    self.cache = json_load(f)
                 logger.debug(f"📦 已載入 {len(self.cache)} 個快取項目")
             except Exception as e:
                 logger.warning(f"載入快取失敗: {e}")
@@ -79,7 +85,7 @@ class SafeJAVDBSearcher:
         """儲存快取資料"""
         try:
             with open(self.cache_file, "w", encoding="utf-8") as f:
-                json.dump(self.cache, f, ensure_ascii=False, indent=2)
+                json_dump(self.cache, f, ensure_ascii=False, indent=2)
             logger.debug(f"💾 已儲存 {len(self.cache)} 個快取項目")
         except Exception as e:
             logger.error(f"儲存快取失敗: {e}")
@@ -89,7 +95,7 @@ class SafeJAVDBSearcher:
         if self.stats_file.exists():
             try:
                 with open(self.stats_file, encoding="utf-8") as f:
-                    self.stats = json.load(f)
+                    self.stats = json_load(f)
             except Exception as e:
                 logger.warning(f"載入統計失敗: {e}")
                 self.stats = {}
@@ -108,7 +114,7 @@ class SafeJAVDBSearcher:
         """儲存統計資料"""
         try:
             with open(self.stats_file, "w", encoding="utf-8") as f:
-                json.dump(self.stats, f, ensure_ascii=False, indent=2)
+                json_dump(self.stats, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"儲存統計失敗: {e}")
 

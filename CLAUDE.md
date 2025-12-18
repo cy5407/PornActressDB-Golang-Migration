@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **語言**: Python 3.8+
 - **GUI 框架**: tkinter
-- **版本**: v5.4.3
+- **版本**: v6.0.0
 - **主進入點**: `run.py`
 
 ## 快速開始

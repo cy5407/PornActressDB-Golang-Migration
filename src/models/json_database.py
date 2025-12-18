@@ -9,7 +9,6 @@ JSON 資料庫管理器 (JSONDBManager)
 """
 
 import hashlib
-import json
 import logging
 import time
 from datetime import UTC, datetime
@@ -18,6 +17,11 @@ from typing import Any
 
 import orjson
 from filelock import FileLock
+
+try:
+    from utils.json_utils import load as json_load
+except ImportError:  # pragma: no cover
+    from src.utils.json_utils import load as json_load
 
 from src.models.json_types import (
     ISO_DATETIME_FORMAT,
@@ -149,6 +153,14 @@ class JSONDBManager:
 
             with open(self.data_file, "rb") as f:
                 file_content = f.read()
+
+            # 檢查檔案是否為空，若為空則初始化
+            if not file_content:
+                logger.warning(f"⚠️ JSON 資料檔案為空: {self.data_file}，正在初始化...")
+                initial_data = get_empty_json_database()
+                self._save_all_data(initial_data)
+                self.data = initial_data
+                return
 
             # 試圖解析 JSON (使用 orjson 加速)
             try:
@@ -524,7 +536,7 @@ class JSONDBManager:
 
             # 載入備份資料
             with open(backup_file, encoding="utf-8") as f:
-                backup_data = json.load(f)
+                backup_data = json_load(f)
 
             # 驗證備份資料
             self._validate_json_format(backup_data)
@@ -537,7 +549,7 @@ class JSONDBManager:
             logger.info(f"✅ 備份還原成功: {backup_path}")
             return True
 
-        except json.JSONDecodeError as e:
+        except ValueError as e:
             logger.error(f"❌ 備份檔案損壞: {e}")
             raise BackupError(f"備份檔案損壞: {e}") from e
         except Exception as e:

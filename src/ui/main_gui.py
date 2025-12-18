@@ -426,15 +426,28 @@ class UnifiedActressClassifierGUI:
         self.is_running = False
         self.stop_event.set()
 
-        # 1. 嘗試合併增量資料庫
+        # 0. 停止所有背景操作以避免並行寫入
+        if self.gui_updater:
+            self.gui_updater.stop()
+
+        # 給背景操作短暫時間完成
+        import time
+        time.sleep(0.5)
+
+        # 1. 強制合併增量資料庫並儲存到 data.json（加鎖保護）
         try:
-            if hasattr(self.core, "db_manager") and hasattr(
-                self.core.db_manager, "compact_if_needed"
-            ):
-                print("正在檢查是否需要合併資料庫...")
-                self.core.db_manager.compact_if_needed()
+            if hasattr(self.core, "db_manager"):
+                # 強制執行完整合併（不只是檢查閾值）
+                if hasattr(self.core.db_manager, "compact"):
+                    print("🔄 正在強制合併資料庫...（關閉前儲存所有資料）")
+                    self.core.db_manager.compact()
+                    print("✅ 資料庫已完整儲存到 data.json")
+                elif hasattr(self.core.db_manager, "compact_if_needed"):
+                    print("正在檢查是否需要合併資料庫...")
+                    self.core.db_manager.compact_if_needed()
         except Exception as e:
-            print(f"資料庫合併失敗: {e}")
+            print(f"❌ 資料庫合併失敗: {e}")
+            # 繼續執行，不中斷關閉流程
 
         # 2. 清理過期快取（使用統一快取管理器）
         try:
@@ -462,10 +475,7 @@ class UnifiedActressClassifierGUI:
         except Exception as e:
             print(f"快取清理失敗: {e}")
 
-        # 3. 停止安全 GUI 更新器
-        if self.gui_updater:
-            self.gui_updater.stop()
-
+        # 3. 關閉根視窗
         self.root.destroy()
 
     def browse_folder(self):

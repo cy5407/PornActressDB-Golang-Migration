@@ -599,26 +599,57 @@ class UnifiedClassifierCore:
             if progress_callback:
                 progress_callback(f"📁 發現 {len(video_files)} 個影片檔案。\n")
 
-            # 取得資料庫中已有的番號
-            codes_in_db = {v["code"] for v in self.db_manager.get_all_videos()}
+            # 取得資料庫中已有的番號及其女優資訊
+            all_videos = self.db_manager.get_all_videos()
+            codes_in_db = {v["code"] for v in all_videos}
+
+            # 🔧 識別零女優番號（已存在但沒有女優資料的番號）
+            zero_actress_codes = set()
+            for video in all_videos:
+                actresses = video.get("actresses", [])
+                if not actresses or len(actresses) == 0:
+                    zero_actress_codes.add(video["code"])
+
             new_code_file_map = {}
+            zero_actress_file_map = {}  # 零女優番號的檔案映射
 
             for file_path in video_files:
                 code = self.code_extractor.extract_code(file_path.name)
-                if code and code not in codes_in_db:
+                if not code:
+                    continue
+
+                # 新番號
+                if code not in codes_in_db:
                     if code not in new_code_file_map:
                         new_code_file_map[code] = []
                     new_code_file_map[code].append(file_path)
+                # 零女優番號（需要重新搜尋）
+                elif code in zero_actress_codes:
+                    if code not in zero_actress_file_map:
+                        zero_actress_file_map[code] = []
+                    zero_actress_file_map[code].append(file_path)
 
             if progress_callback:
                 progress_callback(
                     f"✅ 資料庫中已存在 {len(codes_in_db)} 個影片的番號記錄。\n"
                 )
-                progress_callback(
-                    f"🎯 需要搜尋 {len(new_code_file_map)} 個新番號。\n\n"
-                )
+                if zero_actress_file_map:
+                    progress_callback(
+                        f"⚠️ 發現 {len(zero_actress_file_map)} 個零女優番號，將進行重新搜尋。\n"
+                    )
+                if new_code_file_map:
+                    progress_callback(
+                        f"🎯 需要搜尋 {len(new_code_file_map)} 個新番號。\n\n"
+                    )
 
-            if not new_code_file_map:
+            # 合併新番號和零女優番號
+            all_codes_to_search = dict(new_code_file_map)
+            for code, files in zero_actress_file_map.items():
+                if code not in all_codes_to_search:
+                    all_codes_to_search[code] = []
+                all_codes_to_search[code].extend(files)
+
+            if not all_codes_to_search:
                 if progress_callback:
                     progress_callback("🎉 所有影片都已在資料庫中！\n")
                 return {"status": "success", "message": "所有番號都已存在於資料庫中"}
@@ -633,7 +664,7 @@ class UnifiedClassifierCore:
                     progress_callback("🔍 使用 AV-WIKI 單一搜尋模式\n\n")
 
             search_results = self.web_searcher.batch_cascade_search(
-                list(new_code_file_map.keys()),
+                list(all_codes_to_search.keys()),
                 stop_event,
                 progress_callback,
                 enable_javdb=enable_cascade,  # 級聯搜尋時啟用 JAVDB 備援
@@ -655,7 +686,7 @@ class UnifiedClassifierCore:
                     source = result.get("source", "unknown")
                     source_stats[source] = source_stats.get(source, 0) + 1
 
-                    for file_path in new_code_file_map.get(code, []):
+                    for file_path in all_codes_to_search.get(code, []):
                         # 優先使用搜尋結果中的片商資訊
                         studio = result.get("studio")
                         if not studio or studio == "UNKNOWN":
@@ -673,7 +704,7 @@ class UnifiedClassifierCore:
                         self.db_manager.add_or_update_video(code, info)
                 else:
                     failed_codes.append(code)
-                    for file_path in new_code_file_map.get(code, []):
+                    for file_path in all_codes_to_search.get(code, []):
                         studio = self.studio_identifier.identify_studio(code)
                         info = {
                             "actresses": [],
@@ -692,10 +723,10 @@ class UnifiedClassifierCore:
                 progress_callback("📊 搜尋結果摘要\n")
                 progress_callback("=" * 50 + "\n")
                 progress_callback(
-                    f"✅ 成功: {success_count}/{len(new_code_file_map)}\n"
+                    f"✅ 成功: {success_count}/{len(all_codes_to_search)}\n"
                 )
                 progress_callback(
-                    f"❌ 失敗: {len(failed_codes)}/{len(new_code_file_map)}\n"
+                    f"❌ 失敗: {len(failed_codes)}/{len(all_codes_to_search)}\n"
                 )
                 if source_stats:
                     progress_callback("\n📈 各來源貢獻:\n")

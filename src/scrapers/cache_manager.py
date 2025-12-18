@@ -8,7 +8,6 @@ import builtins
 import contextlib
 import gzip
 import hashlib
-import json
 import logging
 import pickle
 import threading
@@ -17,6 +16,13 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+try:
+    from utils.json_utils import dump as json_dump
+    from utils.json_utils import load as json_load
+except ImportError:  # pragma: no cover
+    from src.utils.json_utils import dump as json_dump
+    from src.utils.json_utils import load as json_load
 
 logger = logging.getLogger(__name__)
 
@@ -93,17 +99,17 @@ class CacheManager:
                     "entries": {},
                 }
                 with open(self.index_path, "w", encoding="utf-8") as f:
-                    json.dump(initial_index, f, indent=2, ensure_ascii=False)
+                    json_dump(initial_index, f, indent=2, ensure_ascii=False)
                 logger.debug("📊 快取索引檔案已建立")
             else:
                 # 驗證現有索引
                 with open(self.index_path, encoding="utf-8") as f:
-                    index_data = json.load(f)
+                    index_data = json_load(f)
                     if "entries" not in index_data:
                         # 修復損壞的索引
                         index_data["entries"] = {}
                         with open(self.index_path, "w", encoding="utf-8") as f_write:
-                            json.dump(index_data, f_write, indent=2, ensure_ascii=False)
+                            json_dump(index_data, f_write, indent=2, ensure_ascii=False)
                         logger.warning("📊 快取索引已修復")
                     else:
                         logger.debug("📊 快取索引已載入")
@@ -117,7 +123,7 @@ class CacheManager:
                     "entries": {},
                 }
                 with open(self.index_path, "w", encoding="utf-8") as f:
-                    json.dump(initial_index, f, indent=2, ensure_ascii=False)
+                    json_dump(initial_index, f, indent=2, ensure_ascii=False)
             except Exception as fallback_error:
                 logger.error(f"建立備援索引失敗: {fallback_error}")
 
@@ -125,7 +131,7 @@ class CacheManager:
         """載入 JSON 索引"""
         try:
             with self.index_lock, open(self.index_path, encoding="utf-8") as f:
-                return json.load(f)
+                return json_load(f)
         except Exception as e:
             logger.error(f"載入索引失敗: {e}")
             return {
@@ -137,7 +143,7 @@ class CacheManager:
         """儲存 JSON 索引"""
         try:
             with self.index_lock, open(self.index_path, "w", encoding="utf-8") as f:
-                json.dump(index_data, f, indent=2, ensure_ascii=False)
+                json_dump(index_data, f, indent=2, ensure_ascii=False)
             return True
         except Exception as e:
             logger.error(f"儲存索引失敗: {e}")

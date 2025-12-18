@@ -74,15 +74,23 @@ class WebSearcher:
         # 保留原有配置以向下相容
         self.headers = self.safe_searcher.get_headers()
 
-        # 🔧 日文網站專用標頭（解決 Brotli 壓縮問題）
+        # 🔧 日文網站專用標頭（解決 403 Forbidden 和 Brotli 壓縮問題）
         self.japanese_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "ja,en-US;q=0.7,en;q=0.3",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8,zh-TW;q=0.7",
             "Accept-Charset": "UTF-8,Shift_JIS,EUC-JP,ISO-2022-JP,*;q=0.1",
-            "Accept-Encoding": "identity",  # 明確拒絕所有壓縮
+            "Accept-Encoding": "gzip, deflate, br",  # 接受壓縮（已安裝 brotli）
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Cache-Control": "max-age=0",
         }
 
         self.search_cache = {}
@@ -585,13 +593,27 @@ class WebSearcher:
         if stop_event.is_set():
             return None
 
+        # 🔧 檢查 Cloudflare 保護狀態（快取結果避免重複檢查）
+        if getattr(self, "_chiba_cloudflare_blocked", False):
+            logger.debug(f"chiba-f.net 被 Cloudflare 保護，跳過搜尋: {code}")
+            return None
+
         search_url = f"https://chiba-f.net/search/?keyword={quote(code)}"
 
         # 使用日文網站專用標頭和增強編碼檢測
         def make_request(url, **kwargs):
             with httpx.Client(timeout=self.timeout, **kwargs) as client:
-                # 🔧 使用不支援壓縮的標頭，避免 Brotli 問題
                 response = client.get(url, headers=self.japanese_headers)
+
+                # 🔧 偵測 Cloudflare 挑戰
+                cf_mitigated = response.headers.get("cf-mitigated", "")
+                if response.status_code == 403 and cf_mitigated == "challenge":
+                    self._chiba_cloudflare_blocked = True
+                    logger.warning(
+                        "⚠️ chiba-f.net 啟用了 Cloudflare 保護，本次執行將跳過此來源"
+                    )
+                    return None
+
                 response.raise_for_status()
                 # 🔧 使用增強的編碼檢測機制
                 decoded_content = self._detect_and_decode_content(response)
@@ -603,7 +625,7 @@ class WebSearcher:
             soup = self.safe_searcher.safe_request(make_request, search_url)
 
             if soup is None:
-                logger.warning(f"無法獲取 {code} 的 chiba-f.net 搜尋頁面")
+                logger.debug(f"無法獲取 {code} 的 chiba-f.net 搜尋頁面")
                 return None
 
             # 查找產品區塊
@@ -627,14 +649,20 @@ class WebSearcher:
                     return self._extract_chiba_product_info(product_div, code)
 
             if not product_divs:
-                logger.warning(
+                logger.debug(
                     f"chiba-f.net 未找到任何產品區塊，HTML開頭: {str(soup)[:200]}..."
                 )
 
         except Exception as e:
-            logger.error(f"chiba-f.net 搜尋 {code} 時發生錯誤: {e}", exc_info=True)
+            # 🔧 403 錯誤時檢查是否為 Cloudflare
+            if "403" in str(e):
+                self._chiba_cloudflare_blocked = True
+                logger.warning(
+                    f"⚠️ chiba-f.net 返回 403，可能被 Cloudflare 保護: {code}"
+                )
+            else:
+                logger.debug(f"chiba-f.net 搜尋 {code} 時發生錯誤: {e}")
 
-        logger.debug(f"番號 {code} 未在 chiba-f.net 中找到女優資訊。")
         return None
 
     def _extract_chiba_product_info(self, product_div, code: str) -> dict:
@@ -785,14 +813,16 @@ class WebSearcher:
     def _get_studio_name_by_code(self, studio_code: str) -> str | None:
         """根據片商代碼獲取片商名稱（從 studios.json 載入）"""
         try:
-            import json
-            from pathlib import Path
+            try:
+                from utils.json_utils import load as json_load
+            except ImportError:  # pragma: no cover
+                from src.utils.json_utils import load as json_load
 
             # 載入 studios.json 檔案
             studios_file = Path(__file__).parent.parent.parent / "studios.json"
             if studios_file.exists():
                 with open(studios_file, encoding="utf-8") as f:
-                    studios_data = json.load(f)
+                    studios_data = json_load(f)
 
                 # 反向查找：從代碼找到片商
                 studio_code_upper = studio_code.upper()
@@ -995,6 +1025,8 @@ class WebSearcher:
         if not uncached_codes:
             return cached_results
 
+        global_total = len(uncached_codes)
+
         # 使用 threading.Lock 確保進度計數的執行緒安全
         import threading as _threading
 
@@ -1002,7 +1034,7 @@ class WebSearcher:
         displayed_codes = set()  # 追蹤已顯示的番號
 
         # 定義進度回調轉換
-        def wrapped_progress_callback(current, total, code):
+        def wrapped_progress_callback(current, _total, code):
             if progress_callback:
                 with progress_lock:
                     # 避免重複顯示同一番號
@@ -1010,18 +1042,31 @@ class WebSearcher:
                         displayed_codes.add(code)
                         # 使用已顯示的數量作為進度，確保順序一致
                         display_num = len(displayed_codes)
-                        progress_callback(f"[{display_num}/{total}] 搜尋 {code}\n")
+                        progress_callback(
+                            f"[{display_num}/{global_total}] 搜尋 {code}\n"
+                        )
 
         # 定義異步執行函式
-        async def run_batch_search():
+        async def run_batch_search_all():
             # 在 async 環境中初始化 AVWikiScraper
             avwiki_scraper = AVWikiScraper()
 
-            return await avwiki_scraper.search_batch_concurrent(
-                uncached_codes,
-                max_concurrent=self.avwiki_max_concurrent,
-                progress_callback=wrapped_progress_callback,
-            )
+            # 分段執行：避免一次建立過多 tasks 造成記憶體/排程尖峰
+            chunk_size = max(200, min(500, self.avwiki_max_concurrent * 20))
+            batch_results: dict[str, dict | None] = {}
+            for i in range(0, len(uncached_codes), chunk_size):
+                if stop_event.is_set():
+                    break
+
+                chunk = uncached_codes[i : i + chunk_size]
+                chunk_results = await avwiki_scraper.search_batch_concurrent(
+                    chunk,
+                    max_concurrent=self.avwiki_max_concurrent,
+                    progress_callback=wrapped_progress_callback,
+                )
+                batch_results.update(chunk_results)
+
+            return batch_results
 
         try:
             # 使用 asyncio.run 執行併發搜尋
@@ -1030,7 +1075,7 @@ class WebSearcher:
                     f"🚀 開始 AV-WIKI 批次併發搜尋 ({len(uncached_codes)} 個番號)...\n"
                 )
 
-            batch_results = asyncio.run(run_batch_search())
+            batch_results = asyncio.run(run_batch_search_all())
 
             # 將結果加入快取
             for code, result in batch_results.items():
@@ -1067,7 +1112,7 @@ class WebSearcher:
         stop_event: threading.Event,
         progress_callback=None,
         enable_javdb: bool = True,
-        javdb_delay: float = 2.0,
+        javdb_delay: float = 0.0,
     ) -> dict[str, dict]:
         """
         批次級聯搜尋
@@ -1154,6 +1199,7 @@ class WebSearcher:
 
             progress.set_phase(2, "chiba-f 備援搜尋")
             still_failed = []
+            consecutive_failures = 0  # 連續失敗計數
 
             for i, code in enumerate(failed_codes):
                 if stop_event.is_set():
@@ -1171,6 +1217,8 @@ class WebSearcher:
                 result = self._search_chiba_f_net(code, stop_event)
 
                 if result and result.get("actresses"):
+                    # 成功，重置計數器
+                    consecutive_failures = 0
                     results[code] = {
                         **result,
                         "tried_sources": ["AV-WIKI", "chiba-f"],
@@ -1181,11 +1229,20 @@ class WebSearcher:
                     )
                     self.search_cache[code] = result
                 else:
+                    # 失敗，累計計數
+                    consecutive_failures += 1
                     results[code]["tried_sources"].append("chiba-f")
                     still_failed.append(code)
 
-                # 短延遲避免請求過快
-                time.sleep(0.5)
+                    # 連續失敗 ≥ 3 次，加入遞增延遲
+                    if consecutive_failures >= 3:
+                        # 延遲公式：(consecutive_failures - 2) × 0.5s，上限 3.0s
+                        backoff_delay = min((consecutive_failures - 2) * 0.5, 3.0)
+                        logger.debug(
+                            f"⏰ chiba-f 連續失敗 {consecutive_failures} 次，"
+                            f"加入退避 {backoff_delay:.1f}s"
+                        )
+                        time.sleep(backoff_delay)
 
             failed_codes = still_failed
 
@@ -1200,7 +1257,7 @@ class WebSearcher:
                     f"📊 第三階段：JAVDB 備援搜尋 ({len(failed_codes)} 個番號)\n"
                 )
                 progress_callback(
-                    f"⚠️ 注意：JAVDB 有速率限制，每次搜尋間隔 {javdb_delay} 秒\n"
+                    "⚠️ 注意：JAVDB 有速率限制，已啟用內建安全延遲（約 3-7 秒/次）\n"
                 )
                 progress_callback(f"{'=' * 60}\n")
 
@@ -1235,8 +1292,8 @@ class WebSearcher:
                     results[code]["tried_sources"].append("JAVDB")
                     progress.update(code, is_success=False, increment=False)
 
-                # JAVDB 需要較長延遲
-                if i < len(failed_codes) - 1:  # 最後一個不需要等待
+                # 額外延遲（選用）：SafeJAVDBSearcher 已內建延遲，此處僅在明確指定時再加
+                if javdb_delay > 0 and i < len(failed_codes) - 1:
                     time.sleep(javdb_delay)
         else:
             # 標記剩餘失敗

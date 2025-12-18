@@ -4,10 +4,16 @@
 """
 
 import configparser
-import json
 import logging
 from pathlib import Path
 from typing import Any
+
+try:
+    from utils.json_utils import dump as json_dump
+    from utils.json_utils import load as json_load
+except ImportError:  # pragma: no cover
+    from src.utils.json_utils import dump as json_dump
+    from src.utils.json_utils import load as json_load
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +214,7 @@ class PreferenceManager:
         try:
             if self.preference_file.exists():
                 with self.preference_file.open("r", encoding="utf-8") as f:
-                    prefs = json.load(f)
+                    prefs = json_load(f)
 
                 # 確保新設定項目存在（向後相容）
                 if "solo_folder_name" not in prefs:
@@ -246,7 +252,7 @@ class PreferenceManager:
         """儲存偏好設定"""
         try:
             with self.preference_file.open("w", encoding="utf-8") as f:
-                json.dump(self.preferences, f, ensure_ascii=False, indent=2)
+                json_dump(self.preferences, f, ensure_ascii=False, indent=2)
             logger.info("偏好設定已儲存")
         except Exception as e:
             logger.error(f"儲存偏好設定失敗: {e}")

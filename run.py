@@ -41,7 +41,7 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     try:
-        logger.info("🚀 啟動女優分類系統 - 完整版 v5.4.3 (智慧分類強化版)...")
+        logger.info("🚀 啟動女優分類系統 - 完整版 v6.0.0 (智慧搜尋優化版)...")
 
         # 初始化安全搜尋器設定
         logger.info("🛡️ 初始化安全搜尋功能...")
