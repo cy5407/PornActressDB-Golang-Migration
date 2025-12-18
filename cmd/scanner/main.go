@@ -52,7 +52,7 @@ func main() {
 	}
 
 	// Walk directory
-	filepath.WalkDir(*dir, func(path string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(*dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -61,12 +61,18 @@ func main() {
 		}
 		jobs <- path
 		return nil
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "Error walking directory: %v\n", err)
+	}
 
 	close(jobs)
 	wg.Wait()
 
 	// Output JSON
-	output, _ := json.MarshalIndent(results, "", "  ")
+	output, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
+		return
+	}
 	fmt.Println(string(output))
 }
