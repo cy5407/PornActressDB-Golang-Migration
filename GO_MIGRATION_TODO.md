@@ -51,29 +51,36 @@
 
 ---
 
-### MVP-2: 整合掃描功能 ⭐⭐⭐⭐
+### MVP-2: 整合掃描功能 ✅ 已完成
 
-**影響檔案**：
-- `src/utils/scanner.py` - `UnifiedFileScanner`
-- `src/services/classifier_core.py` - `move_files()` 中的掃描部分
-
-**修改策略**：
-
-```python
-# 原始 Python 程式碼
-video_files = self.file_scanner.scan_directory(folder_path_str, recursive=False)
-
-# 修改為（加入 Go 加速選項）
-if self.config.use_go_scanner:
-    video_files = self.go_bridge.scan_directory(folder_path_str)
-else:
-    video_files = self.file_scanner.scan_directory(folder_path_str, recursive=False)
-```
+**修改檔案**：
+- `config.ini` - 新增 `[go_integration]` 區塊
+- `src/models/config.py` - 新增預設值
+- `src/utils/scanner.py` - 完整重構
+- `src/services/classifier_core.py` - 使用 `from_config()`
 
 **實作清單**：
-- [ ] 在 `config.ini` 新增 `use_go_scanner = true` 選項
-- [ ] 修改 `UnifiedFileScanner` 加入 Go 橋接
-- [ ] 回退機制（Go CLI 不可用時自動使用 Python）
+- [x] 在 `config.ini` 新增 Go 整合設定
+- [x] 修改 `UnifiedFileScanner` 加入 Go 橋接
+- [x] 回退機制（Go CLI 不可用時自動使用 Python）
+- [x] `scan_with_codes()` 方法（Go 專用）
+- [x] `from_config()` 類別方法
+
+**使用方式**：
+```python
+# 從設定檔建立（推薦）
+scanner = UnifiedFileScanner.from_config(config)
+
+# 直接指定
+scanner = UnifiedFileScanner(use_go=True, go_workers=20)
+
+# 掃描
+files = scanner.scan_directory("D:\\Videos")
+
+# 掃描並提取番號（Go 專用）
+results = scanner.scan_with_codes("D:\\Videos")
+# [{"path": "...", "code": "SONE-123"}, ...]
+```
 
 ---
 

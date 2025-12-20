@@ -163,6 +163,7 @@ class GoBridge:
                 [self.exe_path, "help"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=5,
             )
             available = result.returncode == 0

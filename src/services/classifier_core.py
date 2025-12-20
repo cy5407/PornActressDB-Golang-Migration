@@ -33,7 +33,8 @@ class UnifiedClassifierCore:
         # 使用增量資料庫管理器替代標準管理器
         self.db_manager = IncrementalJSONDB("data/json_db")
         self.code_extractor = UnifiedCodeExtractor()
-        self.file_scanner = UnifiedFileScanner()
+        # 使用設定檔建立掃描器（支援 Go 加速）
+        self.file_scanner = UnifiedFileScanner.from_config(config)
         self.studio_identifier = StudioIdentifier()
         self.web_searcher = WebSearcher(config)
 

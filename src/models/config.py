@@ -85,6 +85,14 @@ class ConfigManager:
                 "max_size_mb": "500",
                 "auto_cleanup_on_exit": "true",
             },
+            "go_integration": {
+                "enabled": "true",
+                "exe_path": "",
+                "scan_workers": "10",
+                "move_conflict_strategy": "skip",
+                "enable_operation_log": "true",
+                "log_dir": "logs",
+            },
         }
         needs_saving = not self.config_file.exists()
         for section, options in defaults.items():
