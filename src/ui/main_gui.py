@@ -18,6 +18,7 @@ from typing import Any
 from models.config import ConfigManager
 from services.classifier_core import UnifiedClassifierCore
 from services.interactive_classifier import InteractiveClassifier
+from ui.operation_history_dialog import show_operation_history
 from ui.preferences_dialog import PreferenceDialog
 
 logger = logging.getLogger(__name__)
@@ -347,15 +348,21 @@ class UnifiedActressClassifierGUI:
         )
         self.stop_btn.grid(row=0, column=3, padx=(2, 0), sticky="ew", ipady=5)
 
-        # 第三排按鈕 - 片商分類
+        # 第三排按鈕 - 片商分類和操作歷史
         row3_frame = ttk.Frame(button_frame)
         row3_frame.pack(fill="x")
-        row3_frame.columnconfigure(0, weight=1)
+        row3_frame.columnconfigure((0, 1), weight=1)
 
         self.studio_classify_btn = ttk.Button(
             row3_frame, text="🏢 片商分類", command=self.start_studio_classification
         )
-        self.studio_classify_btn.grid(row=0, column=0, sticky="ew", ipady=5)
+        self.studio_classify_btn.grid(row=0, column=0, padx=(0, 2), sticky="ew", ipady=5)
+
+        # 新增操作歷史按鈕
+        self.history_btn = ttk.Button(
+            row3_frame, text="📜 操作歷史", command=self.show_operation_history
+        )
+        self.history_btn.grid(row=0, column=1, padx=(2, 0), sticky="ew", ipady=5)
 
         # 結果顯示區域
         result_frame = ttk.LabelFrame(main_frame, text="📋 執行結果", padding="10")
@@ -420,6 +427,10 @@ class UnifiedActressClassifierGUI:
     def show_preferences(self):
         """顯示偏好設定對話框"""
         PreferenceDialog(self.root, self.core.preference_manager)
+
+    def show_operation_history(self):
+        """顯示操作歷史對話框"""
+        show_operation_history(self.root, self.core.file_mover)
 
     def on_closing(self):
         """程式關閉時的處理"""
@@ -566,6 +577,7 @@ class UnifiedActressClassifierGUI:
             self.standard_move_btn,
             self.smart_search_move_btn,
             self.studio_classify_btn,
+            self.history_btn,
             self.settings_btn,
         ]
 

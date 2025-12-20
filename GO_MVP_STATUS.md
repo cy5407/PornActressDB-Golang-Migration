@@ -85,7 +85,19 @@ python tools/integration/go_integration.py "C:\Users\cy540\Downloads\test_videos
 | MVP-2 | 整合掃描功能 | ✅ 已完成 |
 | MVP-3 | 整合檔案移動功能 | ✅ 已完成 |
 | MVP-4 | 設定檔整合 `config.ini` | ✅ 已完成 |
-| MVP-5 | GUI 整合回滾功能 | ⬜ 待實作 |
+| MVP-5 | GUI 整合回滾功能 | ✅ 已完成 |
+
+### MVP-5 實作內容 (2025-12-21)
+
+1. **src/ui/operation_history_dialog.py** - 新建操作歷史對話框
+   - 顯示移動操作歷史列表
+   - 查看操作詳情
+   - 一鍵回滾功能
+   - 重新整理歷史
+
+2. **src/ui/main_gui.py** - 新增操作歷史按鈕
+   - 在功能區第三排新增「📜 操作歷史」按鈕
+   - 新增 `show_operation_history()` 方法
 
 ### MVP-3 實作內容 (2025-12-21)
 
