@@ -3,9 +3,14 @@
 """
 
 import logging
-import shutil
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
+
+try:
+    from src.utils.file_mover import FileMover
+except ImportError:
+    from utils.file_mover import FileMover
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +19,15 @@ class StudioClassificationCore:
     """片商分類核心類別"""
 
     def __init__(
-        self, db_manager, code_extractor, studio_identifier, preference_manager
+        self, db_manager, code_extractor, studio_identifier, preference_manager,
+        file_mover: Optional[FileMover] = None
     ):
         self.db_manager = db_manager
         self.code_extractor = code_extractor
         self.studio_identifier = studio_identifier
         self.preference_manager = preference_manager
+        # 檔案移動器（支援 Go 加速）
+        self.file_mover = file_mover or FileMover()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.supported_formats = [
             ".mp4",
@@ -690,9 +698,17 @@ class StudioClassificationCore:
                             )
                     continue
 
-                # 執行移動
+                # 執行移動（使用 FileMover 支援 Go 加速）
                 try:
-                    shutil.move(str(source_folder), str(target_actress_folder))
+                    move_result = self.file_mover.move_dir(source_folder, target_actress_folder)
+                    
+                    if not move_result["success"]:
+                        if move_result.get("skipped"):
+                            move_stats["skipped"] += 1
+                            if progress_callback:
+                                progress_callback(f"⏩ 跳過 {actress_name}: 目標已存在\n")
+                            continue
+                        raise Exception(move_result.get("error", "移動失敗"))
 
                     if category == "solo":
                         move_stats["solo_artist"] += 1
@@ -750,6 +766,15 @@ class StudioClassificationCore:
             "files_failed": 0,
             "error": None,
         }
+        
+        # 合併時使用 rename 策略處理檔案衝突
+        merge_mover = FileMover(
+            use_go=self.file_mover.use_go,
+            conflict_strategy="rename",  # 強制使用 rename 策略
+            enable_log=self.file_mover.enable_log,
+            log_dir=self.file_mover.log_dir,
+            go_exe_path=self.file_mover.go_exe_path,
+        )
 
         try:
             self.logger.info(f"開始合併資料夾: {source_folder} → {target_folder}")
@@ -772,33 +797,21 @@ class StudioClassificationCore:
                     target_item = target_folder / item.name
 
                     if item.is_file():
-                        # 處理檔案
-                        if target_item.exists():
-                            # 檔案名稱衝突處理
-                            base_name = item.stem
-                            extension = item.suffix
-                            counter = 1
-                            max_attempts = 1000  # 防止無限迴圈
-
-                            # 找一個不衝突的檔案名稱
-                            while target_item.exists() and counter < max_attempts:
-                                new_name = f"{base_name}_{counter}{extension}"
-                                target_item = target_folder / new_name
-                                counter += 1
-
-                            if counter >= max_attempts:
-                                self.logger.error(f"無法找到唯一檔案名稱: {item.name}")
-                                merge_result["files_failed"] += 1
-                                continue
-
-                            if counter > 1:
+                        # 處理檔案 - 使用 merge_mover 的 rename 策略自動處理衝突
+                        move_result = merge_mover.move_file(item, target_item)
+                        
+                        if move_result["success"]:
+                            if move_result.get("renamed"):
                                 self.logger.info(
-                                    f"檔案重名，重新命名: {item.name} → {target_item.name}"
+                                    f"檔案重名，重新命名: {item.name} → {move_result['renamed']}"
                                 )
-
-                        # 移動檔案
-                        shutil.move(str(item), str(target_item))
-                        merge_result["files_moved"] += 1
+                            merge_result["files_moved"] += 1
+                        else:
+                            if move_result.get("skipped"):
+                                merge_result["files_skipped"] += 1
+                            else:
+                                self.logger.error(f"移動檔案失敗: {item.name} - {move_result.get('error')}")
+                                merge_result["files_failed"] += 1
 
                     elif item.is_dir():
                         # 處理子資料夾
@@ -818,12 +831,16 @@ class StudioClassificationCore:
                             ]
                         else:
                             # 直接移動整個子資料夾
-                            shutil.move(str(item), str(target_item))
-                            # 計算移動的檔案數
-                            moved_count = sum(
-                                1 for _ in target_item.rglob("*") if _.is_file()
-                            )
-                            merge_result["files_moved"] += moved_count
+                            dir_result = merge_mover.move_dir(item, target_item)
+                            if dir_result["success"]:
+                                # 計算移動的檔案數
+                                moved_count = sum(
+                                    1 for _ in target_item.rglob("*") if _.is_file()
+                                )
+                                merge_result["files_moved"] += moved_count
+                            else:
+                                merge_result["files_failed"] += 1
+                                self.logger.error(f"移動子資料夾失敗: {item.name}")
 
                 except Exception as e:
                     merge_result["files_failed"] += 1

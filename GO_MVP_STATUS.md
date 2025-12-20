@@ -83,9 +83,22 @@ python tools/integration/go_integration.py "C:\Users\cy540\Downloads\test_videos
 |---------|------|------|
 | MVP-1 | Go 橋接層 `src/services/go_bridge.py` | ✅ 已完成 (21 測試通過) |
 | MVP-2 | 整合掃描功能 | ✅ 已完成 |
-| MVP-3 | 整合檔案移動功能 | ⬜ 待實作 |
+| MVP-3 | 整合檔案移動功能 | ✅ 已完成 |
 | MVP-4 | 設定檔整合 `config.ini` | ✅ 已完成 |
 | MVP-5 | GUI 整合回滾功能 | ⬜ 待實作 |
+
+### MVP-3 實作內容 (2025-12-21)
+
+1. **src/utils/file_mover.py** - 新建 FileMover 類別
+   - `move_file()` - 單檔移動
+   - `move_dir()` - 目錄移動
+   - `batch_move()` - 批次移動
+   - `rollback()` - 回滾操作
+   - `from_config()` - 從設定檔建立
+   - 自動回退機制（Go 不可用時使用 Python）
+
+2. **src/services/classifier_core.py** - 替換 3 處 `shutil.move()`
+3. **src/services/studio_classifier.py** - 替換 3 處 `shutil.move()`
 
 ### MVP-2 實作內容 (2025-12-21)
 

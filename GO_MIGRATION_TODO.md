@@ -84,84 +84,73 @@ results = scanner.scan_with_codes("D:\\Videos")
 
 ---
 
-### MVP-3: 整合檔案移動功能 ⭐⭐⭐⭐⭐
+### MVP-3: 整合檔案移動功能 ✅ 已完成
 
-**影響檔案**：
-- `src/services/classifier_core.py` - `move_files()`, `interactive_move_files()`
-- `src/services/studio_classifier.py` - `_move_actresses_by_studio()`, `_merge_actress_folders()`
+**修改檔案**：
+- `src/utils/file_mover.py` - 新建 FileMover 類別
+- `src/services/classifier_core.py` - 替換 3 處 `shutil.move()`
+- `src/services/studio_classifier.py` - 替換 3 處 `shutil.move()`
 
-**需替換的 `shutil.move()` 位置**：
+**FileMover 功能**：
+- 單檔移動 `move_file()`
+- 目錄移動 `move_dir()`
+- 批次移動 `batch_move()`
+- 回滾功能 `rollback()`
+- 自動回退（Go 不可用時使用 Python）
+- 衝突策略：skip, overwrite, rename
 
-| 檔案 | 行號 | 函式 | 說明 |
-|------|------|------|------|
-| `classifier_core.py` | 914 | - | 互動式分類移動 |
-| `classifier_core.py` | 1181 | `move_files()` | 單人作品自動移動 |
-| `classifier_core.py` | 1313 | `interactive_move_files()` | 多人共演互動移動 |
-| `studio_classifier.py` | 695 | `_move_actresses_by_studio()` | 按片商移動資料夾 |
-| `studio_classifier.py` | 800 | `_merge_actress_folders()` | 資料夾合併 |
-| `studio_classifier.py` | 821 | `_merge_actress_folders()` | 資料夾合併 |
+**已替換的位置**：
 
-**修改策略**：
+| 檔案 | 原始行號 | 函式 | 狀態 |
+|------|---------|------|------|
+| `classifier_core.py` | ~915 | 互動式分類 | ✅ |
+| `classifier_core.py` | ~1182 | `move_files()` | ✅ |
+| `classifier_core.py` | ~1314 | `interactive_move_files()` | ✅ |
+| `studio_classifier.py` | ~695 | `_move_actresses_by_studio()` | ✅ |
+| `studio_classifier.py` | ~800 | `_merge_actress_folders()` | ✅ |
+| `studio_classifier.py` | ~821 | `_merge_actress_folders()` | ✅ |
 
+**使用方式**：
 ```python
-# 原始
-shutil.move(str(file_path), str(target_path))
+# 從設定檔建立（推薦）
+mover = FileMover.from_config(config)
 
-# 修改為
-result = self.go_bridge.move_file(str(file_path), str(target_path), strategy="skip")
-if not result["success"]:
-    raise Exception(result.get("error", "移動失敗"))
+# 直接指定
+mover = FileMover(use_go=True, conflict_strategy="skip")
+
+# 移動檔案
+result = mover.move_file("source.mp4", "dest/source.mp4")
+
+# 批次移動
+results = mover.batch_move([
+    ("a.mp4", "dest/a.mp4"),
+    ("b.mp4", "dest/b.mp4"),
+])
+
+# 回滾（僅 Go 模式）
+mover.rollback()
 ```
-
-**批次移動優化**：
-
-```python
-# 原始（逐一移動）
-for file_path in files:
-    shutil.move(str(file_path), str(target_path))
-
-# 修改為（批次移動）
-items = [{"source": str(f), "destination": str(t)} for f, t in zip(files, targets)]
-result = self.go_bridge.batch_move(items)
-```
-
-**實作清單**：
-- [ ] 替換 `classifier_core.py` 中的 `shutil.move()`
-- [ ] 替換 `studio_classifier.py` 中的 `shutil.move()`
-- [ ] 新增批次移動優化
-- [ ] 保留 Python fallback（Go 不可用時）
 
 ---
 
-### MVP-4: 設定檔整合 ⭐⭐⭐
+### MVP-4: 設定檔整合 ✅ 已完成
 
-**檔案**：`config.ini`
+設定檔已在 MVP-2 和 MVP-3 中完成整合。
 
+**config.ini 新增區塊**：
 ```ini
 [go_integration]
-# 是否啟用 Go 加速
 enabled = true
-
-# classifier.exe 路徑（留空自動偵測）
 exe_path = 
-
-# 掃描並發數
 scan_workers = 10
-
-# 移動操作衝突策略: skip, overwrite, rename
 move_conflict_strategy = skip
-
-# 是否啟用操作日誌
 enable_operation_log = true
-
-# 操作日誌目錄
 log_dir = logs
 ```
 
-**實作清單**：
-- [ ] 更新 `config.ini`
-- [ ] 更新 `src/models/config.py` - `ConfigManager`
-- [ ] GUI 設定頁面（可選）
+**已更新檔案**：
+- `config.ini` - 新增 `[go_integration]` 區塊
+- `src/models/config.py` - 新增預設值
 
 ---
 

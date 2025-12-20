@@ -3,7 +3,6 @@
 """
 
 import logging
-import shutil
 import sys
 import threading
 from collections import defaultdict
@@ -20,6 +19,7 @@ from models.studio import StudioIdentifier  # noqa: E402
 from services.interactive_classifier import InteractiveClassifier  # noqa: E402
 from services.studio_classifier import StudioClassificationCore  # noqa: E402
 from services.web_searcher import WebSearcher  # noqa: E402
+from utils.file_mover import FileMover  # noqa: E402
 from utils.scanner import UnifiedFileScanner  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,8 @@ class UnifiedClassifierCore:
         self.code_extractor = UnifiedCodeExtractor()
         # 使用設定檔建立掃描器（支援 Go 加速）
         self.file_scanner = UnifiedFileScanner.from_config(config)
+        # 使用設定檔建立檔案移動器（支援 Go 加速）
+        self.file_mover = FileMover.from_config(config)
         self.studio_identifier = StudioIdentifier()
         self.web_searcher = WebSearcher(config)
 
@@ -50,12 +52,13 @@ class UnifiedClassifierCore:
     def set_preference_manager(self, preference_manager):
         """設定偏好管理器"""
         self.preference_manager = preference_manager
-        # 建立片商分類功能
+        # 建立片商分類功能（傳入 file_mover 支援 Go 加速）
         self.studio_classifier = StudioClassificationCore(
             self.db_manager,
             self.code_extractor,
             self.studio_identifier,
             self.preference_manager,
+            self.file_mover,
         )
 
     def set_interactive_classifier(self, interactive_classifier: InteractiveClassifier):
@@ -911,8 +914,17 @@ class UnifiedClassifierCore:
                             )
                         continue
 
-                    # 執行移動
-                    shutil.move(str(file_path), str(target_path))
+                    # 執行移動（使用 FileMover 支援 Go 加速）
+                    move_result = self.file_mover.move_file(file_path, target_path)
+                    if not move_result["success"]:
+                        if move_result.get("skipped"):
+                            move_stats["exists"] += 1
+                            if progress_callback:
+                                progress_callback(
+                                    f"⚠️ [{i}/{len(all_files)}] 已存在: {target_actress}/{new_filename}\n"
+                                )
+                            continue
+                        raise Exception(move_result.get("error", "移動失敗"))
                     move_stats["success"] += 1
 
                     if len(actresses) > 1:
@@ -1179,12 +1191,22 @@ class UnifiedClassifierCore:
                         continue
 
                     try:
-                        shutil.move(str(file_path), str(target_path))
-                        move_stats["success"] += 1
-                        if progress_callback:
-                            progress_callback(
-                                f"✅ [{processed}/{total_files}] {file_path.name} → {main_actress}/\n"
-                            )
+                        # 使用 FileMover 支援 Go 加速
+                        move_result = self.file_mover.move_file(file_path, target_path)
+                        if move_result["success"] and not move_result.get("skipped"):
+                            move_stats["success"] += 1
+                            if progress_callback:
+                                progress_callback(
+                                    f"✅ [{processed}/{total_files}] {file_path.name} → {main_actress}/\n"
+                                )
+                        elif move_result.get("skipped"):
+                            move_stats["exists"] += 1
+                            if progress_callback:
+                                progress_callback(
+                                    f"⚠️ [{processed}/{total_files}] {file_path.name}: 檔案已存在\n"
+                                )
+                        else:
+                            raise Exception(move_result.get("error", "移動失敗"))
                     except Exception as e:
                         move_stats["failed"] += 1
                         logger.error(f"移動檔案 {file_path.name} 失敗: {e}")
@@ -1310,8 +1332,17 @@ class UnifiedClassifierCore:
                                     f"⚠️ [{processed}/{total_files}] 已存在: {target_actress}/{new_filename}\n"
                                 )
                             continue
-                        # 執行移動
-                        shutil.move(str(file_path), str(target_path))
+                        # 執行移動（使用 FileMover 支援 Go 加速）
+                        move_result = self.file_mover.move_file(file_path, target_path)
+                        if not move_result["success"]:
+                            if move_result.get("skipped"):
+                                move_stats["exists"] += 1
+                                if progress_callback:
+                                    progress_callback(
+                                        f"⚠️ [{processed}/{total_files}] 已存在: {target_actress}/{new_filename}\n"
+                                    )
+                                continue
+                            raise Exception(move_result.get("error", "移動失敗"))
                         move_stats["success"] += 1
                         move_stats["interactive"] += 1
 
