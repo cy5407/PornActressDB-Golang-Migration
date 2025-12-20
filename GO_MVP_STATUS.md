@@ -13,19 +13,34 @@
 ✅ **Phase 3: Python Integration**
 - `tools/integration/go_integration.py` - Python 呼叫 Go 的整合範例
 
+✅ **Phase 4: File Mover** (2025-12-21 新增)
+- `pkg/mover/mover.go` - 檔案移動核心邏輯
+- `pkg/mover/mover_test.go` - 完整單元測試（11 個測試案例全通過）
+- CLI 命令：`classifier.exe move`、`classifier.exe history`
+- 功能：
+  - 單檔/批次移動
+  - 4 種衝突策略（skip, overwrite, rename, merge）
+  - 操作日誌記錄
+  - 回滾功能
+
 ## 測試結果
 
 ```bash
 # 單元測試
-go test ./pkg/extractor -v
-# PASS: TestExtractCode (14 cases)
-# PASS: TestShouldSkip (6 cases)
-# PASS: TestNormalizeCode (4 cases)
+go test ./pkg/... -v
+# pkg/extractor: PASS (14 cases)
+# pkg/mover: PASS (11 cases)
 
 # CLI 掃描測試
-.\classifier.exe -dir "C:\Users\cy540\Downloads\test_videos"
+.\classifier.exe scan -dir "C:\Users\cy540\Downloads\test_videos"
 # 成功識別: STARS-707, SSIS-999, IPX-123
 # 正確過濾: FC2-PPV-123456 (跳過)
+
+# CLI 移動測試
+.\classifier.exe move -src "source.mp4" -dst "dest/source.mp4" -strategy skip
+.\classifier.exe move -batch moves.json -dry-run
+.\classifier.exe history list
+.\classifier.exe history rollback abc123
 
 # Python 整合測試
 python tools/integration/go_integration.py "C:\Users\cy540\Downloads\test_videos"
