@@ -30,45 +30,24 @@
 
 > **目標**：讓 `run.py` 透過 Go CLI 執行效能敏感操作
 
-### MVP-1: 建立 Go 橋接層 ⭐⭐⭐⭐⭐
+### MVP-1: 建立 Go 橋接層 ✅ 已完成
 
 **檔案**：`src/services/go_bridge.py`
 
-```python
-"""
-Go CLI 橋接層 - 統一呼叫 classifier.exe 的介面
-"""
-
-class GoBridge:
-    def __init__(self, exe_path: str = "classifier.exe"):
-        self.exe_path = exe_path
-    
-    def scan_directory(self, dir: str, workers: int = 10) -> list[dict]:
-        """呼叫 classifier.exe scan"""
-        ...
-    
-    def move_file(self, src: str, dst: str, strategy: str = "skip") -> dict:
-        """呼叫 classifier.exe move"""
-        ...
-    
-    def batch_move(self, items: list[dict], dry_run: bool = False) -> dict:
-        """呼叫 classifier.exe move -batch"""
-        ...
-    
-    def get_history(self) -> list[dict]:
-        """呼叫 classifier.exe history list"""
-        ...
-    
-    def rollback(self, operation_id: str) -> dict:
-        """呼叫 classifier.exe history rollback"""
-        ...
-```
-
 **實作清單**：
-- [ ] `src/services/go_bridge.py` - 橋接層核心
-- [ ] `src/services/go_bridge_test.py` - 單元測試
-- [ ] 錯誤處理（CLI 不存在、執行失敗等）
-- [ ] 自動偵測 `classifier.exe` 位置
+- [x] `src/services/go_bridge.py` - 橋接層核心
+- [x] `src/services/go_bridge_test.py` - 單元測試 (21 個測試通過)
+- [x] 錯誤處理（CLI 不存在、執行失敗等）
+- [x] 自動偵測 `classifier.exe` 位置
+
+**功能**：
+- `GoBridge.scan_directory()` - 掃描目錄
+- `GoBridge.move_file()` - 移動單檔
+- `GoBridge.batch_move()` - 批次移動
+- `GoBridge.list_operations()` - 列出操作歷史
+- `GoBridge.rollback()` - 回滾操作
+- `get_bridge()` - 單例模式
+- `scan_directory_go()` / `move_file_go()` - 便捷函式
 
 ---
 

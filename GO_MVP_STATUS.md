@@ -81,7 +81,7 @@ python tools/integration/go_integration.py "C:\Users\cy540\Downloads\test_videos
 
 | MVP 項目 | 說明 | 狀態 |
 |---------|------|------|
-| MVP-1 | Go 橋接層 `src/services/go_bridge.py` | ⬜ 待實作 |
+| MVP-1 | Go 橋接層 `src/services/go_bridge.py` | ✅ 已完成 (21 測試通過) |
 | MVP-2 | 整合掃描功能 | ⬜ 待實作 |
 | MVP-3 | 整合檔案移動功能 | ⬜ 待實作 |
 | MVP-4 | 設定檔整合 `config.ini` | ⬜ 待實作 |
