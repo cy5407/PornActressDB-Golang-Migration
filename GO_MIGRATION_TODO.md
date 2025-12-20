@@ -14,7 +14,7 @@
   - JSON 輸出格式
   - 編譯產出：`classifier.exe`
 
-- [x] **Python 整合** - `tools/integration/go_integration.py`
+- [x] **Python 整合範例** - `tools/integration/go_integration.py`
   - subprocess 呼叫 Go CLI
   - JSON 結果解析
 
@@ -26,43 +26,173 @@
 
 ---
 
-## 📋 待實作
+## 🎯 MVP：Python 主程式整合 (優先度最高)
 
-### Phase 1: 檔案移動器 ✅ 已完成
+> **目標**：讓 `run.py` 透過 Go CLI 執行效能敏感操作
 
-#### Python 原始程式碼分析
+### MVP-1: 建立 Go 橋接層 ⭐⭐⭐⭐⭐
 
-檔案移動功能分散在多個檔案中：
+**檔案**：`src/services/go_bridge.py`
 
-| 檔案 | 函式 | 說明 |
-|------|------|------|
-| `src/services/classifier_core.py` | `move_files()` | 智慧移動（單人自動，多人互動） |
-| `src/services/classifier_core.py` | `interactive_move_files()` | 互動式移動（使用者選擇） |
-| `src/services/classifier_core.py` | `smart_search_and_move()` | 搜尋 + 移動一體化 |
-| `src/services/studio_classifier.py` | `_move_actresses_by_studio()` | 按片商移動女優資料夾 |
-| `src/services/studio_classifier.py` | `_merge_actress_folders()` | 資料夾合併（處理同名） |
+```python
+"""
+Go CLI 橋接層 - 統一呼叫 classifier.exe 的介面
+"""
 
-#### 相依性分析
-
+class GoBridge:
+    def __init__(self, exe_path: str = "classifier.exe"):
+        self.exe_path = exe_path
+    
+    def scan_directory(self, dir: str, workers: int = 10) -> list[dict]:
+        """呼叫 classifier.exe scan"""
+        ...
+    
+    def move_file(self, src: str, dst: str, strategy: str = "skip") -> dict:
+        """呼叫 classifier.exe move"""
+        ...
+    
+    def batch_move(self, items: list[dict], dry_run: bool = False) -> dict:
+        """呼叫 classifier.exe move -batch"""
+        ...
+    
+    def get_history(self) -> list[dict]:
+        """呼叫 classifier.exe history list"""
+        ...
+    
+    def rollback(self, operation_id: str) -> dict:
+        """呼叫 classifier.exe history rollback"""
+        ...
 ```
-檔案移動器
-├── 核心依賴
-│   ├── shutil.move()              # 檔案移動 API
-│   ├── pathlib.Path               # 路徑處理
-│   └── os (mkdir, exists, etc.)   # 檔案系統操作
-│
-├── 資料依賴
-│   ├── db_manager.get_video_info()     # 查詢番號對應女優
-│   ├── code_extractor.extract_code()   # 從檔名提取番號 ✅ Go 已實作
-│   └── studio_identifier.identify()    # 識別片商
-│
-├── 邏輯依賴
-│   ├── preference_manager               # 取得使用者設定（單體企劃資料夾名等）
-│   ├── _parse_actresses_list()          # 解析女優列表（判斷單人/多人）
-│   └── _is_actress_folder()             # 判斷是否為女優資料夾
-│
-└── UI 依賴（不需遷移）
-    ├── progress_callback               # 進度回報
+
+**實作清單**：
+- [ ] `src/services/go_bridge.py` - 橋接層核心
+- [ ] `src/services/go_bridge_test.py` - 單元測試
+- [ ] 錯誤處理（CLI 不存在、執行失敗等）
+- [ ] 自動偵測 `classifier.exe` 位置
+
+---
+
+### MVP-2: 整合掃描功能 ⭐⭐⭐⭐
+
+**影響檔案**：
+- `src/utils/scanner.py` - `UnifiedFileScanner`
+- `src/services/classifier_core.py` - `move_files()` 中的掃描部分
+
+**修改策略**：
+
+```python
+# 原始 Python 程式碼
+video_files = self.file_scanner.scan_directory(folder_path_str, recursive=False)
+
+# 修改為（加入 Go 加速選項）
+if self.config.use_go_scanner:
+    video_files = self.go_bridge.scan_directory(folder_path_str)
+else:
+    video_files = self.file_scanner.scan_directory(folder_path_str, recursive=False)
+```
+
+**實作清單**：
+- [ ] 在 `config.ini` 新增 `use_go_scanner = true` 選項
+- [ ] 修改 `UnifiedFileScanner` 加入 Go 橋接
+- [ ] 回退機制（Go CLI 不可用時自動使用 Python）
+
+---
+
+### MVP-3: 整合檔案移動功能 ⭐⭐⭐⭐⭐
+
+**影響檔案**：
+- `src/services/classifier_core.py` - `move_files()`, `interactive_move_files()`
+- `src/services/studio_classifier.py` - `_move_actresses_by_studio()`, `_merge_actress_folders()`
+
+**需替換的 `shutil.move()` 位置**：
+
+| 檔案 | 行號 | 函式 | 說明 |
+|------|------|------|------|
+| `classifier_core.py` | 914 | - | 互動式分類移動 |
+| `classifier_core.py` | 1181 | `move_files()` | 單人作品自動移動 |
+| `classifier_core.py` | 1313 | `interactive_move_files()` | 多人共演互動移動 |
+| `studio_classifier.py` | 695 | `_move_actresses_by_studio()` | 按片商移動資料夾 |
+| `studio_classifier.py` | 800 | `_merge_actress_folders()` | 資料夾合併 |
+| `studio_classifier.py` | 821 | `_merge_actress_folders()` | 資料夾合併 |
+
+**修改策略**：
+
+```python
+# 原始
+shutil.move(str(file_path), str(target_path))
+
+# 修改為
+result = self.go_bridge.move_file(str(file_path), str(target_path), strategy="skip")
+if not result["success"]:
+    raise Exception(result.get("error", "移動失敗"))
+```
+
+**批次移動優化**：
+
+```python
+# 原始（逐一移動）
+for file_path in files:
+    shutil.move(str(file_path), str(target_path))
+
+# 修改為（批次移動）
+items = [{"source": str(f), "destination": str(t)} for f, t in zip(files, targets)]
+result = self.go_bridge.batch_move(items)
+```
+
+**實作清單**：
+- [ ] 替換 `classifier_core.py` 中的 `shutil.move()`
+- [ ] 替換 `studio_classifier.py` 中的 `shutil.move()`
+- [ ] 新增批次移動優化
+- [ ] 保留 Python fallback（Go 不可用時）
+
+---
+
+### MVP-4: 設定檔整合 ⭐⭐⭐
+
+**檔案**：`config.ini`
+
+```ini
+[go_integration]
+# 是否啟用 Go 加速
+enabled = true
+
+# classifier.exe 路徑（留空自動偵測）
+exe_path = 
+
+# 掃描並發數
+scan_workers = 10
+
+# 移動操作衝突策略: skip, overwrite, rename
+move_conflict_strategy = skip
+
+# 是否啟用操作日誌
+enable_operation_log = true
+
+# 操作日誌目錄
+log_dir = logs
+```
+
+**實作清單**：
+- [ ] 更新 `config.ini`
+- [ ] 更新 `src/models/config.py` - `ConfigManager`
+- [ ] GUI 設定頁面（可選）
+
+---
+
+### MVP-5: GUI 整合回滾功能 ⭐⭐
+
+**功能**：讓使用者可以透過 GUI 查看操作歷史和回滾
+
+**實作清單**：
+- [ ] 在主選單新增「操作歷史」按鈕
+- [ ] 顯示操作日誌清單
+- [ ] 支援一鍵回滾
+
+---
+
+## 📋 待實作 (非 MVP)
+
+### Phase 2: 片商識別器 ⭐⭐⭐
     └── interactive_classifier          # 互動選擇對話框（GUI）
 ```
 
@@ -328,28 +458,40 @@ cache/
 
 ---
 
-### Phase 4: 統一 CLI ⭐⭐
+### Phase 4: 統一 CLI ✅ 已完成
 
-- [ ] 合併所有功能到單一執行檔
+- [x] 合併所有功能到單一執行檔
   ```bash
   classifier.exe scan -dir "D:\Videos"
   classifier.exe move -src "A" -dst "B"
-  classifier.exe identify -code "SONE-123"
-  classifier.exe cache stats
+  classifier.exe history list
+  classifier.exe history rollback <id>
   ```
-
-- [ ] 加入進度條顯示（可選）
 
 ---
 
 ## 🔗 相依檔案對照表
 
-| Go 模組 | 對應 Python 檔案 | 相依資料 |
-|--------|-----------------|---------|
-| `pkg/extractor` ✅ | `src/models/extractor.py` | - |
-| `pkg/mover` | `src/services/classifier_core.py` | - |
-| `pkg/studio` | `src/models/studio.py` | `studios.json` |
-| `pkg/cache` | `src/scrapers/cache_manager.py` | `cache/` 目錄 |
+| Go 模組 | 對應 Python 檔案 | 整合狀態 | 相依資料 |
+|--------|-----------------|---------|---------|
+| `pkg/extractor` ✅ | `src/models/extractor.py` | 🔴 待整合 | - |
+| `pkg/mover` ✅ | `src/services/classifier_core.py` | 🔴 待整合 | - |
+| `pkg/mover` ✅ | `src/services/studio_classifier.py` | 🔴 待整合 | - |
+| `pkg/studio` | `src/models/studio.py` | ⬜ 未開始 | `studios.json` |
+| `pkg/cache` | `src/scrapers/cache_manager.py` | ⬜ 未開始 | `cache/` 目錄 |
+
+### Python 整合清單
+
+| Python 檔案 | 需整合的函式/方法 | MVP |
+|------------|-----------------|-----|
+| `src/services/go_bridge.py` | 新建立 | ✅ MVP-1 |
+| `src/utils/scanner.py` | `scan_directory()` | ✅ MVP-2 |
+| `src/services/classifier_core.py` | `move_files()` | ✅ MVP-3 |
+| `src/services/classifier_core.py` | `interactive_move_files()` | ✅ MVP-3 |
+| `src/services/studio_classifier.py` | `_move_actresses_by_studio()` | ✅ MVP-3 |
+| `src/services/studio_classifier.py` | `_merge_actress_folders()` | ✅ MVP-3 |
+| `src/models/config.py` | `ConfigManager` | ✅ MVP-4 |
+| `config.ini` | 新增 `[go_integration]` | ✅ MVP-4 |
 
 ---
 

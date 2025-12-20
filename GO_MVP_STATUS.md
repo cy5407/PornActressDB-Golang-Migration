@@ -56,55 +56,82 @@ python tools/integration/go_integration.py "C:\Users\cy540\Downloads\test_videos
 
 ### 直接使用 Go CLI
 ```powershell
-# 基本掃描
-.\classifier.exe -dir "D:\Videos"
+# 掃描番號
+.\classifier.exe scan -dir "D:\Videos"
+.\classifier.exe scan -dir "D:\Videos" -workers 20
 
-# 調整並發數
-.\classifier.exe -dir "D:\Videos" -workers 20
+# 移動檔案
+.\classifier.exe move -src "A.mp4" -dst "dest/A.mp4"
+.\classifier.exe move -batch moves.json
+.\classifier.exe move -src "A.mp4" -dst "dest/A.mp4" -dry-run
 
-# 輸出為 JSON（可用 Python 解析）
-.\classifier.exe -dir "D:\Videos" | python -m json.tool
+# 操作歷史
+.\classifier.exe history list
+.\classifier.exe history show abc123
+.\classifier.exe history rollback abc123
 ```
 
-### Python 整合範例
-```python
-from tools.integration.go_integration import scan_directory_go
+---
 
-results = scan_directory_go("D:\\Videos", workers=20)
-for item in results:
-    print(f"{item['code']}: {item['path']}")
+## 🎯 MVP：Python 主程式整合
+
+> 詳細規格請參考 [GO_MIGRATION_TODO.md](GO_MIGRATION_TODO.md)
+
+### 整合狀態
+
+| MVP 項目 | 說明 | 狀態 |
+|---------|------|------|
+| MVP-1 | Go 橋接層 `src/services/go_bridge.py` | ⬜ 待實作 |
+| MVP-2 | 整合掃描功能 | ⬜ 待實作 |
+| MVP-3 | 整合檔案移動功能 | ⬜ 待實作 |
+| MVP-4 | 設定檔整合 `config.ini` | ⬜ 待實作 |
+| MVP-5 | GUI 整合回滾功能 | ⬜ 待實作 |
+
+### 整合架構
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    run.py (GUI)                         │
+├─────────────────────────────────────────────────────────┤
+│  classifier_core.py  │  studio_classifier.py            │
+├─────────────────────────────────────────────────────────┤
+│                  go_bridge.py (MVP-1)                   │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │ scan_dir()  │  │ move_file() │  │ rollback()  │     │
+│  └─────────────┘  └─────────────┘  └─────────────┘     │
+├─────────────────────────────────────────────────────────┤
+│              subprocess.run() (JSON)                    │
+├─────────────────────────────────────────────────────────┤
+│                   classifier.exe                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │ scan        │  │ move        │  │ history     │     │
+│  └─────────────┘  └─────────────┘  └─────────────┘     │
+├─────────────────────────────────────────────────────────┤
+│  pkg/extractor   │  pkg/mover                           │
+└─────────────────────────────────────────────────────────┘
 ```
 
-## 下一步
-
-### 選項 A：繼續擴充 Go 功能
-- 加入檔案移動功能
-- 整合 `studios.json` 做片商分類
-- 加入進度條顯示
-
-### 選項 B：整合到現有 Python GUI
-1. 修改 `src/services/classifier_core.py`
-2. 把 `os.walk` 改成呼叫 `go_integration.scan_directory_go()`
-3. 其他邏輯（搜尋、分類、移動）維持 Python
-
-### 選項 C：效能測試
-- 準備大量測試檔案（1000+ 個）
-- 比較 Python vs Go 掃描速度
-- 決定是否值得繼續投資 Go 開發
+---
 
 ## 檔案結構
 ```
 PornActressDB-Golang-Migration/
 ├── pkg/
-│   └── extractor/
-│       ├── extractor.go          # 核心提取器
-│       └── extractor_test.go     # 單元測試
+│   ├── extractor/
+│   │   ├── extractor.go          # 核心提取器 ✅
+│   │   └── extractor_test.go     # 單元測試 ✅
+│   └── mover/
+│       ├── mover.go              # 檔案移動器 ✅
+│       └── mover_test.go         # 單元測試 ✅
 ├── cmd/
 │   └── scanner/
-│       └── main.go               # CLI 工具
+│       └── main.go               # CLI 工具 ✅
+├── src/
+│   └── services/
+│       └── go_bridge.py          # Python 橋接層 ⬜ MVP-1
 ├── tools/
 │   └── integration/
-│       └── go_integration.py     # Python 整合
-├── classifier.exe                # 編譯產出
+│       └── go_integration.py     # Python 整合範例 ✅
+├── classifier.exe                # 編譯產出 ✅
 └── go.mod
 ```
