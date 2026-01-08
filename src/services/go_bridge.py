@@ -238,6 +238,7 @@ class GoBridge:
         self,
         directory: str,
         workers: Optional[int] = None,
+        recursive: bool = True,
     ) -> list[ScanResult]:
         """
         掃描目錄中的影片檔案，提取番號
@@ -245,6 +246,7 @@ class GoBridge:
         Args:
             directory: 要掃描的目錄路徑
             workers: 並發工作數（預設使用 default_workers）
+            recursive: 是否遞迴掃描子目錄（預設 True）
         
         Returns:
             list[ScanResult]: 掃描結果列表
@@ -255,6 +257,9 @@ class GoBridge:
         workers = workers or self.default_workers
         
         args = ["scan", "-dir", directory, "-workers", str(workers)]
+        if not recursive:
+            args.append("-recursive=false")
+        
         result = self._run_command(args)
         
         data = self._parse_json(result.stdout)
@@ -567,3 +572,166 @@ def move_file_go(source: str, destination: str, strategy: str = "skip") -> dict:
         "skipped": result.skipped,
         "renamed": result.renamed,
     }
+
+
+# === 資料庫 API ===
+
+def db_get_video(code: str, data_dir: str = "data/json_db") -> Optional[dict]:
+    """
+    取得影片資訊
+
+    Args:
+        code: 影片番號
+        data_dir: 資料庫目錄
+
+    Returns:
+        影片資料 dict，或 None (如果不存在)
+    """
+    bridge = get_bridge()
+    try:
+        cmd = ["db", "get", code]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+
+        result = bridge._run_command(cmd)
+        return bridge._parse_json(result.stdout)
+    except Exception as e:
+        logger.error(f"❌ 取得影片失敗 {code}: {e}")
+        return None
+
+
+def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> bool:
+    """
+    更新影片資訊
+
+    Args:
+        code: 影片番號
+        video: 影片資料 dict
+        data_dir: 資料庫目錄
+
+    Returns:
+        成功返回 True，失敗返回 False
+    """
+    bridge = get_bridge()
+    try:
+        # 寫入暫存 JSON 檔案
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.json', delete=False, encoding='utf-8'
+        ) as f:
+            json.dump(video, f, ensure_ascii=False, indent=2)
+            temp_file = f.name
+
+        try:
+            cmd = ["db", "update", code, temp_file]
+            if data_dir != "data/json_db":
+                cmd.extend(["-data-dir", data_dir])
+
+            bridge._run_command(cmd)
+            logger.info(f"✅ 影片 {code} 更新成功")
+            return True
+        finally:
+            # 清理暫存檔
+            try:
+                os.unlink(temp_file)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error(f"❌ 更新影片失敗 {code}: {e}")
+        return False
+
+
+def db_delete_video(code: str, data_dir: str = "data/json_db") -> bool:
+    """
+    刪除影片
+
+    Args:
+        code: 影片番號
+        data_dir: 資料庫目錄
+
+    Returns:
+        成功返回 True，失敗返回 False
+    """
+    bridge = get_bridge()
+    try:
+        cmd = ["db", "delete", code]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+
+        bridge._run_command(cmd)
+        logger.info(f"✅ 影片 {code} 刪除成功")
+        return True
+    except Exception as e:
+        logger.error(f"❌ 刪除影片失敗 {code}: {e}")
+        return False
+
+
+def db_list_videos(data_dir: str = "data/json_db") -> list[str]:
+    """
+    列出所有影片番號
+
+    Args:
+        data_dir: 資料庫目錄
+
+    Returns:
+        影片番號列表
+    """
+    bridge = get_bridge()
+    try:
+        cmd = ["db", "list"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+
+        result = bridge._run_command(cmd)
+        data = bridge._parse_json(result.stdout)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"❌ 列出影片失敗: {e}")
+        return []
+
+
+def db_get_stats(data_dir: str = "data/json_db") -> dict:
+    """
+    取得資料庫統計資訊
+
+    Args:
+        data_dir: 資料庫目錄
+
+    Returns:
+        統計資料 dict
+    """
+    bridge = get_bridge()
+    try:
+        cmd = ["db", "stats"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+
+        result = bridge._run_command(cmd)
+        data = bridge._parse_json(result.stdout)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.error(f"❌ 取得統計失敗: {e}")
+        return {}
+
+
+def db_compact_journal(data_dir: str = "data/json_db") -> bool:
+    """
+    合併 journal 到主資料庫
+
+    Args:
+        data_dir: 資料庫目錄
+
+    Returns:
+        成功返回 True，失敗返回 False
+    """
+    bridge = get_bridge()
+    try:
+        cmd = ["db", "compact"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+
+        bridge._run_command(cmd)
+        logger.info("✅ Journal 合併成功")
+        return True
+    except Exception as e:
+        logger.error(f"❌ 合併 journal 失敗: {e}")
+        return False
