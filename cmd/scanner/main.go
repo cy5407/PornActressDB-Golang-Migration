@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
+	"actress-classifier/pkg/database"
 	"actress-classifier/pkg/extractor"
 	"actress-classifier/pkg/mover"
 )
@@ -32,6 +34,8 @@ func main() {
 		moveCmd(os.Args[2:])
 	case "history":
 		historyCmd(os.Args[2:])
+	case "db":
+		dbCmd(os.Args[2:])
 	case "help", "-h", "--help":
 		printUsage()
 	default:
@@ -56,13 +60,18 @@ func printUsage() {
   scan      掃描目錄中的影片檔案，提取番號
   move      移動檔案（單檔或批次）
   history   查看操作歷史或回滾
+  db        資料庫操作（get, update, delete, list, stats）
 
 範例:
   classifier.exe scan -dir "D:\Videos"
   classifier.exe move -src "A.mp4" -dst "B/A.mp4"
   classifier.exe move -batch moves.json
   classifier.exe history list
-  classifier.exe history rollback abc123`)
+  classifier.exe history rollback abc123
+  classifier.exe db get STARS-707
+  classifier.exe db update STARS-707 video.json
+  classifier.exe db list
+  classifier.exe db stats`)
 }
 
 // === Scan 命令 ===
@@ -71,6 +80,7 @@ func scanCmd(args []string) {
 	fs := flag.NewFlagSet("scan", flag.ExitOnError)
 	dir := fs.String("dir", ".", "要掃描的目錄")
 	workers := fs.Int("workers", 10, "並行工作數")
+	recursive := fs.Bool("recursive", true, "是否遞迴掃描子目錄")
 	fs.Parse(args)
 
 	// 驗證目錄
@@ -83,6 +93,12 @@ func scanCmd(args []string) {
 	results := make([]ScanResult, 0)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+
+	// 支援的影片格式
+	supportedFormats := map[string]bool{
+		".mp4": true, ".avi": true, ".mkv": true, ".mov": true, ".wmv": true,
+		".flv": true, ".webm": true, ".m4v": true, ".ts": true, ".m2ts": true,
+	}
 
 	// 建立任務通道
 	jobs := make(chan string, 100)
@@ -102,12 +118,27 @@ func scanCmd(args []string) {
 		}()
 	}
 
+	// 取得絕對路徑用於比較
+	absDir, _ := filepath.Abs(*dir)
+
 	// 遍歷目錄
 	err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
+			// 非遞迴模式：跳過子目錄
+			if !*recursive {
+				absPath, _ := filepath.Abs(path)
+				if absPath != absDir {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		// 檢查副檔名是否為支援的影片格式
+		ext := strings.ToLower(filepath.Ext(path))
+		if !supportedFormats[ext] {
 			return nil
 		}
 		jobs <- path
@@ -286,6 +317,129 @@ func historyCmd(args []string) {
 
 		fmt.Printf("✅ 回滾完成: 成功 %d, 失敗 %d\n", result.SuccessCount, result.FailedCount)
 		outputJSON(result)
+
+	default:
+		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)
+		os.Exit(1)
+	}
+}
+
+// === DB 命令 ===
+
+func dbCmd(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact> [選項]")
+		os.Exit(1)
+	}
+
+	subCmd := args[0]
+	dataDir := "data/json_db"
+
+	// 檢查是否有 -data-dir 參數
+	for i, arg := range args {
+		if arg == "-data-dir" && i+1 < len(args) {
+			dataDir = args[i+1]
+		}
+	}
+
+	db := database.NewJSONDatabase(dataDir)
+	if err := db.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
+		os.Exit(1)
+	}
+
+	switch subCmd {
+	case "get":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "用法: classifier.exe db get <番號>")
+			os.Exit(1)
+		}
+		code := args[1]
+
+		video, err := db.GetVideo(code)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "取得影片失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		outputJSON(video)
+
+	case "update":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "用法: classifier.exe db update <番號> <JSON檔案>")
+			os.Exit(1)
+		}
+		code := args[1]
+		jsonFile := args[2]
+
+		data, err := os.ReadFile(jsonFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "無法讀取 JSON 檔案: %v\n", err)
+			os.Exit(1)
+		}
+
+		var video database.Video
+		if err := json.Unmarshal(data, &video); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON 解析錯誤: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := db.UpdateVideo(code, &video); err != nil {
+			fmt.Fprintf(os.Stderr, "更新影片失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := db.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("✅ 影片 %s 更新成功\n", code)
+
+	case "delete":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "用法: classifier.exe db delete <番號>")
+			os.Exit(1)
+		}
+		code := args[1]
+
+		if err := db.DeleteVideo(code); err != nil {
+			fmt.Fprintf(os.Stderr, "刪除影片失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := db.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("✅ 影片 %s 刪除成功\n", code)
+
+	case "list":
+		codes, err := db.ListVideos()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "列出影片失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		outputJSON(codes)
+
+	case "stats":
+		stats, err := db.GetStats()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "取得統計失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		outputJSON(stats)
+
+	case "compact":
+		if err := db.CompactJournal(); err != nil {
+			fmt.Fprintf(os.Stderr, "合併 journal 失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("✅ Journal 合併成功")
 
 	default:
 		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)
