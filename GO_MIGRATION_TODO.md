@@ -298,18 +298,27 @@ type BatchResult struct {
 
 #### 實作清單
 
-- [ ] `pkg/studio/identifier.go` - 識別邏輯
-  - [ ] 載入 `studios.json`
-  - [ ] 番號前綴匹配
-  - [ ] 大片商判斷
+- [x] `pkg/studio/identifier.go` - 識別邏輯 ✅
+  - [x] 載入 `studios.json`
+  - [x] 番號前綴匹配
+  - [x] 大片商判斷
 
-- [ ] `pkg/studio/identifier_test.go` - 測試
+- [x] `pkg/studio/identifier_test.go` - 測試 ✅ (8/8 通過)
 
-- [ ] 整合到 CLI
+- [x] 整合到 CLI ✅
   ```bash
-  classifier.exe identify SONE-123    # 輸出: S1
-  classifier.exe identify -batch codes.txt
+  classifier.exe identify SONE-123            # 識別單一番號
+  classifier.exe identify -batch codes.txt    # 批次識別
+  classifier.exe identify -list               # 列出所有片商
+  classifier.exe identify -prefixes S1        # 顯示片商前綴
+  classifier.exe identify -major SONE-123     # 檢查是否為大片商
   ```
+
+- [x] Python 橋接層整合 ✅
+  - [x] identify_studio() - 單一識別
+  - [x] identify_studios_batch() - 批次識別
+  - [x] list_studios() - 列出片商
+  - [x] get_studio_prefixes() - 取得前綴
 
 #### `studios.json` 結構說明
 

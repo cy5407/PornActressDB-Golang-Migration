@@ -2,27 +2,20 @@
 網路搜尋器模組
 """
 
+import asyncio
 import concurrent.futures
 import logging
 import re
-import sys
 import threading
 import time
-from pathlib import Path
 from urllib.parse import quote
 
 import chardet
 import httpx
 from bs4 import BeautifulSoup
 
-# 添加專案根目錄到系統路徑
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-import asyncio  # noqa: E402
-
-from models.config import ConfigManager  # noqa: E402
-from models.studio import StudioIdentifier  # noqa: E402
+from models.config import ConfigManager
+from models.studio import StudioIdentifier
 from scrapers.sources.avwiki_scraper import AVWikiScraper  # noqa: E402
 
 from .safe_javdb_searcher import SafeJAVDBSearcher  # noqa: E402

@@ -3,24 +3,19 @@
 """
 
 import logging
-import sys
 import threading
 from collections import defaultdict
 from pathlib import Path
 
-# 添加專案根目錄到系統路徑
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-from models.config import ConfigManager  # noqa: E402
-from models.extractor import UnifiedCodeExtractor  # noqa: E402
-from models.incremental_json_database import IncrementalJSONDB  # noqa: E402
-from models.studio import StudioIdentifier  # noqa: E402
-from services.interactive_classifier import InteractiveClassifier  # noqa: E402
-from services.studio_classifier import StudioClassificationCore  # noqa: E402
-from services.web_searcher import WebSearcher  # noqa: E402
-from utils.file_mover import FileMover  # noqa: E402
-from utils.scanner import UnifiedFileScanner  # noqa: E402
+from models.config import ConfigManager
+from models.extractor import UnifiedCodeExtractor
+from models.incremental_json_database import IncrementalJSONDB
+from models.studio import StudioIdentifier
+from services.interactive_classifier import InteractiveClassifier
+from services.studio_classifier import StudioClassificationCore
+from services.web_searcher import WebSearcher
+from utils.file_mover import FileMover
+from utils.scanner import UnifiedFileScanner
 
 logger = logging.getLogger(__name__)
 
@@ -893,15 +888,8 @@ class UnifiedClassifierCore:
                     target_folder = folder_path / target_actress
                     target_folder.mkdir(exist_ok=True)
 
-                    # 決定檔案名稱
-                    if len(actresses) > 1 and self.preference_manager.preferences.get(
-                        "auto_tag_filenames", True
-                    ):
-                        actresses_tag = f" ({', '.join(actresses)})"
-                        base_name = file_path.stem
-                        new_filename = f"{base_name}{actresses_tag}{file_path.suffix}"
-                    else:
-                        new_filename = file_path.name
+                    # 保持原始檔名不變
+                    new_filename = file_path.name
 
                     target_path = target_folder / new_filename
 
@@ -1307,20 +1295,8 @@ class UnifiedClassifierCore:
                         target_folder = folder_path / target_actress
                         target_folder.mkdir(exist_ok=True)
 
-                        # 決定檔案名稱
-                        if (
-                            self.preference_manager
-                            and self.preference_manager.preferences.get(
-                                "auto_tag_filenames", True
-                            )
-                        ):
-                            actresses_tag = f" ({', '.join(actresses)})"
-                            base_name = file_path.stem
-                            new_filename = (
-                                f"{base_name}{actresses_tag}{file_path.suffix}"
-                            )
-                        else:
-                            new_filename = file_path.name
+                        # 保持原始檔名不變
+                        new_filename = file_path.name
 
                         target_path = target_folder / new_filename
 

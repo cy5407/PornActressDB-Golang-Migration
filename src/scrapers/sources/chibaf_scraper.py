@@ -381,6 +381,47 @@ class ChibaFScraper(BaseScraper):
             "page",
             "menu",
             "login",
+            # 標題常見詞（不是女優名）
+            "禁欲",
+            "台本",
+            "一切",
+            "快感",
+            "快楽",
+            "絶頂",
+            "中出し",
+            "顔射",
+            "潮吹き",
+            "イキ",
+            "オナニー",
+            "セックス",
+            "フェラ",
+            "パイズリ",
+            "素人",
+            "美少女",
+            "巨乳",
+            "爆乳",
+            "美乳",
+            "美尻",
+            "美脚",
+            "痴女",
+            "熟女",
+            "人妻",
+            "未亡人",
+            "看護師",
+            "女教師",
+            "ギャル",
+            "初体験",
+            "童貞",
+            "調教",
+            "陵辱",
+            "寝取られ",
+            "レイプ",
+            "痙攣",
+            "悶絶",
+            "失神",
+            "連続",
+            "大量",
+            "濃厚",
         ]
 
         name_lower = name.lower()
@@ -389,6 +430,11 @@ class ChibaFScraper(BaseScraper):
 
         # 檢查是否包含數字過多
         if len(re.findall(r"\d", name)) > len(name) // 3:
+            return False
+
+        # 排除以特定結尾的文本（通常是標題片段）
+        invalid_endings = ["無し", "あり", "です", "ます", "した", "ない", "する"]
+        if any(name.endswith(ending) for ending in invalid_endings):
             return False
 
         # 必須包含日文字符

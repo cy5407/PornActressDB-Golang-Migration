@@ -104,7 +104,7 @@ class UnifiedFileScanner:
             影片檔案路徑列表
         """
         if self.use_go and self.go_bridge:
-            return self._scan_with_go(path)
+            return self._scan_with_go(path, recursive)
         else:
             return self._scan_with_python(path, recursive)
     
@@ -128,15 +128,17 @@ class UnifiedFileScanner:
             logger.error(f"掃描目錄失敗: {e}")
             return []
     
-    def _scan_with_go(self, path: str) -> list[Path]:
+    def _scan_with_go(self, path: str, recursive: bool = True) -> list[Path]:
         """Go CLI 加速掃描"""
         try:
-            results = self.go_bridge.scan_directory(path, workers=self.go_workers)
+            results = self.go_bridge.scan_directory(
+                path, workers=self.go_workers, recursive=recursive
+            )
             logger.info(f"🚀 Go 掃描完成: {len(results)} 個檔案")
             return [Path(r.path) for r in results]
         except Exception as e:
             logger.error(f"Go 掃描失敗，回退到 Python: {e}")
-            return self._scan_with_python(path, recursive=True)
+            return self._scan_with_python(path, recursive=recursive)
     
     def scan_with_codes(self, path: str, recursive: bool = True) -> list[dict]:
         """

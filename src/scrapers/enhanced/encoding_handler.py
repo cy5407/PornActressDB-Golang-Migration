@@ -283,16 +283,6 @@ class ImprovedScraper:
             logger.error(f"資訊提取失敗 {url}: {e}")
             return None
 
-    def _extract_avwiki_info(self, soup: BeautifulSoup) -> dict[str, Any]:
-        """提取 av-wiki.net 的資訊"""
-        # TODO: 根據網站實際結構實作
-        return {}
-
-    def _extract_chibaf_info(self, soup: BeautifulSoup) -> dict[str, Any]:
-        """提取 chiba-f.net 的資訊"""
-        # TODO: 根據網站實際結構實作
-        return {}
-
 
 # 使用範例
 if __name__ == "__main__":

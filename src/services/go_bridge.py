@@ -735,3 +735,101 @@ def db_compact_journal(data_dir: str = "data/json_db") -> bool:
     except Exception as e:
         logger.error(f"❌ 合併 journal 失敗: {e}")
         return False
+
+# === 片商識別功能 ===
+
+def identify_studio(code: str, check_major: bool = False) -> dict:
+    """
+    識別番號所屬片商
+
+    Args:
+        code: 番號
+        check_major: 是否檢查是否為大片商
+
+    Returns:
+        包含 studio 和 (可選) is_major 的 dict
+    """
+    bridge = get_bridge()
+    try:
+        cmd = ["identify", code]
+        if check_major:
+            cmd.insert(1, "-major")
+
+        result = bridge._run_command(cmd)
+        return bridge._parse_json(result.stdout)
+    except Exception as e:
+        logger.error(f"❌ 識別片商失敗: {e}")
+        return {"code": code, "studio": "UNKNOWN"}
+
+
+def identify_studios_batch(codes: list[str], check_major: bool = False) -> list[dict]:
+    """
+    批次識別番號所屬片商
+
+    Args:
+        codes: 番號列表
+        check_major: 是否檢查是否為大片商
+
+    Returns:
+        識別結果列表
+    """
+    bridge = get_bridge()
+    try:
+        # 建立臨時檔案
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            f.write('\n'.join(codes))
+            temp_file = f.name
+
+        try:
+            cmd = ["identify", "-batch", temp_file]
+            if check_major:
+                cmd.insert(1, "-major")
+
+            result = bridge._run_command(cmd)
+            return bridge._parse_json(result.stdout)
+        finally:
+            os.unlink(temp_file)
+    except Exception as e:
+        logger.error(f"❌ 批次識別片商失敗: {e}")
+        return []
+
+
+def list_studios() -> list[str]:
+    """
+    列出所有片商
+
+    Returns:
+        片商名稱列表（大片商會標註）
+    """
+    bridge = get_bridge()
+    try:
+        result = bridge._run_command(["identify", "-list"])
+        # 返回原始輸出（每行一個片商）
+        return [line.strip() for line in result.stdout.strip().split('\n')]
+    except Exception as e:
+        logger.error(f"❌ 列出片商失敗: {e}")
+        return []
+
+
+def get_studio_prefixes(studio_name: str) -> list[str]:
+    """
+    取得指定片商的所有前綴
+
+    Args:
+        studio_name: 片商名稱
+
+    Returns:
+        前綴列表
+    """
+    bridge = get_bridge()
+    try:
+        result = bridge._run_command(["identify", "-prefixes", studio_name])
+        # 解析輸出: "片商 S1 的前綴: SSIS, SSNI, ..."
+        output = result.stdout.strip()
+        if ":" in output:
+            prefixes_str = output.split(":", 1)[1].strip()
+            return [p.strip() for p in prefixes_str.split(",")]
+        return []
+    except Exception as e:
+        logger.error(f"❌ 取得片商前綴失敗: {e}")
+        return []

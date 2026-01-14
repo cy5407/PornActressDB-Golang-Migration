@@ -12,6 +12,7 @@ import (
 	"actress-classifier/pkg/database"
 	"actress-classifier/pkg/extractor"
 	"actress-classifier/pkg/mover"
+	"actress-classifier/pkg/studio"
 )
 
 type ScanResult struct {
@@ -36,6 +37,8 @@ func main() {
 		historyCmd(os.Args[2:])
 	case "db":
 		dbCmd(os.Args[2:])
+	case "identify":
+		identifyCmd(os.Args[2:])
 	case "help", "-h", "--help":
 		printUsage()
 	default:
@@ -61,6 +64,7 @@ func printUsage() {
   move      移動檔案（單檔或批次）
   history   查看操作歷史或回滾
   db        資料庫操作（get, update, delete, list, stats）
+  identify  識別番號所屬片商
 
 範例:
   classifier.exe scan -dir "D:\Videos"
@@ -71,7 +75,9 @@ func printUsage() {
   classifier.exe db get STARS-707
   classifier.exe db update STARS-707 video.json
   classifier.exe db list
-  classifier.exe db stats`)
+  classifier.exe db stats
+  classifier.exe identify SONE-123
+  classifier.exe identify -batch codes.txt`)
 }
 
 // === Scan 命令 ===
@@ -445,6 +451,112 @@ func dbCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)
 		os.Exit(1)
 	}
+}
+
+// === Identify 命令 ===
+
+func identifyCmd(args []string) {
+	fs := flag.NewFlagSet("identify", flag.ExitOnError)
+	batchFile := fs.String("batch", "", "批次處理：從檔案讀取番號列表")
+	rulesFile := fs.String("rules", "studios.json", "片商規則檔案路徑")
+	showPrefixes := fs.Bool("prefixes", false, "顯示指定片商的所有前綴")
+	listStudios := fs.Bool("list", false, "列出所有片商")
+	checkMajor := fs.Bool("major", false, "檢查是否為大片商")
+	fs.Parse(args)
+
+	// 初始化片商識別器
+	identifier, err := studio.NewStudioIdentifier(*rulesFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "警告: 無法載入片商規則檔案，使用預設規則: %v\n", err)
+	}
+
+	// 列出所有片商
+	if *listStudios {
+		studios := identifier.GetAllStudios()
+		for _, s := range studios {
+			isMajor := ""
+			if identifier.IsMajorStudio(s) {
+				isMajor = " (大片商)"
+			}
+			fmt.Printf("%s%s\n", s, isMajor)
+		}
+		return
+	}
+
+	// 顯示片商前綴
+	if *showPrefixes {
+		if len(fs.Args()) == 0 {
+			fmt.Fprintf(os.Stderr, "錯誤: 請指定片商名稱\n")
+			fmt.Fprintf(os.Stderr, "用法: classifier.exe identify -prefixes <片商名稱>\n")
+			os.Exit(1)
+		}
+		studioName := fs.Args()[0]
+		prefixes := identifier.GetPrefixes(studioName)
+		if len(prefixes) == 0 {
+			fmt.Printf("片商 %s 沒有註冊的前綴\n", studioName)
+		} else {
+			fmt.Printf("片商 %s 的前綴: %s\n", studioName, strings.Join(prefixes, ", "))
+		}
+		return
+	}
+
+	// 批次處理
+	if *batchFile != "" {
+		data, err := os.ReadFile(*batchFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "錯誤: 無法讀取批次檔案: %v\n", err)
+			os.Exit(1)
+		}
+
+		codes := strings.Split(string(data), "\n")
+		results := make([]map[string]string, 0)
+
+		for _, code := range codes {
+			code = strings.TrimSpace(code)
+			if code == "" {
+				continue
+			}
+
+			studioName := identifier.IdentifyStudio(code)
+			result := map[string]string{
+				"code":   code,
+				"studio": studioName,
+			}
+
+			if *checkMajor {
+				result["is_major"] = fmt.Sprintf("%t", identifier.IsMajorStudio(studioName))
+			}
+
+			results = append(results, result)
+		}
+
+		outputJSON(results)
+		return
+	}
+
+	// 單一番號識別
+	if len(fs.Args()) == 0 {
+		fmt.Fprintf(os.Stderr, "錯誤: 請指定番號\n")
+		fmt.Fprintf(os.Stderr, "用法: classifier.exe identify <番號>\n")
+		fmt.Fprintf(os.Stderr, "      classifier.exe identify -batch <檔案>\n")
+		fmt.Fprintf(os.Stderr, "      classifier.exe identify -list\n")
+		fmt.Fprintf(os.Stderr, "      classifier.exe identify -prefixes <片商名稱>\n")
+		os.Exit(1)
+	}
+
+	code := fs.Args()[0]
+	studioName := identifier.IdentifyStudio(code)
+
+	result := map[string]interface{}{
+		"code":   code,
+		"studio": studioName,
+	}
+
+	if *checkMajor {
+		result["is_major"] = identifier.IsMajorStudio(studioName)
+	}
+
+	outputJSON(result)
 }
 
 // === 輔助函式 ===
