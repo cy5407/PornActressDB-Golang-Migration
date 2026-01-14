@@ -45,6 +45,21 @@ Desktop.ini
 .env.development
 .env.production
 
+# Agent 運行時產生的臨時檔案
+.call_count
+.circuit_breaker_history
+.circuit_breaker_state
+.exit_signals
+.last_output_length
+.last_reset
+.ralph_session
+.ralph_session_history
+.response_analysis
+progress.json
+status.json
+monitor_ralph.sh
+my-test-project/
+
 # 建構輸出
 dist/
 build/
