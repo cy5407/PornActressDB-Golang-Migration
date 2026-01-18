@@ -5,26 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"time"
 )
 
-// JournalEntry Journal 記錄項目
-type JournalEntry struct {
-	Timestamp string  `json:"timestamp"` // 時間戳
-	Operation string  `json:"operation"` // 操作類型 (update, delete)
-	Code      string  `json:"code"`      // 影片番號
-	Video     *Video  `json:"video,omitempty"` // 影片資料 (delete 時為 nil)
-}
-
-// appendJournal 附加 journal 記錄
-func (db *JSONDatabase) appendJournal(operation, code string, video *Video) error {
-	entry := JournalEntry{
-		Timestamp: time.Now().UTC().Format(ISODateTimeFormat),
-		Operation: operation,
-		Code:      code,
-		Video:     video,
-	}
-
+// appendJournalEntry 附加 journal 記錄（與 Python IncrementalJSONDB 格式相容）
+// 格式: {"op":"UPDATE","type":"video","id":"STARS-707","data":{...},"ts":"..."}
+func (db *JSONDatabase) appendJournalEntry(entry *JournalEntry) error {
 	// 序列化為 JSON Lines 格式
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -49,7 +34,31 @@ func (db *JSONDatabase) appendJournal(operation, code string, video *Video) erro
 	return nil
 }
 
+// appendJournal 附加 journal 記錄（舊版相容介面）
+func (db *JSONDatabase) appendJournal(operation, code string, video *Video) error {
+	// 轉換為新格式
+	var op string
+	switch operation {
+	case "update":
+		op = OpUpdate
+	case "delete":
+		op = OpDelete
+	case "add":
+		op = OpAdd
+	default:
+		op = OpUpdate
+	}
+
+	entry, err := NewJournalEntry(op, TypeVideo, code, video)
+	if err != nil {
+		return err
+	}
+
+	return db.appendJournalEntry(entry)
+}
+
 // loadJournal 載入 journal 並套用變更
+// 同時支援舊格式和新格式（Python 相容）
 func (db *JSONDatabase) loadJournal() error {
 	// 檢查 journal 是否存在
 	if _, err := os.Stat(db.journalFile); os.IsNotExist(err) {
@@ -73,22 +82,20 @@ func (db *JSONDatabase) loadJournal() error {
 			continue // 跳過空行
 		}
 
+		// 嘗試解析為新格式（Python 相容）
 		var entry JournalEntry
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to parse journal line %d: %v\n", lineNum, err)
 			continue
 		}
 
-		// 套用變更
-		switch entry.Operation {
-		case "update":
-			if entry.Video != nil {
-				db.root.Videos[entry.Code] = entry.Video
-			}
-		case "delete":
-			delete(db.root.Videos, entry.Code)
-		default:
-			fmt.Fprintf(os.Stderr, "Warning: unknown journal operation: %s\n", entry.Operation)
+		// 根據格式套用變更
+		if entry.Op != "" {
+			// 新格式（Python 相容）
+			db.applyJournalEntry(&entry)
+		} else {
+			// 嘗試舊格式
+			db.applyLegacyJournalEntry([]byte(line))
 		}
 	}
 
@@ -97,6 +104,141 @@ func (db *JSONDatabase) loadJournal() error {
 	}
 
 	return nil
+}
+
+// applyJournalEntry 套用新格式 journal 記錄
+func (db *JSONDatabase) applyJournalEntry(entry *JournalEntry) {
+	switch entry.Type {
+	case TypeVideo:
+		db.applyVideoJournalEntry(entry)
+	case TypeActress:
+		// 未來擴展
+	case TypeLink:
+		// 未來擴展
+	}
+}
+
+// applyVideoJournalEntry 套用影片 journal 記錄
+func (db *JSONDatabase) applyVideoJournalEntry(entry *JournalEntry) {
+	switch entry.Op {
+	case OpAdd:
+		if entry.Data != nil {
+			var video VideoData
+			if err := json.Unmarshal(entry.Data, &video); err == nil {
+				// 確保 code 正確
+				if video.Code == "" {
+					video.Code = entry.ID
+				}
+				db.root.Videos[entry.ID] = &video
+			}
+		}
+	case OpUpdate:
+		if entry.Data != nil {
+			// 取得現有影片或建立新的
+			existing, exists := db.root.Videos[entry.ID]
+			if !exists {
+				existing = GetEmptyVideo()
+				existing.Code = entry.ID
+			}
+
+			// 解析更新欄位
+			var updates map[string]interface{}
+			if err := json.Unmarshal(entry.Data, &updates); err == nil {
+				db.applyVideoUpdates(existing, updates)
+			}
+			db.root.Videos[entry.ID] = existing
+		}
+	case OpDelete:
+		delete(db.root.Videos, entry.ID)
+	}
+}
+
+// applyVideoUpdates 將更新套用到影片
+func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]interface{}) {
+	for key, value := range updates {
+		switch key {
+		case "title":
+			if v, ok := value.(string); ok {
+				video.Title = v
+			}
+		case "studio":
+			if v, ok := value.(string); ok {
+				video.Studio = v
+			}
+		case "studio_code":
+			if v, ok := value.(string); ok {
+				video.StudioCode = v
+			}
+		case "release_date":
+			if v, ok := value.(string); ok {
+				video.ReleaseDate = v
+			}
+		case "url":
+			if v, ok := value.(string); ok {
+				video.URL = v
+			}
+		case "actresses":
+			if v, ok := value.([]interface{}); ok {
+				actresses := make([]string, 0, len(v))
+				for _, a := range v {
+					if s, ok := a.(string); ok {
+						actresses = append(actresses, s)
+					}
+				}
+				video.Actresses = actresses
+			}
+		case "search_status":
+			if v, ok := value.(string); ok {
+				video.SearchStatus = v
+			}
+		case "last_search_date":
+			if v, ok := value.(string); ok {
+				video.LastSearchDate = v
+			}
+		case "original_filename":
+			if v, ok := value.(string); ok {
+				video.OriginalFilename = v
+			}
+		case "file_path":
+			if v, ok := value.(string); ok {
+				video.FilePath = v
+			}
+		case "search_method":
+			if v, ok := value.(string); ok {
+				video.SearchMethod = v
+			}
+		case "test_field":
+			if v, ok := value.(string); ok {
+				video.TestField = v
+			}
+		}
+	}
+	video.UpdatedAt = GetCurrentTimestamp()
+}
+
+// legacyJournalEntry 舊格式 journal 記錄
+type legacyJournalEntry struct {
+	Timestamp string     `json:"timestamp"`
+	Operation string     `json:"operation"`
+	Code      string     `json:"code"`
+	Video     *VideoData `json:"video,omitempty"`
+}
+
+// applyLegacyJournalEntry 套用舊格式 journal 記錄
+func (db *JSONDatabase) applyLegacyJournalEntry(data []byte) {
+	var entry legacyJournalEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return
+	}
+
+	switch entry.Operation {
+	case "update":
+		if entry.Video != nil {
+			db.root.Videos[entry.Code] = entry.Video
+		}
+	case "delete":
+		delete(db.root.Videos, entry.Code)
+	}
 }
 
 // GetJournalSize 取得 journal 檔案大小

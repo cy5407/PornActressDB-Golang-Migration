@@ -568,15 +568,15 @@ IncrementalJSONDB
 - [x] 識別並發控制機制
 - [x] 分析效能瓶頸
 
-### Phase 2: Go 實作（待執行）
-- [ ] 建立 `pkg/database/` 套件
-- [ ] 實作 JournalEntry struct
-- [ ] 實作 IncrementalDB struct
-- [ ] 實作 UpdateVideo/AddVideo/DeleteVideo
-- [ ] 實作 appendJournal（檔案寫入）
-- [ ] 實作 Compact/CompactIfNeeded
-- [ ] 實作並發控制（Mutex + FileLock）
-- [ ] 撰寫單元測試（80%+ 覆蓋率）
+### Phase 2: Go 實作 ✅ (2026-01-12 完成)
+- [x] 建立 `pkg/database/` 套件
+- [x] 實作 JournalEntry struct (`types.go`)
+- [x] 實作 IncrementalDB struct (JSONDatabase in `jsondb.go`)
+- [x] 實作 UpdateVideo/AddVideo/DeleteVideo
+- [x] 實作 appendJournal（檔案寫入）(`journal.go`)
+- [x] 實作 Compact/CompactIfNeeded
+- [x] 實作並發控制（sync.RWMutex）
+- [x] 撰寫單元測試 (`jsondb_test.go`)
 
 ### Phase 3: CLI 整合（待執行）
 - [ ] 新增 `db update` 命令

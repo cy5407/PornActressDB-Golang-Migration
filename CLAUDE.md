@@ -95,8 +95,11 @@ go test ./pkg/mover -v
 │       └── main.go          # classifier.exe 進入點
 │
 ├── pkg/                      # Go 套件
+│   ├── cache/               # 快取管理套件 ⚡ NEW
+│   ├── database/            # 資料庫套件 (增量 JSON)
 │   ├── extractor/           # 番號提取器
-│   └── mover/               # 檔案移動器 (含操作歷史)
+│   ├── mover/               # 檔案移動器 (含操作歷史)
+│   └── studio/              # 片商識別器
 │
 ├── data/json_db/            # JSON 資料庫
 ├── logs/                    # 操作日誌 (Go mover 產生)
@@ -109,10 +112,12 @@ go test ./pkg/mover -v
 src/
 ├── models/                    # 資料模型層
 │   ├── config.py             # ConfigManager - 設定管理
+│   ├── go_accelerated_db.py  # GoAcceleratedDB - Go 加速資料庫 ⚡
+│   ├── go_accelerated_studio.py  # GoAcceleratedStudioIdentifier - Go 加速片商識別 ⚡ NEW
 │   ├── incremental_json_database.py  # IncrementalJSONDB - 增量資料庫 (40x 加速)
 │   ├── json_database.py      # JSONDBManager - 標準資料庫
 │   ├── extractor.py          # UnifiedCodeExtractor - 檔案名稱解析
-│   ├── studio.py             # StudioIdentifier - 片商識別
+│   ├── studio.py             # StudioIdentifier - 片商識別 (Python 基礎實作)
 │   └── json_types.py         # 型別定義
 │
 ├── services/                  # 業務邏輯層
@@ -148,16 +153,34 @@ src/
 cmd/scanner/main.go           # CLI 主程式
 ├── scan 命令                # 掃描目錄提取番號
 ├── move 命令                # 移動檔案 (單檔/批次)
-└── history 命令             # 操作歷史管理
+├── history 命令             # 操作歷史管理
+├── identify 命令            # 片商識別
+├── db 命令                  # 資料庫操作
+└── cache 命令               # 快取管理 ⚡ NEW
 
 pkg/
+├── cache/                  # 快取管理套件 ⚡ NEW
+│   ├── cache.go           # CacheManager 實作
+│   ├── types.go           # 型別定義
+│   └── cache_test.go      # 單元測試 (9 個)
+│
+├── database/               # 資料庫套件
+│   ├── jsondb.go          # JSONDatabase 實作 (增量 JSON)
+│   ├── journal.go         # Journal 管理
+│   ├── types.go           # 型別定義
+│   └── jsondb_test.go     # 單元測試
+│
 ├── extractor/               # 番號提取套件
 │   ├── extractor.go        # CodeExtractor 實作
 │   └── extractor_test.go   # 單元測試
 │
-└── mover/                   # 檔案移動套件
-    ├── mover.go            # Mover 實作 (含歷史記錄)
-    └── mover_test.go       # 單元測試
+├── mover/                   # 檔案移動套件
+│   ├── mover.go            # Mover 實作 (含歷史記錄)
+│   └── mover_test.go       # 單元測試
+│
+└── studio/                  # 片商識別套件
+    ├── identifier.go       # StudioIdentifier 實作
+    └── identifier_test.go  # 單元測試
 ```
 
 ### 工具腳本目錄
@@ -261,6 +284,9 @@ classifier.exe history rollback --last      # 回滾最近一次
 | 掃描 1000 個檔案 | ~2.5s | ~0.15s | **16.7x** |
 | 批次移動 100 個檔案 | ~3.0s | ~0.3s | **10x** |
 | 番號提取 (正則) | ~100 μs | ~5 μs | **20x** |
+| 片商識別 | ~1ms | ~0.1ms | **10x** |
+| 資料庫查詢 | ~5ms | 64ns | **78,000x** |
+| 資料庫更新 | ~250ms | 182μs | **1,300x** |
 
 #### 操作歷史系統
 

@@ -19,25 +19,43 @@ var (
 	ErrDatabaseNotLoaded = errors.New("database not loaded")
 )
 
+// Video 是 VideoData 的別名（向後相容）
+type Video = VideoData
+
+// JSONDatabaseRoot 是 DatabaseData 的別名（向後相容）
+type JSONDatabaseRoot = DatabaseData
+
 // JSONDatabase JSON 資料庫管理器
 type JSONDatabase struct {
-	mu          sync.RWMutex       // 讀寫鎖
-	dataFile    string             // 資料檔案路徑
-	journalFile string             // Journal 檔案路徑
-	root        *JSONDatabaseRoot  // 資料庫根結構
-	loaded      bool               // 是否已載入
+	mu          sync.RWMutex  // 讀寫鎖
+	dataDir     string        // 資料目錄
+	dataFile    string        // 資料檔案路徑
+	journalFile string        // Journal 檔案路徑
+	indexFile   string        // Index 檔案路徑
+	root        *DatabaseData // 資料庫根結構
+	loaded      bool          // 是否已載入
+
+	// Dirty tracking（與 Python 相容）
+	dirtyVideos    map[string]bool
+	dirtyActresses map[string]bool
+	dirtyLinks     map[string]bool
+	journalSize    int
+	journalCreatedAt time.Time
 }
 
 // NewJSONDatabase 建立新的 JSON 資料庫實例
 func NewJSONDatabase(dataDir string) *JSONDatabase {
-	dataFile := filepath.Join(dataDir, "data.json")
-	journalFile := filepath.Join(dataDir, "data.journal")
-
 	return &JSONDatabase{
-		dataFile:    dataFile,
-		journalFile: journalFile,
-		root:        nil,
-		loaded:      false,
+		dataDir:        dataDir,
+		dataFile:       filepath.Join(dataDir, DataFileName),
+		journalFile:    filepath.Join(dataDir, JournalFileName),
+		indexFile:      filepath.Join(dataDir, IndexFileName),
+		root:           nil,
+		loaded:         false,
+		dirtyVideos:    make(map[string]bool),
+		dirtyActresses: make(map[string]bool),
+		dirtyLinks:     make(map[string]bool),
+		journalSize:    0,
 	}
 }
 
@@ -46,11 +64,17 @@ func (db *JSONDatabase) Load() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
+	// 確保資料目錄存在
+	if err := os.MkdirAll(db.dataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
 	// 檢查檔案是否存在
 	if _, err := os.Stat(db.dataFile); os.IsNotExist(err) {
 		// 檔案不存在，建立新的空資料庫
-		db.root = NewJSONDatabaseRoot()
+		db.root = NewDatabaseData()
 		db.loaded = true
+		db.journalCreatedAt = time.Now().UTC()
 		return db.saveUnsafe() // 儲存初始檔案
 	}
 
@@ -61,13 +85,27 @@ func (db *JSONDatabase) Load() error {
 	}
 
 	// 解析 JSON
-	var root JSONDatabaseRoot
+	var root DatabaseData
 	if err := json.Unmarshal(data, &root); err != nil {
 		return fmt.Errorf("failed to parse database JSON: %w", err)
 	}
 
+	// 確保 map 已初始化
+	if root.Videos == nil {
+		root.Videos = make(map[string]*VideoData)
+	}
+	if root.Actresses == nil {
+		root.Actresses = make(map[string]*ActressData)
+	}
+	if root.Statistics == nil {
+		root.Statistics = make(map[string]interface{})
+	}
+
 	db.root = &root
 	db.loaded = true
+
+	// 載入 index（如果存在）
+	db.loadIndex()
 
 	// 載入 journal (如果存在)
 	if err := db.loadJournal(); err != nil {
@@ -76,6 +114,75 @@ func (db *JSONDatabase) Load() error {
 	}
 
 	return nil
+}
+
+// loadIndex 載入 dirty index
+func (db *JSONDatabase) loadIndex() {
+	data, err := os.ReadFile(db.indexFile)
+	if err != nil {
+		// Index 不存在是正常情況
+		db.journalCreatedAt = time.Now().UTC()
+		return
+	}
+
+	var index DirtyIndex
+	if err := json.Unmarshal(data, &index); err != nil {
+		db.journalCreatedAt = time.Now().UTC()
+		return
+	}
+
+	// 載入 dirty keys
+	for _, v := range index.Videos {
+		db.dirtyVideos[v] = true
+	}
+	for _, a := range index.Actresses {
+		db.dirtyActresses[a] = true
+	}
+	for _, l := range index.Links {
+		db.dirtyLinks[l] = true
+	}
+
+	db.journalSize = index.JournalSize
+
+	// 解析建立時間
+	if t, err := time.Parse(time.RFC3339, index.CreatedAt); err == nil {
+		db.journalCreatedAt = t
+	} else {
+		db.journalCreatedAt = time.Now().UTC()
+	}
+}
+
+// saveIndex 儲存 dirty index
+func (db *JSONDatabase) saveIndex() error {
+	videos := make([]string, 0, len(db.dirtyVideos))
+	for v := range db.dirtyVideos {
+		videos = append(videos, v)
+	}
+
+	actresses := make([]string, 0, len(db.dirtyActresses))
+	for a := range db.dirtyActresses {
+		actresses = append(actresses, a)
+	}
+
+	links := make([]string, 0, len(db.dirtyLinks))
+	for l := range db.dirtyLinks {
+		links = append(links, l)
+	}
+
+	index := DirtyIndex{
+		Videos:      videos,
+		Actresses:   actresses,
+		Links:       links,
+		JournalSize: db.journalSize,
+		CreatedAt:   db.journalCreatedAt.Format(time.RFC3339),
+	}
+
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(db.indexFile, data, 0644)
 }
 
 // Save 儲存資料庫
@@ -158,18 +265,116 @@ func (db *JSONDatabase) UpdateVideo(code string, video *Video) error {
 	// 更新時間戳
 	video.UpdatedAt = time.Now().UTC().Format(ISODateTimeFormat)
 
-	// 如果是新影片，設定 CreatedAt
-	if _, exists := db.root.Videos[code]; !exists {
+	// 判斷是新增還是更新
+	_, exists := db.root.Videos[code]
+	var op string
+	if !exists {
 		video.CreatedAt = video.UpdatedAt
+		op = OpAdd
+	} else {
+		op = OpUpdate
 	}
+
+	// 確保 code 欄位正確
+	video.Code = code
+
+	// 儲存影片
+	db.root.Videos[code] = video
+
+	// 寫入 journal（使用 Python 相容格式）
+	entry, err := NewJournalEntry(op, TypeVideo, code, video)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to create journal entry: %v\n", err)
+	} else {
+		if err := db.appendJournalEntry(entry); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to write journal: %v\n", err)
+		} else {
+			// 更新 dirty tracking
+			db.dirtyVideos[code] = true
+			db.journalSize++
+			db.saveIndex()
+		}
+	}
+
+	return nil
+}
+
+// UpdateVideoFields 更新影片的特定欄位（與 Python update_video 相容）
+func (db *JSONDatabase) UpdateVideoFields(code string, updates map[string]interface{}) error {
+	if code == "" {
+		return ErrInvalidCode
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if !db.loaded {
+		return ErrDatabaseNotLoaded
+	}
+
+	// 取得現有影片
+	video, exists := db.root.Videos[code]
+	if !exists {
+		return ErrNotFound
+	}
+
+	// 套用更新
+	db.applyVideoUpdates(video, updates)
+
+	// 寫入 journal（僅記錄更新的欄位，與 Python 相容）
+	entry, err := NewJournalEntry(OpUpdate, TypeVideo, code, updates)
+	if err != nil {
+		return err
+	}
+
+	if err := db.appendJournalEntry(entry); err != nil {
+		return err
+	}
+
+	// 更新 dirty tracking
+	db.dirtyVideos[code] = true
+	db.journalSize++
+	db.saveIndex()
+
+	return nil
+}
+
+// AddVideo 新增影片（與 Python add_video 相容）
+func (db *JSONDatabase) AddVideo(video *Video) error {
+	code := video.GetCode()
+	if code == "" {
+		return ErrInvalidCode
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if !db.loaded {
+		return ErrDatabaseNotLoaded
+	}
+
+	// 設定時間戳
+	now := time.Now().UTC().Format(ISODateTimeFormat)
+	video.CreatedAt = now
+	video.UpdatedAt = now
 
 	// 儲存影片
 	db.root.Videos[code] = video
 
 	// 寫入 journal
-	if err := db.appendJournal("update", code, video); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to write journal: %v\n", err)
+	entry, err := NewJournalEntry(OpAdd, TypeVideo, code, video)
+	if err != nil {
+		return err
 	}
+
+	if err := db.appendJournalEntry(entry); err != nil {
+		return err
+	}
+
+	// 更新 dirty tracking
+	db.dirtyVideos[code] = true
+	db.journalSize++
+	db.saveIndex()
 
 	return nil
 }
@@ -193,9 +398,19 @@ func (db *JSONDatabase) DeleteVideo(code string) error {
 
 	delete(db.root.Videos, code)
 
-	// 寫入 journal
-	if err := db.appendJournal("delete", code, nil); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to write journal: %v\n", err)
+	// 寫入 journal（使用 Python 相容格式）
+	entry, err := NewJournalEntry(OpDelete, TypeVideo, code, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to create journal entry: %v\n", err)
+	} else {
+		if err := db.appendJournalEntry(entry); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to write journal: %v\n", err)
+		} else {
+			// 更新 dirty tracking
+			delete(db.dirtyVideos, code)
+			db.journalSize++
+			db.saveIndex()
+		}
 	}
 
 	return nil
@@ -269,7 +484,7 @@ func (db *JSONDatabase) BatchUpdate(updates map[string]*Video) error {
 	return nil
 }
 
-// CompactJournal 合併 journal 到主資料庫
+// CompactJournal 合併 journal 到主資料庫（與 Python compact() 相容）
 func (db *JSONDatabase) CompactJournal() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -288,10 +503,66 @@ func (db *JSONDatabase) CompactJournal() error {
 		return fmt.Errorf("failed to remove journal: %w", err)
 	}
 
+	// 重建空的 journal
+	f, err := os.Create(db.journalFile)
+	if err == nil {
+		f.Close()
+	}
+
+	// 重設 dirty tracking
+	db.dirtyVideos = make(map[string]bool)
+	db.dirtyActresses = make(map[string]bool)
+	db.dirtyLinks = make(map[string]bool)
+	db.journalSize = 0
+	db.journalCreatedAt = time.Now().UTC()
+
+	// 儲存索引
+	db.saveIndex()
+
 	return nil
 }
 
-// GetStats 取得資料庫統計資訊
+// Compact 是 CompactJournal 的別名（與 Python 相容）
+func (db *JSONDatabase) Compact() error {
+	return db.CompactJournal()
+}
+
+// CompactIfNeeded 根據閾值自動判斷是否需要合併（與 Python compact_if_needed() 相容）
+func (db *JSONDatabase) CompactIfNeeded() (bool, error) {
+	db.mu.RLock()
+	journalSize := db.journalSize
+	journalAge := time.Since(db.journalCreatedAt).Seconds()
+	db.mu.RUnlock()
+
+	// 檢查大小閾值
+	if journalSize >= JournalSizeThreshold {
+		if err := db.CompactJournal(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	// 檢查時間閾值
+	if journalAge >= float64(JournalAgeThreshold) {
+		if err := db.CompactJournal(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// NeedsCompact 檢查是否需要合併
+func (db *JSONDatabase) NeedsCompact() bool {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	journalAge := time.Since(db.journalCreatedAt).Seconds()
+	return db.journalSize >= JournalSizeThreshold || journalAge >= float64(JournalAgeThreshold)
+}
+
+// GetStats 取得資料庫統計資訊（與 Python get_stats() 相容）
 func (db *JSONDatabase) GetStats() (map[string]interface{}, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
@@ -300,14 +571,49 @@ func (db *JSONDatabase) GetStats() (map[string]interface{}, error) {
 		return nil, ErrDatabaseNotLoaded
 	}
 
+	journalAge := time.Since(db.journalCreatedAt).Seconds()
+	needsCompact := db.journalSize >= JournalSizeThreshold || journalAge >= float64(JournalAgeThreshold)
+
 	stats := map[string]interface{}{
-		"video_count":   len(db.root.Videos),
-		"actress_count": len(db.root.Actresses),
-		"link_count":    len(db.root.Links),
-		"schema_version": db.root.SchemaVersion,
-		"created_at":    db.root.CreatedAt,
-		"updated_at":    db.root.UpdatedAt,
+		"video_count":          len(db.root.Videos),
+		"actress_count":        len(db.root.Actresses),
+		"link_count":           len(db.root.Links),
+		"schema_version":       db.root.SchemaVersion,
+		"created_at":           db.root.CreatedAt,
+		"updated_at":           db.root.UpdatedAt,
+		"journal_size":         db.journalSize,
+		"journal_age_seconds":  journalAge,
+		"dirty_videos":         len(db.dirtyVideos),
+		"dirty_actresses":      len(db.dirtyActresses),
+		"dirty_links":          len(db.dirtyLinks),
+		"needs_compact":        needsCompact,
+		"total_videos":         len(db.root.Videos),
 	}
 
 	return stats, nil
+}
+
+// GetStatsStruct 取得結構化統計資訊
+func (db *JSONDatabase) GetStatsStruct() (*Stats, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if !db.loaded {
+		return nil, ErrDatabaseNotLoaded
+	}
+
+	journalAge := time.Since(db.journalCreatedAt).Seconds()
+	needsCompact := db.journalSize >= JournalSizeThreshold || journalAge >= float64(JournalAgeThreshold)
+
+	return &Stats{
+		JournalSize:       db.journalSize,
+		JournalAgeSeconds: journalAge,
+		DirtyVideos:       len(db.dirtyVideos),
+		DirtyActresses:    len(db.dirtyActresses),
+		DirtyLinks:        len(db.dirtyLinks),
+		NeedsCompact:      needsCompact,
+		TotalVideos:       len(db.root.Videos),
+		TotalActresses:    len(db.root.Actresses),
+		TotalLinks:        len(db.root.Links),
+	}, nil
 }
