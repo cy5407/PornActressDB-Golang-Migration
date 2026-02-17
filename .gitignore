@@ -109,3 +109,14 @@ coverage.html
 # Go build cache
 .cache/
 .go/
+
+# 備份目錄
+backups/
+
+# Coverage 報告
+coverage
+coverage.json
+coverage_report.txt
+
+# Session 相關（臨時工作檔案）
+.copilot/session-state/
