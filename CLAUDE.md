@@ -15,10 +15,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 這是一個功能完整的桌面應用程式，用於自動識別女優、片商分類、多源搜尋與資料庫管理。
 
 - **主要語言**: Python 3.8+ (核心邏輯、GUI、爬蟲)
-- **效能加速**: Go 1.24.5 (檔案掃描、批次移動)
+- **效能加速**: Go 1.24.5 (檔案掃描、批次移動、資料庫)
 - **GUI 框架**: tkinter
-- **版本**: v5.4.3 (MVP-5 整合完成)
+- **版本**: v6.0.0 (Go 加速完整整合)
 - **主進入點**: `run.py`
+- **AI 增強**: 11 個 Agent Skills（VS Code Copilot Chat 整合）
+- **專案規模**: 61 個程式檔，20,712 行程式碼（Python: 16,844 行 + Go: 3,868 行）
 
 ## 快速開始
 
@@ -604,9 +606,56 @@ rg "(?P<name>pattern)" --pcre2
 - 資料庫: JSON 檔案型 (不適合超大規模資料)
 - 平台: 主要測試於 Windows 10/11
 
+## Agent Skills 系統
+
+專案內建 **11 個 Agent Skills**，可在 VS Code Copilot Chat 中自動載入，提供專案特定的開發指引。
+
+### 核心專案 Skills (10 個)
+
+1. **actress-classifier** - 專案架構總覽與術語對照
+2. **go-bridge-development** ⭐ - Python ↔ Go 整合開發指引（最重要）
+3. **database-operations** - IncrementalJSONDB 操作指引
+4. **testing-validation** - Python/Go 測試策略
+5. **web-scraping-guide** - 日文網站爬蟲最佳實踐
+6. **gui-development** - Tkinter 執行緒安全開發
+7. **deployment-release** - 建置與部署流程
+8. **performance-optimization** - 效能分析與優化
+9. **documentation-guide** - 文檔撰寫標準
+10. **code-review** ⭐ - 高信噪比程式碼審查（僅報告關鍵問題）
+
+### 工具增強 Skill (1 個)
+
+11. **smart-code-search** ✨ - 智能程式碼搜尋（fd + rg，10-100x 加速）
+
+### 使用方式
+
+**在 VS Code Copilot Chat 中**：
+- Skills 會根據上下文自動載入
+- 手動觸發：`@workspace /actress-classifier`（範例）
+- 查看可用 Skills：檢查 `.claude/skills/` 目錄
+
+**在其他環境中**：
+- Skills 遵循 [agentskills.io](https://agentskills.io) 開放標準
+- 可在任何支援 Agent Skills 的 AI 工具中使用
+
 ## 參考文件
 
-- [專案計畫書](專案管理/專案計畫/專案計畫書_v1.0.md)
-- [需求規格書](專案管理/需求規格/需求規格書_v1.0.md)
-- [功能改善計畫](docs/IMPROVEMENT_PLAN.md)
-- [Copilot 指引](.github/copilot-instructions.md)
+### 核心架構文檔
+- [CLAUDE.md](CLAUDE.md) - AI 開發指引（本檔案）
+- [README.md](README.md) - 專案說明與快速開始
+- [QUICK_START_GUIDE.md](QUICK_START_GUIDE.md) - 快速上手指南
+
+### 設計與分析文檔
+- [DATABASE_ANALYSIS.md](docs/DATABASE_ANALYSIS.md) - 增量資料庫架構分析
+- [IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md) - 功能改善計畫
+- [GOLANG_REFACTORING_PROPOSAL.md](docs/GOLANG_REFACTORING_PROPOSAL.md) - Go 重構提案
+
+### Agent Skills 文檔
+- [VSCODE_AGENT_SKILLS_GUIDE.md](docs/VSCODE_AGENT_SKILLS_GUIDE.md) - VS Code Agent Skills 完整指南
+- [VSCODE_SKILLS_QUICK_REFERENCE.md](docs/VSCODE_SKILLS_QUICK_REFERENCE.md) - Skills 快速參考
+- [CODE_REVIEW_SKILL_GUIDE.md](docs/CODE_REVIEW_SKILL_GUIDE.md) - Code Review Skill 使用指南
+- [SKILLS_ANALYSIS_REPORT.md](docs/SKILLS_ANALYSIS_REPORT.md) - Skills 分析報告
+
+### 專案管理文檔
+- [SPECKIT_REMOVAL_REPORT.md](docs/SPECKIT_REMOVAL_REPORT.md) - Speckit 移除報告
+- [CODE_COMPLETENESS_REPORT.md](docs/CODE_COMPLETENESS_REPORT.md) - 程式碼完整性報告

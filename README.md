@@ -9,6 +9,12 @@
 
 ## ✨ 主要功能
 
+### 🤖 AI 開發增強
+- **11 個 Agent Skills**: 專案特定的 AI 開發指引（VS Code Copilot Chat 整合）
+- **智能程式碼審查**: 高信噪比審查（僅報告關鍵問題）
+- **Go 橋接開發**: Python ↔ Go 整合完整工作流程
+- **智能程式碼搜尋**: fd + rg 工具，10-100x 搜尋加速
+
 ### 🔍 智慧搜尋系統
 - **多源級聯搜尋**: 支援 AV-WIKI、chiba-f.net、JAVDB 三層級聯搜尋
 - **批次併發處理**: AV-WIKI 支援 15 並發批次搜尋（11.7x 效能提升）
@@ -118,11 +124,13 @@ classifier.exe db stats
 │       └── main.go          # classifier.exe 進入點
 │
 ├── pkg/                      # Go 套件
+│   ├── cache/               # 快取管理套件
 │   ├── database/            # 增量資料庫 (Journal 機制)
 │   ├── extractor/           # 番號提取器
 │   ├── mover/               # 檔案移動器 (含操作歷史)
 │   └── studio/              # 片商識別器
 │
+├── .claude/skills/          # Agent Skills (11 個)
 ├── data/json_db/            # JSON 資料庫
 ├── logs/                    # 操作日誌
 └── classifier.exe           # 編譯後的 Go CLI
@@ -156,6 +164,12 @@ classifier.exe db compact
 classifier.exe identify SONE-123
 classifier.exe identify -batch codes.txt
 classifier.exe identify -list
+
+# 快取管理
+classifier.exe cache stats
+classifier.exe cache clear
+classifier.exe cache get <key>
+classifier.exe cache set <key> <value>
 ```
 
 ### Python 橋接層
@@ -241,18 +255,36 @@ python test_enhanced_search.py
 
 ## 📚 文件
 
-- [CLAUDE.md](CLAUDE.md) - AI 開發指引與專案架構
-- [docs/DATABASE_ANALYSIS.md](docs/DATABASE_ANALYSIS.md) - 增量資料庫架構分析
-- [docs/IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md) - 功能改善計畫
-- [.claude/ralph-fix-plan.md](.claude/ralph-fix-plan.md) - Golang 重構任務清單
+### 核心文檔
+- [CLAUDE.md](CLAUDE.md) - AI 開發指引與專案架構（最重要）
+- [README.md](README.md) - 專案說明與快速開始（本檔案）
+- [QUICK_START_GUIDE.md](QUICK_START_GUIDE.md) - 快速上手指南
+
+### 設計與分析
+- [DATABASE_ANALYSIS.md](docs/DATABASE_ANALYSIS.md) - 增量資料庫架構分析
+- [IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md) - 功能改善計畫
+- [GOLANG_REFACTORING_PROPOSAL.md](docs/GOLANG_REFACTORING_PROPOSAL.md) - Go 重構提案
+
+### Agent Skills
+- [VSCODE_AGENT_SKILLS_GUIDE.md](docs/VSCODE_AGENT_SKILLS_GUIDE.md) - VS Code Agent Skills 完整指南
+- [CODE_REVIEW_SKILL_GUIDE.md](docs/CODE_REVIEW_SKILL_GUIDE.md) - Code Review Skill 使用指南
+- [SKILLS_ANALYSIS_REPORT.md](docs/SKILLS_ANALYSIS_REPORT.md) - Skills 分析報告
+
+### 開發指引
+- 11 個 Agent Skills 位於 `.claude/skills/` 目錄
+- 在 VS Code Copilot Chat 中自動載入
+- 查看 [VSCODE_SKILLS_QUICK_REFERENCE.md](docs/VSCODE_SKILLS_QUICK_REFERENCE.md) 快速參考
 
 ## 📈 版本歷史
 
-### v6.0.0 (2026-01-18)
+### v6.0.0 (2026-02-18) - 當前版本
 - ⚡ **Go 加速整合**: 完成 Python + Go 混合架構
 - 🗄️ **增量資料庫**: Go 實現的 Journal 機制，1300x 更新加速
 - 🔄 **操作回滾**: 完整的操作歷史與一鍵回滾功能
-- 📊 **效能提升**: 整體效能提升 10-78000 倍
+- 📊 **效能提升**: 整體效能提升 10-78,000 倍
+- 🤖 **Agent Skills**: 新增 11 個專業 Agent Skills（VS Code Copilot 整合）
+- 💾 **快取系統**: Go 快取管理套件，支援 LRU、TTL、持久化
+- 📝 **專案規模**: 61 程式檔，20,712 行程式碼（Python: 16,844 + Go: 3,868）
 
 ### v5.4.3 (2025-12-21)
 - 🚀 Go 橋接層完成 (MVP-1 到 MVP-5)
