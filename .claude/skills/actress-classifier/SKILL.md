@@ -1,5 +1,6 @@
 ---
-description: 女優分類系統開發指引 - 提供專案架構、程式碼規範、常用模式和術語對照
+name: actress-classifier
+description: 女優分類系統開發指引 - 用於理解專案架構、程式碼規範、常用開發模式、術語對照表和 Python/Go 混合架構設計
 ---
 
 # 女優分類系統開發 Skill
