@@ -14,6 +14,11 @@ from bs4 import BeautifulSoup
 from ..base_scraper import BaseScraper, ErrorType, ScrapingException
 from ..encoding_utils import create_safe_soup, validate_japanese_content
 
+try:
+    from ...utils.actress_name_filter import ActressNameFilter
+except ImportError:  # pragma: no cover
+    from src.utils.actress_name_filter import ActressNameFilter
+
 logger = logging.getLogger(__name__)
 
 
@@ -267,34 +272,8 @@ class JAVDBScraper(BaseScraper):
         return result
 
     def _is_valid_actress_name(self, name: str) -> bool:
-        """驗證是否為有效的女優名稱"""
-        if not name or len(name) < 2 or len(name) > 30:
-            return False
-
-        # 排除常見的非女優名稱
-        exclude_keywords = [
-            "出演者",
-            "演員",
-            "女優",
-            "actor",
-            "actress",
-            "不明",
-            "未知",
-            "unknown",
-            "---",
-            "–",
-        ]
-
-        name_lower = name.lower()
-        if any(keyword in name_lower for keyword in exclude_keywords):
-            return False
-
-        # 檢查是否包含日文字符
-        if re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]", name):
-            return True
-
-        # 檢查是否為西方名字格式
-        return bool(re.match(r"^[A-Za-z\s]+$", name) and " " in name)
+        """驗證是否為有效的女優名稱（使用增強過濾器）"""
+        return ActressNameFilter.is_valid_actress_name(name)
 
     async def search_video(self, video_code: str) -> dict[str, Any]:
         """搜尋指定番號的影片"""

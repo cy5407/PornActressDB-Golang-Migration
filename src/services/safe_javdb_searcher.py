@@ -15,6 +15,11 @@ import httpx
 from bs4 import BeautifulSoup
 
 try:
+    from utils.actress_name_filter import ActressNameFilter
+except ImportError:  # pragma: no cover
+    from src.utils.actress_name_filter import ActressNameFilter
+
+try:
     from utils.json_utils import dump as json_dump
     from utils.json_utils import load as json_load
 except ImportError:  # pragma: no cover
@@ -403,7 +408,8 @@ class SafeJAVDBSearcher:
                             and "♀" in next_element.text
                         ):
                             actress_name = link.text.strip()
-                            if actress_name:
+                            # 使用過濾器驗證女優名字
+                            if actress_name and ActressNameFilter.is_valid_actress_name(actress_name):
                                 actresses.append(actress_name)
                     info["actresses"] = actresses
                     continue

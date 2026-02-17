@@ -39,7 +39,18 @@
       "Bash(if [ -f logs/ralph.log ])",
       "Bash(then tail -100 logs/ralph.log)",
       "Bash(else ls logs/ralph-*.log)",
-      "Bash(fi)"
+      "Bash(fi)",
+      "Bash(python3:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(cmd.exe /c \".venv\\\\Scripts\\\\python.exe -c \"\"import sys; print\\(''Python'', sys.version\\)\"\"\")",
+      "Bash(for:*)",
+      "Bash(do test:*)",
+      "Bash(done)",
+      "Bash(for f in cmd/scanner/main.go pkg/extractor/extractor.go pkg/mover/mover.go go.mod)",
+      "Bash(for f in config.ini requirements.txt CLAUDE.md README.md)",
+      "Bash(for d in data/json_db src/models src/services src/ui src/scrapers src/utils pkg cmd)",
+      "Bash(/c/Users/cy540/go/bin/go test ./pkg/database/... -v)",
+      "Bash(git push)"
     ]
   }
 }

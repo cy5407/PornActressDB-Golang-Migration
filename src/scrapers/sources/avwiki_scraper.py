@@ -19,8 +19,10 @@ from ..encoding_utils import create_safe_soup, validate_japanese_content
 
 try:
     from ...utils.retry_utils import AdaptiveConcurrencyController, ExponentialBackoff
+    from ...utils.actress_name_filter import ActressNameFilter
 except ImportError:  # pragma: no cover
     from src.utils.retry_utils import AdaptiveConcurrencyController, ExponentialBackoff
+    from src.utils.actress_name_filter import ActressNameFilter
 
 logger = logging.getLogger(__name__)
 
@@ -392,14 +394,8 @@ class AVWikiScraper(BaseScraper):
         return studio_info
 
     def _is_valid_actress_name(self, name: str) -> bool:
-        """驗證是否為有效的女優名稱"""
-        if not name or len(name) < 2:
-            return False
-
-        # 女優名稱長度限制（允許 # 分隔的多人共演格式）
-        # 單一女優通常不超過 8 字元，但 # 分隔的合併名稱可能較長
-        if len(name) > 50:
-            return False
+        """驗證是否為有效的女優名稱（使用增強過濾器）"""
+        return ActressNameFilter.is_valid_actress_name(name)
 
         # 排除明顯的垃圾文本特徵
         # 注意：有些女優名字可能包含這些詞，需要謹慎過濾
