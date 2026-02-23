@@ -31,6 +31,11 @@ func (db *JSONDatabase) appendJournalEntry(entry *JournalEntry) error {
 		return fmt.Errorf("failed to write newline: %w", err)
 	}
 
+	// 確保資料寫入磁碟（防止斷電遺失 journal 記錄）
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("failed to sync journal file: %w", err)
+	}
+
 	return nil
 }
 
@@ -142,7 +147,7 @@ func (db *JSONDatabase) applyVideoJournalEntry(entry *JournalEntry) {
 			}
 
 			// 解析更新欄位
-			var updates map[string]interface{}
+			var updates map[string]any
 			if err := json.Unmarshal(entry.Data, &updates); err == nil {
 				db.applyVideoUpdates(existing, updates)
 			}
@@ -154,7 +159,7 @@ func (db *JSONDatabase) applyVideoJournalEntry(entry *JournalEntry) {
 }
 
 // applyVideoUpdates 將更新套用到影片
-func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]interface{}) {
+func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]any) {
 	for key, value := range updates {
 		switch key {
 		case "title":
@@ -178,7 +183,7 @@ func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]i
 				video.URL = v
 			}
 		case "actresses":
-			if v, ok := value.([]interface{}); ok {
+			if v, ok := value.([]any); ok {
 				actresses := make([]string, 0, len(v))
 				for _, a := range v {
 					if s, ok := a.(string); ok {

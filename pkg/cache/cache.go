@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,12 +16,19 @@ type CacheManager struct {
 	indexPath string
 }
 
-// New 建立快取管理器
-func New(cacheDir string) *CacheManager {
+// NewCacheManager 建立快取管理器（符合 Go 命名慣例）
+func NewCacheManager(cacheDir string) *CacheManager {
 	return &CacheManager{
 		cacheDir:  cacheDir,
 		indexPath: filepath.Join(cacheDir, "cache_index.json"),
 	}
+}
+
+// New 建立快取管理器（向後相容別名，建議改用 NewCacheManager）
+//
+// Deprecated: 請改用 NewCacheManager
+func New(cacheDir string) *CacheManager {
+	return NewCacheManager(cacheDir)
 }
 
 // loadIndex 載入索引檔案
@@ -327,25 +335,120 @@ func (cm *CacheManager) ClearAll(dryRun bool) (*CleanupResult, error) {
 }
 
 // AutoCleanup 自動清理（結合過期和大小清理）
-func (cm *CacheManager) AutoCleanup(config PruneConfig) (*CleanupResult, error) {
-	// 先清理過期
-	expiredResult, err := cm.CleanupExpired(config)
+// 一次 index 讀取 + 一次寫入，解決原本兩次讀寫的 TOCTOU 問題
+// ctx 用於支援未來的取消與逾時（目前接受但不使用）
+func (cm *CacheManager) AutoCleanup(ctx context.Context, config PruneConfig) (*CleanupResult, error) {
+	_ = ctx // 預留給未來的取消支援
+
+	// 一次性讀取索引
+	index, err := cm.loadIndex()
 	if err != nil {
-		return nil, fmt.Errorf("過期清理失敗: %w", err)
+		return nil, err
 	}
 
-	// 再清理大小
-	sizeResult, err := cm.CleanupBySize(config)
-	if err != nil {
-		return expiredResult, fmt.Errorf("大小清理失敗: %w", err)
+	result := &CleanupResult{
+		RemainingFiles: len(index.Entries),
 	}
 
-	// 合併結果
-	return &CleanupResult{
-		DeletedFiles:   expiredResult.DeletedFiles + sizeResult.DeletedFiles,
-		FreedBytes:     expiredResult.FreedBytes + sizeResult.FreedBytes,
-		FreedMB:        expiredResult.FreedMB + sizeResult.FreedMB,
-		RemainingFiles: sizeResult.RemainingFiles,
-		Errors:         expiredResult.Errors + sizeResult.Errors,
-	}, nil
+	now := float64(time.Now().Unix())
+	ttlSeconds := float64(config.TTLDays * 24 * 3600)
+
+	// 第一步：清理過期條目（共用同一份 index，無 TOCTOU 問題）
+	if len(index.Entries) > config.MinKeepEntries {
+		type expiredEntry struct {
+			key       string
+			entry     IndexEntry
+			createdAt float64
+		}
+		var expired []expiredEntry
+		for key, entry := range index.Entries {
+			if now-entry.CreatedAt > ttlSeconds {
+				expired = append(expired, expiredEntry{key, entry, entry.CreatedAt})
+			}
+		}
+
+		maxDeletable := len(index.Entries) - config.MinKeepEntries
+		if len(expired) > maxDeletable {
+			sort.Slice(expired, func(i, j int) bool {
+				return expired[i].createdAt < expired[j].createdAt
+			})
+			expired = expired[:maxDeletable]
+		}
+
+		for _, e := range expired {
+			if !config.DryRun {
+				if e.entry.FilePath != "" {
+					if rmErr := os.Remove(e.entry.FilePath); rmErr != nil && !os.IsNotExist(rmErr) {
+						result.Errors++
+						continue
+					}
+				}
+				delete(index.Entries, e.key)
+			}
+			result.DeletedFiles++
+			result.FreedBytes += int64(e.entry.SizeBytes)
+		}
+	}
+
+	// 第二步：清理超大條目（LRU，共用同一份 index）
+	var totalSize int64
+	for _, entry := range index.Entries {
+		totalSize += int64(entry.SizeBytes)
+	}
+
+	maxSizeBytes := int64(config.MaxSizeMB) * 1024 * 1024
+	if totalSize > maxSizeBytes {
+		bytesToFree := totalSize - maxSizeBytes
+
+		type entryWithKey struct {
+			key          string
+			entry        IndexEntry
+			lastAccessed float64
+		}
+		var entries []entryWithKey
+		for key, entry := range index.Entries {
+			lastAccessed := entry.LastAccessed
+			if lastAccessed == 0 {
+				lastAccessed = entry.CreatedAt
+			}
+			entries = append(entries, entryWithKey{key, entry, lastAccessed})
+		}
+
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].lastAccessed < entries[j].lastAccessed
+		})
+
+		maxDeletable := len(index.Entries) - config.MinKeepEntries
+		var freedBytes int64
+
+		for i, e := range entries {
+			if freedBytes >= bytesToFree || i >= maxDeletable {
+				break
+			}
+			if !config.DryRun {
+				if e.entry.FilePath != "" {
+					if rmErr := os.Remove(e.entry.FilePath); rmErr != nil && !os.IsNotExist(rmErr) {
+						result.Errors++
+						continue
+					}
+				}
+				delete(index.Entries, e.key)
+			}
+			freedBytes += int64(e.entry.SizeBytes)
+			result.DeletedFiles++
+			result.FreedBytes += int64(e.entry.SizeBytes)
+		}
+	}
+
+	result.FreedMB = float64(result.FreedBytes) / (1024 * 1024)
+	result.RemainingFiles = len(index.Entries)
+
+	// 一次性寫入索引（避免 TOCTOU 問題）
+	if !config.DryRun && result.DeletedFiles > 0 {
+		if err := cm.saveIndex(index); err != nil {
+			return result, fmt.Errorf("儲存索引失敗: %w", err)
+		}
+	}
+
+	return result, nil
 }

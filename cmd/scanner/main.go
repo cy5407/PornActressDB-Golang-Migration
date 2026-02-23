@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -107,10 +108,10 @@ func scanCmd(args []string) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	// 支援的影片格式
-	supportedFormats := map[string]bool{
-		".mp4": true, ".avi": true, ".mkv": true, ".mov": true, ".wmv": true,
-		".flv": true, ".webm": true, ".m4v": true, ".ts": true, ".m2ts": true,
+	// 支援的影片格式（使用 extractor.SupportedFormats 避免重複定義）
+	supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
+	for _, f := range extractor.SupportedFormats {
+		supportedFormats[f] = true
 	}
 
 	// 建立任務通道
@@ -150,8 +151,8 @@ func scanCmd(args []string) {
 			return nil
 		}
 		// 檢查副檔名是否為支援的影片格式
-		ext := strings.ToLower(filepath.Ext(path))
-		if !supportedFormats[ext] {
+		fileExt := strings.ToLower(filepath.Ext(path))
+		if !supportedFormats[fileExt] {
 			return nil
 		}
 		jobs <- path
@@ -223,7 +224,7 @@ func moveCmd(args []string) {
 			}
 		}
 
-		result := m.BatchMove(items)
+		result := m.BatchMove(context.Background(), items)
 		outputJSON(result)
 		return
 	}
@@ -248,16 +249,14 @@ func historyCmd(args []string) {
 	}
 
 	subCmd := args[0]
-	logDir := "logs"
 
-	// 檢查是否有 -log-dir 參數
-	for i, arg := range args {
-		if arg == "-log-dir" && i+1 < len(args) {
-			logDir = args[i+1]
-		}
-	}
+	// 使用 flag.FlagSet 統一解析 -log-dir 參數
+	fs := flag.NewFlagSet("history "+subCmd, flag.ExitOnError)
+	logDir := fs.String("log-dir", "logs", "操作日誌目錄")
+	fs.Parse(args[1:]) //nolint:errcheck // ExitOnError 模式下不會回傳 error
+	remaining := fs.Args()
 
-	m := mover.NewMover(logDir)
+	m := mover.NewMover(*logDir)
 
 	switch subCmd {
 	case "list":
@@ -284,11 +283,11 @@ func historyCmd(args []string) {
 		}
 
 	case "show":
-		if len(args) < 2 {
+		if len(remaining) < 1 {
 			fmt.Fprintln(os.Stderr, "用法: classifier.exe history show <操作ID>")
 			os.Exit(1)
 		}
-		opID := args[1]
+		opID := remaining[0]
 
 		logs, err := m.ListOperations()
 		if err != nil {
@@ -306,11 +305,11 @@ func historyCmd(args []string) {
 		os.Exit(1)
 
 	case "rollback":
-		if len(args) < 2 {
+		if len(remaining) < 1 {
 			fmt.Fprintln(os.Stderr, "用法: classifier.exe history rollback <操作ID>")
 			os.Exit(1)
 		}
-		opID := args[1]
+		opID := remaining[0]
 
 		// 特殊處理 --last
 		if opID == "--last" {
@@ -346,28 +345,26 @@ func dbCmd(args []string) {
 	}
 
 	subCmd := args[0]
-	dataDir := "data/json_db"
 
-	// 檢查是否有 -data-dir 參數
-	for i, arg := range args {
-		if arg == "-data-dir" && i+1 < len(args) {
-			dataDir = args[i+1]
-		}
-	}
+	// 使用 flag.FlagSet 統一解析 -data-dir 參數
+	fs := flag.NewFlagSet("db "+subCmd, flag.ExitOnError)
+	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
+	fs.Parse(args[1:]) //nolint:errcheck // ExitOnError 模式下不會回傳 error
+	remaining := fs.Args()
 
-	db := database.NewJSONDatabase(dataDir)
-	if err := db.Load(); err != nil {
+	db := database.NewJSONDatabase(*dataDir)
+	if err := db.Load(context.Background()); err != nil {
 		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
 		os.Exit(1)
 	}
 
 	switch subCmd {
 	case "get":
-		if len(args) < 2 {
+		if len(remaining) < 1 {
 			fmt.Fprintln(os.Stderr, "用法: classifier.exe db get <番號>")
 			os.Exit(1)
 		}
-		code := args[1]
+		code := remaining[0]
 
 		video, err := db.GetVideo(code)
 		if err != nil {
@@ -378,12 +375,12 @@ func dbCmd(args []string) {
 		outputJSON(video)
 
 	case "update":
-		if len(args) < 3 {
+		if len(remaining) < 2 {
 			fmt.Fprintln(os.Stderr, "用法: classifier.exe db update <番號> <JSON檔案>")
 			os.Exit(1)
 		}
-		code := args[1]
-		jsonFile := args[2]
+		code := remaining[0]
+		jsonFile := remaining[1]
 
 		data, err := os.ReadFile(jsonFile)
 		if err != nil {
@@ -410,11 +407,11 @@ func dbCmd(args []string) {
 		fmt.Printf("✅ 影片 %s 更新成功\n", code)
 
 	case "delete":
-		if len(args) < 2 {
+		if len(remaining) < 1 {
 			fmt.Fprintln(os.Stderr, "用法: classifier.exe db delete <番號>")
 			os.Exit(1)
 		}
-		code := args[1]
+		code := remaining[0]
 
 		if err := db.DeleteVideo(code); err != nil {
 			fmt.Fprintf(os.Stderr, "刪除影片失敗: %v\n", err)
@@ -554,7 +551,7 @@ func identifyCmd(args []string) {
 	code := fs.Args()[0]
 	studioName := identifier.IdentifyStudio(code)
 
-	result := map[string]interface{}{
+	result := map[string]any{
 		"code":   code,
 		"studio": studioName,
 	}
@@ -597,7 +594,7 @@ func cacheStatsCmd(args []string) {
 	cacheDir := fs.String("cache-dir", "cache", "快取目錄")
 	fs.Parse(args)
 
-	cm := cache.New(*cacheDir)
+	cm := cache.NewCacheManager(*cacheDir)
 	stats, err := cm.GetStats()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 取得快取統計失敗: %v\n", err)
@@ -616,7 +613,7 @@ func cachePruneCmd(args []string) {
 	dryRun := fs.Bool("dry-run", false, "模擬執行（不實際刪除）")
 	fs.Parse(args)
 
-	cm := cache.New(*cacheDir)
+	cm := cache.NewCacheManager(*cacheDir)
 	config := cache.PruneConfig{
 		TTLDays:        *ttlDays,
 		MaxSizeMB:      *maxSizeMB,
@@ -624,7 +621,7 @@ func cachePruneCmd(args []string) {
 		DryRun:         *dryRun,
 	}
 
-	result, err := cm.AutoCleanup(config)
+	result, err := cm.AutoCleanup(context.Background(), config)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 清理快取失敗: %v\n", err)
 		os.Exit(1)
@@ -652,7 +649,7 @@ func cacheClearCmd(args []string) {
 		os.Exit(1)
 	}
 
-	cm := cache.New(*cacheDir)
+	cm := cache.NewCacheManager(*cacheDir)
 	result, err := cm.ClearAll(*dryRun)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 清空快取失敗: %v\n", err)
@@ -670,7 +667,7 @@ func cacheClearCmd(args []string) {
 
 // === 輔助函式 ===
 
-func outputJSON(v interface{}) {
+func outputJSON(v any) {
 	output, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "JSON 編碼錯誤: %v\n", err)

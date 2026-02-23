@@ -2,6 +2,7 @@
 package mover
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -263,7 +264,9 @@ func (m *Mover) MoveDir(src, dst string, strategy ConflictStrategy) MergeResult 
 }
 
 // BatchMove 批次移動檔案
-func (m *Mover) BatchMove(items []MoveItem) BatchResult {
+// ctx 用於支援未來的取消與逾時（目前接受但不使用）
+func (m *Mover) BatchMove(ctx context.Context, items []MoveItem) BatchResult {
+	_ = ctx // 預留給未來的取消支援
 	start := time.Now()
 	result := BatchResult{
 		TotalItems: len(items),
@@ -334,7 +337,7 @@ func (m *Mover) Rollback(operationID string) (BatchResult, error) {
 	}
 
 	// 執行回滾
-	result := m.BatchMove(items)
+	result := m.BatchMove(context.Background(), items)
 
 	// 更新原操作日誌
 	for i := range opLog.Items {
@@ -385,19 +388,25 @@ func (m *Mover) ListOperations() ([]OperationLog, error) {
 
 // === 內部輔助函式 ===
 
+// generateUniqueNameMaxAttempts 是 generateUniqueName 的最大重試次數
+const generateUniqueNameMaxAttempts = 10000
+
 func (m *Mover) generateUniqueName(path string) string {
 	dir := filepath.Dir(path)
-	ext := filepath.Ext(path)
+	fileExt := filepath.Ext(path)
 	base := filepath.Base(path)
-	name := base[:len(base)-len(ext)]
+	name := base[:len(base)-len(fileExt)]
 
-	for i := 1; ; i++ {
-		newName := fmt.Sprintf("%s_%d%s", name, i, ext)
+	for i := 1; i <= generateUniqueNameMaxAttempts; i++ {
+		newName := fmt.Sprintf("%s_%d%s", name, i, fileExt)
 		newPath := filepath.Join(dir, newName)
 		if _, err := os.Stat(newPath); os.IsNotExist(err) {
 			return newPath
 		}
 	}
+
+	// 超過上限，回傳附加時間戳的唯一名稱避免衝突
+	return filepath.Join(dir, fmt.Sprintf("%s_conflict_%d%s", name, time.Now().UnixNano(), fileExt))
 }
 
 func (m *Mover) copyFile(src, dst string) error {
@@ -411,11 +420,24 @@ func (m *Mover) copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
 
-	_, err = io.Copy(dstFile, srcFile)
-	if err != nil {
-		return err
+	if _, err = io.Copy(dstFile, srcFile); err != nil {
+		dstFile.Close()
+		os.Remove(dst) // 清理複製失敗的不完整目標檔案
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	// 確保資料寫入磁碟
+	if err := dstFile.Sync(); err != nil {
+		dstFile.Close()
+		os.Remove(dst)
+		return fmt.Errorf("failed to sync destination file: %w", err)
+	}
+
+	// 明確處理 Close() 的 error
+	if err := dstFile.Close(); err != nil {
+		os.Remove(dst)
+		return fmt.Errorf("failed to close destination file: %w", err)
 	}
 
 	// 保留檔案權限
@@ -471,12 +493,30 @@ func (m *Mover) saveOperationLog(log *OperationLog) error {
 }
 
 func (m *Mover) loadOperationLog(id string) (*OperationLog, error) {
-	logs, err := m.ListOperations()
-	if err != nil {
-		return nil, err
+	if m.LogDir == "" {
+		return nil, fmt.Errorf("未設定日誌目錄")
 	}
 
-	for _, log := range logs {
+	logPath := filepath.Join(m.LogDir, "operations")
+
+	// 使用 glob 直接定位日誌檔案，避免載入全部日誌線性搜尋
+	pattern := filepath.Join(logPath, "*_"+id+".json")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("搜尋日誌檔案失敗: %w", err)
+	}
+
+	for _, match := range matches {
+		data, err := os.ReadFile(match)
+		if err != nil {
+			continue
+		}
+
+		var log OperationLog
+		if err := json.Unmarshal(data, &log); err != nil {
+			continue
+		}
+
 		if log.ID == id {
 			return &log, nil
 		}

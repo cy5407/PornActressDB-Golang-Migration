@@ -82,8 +82,10 @@ type VideoData struct {
 	Metadata         Metadata `json:"metadata"`
 	OriginalFilename string   `json:"original_filename,omitempty"`
 	FilePath         string   `json:"file_path,omitempty"`
-	SearchMethod     string   `json:"search_method,omitempty"`
-	TestField        string   `json:"test_field,omitempty"` // 測試用
+	SearchMethod string `json:"search_method,omitempty"`
+	// TestField は測試專用欄位，正式版本可安全移除
+	// 若需完整隔離，請改以 build tag 控制或移至 test 輔助結構
+	TestField string `json:"test_field,omitempty"`
 }
 
 // GetCode 取得影片番號（優先 code，其次 id）
@@ -128,7 +130,7 @@ type DatabaseData struct {
 	Videos        map[string]*VideoData   `json:"videos"`
 	Actresses     map[string]*ActressData `json:"actresses"`
 	Links         []VideoActressLink      `json:"links"`
-	Statistics    map[string]interface{}  `json:"statistics"`
+	Statistics    map[string]any  `json:"statistics"`
 }
 
 // ============================================================================
@@ -146,7 +148,7 @@ type JournalEntry struct {
 }
 
 // NewJournalEntry 建立新的 Journal 記錄
-func NewJournalEntry(op, entityType, id string, data interface{}) (*JournalEntry, error) {
+func NewJournalEntry(op, entityType, id string, data any) (*JournalEntry, error) {
 	var rawData json.RawMessage
 	if data != nil {
 		b, err := json.Marshal(data)
@@ -298,7 +300,7 @@ func NewDatabaseData() *DatabaseData {
 		Videos:     make(map[string]*VideoData),
 		Actresses:  make(map[string]*ActressData),
 		Links:      []VideoActressLink{},
-		Statistics: make(map[string]interface{}),
+		Statistics: make(map[string]any),
 	}
 }
 

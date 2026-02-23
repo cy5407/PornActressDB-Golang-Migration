@@ -6,12 +6,33 @@ import (
 	"strings"
 )
 
+// SupportedFormats は対応している動画ファイル拡張子の一覧（main.go との重複を避けるための exported 定数）
+var SupportedFormats = []string{".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts", ".m2ts"}
+
 // CodeExtractor handles video code extraction from filenames
 type CodeExtractor struct {
 	supportedFormats []string
 	codePatterns     []codePattern
 	validPatterns    []*regexp.Regexp
 	skipPatterns     []*regexp.Regexp
+
+	// cleanFilename 用正規表達式（預編譯，避免重複編譯）
+	bracketRe    *regexp.Regexp
+	qualityRe    *regexp.Regexp
+	h265Re       *regexp.Regexp
+	resolutionRe *regexp.Regexp
+	versionRe    *regexp.Regexp
+	siteRe       *regexp.Regexp
+	spaceRe      *regexp.Regexp
+	hyphenRe     *regexp.Regexp
+
+	// normalizeCode 用正規表達式
+	letterRe *regexp.Regexp
+	digitRe  *regexp.Regexp
+
+	// validateCode 用正規表達式
+	hasLetterRe *regexp.Regexp
+	hasNumberRe *regexp.Regexp
 }
 
 type codePattern struct {
@@ -22,7 +43,25 @@ type codePattern struct {
 // NewCodeExtractor creates a new extractor instance
 func NewCodeExtractor() *CodeExtractor {
 	e := &CodeExtractor{
-		supportedFormats: []string{".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts", ".m2ts"},
+		supportedFormats: SupportedFormats,
+
+		// cleanFilename 用正規表達式
+		bracketRe:    regexp.MustCompile(`\[.*?\]|\(.*?\)|\{.*?\}`),
+		qualityRe:    regexp.MustCompile(`(?i)[-_]?[CHch]\d*$`),
+		h265Re:       regexp.MustCompile(`(?i)\.H265$`),
+		resolutionRe: regexp.MustCompile(`(?i)[-_]?(1080p|720p|4K|HDR|HEVC|AVC|X264|X265)`),
+		versionRe:    regexp.MustCompile(`(?i)[-_ ]?c\d*$`),
+		siteRe:       regexp.MustCompile(`(?i)^(hhd800\.com@|xxx\.com-)`),
+		spaceRe:      regexp.MustCompile(`\s+`),
+		hyphenRe:     regexp.MustCompile(`-+`),
+
+		// normalizeCode 用正規表達式
+		letterRe: regexp.MustCompile(`[A-Z]+`),
+		digitRe:  regexp.MustCompile(`\d+`),
+
+		// validateCode 用正規表達式
+		hasLetterRe: regexp.MustCompile(`[A-Z]`),
+		hasNumberRe: regexp.MustCompile(`\d`),
 	}
 
 	// Code patterns (in priority order)
@@ -84,34 +123,23 @@ func (e *CodeExtractor) ExtractCode(filename string) string {
 // cleanFilename removes noise from filename
 func (e *CodeExtractor) cleanFilename(name string) string {
 	// Remove brackets content [H265], (1080p), {字幕組}
-	bracketRe := regexp.MustCompile(`\[.*?\]|\(.*?\)|\{.*?\}`)
-	name = bracketRe.ReplaceAllString(name, "")
+	name = e.bracketRe.ReplaceAllString(name, "")
 
 	// Remove quality/encoding markers
-	qualityRe := regexp.MustCompile(`(?i)[-_]?[CHch]\d*$`)
-	name = qualityRe.ReplaceAllString(name, "")
-
-	h265Re := regexp.MustCompile(`(?i)\.H265$`)
-	name = h265Re.ReplaceAllString(name, "")
-
-	resolutionRe := regexp.MustCompile(`(?i)[-_]?(1080p|720p|4K|HDR|HEVC|AVC|X264|X265)`)
-	name = resolutionRe.ReplaceAllString(name, "")
+	name = e.qualityRe.ReplaceAllString(name, "")
+	name = e.h265Re.ReplaceAllString(name, "")
+	name = e.resolutionRe.ReplaceAllString(name, "")
 
 	// Remove version markers
-	versionRe := regexp.MustCompile(`(?i)[-_ ]?c\d*$`)
-	name = versionRe.ReplaceAllString(name, "")
+	name = e.versionRe.ReplaceAllString(name, "")
 
 	// Remove site markers
-	siteRe := regexp.MustCompile(`(?i)^(hhd800\.com@|xxx\.com-)`)
-	name = siteRe.ReplaceAllString(name, "")
+	name = e.siteRe.ReplaceAllString(name, "")
 
 	// Clean whitespace and hyphens
-	spaceRe := regexp.MustCompile(`\s+`)
-	name = spaceRe.ReplaceAllString(name, " ")
+	name = e.spaceRe.ReplaceAllString(name, " ")
 	name = strings.TrimSpace(name)
-
-	hyphenRe := regexp.MustCompile(`-+`)
-	name = hyphenRe.ReplaceAllString(name, "-")
+	name = e.hyphenRe.ReplaceAllString(name, "-")
 
 	return name
 }
@@ -124,11 +152,8 @@ func (e *CodeExtractor) normalizeCode(code string) string {
 
 	// Add hyphen if missing (e.g., STARS707 -> STARS-707)
 	if !strings.Contains(code, "-") {
-		letterRe := regexp.MustCompile(`[A-Z]+`)
-		digitRe := regexp.MustCompile(`\d+`)
-
-		letters := letterRe.FindString(code)
-		digits := digitRe.FindString(code)
+		letters := e.letterRe.FindString(code)
+		digits := e.digitRe.FindString(code)
 
 		if letters != "" && digits != "" {
 			code = letters + "-" + digits
@@ -145,10 +170,7 @@ func (e *CodeExtractor) validateCode(code string) bool {
 	}
 
 	// Must contain both letters and numbers
-	hasLetter := regexp.MustCompile(`[A-Z]`).MatchString(code)
-	hasNumber := regexp.MustCompile(`\d`).MatchString(code)
-
-	if !hasLetter || !hasNumber {
+	if !e.hasLetterRe.MatchString(code) || !e.hasNumberRe.MatchString(code) {
 		return false
 	}
 

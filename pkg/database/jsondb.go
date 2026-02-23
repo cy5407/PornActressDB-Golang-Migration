@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,7 +61,9 @@ func NewJSONDatabase(dataDir string) *JSONDatabase {
 }
 
 // Load 載入資料庫
-func (db *JSONDatabase) Load() error {
+// ctx 用於支援未來的取消與逾時（目前接受但不使用）
+func (db *JSONDatabase) Load(ctx context.Context) error {
+	_ = ctx // 預留給未來的取消支援
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -98,7 +101,7 @@ func (db *JSONDatabase) Load() error {
 		root.Actresses = make(map[string]*ActressData)
 	}
 	if root.Statistics == nil {
-		root.Statistics = make(map[string]interface{})
+		root.Statistics = make(map[string]any)
 	}
 
 	db.root = &root
@@ -292,7 +295,9 @@ func (db *JSONDatabase) UpdateVideo(code string, video *Video) error {
 			// 更新 dirty tracking
 			db.dirtyVideos[code] = true
 			db.journalSize++
-			db.saveIndex()
+			if err := db.saveIndex(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+			}
 		}
 	}
 
@@ -300,7 +305,7 @@ func (db *JSONDatabase) UpdateVideo(code string, video *Video) error {
 }
 
 // UpdateVideoFields 更新影片的特定欄位（與 Python update_video 相容）
-func (db *JSONDatabase) UpdateVideoFields(code string, updates map[string]interface{}) error {
+func (db *JSONDatabase) UpdateVideoFields(code string, updates map[string]any) error {
 	if code == "" {
 		return ErrInvalidCode
 	}
@@ -334,7 +339,9 @@ func (db *JSONDatabase) UpdateVideoFields(code string, updates map[string]interf
 	// 更新 dirty tracking
 	db.dirtyVideos[code] = true
 	db.journalSize++
-	db.saveIndex()
+	if err := db.saveIndex(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+	}
 
 	return nil
 }
@@ -374,7 +381,9 @@ func (db *JSONDatabase) AddVideo(video *Video) error {
 	// 更新 dirty tracking
 	db.dirtyVideos[code] = true
 	db.journalSize++
-	db.saveIndex()
+	if err := db.saveIndex(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+	}
 
 	return nil
 }
@@ -409,7 +418,9 @@ func (db *JSONDatabase) DeleteVideo(code string) error {
 			// 更新 dirty tracking
 			delete(db.dirtyVideos, code)
 			db.journalSize++
-			db.saveIndex()
+			if err := db.saveIndex(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+			}
 		}
 	}
 
@@ -474,11 +485,22 @@ func (db *JSONDatabase) BatchUpdate(updates map[string]*Video) error {
 		db.root.Videos[code] = video
 	}
 
-	// 批次寫入 journal
+	// 批次寫入 journal，同時更新 dirty tracking
 	for code, video := range updates {
+		if code == "" || video == nil {
+			continue
+		}
 		if err := db.appendJournal("update", code, video); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to write journal entry: %v\n", err)
+		} else {
+			db.dirtyVideos[code] = true
+			db.journalSize++
 		}
+	}
+
+	// 儲存索引
+	if err := db.saveIndex(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
 	}
 
 	return nil
@@ -517,7 +539,9 @@ func (db *JSONDatabase) CompactJournal() error {
 	db.journalCreatedAt = time.Now().UTC()
 
 	// 儲存索引
-	db.saveIndex()
+	if err := db.saveIndex(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save index after compact: %v\n", err)
+	}
 
 	return nil
 }
@@ -563,7 +587,7 @@ func (db *JSONDatabase) NeedsCompact() bool {
 }
 
 // GetStats 取得資料庫統計資訊（與 Python get_stats() 相容）
-func (db *JSONDatabase) GetStats() (map[string]interface{}, error) {
+func (db *JSONDatabase) GetStats() (map[string]any, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -574,7 +598,7 @@ func (db *JSONDatabase) GetStats() (map[string]interface{}, error) {
 	journalAge := time.Since(db.journalCreatedAt).Seconds()
 	needsCompact := db.journalSize >= JournalSizeThreshold || journalAge >= float64(JournalAgeThreshold)
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"video_count":          len(db.root.Videos),
 		"actress_count":        len(db.root.Actresses),
 		"link_count":           len(db.root.Links),

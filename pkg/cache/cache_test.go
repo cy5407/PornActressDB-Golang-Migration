@@ -31,20 +31,23 @@ func createTestIndex(t *testing.T, dir string, entries map[string]IndexEntry) {
 }
 
 func TestNew(t *testing.T) {
-	cm := New("/tmp/cache")
+	const testCacheDir = "/tmp/cache"
+	cm := NewCacheManager(testCacheDir)
 
-	if cm.cacheDir != "/tmp/cache" {
-		t.Errorf("cacheDir = %s, want /tmp/cache", cm.cacheDir)
+	if cm.cacheDir != testCacheDir {
+		t.Errorf("cacheDir = %s, want %s", cm.cacheDir, testCacheDir)
 	}
 
-	if cm.indexPath != "/tmp/cache/cache_index.json" {
-		t.Errorf("indexPath = %s, want /tmp/cache/cache_index.json", cm.indexPath)
+	// 使用 filepath.Join 確保跨平台路徑比較正確
+	wantIndexPath := filepath.Join(testCacheDir, "cache_index.json")
+	if cm.indexPath != wantIndexPath {
+		t.Errorf("indexPath = %s, want %s", cm.indexPath, wantIndexPath)
 	}
 }
 
 func TestGetStats_Empty(t *testing.T) {
 	dir := t.TempDir()
-	cm := New(dir)
+	cm := NewCacheManager(dir)
 
 	// 不建立索引檔案
 	stats, err := cm.GetStats()
@@ -59,7 +62,7 @@ func TestGetStats_Empty(t *testing.T) {
 
 func TestGetStats_WithEntries(t *testing.T) {
 	dir := t.TempDir()
-	cm := New(dir)
+	cm := NewCacheManager(dir)
 
 	now := float64(time.Now().Unix())
 	entries := map[string]IndexEntry{
@@ -109,7 +112,7 @@ func TestGetStats_WithEntries(t *testing.T) {
 
 func TestGetStats_WithExpired(t *testing.T) {
 	dir := t.TempDir()
-	cm := New(dir)
+	cm := NewCacheManager(dir)
 
 	now := float64(time.Now().Unix())
 	entries := map[string]IndexEntry{
@@ -141,7 +144,7 @@ func TestGetStats_WithExpired(t *testing.T) {
 
 func TestCleanupExpired(t *testing.T) {
 	dir := t.TempDir()
-	cm := New(dir)
+	cm := NewCacheManager(dir)
 
 	now := float64(time.Now().Unix())
 
@@ -196,7 +199,7 @@ func TestCleanupExpired(t *testing.T) {
 
 func TestCleanupExpired_DryRun(t *testing.T) {
 	dir := t.TempDir()
-	cm := New(dir)
+	cm := NewCacheManager(dir)
 
 	now := float64(time.Now().Unix())
 
@@ -241,7 +244,7 @@ func TestCleanupExpired_DryRun(t *testing.T) {
 
 func TestCleanupBySize(t *testing.T) {
 	dir := t.TempDir()
-	cm := New(dir)
+	cm := NewCacheManager(dir)
 
 	now := float64(time.Now().Unix())
 
@@ -296,7 +299,7 @@ func TestCleanupBySize(t *testing.T) {
 
 func TestClearAll(t *testing.T) {
 	dir := t.TempDir()
-	cm := New(dir)
+	cm := NewCacheManager(dir)
 
 	now := float64(time.Now().Unix())
 
@@ -334,7 +337,7 @@ func TestClearAll(t *testing.T) {
 
 func TestMinKeepEntries(t *testing.T) {
 	dir := t.TempDir()
-	cm := New(dir)
+	cm := NewCacheManager(dir)
 
 	now := float64(time.Now().Unix())
 

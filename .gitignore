@@ -45,6 +45,9 @@ Desktop.ini
 .env.development
 .env.production
 
+# 本機設定（含路徑等敏感資訊，請使用 config.ini.example 作為範本）
+config.ini
+
 # Agent 運行時產生的臨時檔案
 .call_count
 .circuit_breaker_history

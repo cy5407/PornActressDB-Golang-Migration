@@ -16,10 +16,12 @@ type StudioIdentifier struct {
 	CodeToStudio map[string]string
 	// StudioAliases 片商別名對照表
 	StudioAliases map[string]string
+	// majorStudios 大片商清單（從 major_studios.json 載入）
+	majorStudios map[string]bool
 }
 
-// MajorStudios 大片商清單
-var MajorStudios = map[string]bool{
+// defaultMajorStudios 預設大片商清單（作為 major_studios.json 不存在時的後備）
+var defaultMajorStudios = map[string]bool{
 	"S1":        true,
 	"MOODYZ":    true,
 	"PREMIUM":   true,
@@ -35,6 +37,11 @@ var MajorStudios = map[string]bool{
 	"WANZ":      true,
 }
 
+// MajorStudios 大片商清單（向後相容，建議改從 major_studios.json 集中維護）
+//
+// Deprecated: 請改用 major_studios.json 集中維護大片商清單
+var MajorStudios = defaultMajorStudios
+
 // NewStudioIdentifier 建立片商識別器
 func NewStudioIdentifier(rulesFile string) (*StudioIdentifier, error) {
 	si := &StudioIdentifier{
@@ -47,15 +54,57 @@ func NewStudioIdentifier(rulesFile string) (*StudioIdentifier, error) {
 			"ファレノ":          "FALENO",
 			"Premium":       "PREMIUM",
 		},
+		majorStudios: make(map[string]bool),
 	}
 
 	// 載入 studios.json（即使失敗也繼續，使用預設規則）
 	err := si.loadRules(rulesFile)
 
+	// 載入 major_studios.json（即使失敗也使用預設清單）
+	si.loadMajorStudios(rulesFile)
+
 	// 建立反向對應表
 	si.CodeToStudio = si.buildCodeToStudioMap()
 
 	return si, err
+}
+
+// loadMajorStudios 從 major_studios.json 載入大片商清單
+func (si *StudioIdentifier) loadMajorStudios(rulesFile string) {
+	// 嘗試與 studios.json 同目錄的 major_studios.json
+	dir := filepath.Dir(rulesFile)
+	if rulesFile == "" || rulesFile == "studios.json" {
+		dir = "."
+	}
+
+	majorFile := filepath.Join(dir, "major_studios.json")
+	paths := []string{
+		majorFile,
+		"major_studios.json",
+		filepath.Join("..", "major_studios.json"),
+		filepath.Join("..", "..", "major_studios.json"),
+	}
+
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		var list []string
+		if err := json.Unmarshal(data, &list); err != nil {
+			continue
+		}
+
+		// 成功載入
+		for _, name := range list {
+			si.majorStudios[name] = true
+		}
+		return
+	}
+
+	// 所有路徑失敗，使用預設清單
+	si.majorStudios = defaultMajorStudios
 }
 
 // loadRules 載入片商規則檔案
@@ -174,8 +223,12 @@ func (si *StudioIdentifier) NormalizeStudioName(studioName string, videoCode str
 }
 
 // IsMajorStudio 判斷是否為大片商
+// 優先使用從 major_studios.json 載入的清單，若清單為空則回退到預設清單
 func (si *StudioIdentifier) IsMajorStudio(studioName string) bool {
-	return MajorStudios[studioName]
+	if len(si.majorStudios) > 0 {
+		return si.majorStudios[studioName]
+	}
+	return defaultMajorStudios[studioName]
 }
 
 // GetAllStudios 取得所有片商名稱

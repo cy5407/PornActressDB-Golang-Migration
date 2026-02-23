@@ -1,6 +1,7 @@
 package mover
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -260,7 +261,7 @@ func TestBatchMove_Basic(t *testing.T) {
 	}
 
 	m := NewMover(tempDir)
-	result := m.BatchMove(items)
+	result := m.BatchMove(context.Background(), items)
 
 	if result.TotalItems != 3 {
 		t.Errorf("總數應該是 3，得到 %d", result.TotalItems)
@@ -289,7 +290,7 @@ func TestBatchMove_PartialFailure(t *testing.T) {
 	}
 
 	m := NewMover(tempDir)
-	result := m.BatchMove(items)
+	result := m.BatchMove(context.Background(), items)
 
 	if result.SuccessCount != 1 {
 		t.Errorf("成功數應該是 1，得到 %d", result.SuccessCount)
@@ -314,7 +315,7 @@ func TestOperationLog_SaveAndList(t *testing.T) {
 	}
 
 	m := NewMover(tempDir)
-	m.BatchMove(items)
+	m.BatchMove(context.Background(), items)
 
 	// 列出操作日誌
 	logs, err := m.ListOperations()
@@ -347,7 +348,7 @@ func TestRollback_Basic(t *testing.T) {
 	}
 
 	m := NewMover(tempDir)
-	m.BatchMove(items)
+	m.BatchMove(context.Background(), items)
 
 	// 確認檔案已移動
 	if fileExists(srcFile) {

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"testing"
 )
@@ -10,7 +11,7 @@ func setupTestDB(t *testing.T) (*JSONDatabase, string) {
 	tmpDir := t.TempDir()
 
 	db := NewJSONDatabase(tmpDir)
-	if err := db.Load(); err != nil {
+	if err := db.Load(context.Background()); err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
@@ -128,7 +129,7 @@ func TestSaveAndLoad(t *testing.T) {
 
 	// 建立第一個資料庫實例
 	db1 := NewJSONDatabase(tmpDir)
-	if err := db1.Load(); err != nil {
+	if err := db1.Load(context.Background()); err != nil {
 		t.Fatalf("Failed to load db1: %v", err)
 	}
 
@@ -146,7 +147,7 @@ func TestSaveAndLoad(t *testing.T) {
 
 	// 建立第二個資料庫實例並載入
 	db2 := NewJSONDatabase(tmpDir)
-	if err := db2.Load(); err != nil {
+	if err := db2.Load(context.Background()); err != nil {
 		t.Fatalf("Failed to load db2: %v", err)
 	}
 
@@ -165,7 +166,7 @@ func TestJournal(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	db := NewJSONDatabase(tmpDir)
-	if err := db.Load(); err != nil {
+	if err := db.Load(context.Background()); err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
@@ -265,7 +266,7 @@ func TestGetStats(t *testing.T) {
 func BenchmarkGetVideo(b *testing.B) {
 	tmpDir := b.TempDir()
 	db := NewJSONDatabase(tmpDir)
-	if err := db.Load(); err != nil {
+	if err := db.Load(context.Background()); err != nil {
 		b.Fatal(err)
 	}
 
@@ -288,7 +289,7 @@ func BenchmarkGetVideo(b *testing.B) {
 func BenchmarkUpdateVideo(b *testing.B) {
 	tmpDir := b.TempDir()
 	db := NewJSONDatabase(tmpDir)
-	if err := db.Load(); err != nil {
+	if err := db.Load(context.Background()); err != nil {
 		b.Fatal(err)
 	}
 
@@ -305,7 +306,7 @@ func BenchmarkUpdateVideo(b *testing.B) {
 func BenchmarkBatchUpdate(b *testing.B) {
 	tmpDir := b.TempDir()
 	db := NewJSONDatabase(tmpDir)
-	if err := db.Load(); err != nil {
+	if err := db.Load(context.Background()); err != nil {
 		b.Fatal(err)
 	}
 

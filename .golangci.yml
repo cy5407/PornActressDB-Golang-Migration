@@ -49,6 +49,11 @@ linters-settings:
   goimports:
     local-prefixes: actress-classifier
 
+  # govet - 啟用 shadow 偵測（偵測變數遮蔽，如 main.go 的 ext 問題）
+  govet:
+    enable:
+      - shadow
+
 issues:
   # Exclude test files from certain checks
   exclude-rules:
