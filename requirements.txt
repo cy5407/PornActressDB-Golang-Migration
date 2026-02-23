@@ -1,4 +1,4 @@
-# 女優分類系統相依套件 v2.1
+# 女優分類系統相依套件 v2.2
 # 核心 HTTP 和網路相關
 aiohttp>=3.8.0         # 非同步 HTTP 客戶端
 httpx>=0.25.0          # 同步/非同步 HTTP 客戶端
@@ -6,13 +6,11 @@ requests>=2.31.0       # 傳統 HTTP 客戶端
 
 # HTML 解析和編碼處理
 beautifulsoup4>=4.12.0 # HTML 解析器
-lxml>=4.9.0           # XML/HTML 解析器
 chardet>=5.2.0        # 編碼自動檢測
-brotli>=1.0.0         # Brotli 壓縮支援 (用於解碼 Content-Encoding: brotli)
+brotli>=1.0.0         # Brotli 壓縮支援 (用於解碼 Content-Encoding: br)
 
 # GUI 相關
 # tkinter  # 內建於 Python，通常不需要安裝
-ttkbootstrap>=1.10.0  # 美化主題 (選用)
 
 # 資料處理和序列化
 orjson>=3.9.0          # 高效能 JSON 序列化
@@ -21,12 +19,6 @@ orjson>=3.9.0          # 高效能 JSON 序列化
 pytest>=7.0.0
 pytest-cov>=4.0.0
 pytest-mock>=3.10.0
-
-# 程式碼品質
-ruff>=0.1.0            # Linter + Formatter (取代 black/flake8/isort)
-
-# 環境設定
-python-dotenv>=1.0.0
 
 # 檔案鎖定和並行控制
 filelock>=3.13.0       # 檔案級鎖定，用於並行存取控制
