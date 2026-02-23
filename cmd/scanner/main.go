@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -50,8 +50,7 @@ func main() {
 		if len(os.Args) > 1 && (os.Args[1] == "-dir" || os.Args[1] == "-workers") {
 			scanCmd(os.Args[1:])
 		} else {
-			fmt.Fprintf(os.Stderr, "未知命令: %s\n", command)
-			printUsage()
+			printError(fmt.Sprintf("未知命令: %s", command), "使用 'help' 查看所有可用命令")
 			os.Exit(1)
 		}
 	}
@@ -91,89 +90,117 @@ func printUsage() {
 // === Scan 命令 ===
 
 func scanCmd(args []string) {
-	fs := flag.NewFlagSet("scan", flag.ExitOnError)
-	dir := fs.String("dir", ".", "要掃描的目錄")
-	workers := fs.Int("workers", 10, "並行工作數")
-	recursive := fs.Bool("recursive", true, "是否遞迴掃描子目錄")
-	fs.Parse(args)
+fs := flag.NewFlagSet("scan", flag.ExitOnError)
+dir := fs.String("dir", ".", "要掃描的目錄")
+workers := fs.Int("workers", 10, "並行工作數")
+recursive := fs.Bool("recursive", true, "是否遞迴掃描子目錄")
+showProgress := fs.Bool("progress", false, "顯示掃描進度條（輸出至 stderr）")
+fs.Parse(args)
 
-	// 驗證目錄
-	if _, err := os.Stat(*dir); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "錯誤: 目錄不存在: %s\n", *dir)
-		os.Exit(1)
-	}
-
-	ext := extractor.NewCodeExtractor()
-	results := make([]ScanResult, 0)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	// 支援的影片格式（使用 extractor.SupportedFormats 避免重複定義）
-	supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
-	for _, f := range extractor.SupportedFormats {
-		supportedFormats[f] = true
-	}
-
-	// 建立任務通道
-	jobs := make(chan string, 100)
-
-	// 啟動工作者
-	for i := 0; i < *workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for path := range jobs {
-				if code := ext.ExtractCode(path); code != "" {
-					mu.Lock()
-					results = append(results, ScanResult{Path: path, Code: code})
-					mu.Unlock()
-				}
-			}
-		}()
-	}
-
-	// 取得絕對路徑用於比較
-	absDir, _ := filepath.Abs(*dir)
-
-	// 遍歷目錄
-	err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			// 非遞迴模式：跳過子目錄
-			if !*recursive {
-				absPath, _ := filepath.Abs(path)
-				if absPath != absDir {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
-		// 檢查副檔名是否為支援的影片格式
-		fileExt := strings.ToLower(filepath.Ext(path))
-		if !supportedFormats[fileExt] {
-			return nil
-		}
-		jobs <- path
-		return nil
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "遍歷目錄錯誤: %v\n", err)
-	}
-
-	close(jobs)
-	wg.Wait()
-
-	// 輸出 JSON
-	output, err := json.MarshalIndent(results, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "JSON 編碼錯誤: %v\n", err)
-		return
-	}
-	fmt.Println(string(output))
+// 驗證目錄
+if _, err := os.Stat(*dir); os.IsNotExist(err) {
+printError(fmt.Sprintf("目錄不存在: %s", *dir), "請確認路徑正確並具有讀取權限")
+os.Exit(1)
 }
 
+ext := extractor.NewCodeExtractor()
+results := make([]ScanResult, 0)
+var mu sync.Mutex
+var wg sync.WaitGroup
+
+supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
+for _, f := range extractor.SupportedFormats {
+supportedFormats[f] = true
+}
+
+jobs := make(chan string, 100)
+
+// 若啟用進度條，先計算檔案數量
+var pb *ProgressBar
+if *showProgress {
+total := 0
+absDir, _ := filepath.Abs(*dir)
+filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck
+if err != nil || d == nil {
+return nil
+}
+if d.IsDir() {
+if !*recursive {
+absPath, _ := filepath.Abs(path)
+if absPath != absDir {
+return filepath.SkipDir
+}
+}
+return nil
+}
+if supportedFormats[strings.ToLower(filepath.Ext(path))] {
+total++
+}
+return nil
+})
+pb = NewProgressBar(total, "掃描中")
+}
+
+for i := 0; i < *workers; i++ {
+wg.Add(1)
+go func() {
+defer wg.Done()
+for path := range jobs {
+if code := ext.ExtractCode(path); code != "" {
+mu.Lock()
+results = append(results, ScanResult{Path: path, Code: code})
+mu.Unlock()
+}
+if pb != nil {
+mu.Lock()
+pb.Increment()
+mu.Unlock()
+}
+}
+}()
+}
+
+absDir, _ := filepath.Abs(*dir)
+
+err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
+if err != nil {
+return nil
+}
+if d.IsDir() {
+if !*recursive {
+absPath, _ := filepath.Abs(path)
+if absPath != absDir {
+return filepath.SkipDir
+}
+}
+return nil
+}
+fileExt := strings.ToLower(filepath.Ext(path))
+if !supportedFormats[fileExt] {
+return nil
+}
+jobs <- path
+return nil
+})
+if err != nil {
+printWarning("遍歷目錄時發生錯誤: %v", err)
+}
+
+close(jobs)
+wg.Wait()
+
+if pb != nil {
+pb.Finish()
+printSuccess("掃描完成，找到 %d 個番號", len(results))
+}
+
+output, err := json.MarshalIndent(results, "", "  ")
+if err != nil {
+printError(fmt.Sprintf("JSON 編碼失敗: %v", err))
+return
+}
+fmt.Println(string(output))
+}
 // === Move 命令 ===
 
 func moveCmd(args []string) {
@@ -199,7 +226,7 @@ func moveCmd(args []string) {
 	case "rename":
 		conflictStrategy = mover.Rename
 	default:
-		fmt.Fprintf(os.Stderr, "未知的衝突策略: %s\n", *strategy)
+		printError(fmt.Sprintf("未知的衝突策略: %s", *strategy), "有效值: skip, overwrite, rename")
 		os.Exit(1)
 	}
 
@@ -207,13 +234,13 @@ func moveCmd(args []string) {
 	if *batch != "" {
 		data, err := os.ReadFile(*batch)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "無法讀取批次檔案: %v\n", err)
+			printError(fmt.Sprintf("無法讀取批次檔案: %v", err), "請確認檔案路徑正確")
 			os.Exit(1)
 		}
 
 		var items []mover.MoveItem
 		if err := json.Unmarshal(data, &items); err != nil {
-			fmt.Fprintf(os.Stderr, "JSON 解析錯誤: %v\n", err)
+			printError(fmt.Sprintf("JSON 解析錯誤: %v", err), "批次檔案必須是有效的 JSON 陣列格式")
 			os.Exit(1)
 		}
 
@@ -231,7 +258,7 @@ func moveCmd(args []string) {
 
 	// 單檔模式
 	if *src == "" || *dst == "" {
-		fmt.Fprintln(os.Stderr, "錯誤: 必須指定 -src 和 -dst，或使用 -batch")
+		printError("必須指定 -src 和 -dst，或使用 -batch")
 		fs.Usage()
 		os.Exit(1)
 	}
@@ -262,7 +289,7 @@ func historyCmd(args []string) {
 	case "list":
 		logs, err := m.ListOperations()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "無法列出操作: %v\n", err)
+			printError(fmt.Sprintf("無法列出操作: %v", err))
 			os.Exit(1)
 		}
 
@@ -291,7 +318,7 @@ func historyCmd(args []string) {
 
 		logs, err := m.ListOperations()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "無法讀取操作: %v\n", err)
+			printError(fmt.Sprintf("無法讀取操作: %v", err))
 			os.Exit(1)
 		}
 
@@ -301,7 +328,7 @@ func historyCmd(args []string) {
 				return
 			}
 		}
-		fmt.Fprintf(os.Stderr, "找不到操作 ID: %s\n", opID)
+		printError(fmt.Sprintf("找不到操作 ID: %s", opID), "請使用 'history list' 查看有效的操作 ID")
 		os.Exit(1)
 
 	case "rollback":
@@ -315,7 +342,7 @@ func historyCmd(args []string) {
 		if opID == "--last" {
 			logs, err := m.ListOperations()
 			if err != nil || len(logs) == 0 {
-				fmt.Fprintln(os.Stderr, "沒有可回滾的操作")
+				printError("沒有可回滾的操作")
 				os.Exit(1)
 			}
 			opID = logs[len(logs)-1].ID
@@ -323,11 +350,11 @@ func historyCmd(args []string) {
 
 		result, err := m.Rollback(opID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "回滾失敗: %v\n", err)
+			printError(fmt.Sprintf("回滾失敗: %v", err))
 			os.Exit(1)
 		}
 
-		fmt.Printf("✅ 回滾完成: 成功 %d, 失敗 %d\n", result.SuccessCount, result.FailedCount)
+		printSuccess("回滾完成: 成功 %d, 失敗 %d", result.SuccessCount, result.FailedCount)
 		outputJSON(result)
 
 	default:
@@ -404,7 +431,7 @@ func dbCmd(args []string) {
 			os.Exit(1)
 		}
 
-		fmt.Printf("✅ 影片 %s 更新成功\n", code)
+		printSuccess("影片 %s 更新成功", code)
 
 	case "delete":
 		if len(remaining) < 1 {
@@ -423,7 +450,7 @@ func dbCmd(args []string) {
 			os.Exit(1)
 		}
 
-		fmt.Printf("✅ 影片 %s 刪除成功\n", code)
+		printSuccess("影片 %s 刪除成功", code)
 
 	case "list":
 		codes, err := db.ListVideos()
@@ -449,7 +476,7 @@ func dbCmd(args []string) {
 			os.Exit(1)
 		}
 
-		fmt.Println("✅ Journal 合併成功")
+		printSuccess("Journal 合併成功")
 
 	default:
 		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)
@@ -471,7 +498,7 @@ func identifyCmd(args []string) {
 	// 初始化片商識別器
 	identifier, err := studio.NewStudioIdentifier(*rulesFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "警告: 無法載入片商規則檔案，使用預設規則: %v\n", err)
+		printWarning("無法載入片商規則檔案，使用預設規則: %v", err)
 	}
 
 	// 列出所有片商
@@ -490,8 +517,7 @@ func identifyCmd(args []string) {
 	// 顯示片商前綴
 	if *showPrefixes {
 		if len(fs.Args()) == 0 {
-			fmt.Fprintf(os.Stderr, "錯誤: 請指定片商名稱\n")
-			fmt.Fprintf(os.Stderr, "用法: classifier.exe identify -prefixes <片商名稱>\n")
+			printError("請指定片商名稱", "用法: classifier.exe identify -prefixes <片商名稱>")
 			os.Exit(1)
 		}
 		studioName := fs.Args()[0]
@@ -540,11 +566,7 @@ func identifyCmd(args []string) {
 
 	// 單一番號識別
 	if len(fs.Args()) == 0 {
-		fmt.Fprintf(os.Stderr, "錯誤: 請指定番號\n")
-		fmt.Fprintf(os.Stderr, "用法: classifier.exe identify <番號>\n")
-		fmt.Fprintf(os.Stderr, "      classifier.exe identify -batch <檔案>\n")
-		fmt.Fprintf(os.Stderr, "      classifier.exe identify -list\n")
-		fmt.Fprintf(os.Stderr, "      classifier.exe identify -prefixes <片商名稱>\n")
+		printError("請指定番號", "用法: classifier.exe identify <番號>")
 		os.Exit(1)
 	}
 
