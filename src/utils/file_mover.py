@@ -381,13 +381,12 @@ class FileMover:
             ]
             
             go_result = self.go_bridge.batch_move(
-                moves=go_moves,
+                items=go_moves,
                 strategy=self.conflict_strategy,
-                log_operation=self.enable_log,
             )
             
             # 記錄操作 ID
-            if hasattr(go_result, 'operation_id'):
+            if getattr(go_result, "operation_id", None):
                 self._last_operation_id = go_result.operation_id
             
             return {
@@ -395,6 +394,9 @@ class FileMover:
                 "success": go_result.success_count,
                 "failed": go_result.failed_count,
                 "skipped": go_result.skipped_count,
+                "operation_id": go_result.operation_id,
+                "status": go_result.status,
+                "summary": go_result.summary,
                 "results": [
                     {
                         "success": r.success,
@@ -438,10 +440,25 @@ class FileMover:
         try:
             result = self.go_bridge.rollback(op_id)
             return {
-                "success": result.get("success", False),
+                "success": result.failed_count == 0,
                 "operation_id": op_id,
-                "rolled_back": result.get("rolled_back", 0),
-                "error": result.get("error"),
+                "rolled_back": result.success_count,
+                "failed": result.failed_count,
+                "skipped": result.skipped_count,
+                "status": result.status,
+                "summary": result.summary,
+                "error": result.summary if result.failed_count > 0 else None,
+                "results": [
+                    {
+                        "success": item.success,
+                        "source": item.source,
+                        "destination": item.destination,
+                        "error": item.error,
+                        "skipped": item.skipped,
+                        "renamed": item.renamed,
+                    }
+                    for item in result.results
+                ],
             }
         except Exception as e:
             return {
@@ -463,7 +480,21 @@ class FileMover:
             return []
         
         try:
-            return self.go_bridge.list_operations(limit=limit)
+            operations = self.go_bridge.list_operations(limit=limit)
+            return [
+                {
+                    "id": op.id,
+                    "timestamp": op.timestamp,
+                    "type": op.type,
+                    "status": op.status,
+                    "items": op.items,
+                    "total_items": op.total_items,
+                    "success_count": op.success_count,
+                    "failed_count": op.failed_count,
+                    "skipped_count": op.skipped_count,
+                }
+                for op in operations
+            ]
         except Exception:
             return []
     

@@ -195,11 +195,16 @@ class OperationHistoryDialog:
             
             # 填充列表
             for op in self.operations:
-                op_id = op.get("id", "")[:12] + "..."  # 縮短 ID
+                full_op_id = op.get("id", "")
+                op_id = (
+                    f"{full_op_id[:12]}..."
+                    if len(full_op_id) > 12
+                    else full_op_id
+                )
                 timestamp = op.get("timestamp", "")
                 op_type = self._format_type(op.get("type", ""))
                 status = self._format_status(op.get("status", ""))
-                items = len(op.get("items", []))
+                items = op.get("total_items", len(op.get("items", [])))
                 
                 self.tree.insert("", "end", values=(op_id, timestamp, op_type, status, items))
             
@@ -218,6 +223,7 @@ class OperationHistoryDialog:
             "move": "📁 移動",
             "batch_move": "📦 批次移動",
             "move_batch": "📦 批次移動",
+            "rollback": "↩️ 回滾",
             "copy": "📋 複製",
         }
         return type_map.get(op_type, op_type)
@@ -225,6 +231,7 @@ class OperationHistoryDialog:
     def _format_status(self, status: str) -> str:
         """格式化狀態"""
         status_map = {
+            "started": "🕓 進行中",
             "completed": "✅ 完成",
             "partial": "⚠️ 部分",
             "failed": "❌ 失敗",
@@ -271,9 +278,13 @@ class OperationHistoryDialog:
         # 基本資訊
         info_text = f"""操作 ID: {op.get('id', 'N/A')}
 時間: {op.get('timestamp', 'N/A')}
-類型: {op.get('type', 'N/A')}
-狀態: {op.get('status', 'N/A')}
-
+類型: {self._format_type(op.get('type', 'N/A'))}
+狀態: {self._format_status(op.get('status', 'N/A'))}
+總項目: {op.get('total_items', len(op.get('items', [])))}
+成功: {op.get('success_count', 0)}
+跳過: {op.get('skipped_count', 0)}
+失敗: {op.get('failed_count', 0)}
+ 
 移動項目:
 """
         
@@ -294,7 +305,14 @@ class OperationHistoryDialog:
         for item in op.get("items", []):
             src = item.get("source", "")
             dst = item.get("destination", "")
-            items_text.insert("end", f"• {src}\n  → {dst}\n\n")
+            status = item.get("status", "")
+            error = item.get("error", "")
+            items_text.insert("end", f"• {src}\n  → {dst}\n")
+            if status:
+                items_text.insert("end", f"  狀態: {status}\n")
+            if error:
+                items_text.insert("end", f"  錯誤: {error}\n")
+            items_text.insert("end", "\n")
         
         items_text.config(state="disabled")
         
@@ -333,15 +351,18 @@ class OperationHistoryDialog:
             
             if result.get("success"):
                 rolled_back = result.get("rolled_back", 0)
+                failed = result.get("failed", 0)
+                summary = result.get("summary")
+                detail = summary or f"已回滾 {rolled_back} 個項目，失敗 {failed} 個。"
                 messagebox.showinfo(
                     "回滾成功",
-                    f"已成功回滾 {rolled_back} 個項目。",
+                    detail,
                     parent=self.dialog
                 )
                 # 重新載入歷史
                 self._load_history()
             else:
-                error = result.get("error", "未知錯誤")
+                error = result.get("error") or result.get("summary") or "未知錯誤"
                 messagebox.showerror(
                     "回滾失敗",
                     f"回滾操作失敗：\n{error}",

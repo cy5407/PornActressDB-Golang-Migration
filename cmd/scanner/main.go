@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"context"
@@ -90,117 +90,118 @@ func printUsage() {
 // === Scan 命令 ===
 
 func scanCmd(args []string) {
-fs := flag.NewFlagSet("scan", flag.ExitOnError)
-dir := fs.String("dir", ".", "要掃描的目錄")
-workers := fs.Int("workers", 10, "並行工作數")
-recursive := fs.Bool("recursive", true, "是否遞迴掃描子目錄")
-showProgress := fs.Bool("progress", false, "顯示掃描進度條（輸出至 stderr）")
-fs.Parse(args)
+	fs := flag.NewFlagSet("scan", flag.ExitOnError)
+	dir := fs.String("dir", ".", "要掃描的目錄")
+	workers := fs.Int("workers", 10, "並行工作數")
+	recursive := fs.Bool("recursive", true, "是否遞迴掃描子目錄")
+	showProgress := fs.Bool("progress", false, "顯示掃描進度條（輸出至 stderr）")
+	fs.Parse(args)
 
-// 驗證目錄
-if _, err := os.Stat(*dir); os.IsNotExist(err) {
-printError(fmt.Sprintf("目錄不存在: %s", *dir), "請確認路徑正確並具有讀取權限")
-os.Exit(1)
+	// 驗證目錄
+	if _, err := os.Stat(*dir); os.IsNotExist(err) {
+		printError(fmt.Sprintf("目錄不存在: %s", *dir), "請確認路徑正確並具有讀取權限")
+		os.Exit(1)
+	}
+
+	ext := extractor.NewCodeExtractor()
+	results := make([]ScanResult, 0)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
+	for _, f := range extractor.SupportedFormats {
+		supportedFormats[f] = true
+	}
+
+	jobs := make(chan string, 100)
+
+	// 若啟用進度條，先計算檔案數量
+	var pb *ProgressBar
+	if *showProgress {
+		total := 0
+		absDir, _ := filepath.Abs(*dir)
+		filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck
+			if err != nil || d == nil {
+				return nil
+			}
+			if d.IsDir() {
+				if !*recursive {
+					absPath, _ := filepath.Abs(path)
+					if absPath != absDir {
+						return filepath.SkipDir
+					}
+				}
+				return nil
+			}
+			if supportedFormats[strings.ToLower(filepath.Ext(path))] {
+				total++
+			}
+			return nil
+		})
+		pb = NewProgressBar(total, "掃描中")
+	}
+
+	for i := 0; i < *workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range jobs {
+				if code := ext.ExtractCode(path); code != "" {
+					mu.Lock()
+					results = append(results, ScanResult{Path: path, Code: code})
+					mu.Unlock()
+				}
+				if pb != nil {
+					mu.Lock()
+					pb.Increment()
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+
+	absDir, _ := filepath.Abs(*dir)
+
+	err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if !*recursive {
+				absPath, _ := filepath.Abs(path)
+				if absPath != absDir {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		fileExt := strings.ToLower(filepath.Ext(path))
+		if !supportedFormats[fileExt] {
+			return nil
+		}
+		jobs <- path
+		return nil
+	})
+	if err != nil {
+		printWarning("遍歷目錄時發生錯誤: %v", err)
+	}
+
+	close(jobs)
+	wg.Wait()
+
+	if pb != nil {
+		pb.Finish()
+		printSuccess("掃描完成，找到 %d 個番號", len(results))
+	}
+
+	output, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		printError(fmt.Sprintf("JSON 編碼失敗: %v", err))
+		return
+	}
+	fmt.Println(string(output))
 }
 
-ext := extractor.NewCodeExtractor()
-results := make([]ScanResult, 0)
-var mu sync.Mutex
-var wg sync.WaitGroup
-
-supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
-for _, f := range extractor.SupportedFormats {
-supportedFormats[f] = true
-}
-
-jobs := make(chan string, 100)
-
-// 若啟用進度條，先計算檔案數量
-var pb *ProgressBar
-if *showProgress {
-total := 0
-absDir, _ := filepath.Abs(*dir)
-filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck
-if err != nil || d == nil {
-return nil
-}
-if d.IsDir() {
-if !*recursive {
-absPath, _ := filepath.Abs(path)
-if absPath != absDir {
-return filepath.SkipDir
-}
-}
-return nil
-}
-if supportedFormats[strings.ToLower(filepath.Ext(path))] {
-total++
-}
-return nil
-})
-pb = NewProgressBar(total, "掃描中")
-}
-
-for i := 0; i < *workers; i++ {
-wg.Add(1)
-go func() {
-defer wg.Done()
-for path := range jobs {
-if code := ext.ExtractCode(path); code != "" {
-mu.Lock()
-results = append(results, ScanResult{Path: path, Code: code})
-mu.Unlock()
-}
-if pb != nil {
-mu.Lock()
-pb.Increment()
-mu.Unlock()
-}
-}
-}()
-}
-
-absDir, _ := filepath.Abs(*dir)
-
-err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
-if err != nil {
-return nil
-}
-if d.IsDir() {
-if !*recursive {
-absPath, _ := filepath.Abs(path)
-if absPath != absDir {
-return filepath.SkipDir
-}
-}
-return nil
-}
-fileExt := strings.ToLower(filepath.Ext(path))
-if !supportedFormats[fileExt] {
-return nil
-}
-jobs <- path
-return nil
-})
-if err != nil {
-printWarning("遍歷目錄時發生錯誤: %v", err)
-}
-
-close(jobs)
-wg.Wait()
-
-if pb != nil {
-pb.Finish()
-printSuccess("掃描完成，找到 %d 個番號", len(results))
-}
-
-output, err := json.MarshalIndent(results, "", "  ")
-if err != nil {
-printError(fmt.Sprintf("JSON 編碼失敗: %v", err))
-return
-}
-fmt.Println(string(output))
-}
 // === Move 命令 ===
 
 func moveCmd(args []string) {
@@ -280,6 +281,7 @@ func historyCmd(args []string) {
 	// 使用 flag.FlagSet 統一解析 -log-dir 參數
 	fs := flag.NewFlagSet("history "+subCmd, flag.ExitOnError)
 	logDir := fs.String("log-dir", "logs", "操作日誌目錄")
+	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
 	fs.Parse(args[1:]) //nolint:errcheck // ExitOnError 模式下不會回傳 error
 	remaining := fs.Args()
 
@@ -294,7 +296,16 @@ func historyCmd(args []string) {
 		}
 
 		if len(logs) == 0 {
-			fmt.Println("沒有操作記錄")
+			if *jsonOutput {
+				outputJSON([]mover.OperationLog{})
+			} else {
+				fmt.Println("沒有操作記錄")
+			}
+			return
+		}
+
+		if *jsonOutput {
+			outputJSON(logs)
 			return
 		}
 
@@ -354,7 +365,9 @@ func historyCmd(args []string) {
 			os.Exit(1)
 		}
 
-		printSuccess("回滾完成: 成功 %d, 失敗 %d", result.SuccessCount, result.FailedCount)
+		if !*jsonOutput {
+			printSuccess("回滾完成: 成功 %d, 失敗 %d", result.SuccessCount, result.FailedCount)
+		}
 		outputJSON(result)
 
 	default:

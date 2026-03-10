@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,11 +54,14 @@ type MergeResult struct {
 
 // BatchResult 表示批次移動結果
 type BatchResult struct {
+	OperationID  string       `json:"operation_id,omitempty"`
 	TotalItems   int          `json:"total_items"`
 	SuccessCount int          `json:"success_count"`
 	FailedCount  int          `json:"failed_count"`
 	SkippedCount int          `json:"skipped_count"`
 	Results      []MoveResult `json:"results"`
+	Status       string       `json:"status,omitempty"`
+	Summary      string       `json:"summary,omitempty"`
 	Duration     string       `json:"duration"`
 }
 
@@ -71,11 +75,15 @@ type MoveLog struct {
 
 // OperationLog 記錄批次操作
 type OperationLog struct {
-	ID        string    `json:"id"`
-	Timestamp time.Time `json:"timestamp"`
-	Type      string    `json:"type"` // batch_move, merge
-	Items     []MoveLog `json:"items"`
-	Status    string    `json:"status"` // started, completed, partial, failed
+	ID           string    `json:"id"`
+	Timestamp    time.Time `json:"timestamp"`
+	Type         string    `json:"type"` // batch_move, rollback, merge
+	Items        []MoveLog `json:"items"`
+	TotalItems   int       `json:"total_items"`
+	SuccessCount int       `json:"success_count"`
+	FailedCount  int       `json:"failed_count"`
+	SkippedCount int       `json:"skipped_count"`
+	Status       string    `json:"status"` // started, completed, partial, failed
 }
 
 // Mover 檔案移動器
@@ -266,6 +274,10 @@ func (m *Mover) MoveDir(src, dst string, strategy ConflictStrategy) MergeResult 
 // BatchMove 批次移動檔案
 // ctx 用於支援未來的取消與逾時（目前接受但不使用）
 func (m *Mover) BatchMove(ctx context.Context, items []MoveItem) BatchResult {
+	return m.batchMoveWithType(ctx, items, "batch_move")
+}
+
+func (m *Mover) batchMoveWithType(ctx context.Context, items []MoveItem, opType string) BatchResult {
 	_ = ctx // 預留給未來的取消支援
 	start := time.Now()
 	result := BatchResult{
@@ -274,7 +286,7 @@ func (m *Mover) BatchMove(ctx context.Context, items []MoveItem) BatchResult {
 	}
 
 	// 建立操作日誌
-	opLog := m.createOperationLog("batch_move", items)
+	opLog := m.createOperationLog(opType, items)
 
 	for i, item := range items {
 		strategy := item.OnConflict
@@ -309,10 +321,17 @@ func (m *Mover) BatchMove(ctx context.Context, items []MoveItem) BatchResult {
 	} else {
 		opLog.Status = "failed"
 	}
+	opLog.TotalItems = result.TotalItems
+	opLog.SuccessCount = result.SuccessCount
+	opLog.FailedCount = result.FailedCount
+	opLog.SkippedCount = result.SkippedCount
 
 	// 儲存操作日誌
 	m.saveOperationLog(opLog)
 
+	result.OperationID = opLog.ID
+	result.Status = opLog.Status
+	result.Summary = formatBatchSummary(result)
 	result.Duration = time.Since(start).String()
 	return result
 }
@@ -337,13 +356,18 @@ func (m *Mover) Rollback(operationID string) (BatchResult, error) {
 	}
 
 	// 執行回滾
-	result := m.BatchMove(context.Background(), items)
+	result := m.batchMoveWithType(context.Background(), items, "rollback")
 
 	// 更新原操作日誌
+	rolledBackCount := 0
 	for i := range opLog.Items {
 		if opLog.Items[i].Status == "success" {
 			opLog.Items[i].Status = "rolled_back"
+			rolledBackCount++
 		}
+	}
+	if rolledBackCount > 0 {
+		opLog.Status = "rolled_back"
 	}
 	m.saveOperationLog(opLog)
 
@@ -382,6 +406,10 @@ func (m *Mover) ListOperations() ([]OperationLog, error) {
 		}
 		logs = append(logs, log)
 	}
+
+	sort.Slice(logs, func(i, j int) bool {
+		return logs[i].Timestamp.After(logs[j].Timestamp)
+	})
 
 	return logs, nil
 }
@@ -451,11 +479,12 @@ func (m *Mover) copyFile(src, dst string) error {
 
 func (m *Mover) createOperationLog(opType string, items []MoveItem) *OperationLog {
 	log := &OperationLog{
-		ID:        uuid.New().String()[:8],
-		Timestamp: time.Now(),
-		Type:      opType,
-		Status:    "started",
-		Items:     make([]MoveLog, len(items)),
+		ID:         uuid.New().String()[:8],
+		Timestamp:  time.Now(),
+		Type:       opType,
+		Status:     "started",
+		TotalItems: len(items),
+		Items:      make([]MoveLog, len(items)),
 	}
 
 	for i, item := range items {
@@ -467,6 +496,16 @@ func (m *Mover) createOperationLog(opType string, items []MoveItem) *OperationLo
 	}
 
 	return log
+}
+
+func formatBatchSummary(result BatchResult) string {
+	return fmt.Sprintf(
+		"總計 %d，成功 %d，跳過 %d，失敗 %d",
+		result.TotalItems,
+		result.SuccessCount,
+		result.SkippedCount,
+		result.FailedCount,
+	)
 }
 
 func (m *Mover) saveOperationLog(log *OperationLog) error {

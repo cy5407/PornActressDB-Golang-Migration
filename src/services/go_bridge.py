@@ -63,11 +63,14 @@ class MoveResult:
 @dataclass
 class BatchMoveResult:
     """批次移動結果"""
+    operation_id: Optional[str]
     total_items: int
     success_count: int
     failed_count: int
     skipped_count: int
     results: list[MoveResult]
+    status: str
+    summary: str
     duration: str
 
 
@@ -79,6 +82,10 @@ class OperationLog:
     type: str
     status: str
     items: list[dict]
+    total_items: int = 0
+    success_count: int = 0
+    failed_count: int = 0
+    skipped_count: int = 0
 
 
 class GoBridgeError(Exception):
@@ -231,6 +238,68 @@ class GoBridge:
             return json.loads(output)
         except json.JSONDecodeError as e:
             raise GoBridgeError(f"JSON 解析失敗: {e}\n輸出: {output[:200]}")
+
+    def _parse_json_from_output(self, output: str) -> dict | list:
+        """從純 JSON 或混合輸出中擷取 JSON 內容。"""
+        text = output.strip()
+        if not text:
+            raise GoBridgeError("命令沒有輸出任何內容")
+
+        try:
+            return self._parse_json(text)
+        except GoBridgeError:
+            lines = text.splitlines()
+            for index, line in enumerate(lines):
+                stripped = line.lstrip()
+                if stripped.startswith("{") or stripped.startswith("["):
+                    return self._parse_json("\n".join(lines[index:]))
+            raise
+
+    def _build_batch_move_result(
+        self,
+        data: dict,
+        default_total_items: int = 0,
+    ) -> BatchMoveResult:
+        results = [
+            MoveResult(
+                source=r.get("source", ""),
+                destination=r.get("destination", ""),
+                success=r.get("success", False),
+                error=r.get("error"),
+                skipped=r.get("skipped", False),
+                renamed=r.get("renamed"),
+            )
+            for r in data.get("results", [])
+        ]
+
+        return BatchMoveResult(
+            operation_id=data.get("operation_id"),
+            total_items=data.get("total_items", default_total_items),
+            success_count=data.get("success_count", 0),
+            failed_count=data.get("failed_count", 0),
+            skipped_count=data.get("skipped_count", 0),
+            results=results,
+            status=data.get("status", ""),
+            summary=data.get("summary", ""),
+            duration=data.get("duration", ""),
+        )
+
+    def _build_operation_log(
+        self,
+        data: dict,
+        default_operation_id: str = "",
+    ) -> OperationLog:
+        return OperationLog(
+            id=data.get("id", default_operation_id),
+            timestamp=data.get("timestamp", ""),
+            type=self._normalize_operation_type(data.get("type", "")),
+            status=data.get("status", ""),
+            items=data.get("items", []),
+            total_items=data.get("total_items", len(data.get("items", []))),
+            success_count=data.get("success_count", 0),
+            failed_count=data.get("failed_count", 0),
+            skipped_count=data.get("skipped_count", 0),
+        )
     
     # === 掃描功能 ===
     
@@ -373,29 +442,12 @@ class GoBridge:
                 args.append("-dry-run")
             
             result = self._run_command(args, check=False, timeout=300)
-            data = self._parse_json(result.stdout)
-            
-            # 解析結果
-            results = [
-                MoveResult(
-                    source=r.get("source", ""),
-                    destination=r.get("destination", ""),
-                    success=r.get("success", False),
-                    error=r.get("error"),
-                    skipped=r.get("skipped", False),
-                    renamed=r.get("renamed"),
-                )
-                for r in data.get("results", [])
-            ]
-            
-            return BatchMoveResult(
-                total_items=data.get("total_items", len(items)),
-                success_count=data.get("success_count", 0),
-                failed_count=data.get("failed_count", 0),
-                skipped_count=data.get("skipped_count", 0),
-                results=results,
-                duration=data.get("duration", ""),
-            )
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
+                raise GoBridgeError(error_msg)
+
+            data = self._parse_json_from_output(result.stdout)
+            return self._build_batch_move_result(data, default_total_items=len(items))
             
         finally:
             # 清理暫存檔
@@ -412,40 +464,51 @@ class GoBridge:
     
     # === 操作歷史功能 ===
     
-    def list_operations(self) -> list[OperationLog]:
+    def list_operations(self, limit: Optional[int] = None) -> list[OperationLog]:
         """
         列出操作歷史
         
         Returns:
             list[OperationLog]: 操作日誌列表
         """
-        args = ["history", "list", "-log-dir", self.log_dir]
+        args = ["history", "list", "-log-dir", self.log_dir, "-json"]
         
         try:
             result = self._run_command(args, check=False)
+            if result.returncode != 0:
+                raise GoBridgeError(
+                    result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
+                )
             
             # 檢查是否為 "沒有操作記錄" 的訊息
             if "沒有操作記錄" in result.stdout:
                 return []
             
-            # 解析表格輸出（非 JSON）
-            # 格式: ID        時間                 類型        狀態
-            lines = result.stdout.strip().split("\n")
-            logs = []
-            
-            for line in lines[2:]:  # 跳過標題行
-                parts = line.split()
-                if len(parts) >= 4:
-                    logs.append(OperationLog(
-                        id=parts[0],
-                        timestamp=f"{parts[1]} {parts[2]}",
-						type=self._normalize_operation_type(parts[3]),
-                        status=parts[4] if len(parts) > 4 else "",
-                        items=[],
-                    ))
-            
+            try:
+                data = self._parse_json_from_output(result.stdout)
+                logs = [self._build_operation_log(item) for item in data]
+            except GoBridgeError:
+                # 相容舊版表格輸出
+                lines = result.stdout.strip().split("\n")
+                logs = []
+
+                for line in lines[2:]:  # 跳過標題行
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        logs.append(
+                            OperationLog(
+                                id=parts[0],
+                                timestamp=f"{parts[1]} {parts[2]}",
+                                type=self._normalize_operation_type(parts[3]),
+                                status=parts[4] if len(parts) > 4 else "",
+                                items=[],
+                            )
+                        )
+
+            if limit is not None:
+                return logs[:limit]
             return logs
-            
+             
         except GoBridgeError:
             return []
     
@@ -459,20 +522,13 @@ class GoBridge:
         Returns:
             OperationLog 或 None
         """
-        args = ["history", "show", operation_id, "-log-dir", self.log_dir]
+        args = ["history", "show", "-log-dir", self.log_dir, "-json", operation_id]
         
         try:
             result = self._run_command(args)
-            data = self._parse_json(result.stdout)
-            
-            return OperationLog(
-                id=data.get("id", operation_id),
-                timestamp=data.get("timestamp", ""),
-				type=self._normalize_operation_type(data.get("type", "")),
-                status=data.get("status", ""),
-                items=data.get("items", []),
-            )
-            
+            data = self._parse_json_from_output(result.stdout)
+            return self._build_operation_log(data, default_operation_id=operation_id)
+             
         except GoBridgeError:
             return None
     
@@ -489,53 +545,15 @@ class GoBridge:
         Raises:
             GoBridgeError: 回滾失敗時
         """
-        args = ["history", "rollback", operation_id, "-log-dir", self.log_dir]
+        args = ["history", "rollback", "-log-dir", self.log_dir, "-json", operation_id]
         
         result = self._run_command(args, check=False)
-        
-        # 解析輸出（可能包含狀態訊息 + JSON）
-        lines = result.stdout.strip().split("\n")
-        json_start = None
-        
-        for i, line in enumerate(lines):
-            if line.startswith("{"):
-                json_start = i
-                break
-        
-        if json_start is not None:
-            json_str = "\n".join(lines[json_start:])
-            data = self._parse_json(json_str)
-            
-            results = [
-                MoveResult(
-                    source=r.get("source", ""),
-                    destination=r.get("destination", ""),
-                    success=r.get("success", False),
-                    error=r.get("error"),
-                    skipped=r.get("skipped", False),
-                    renamed=r.get("renamed"),
-                )
-                for r in data.get("results", [])
-            ]
-            
-            return BatchMoveResult(
-                total_items=data.get("total_items", 0),
-                success_count=data.get("success_count", 0),
-                failed_count=data.get("failed_count", 0),
-                skipped_count=data.get("skipped_count", 0),
-                results=results,
-                duration=data.get("duration", ""),
-            )
-        
-        # 如果沒有 JSON 輸出，返回空結果
-        return BatchMoveResult(
-            total_items=0,
-            success_count=0,
-            failed_count=0,
-            skipped_count=0,
-            results=[],
-            duration="",
-        )
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
+            raise GoBridgeError(error_msg)
+
+        data = self._parse_json_from_output(result.stdout)
+        return self._build_batch_move_result(data)
     
     def rollback_last(self) -> BatchMoveResult:
         """回滾最近一次操作"""

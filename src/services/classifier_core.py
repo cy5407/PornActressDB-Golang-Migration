@@ -201,6 +201,7 @@ class UnifiedClassifierCore:
                 "total_files": len(video_files),
                 "new_codes": len(new_code_file_map),
                 "success": success_count,
+                "failed": max(len(new_code_file_map) - success_count, 0),
             }
         except Exception as e:
             self.logger.error(f"搜尋過程中發生錯誤: {e}", exc_info=True)
@@ -298,6 +299,7 @@ class UnifiedClassifierCore:
                 "total_files": len(video_files),
                 "new_codes": len(new_code_file_map),
                 "success": success_count,
+                "failed": max(len(new_code_file_map) - success_count, 0),
             }
         except Exception as e:
             self.logger.error(f"日文網站搜尋過程中發生錯誤: {e}", exc_info=True)

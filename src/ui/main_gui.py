@@ -432,6 +432,57 @@ class UnifiedActressClassifierGUI:
         """顯示操作歷史對話框"""
         show_operation_history(self.root, self.core.file_mover)
 
+    def _get_result_message(self, result, default: str = "未知錯誤") -> str:
+        """統一取得背景工作的提示訊息。"""
+        if isinstance(result, dict):
+            return result.get("message") or result.get("error") or default
+        if result:
+            return str(result)
+        return default
+
+    def _show_result_error(self, result):
+        """統一顯示背景工作的錯誤提示。"""
+        error_msg = self._get_result_message(result)
+        self.update_progress(f"\n{'=' * 60}\n❌ 錯誤: {error_msg}\n")
+        self.status_var.set(f"錯誤: {error_msg}")
+
+    def _append_search_summary(self, title: str, result: dict):
+        """統一顯示搜尋工作的摘要。"""
+        summary_lines = [f"\n{'=' * 60}\n{title}\n"]
+
+        if "new_codes" in result:
+            summary_lines.append(f"\n  🎯 搜尋目標: {result.get('new_codes', 0)}\n")
+        if "success" in result:
+            summary_lines.append(f"  ✅ 找到資料: {result.get('success', 0)}\n")
+        if "failed" in result:
+            summary_lines.append(f"  ❌ 未找到: {result.get('failed', 0)}\n")
+        if "first_round_success" in result:
+            summary_lines.append(
+                f"\n  ✅ 第一輪成功: {result.get('first_round_success', 0)}\n"
+            )
+            summary_lines.append(
+                f"  ❌ 第一輪失敗: {result.get('first_round_failed', 0)}\n"
+            )
+            summary_lines.append(
+                f"  🔄 二次搜尋成功: {result.get('second_round_success', 0)}\n"
+            )
+        if result.get("source_stats"):
+            summary_lines.append("\n  📈 來源統計:\n")
+            for source, count in sorted(
+                result["source_stats"].items(), key=lambda item: -item[1]
+            ):
+                summary_lines.append(f"    • {source}: {count}\n")
+        if (
+            not any(
+                key in result
+                for key in ("new_codes", "success", "failed", "first_round_success")
+            )
+            and result.get("message")
+        ):
+            summary_lines.append(f"\n  ℹ️ {result['message']}\n")
+
+        self.update_progress("".join(summary_lines))
+
     def on_closing(self):
         """程式關閉時的處理"""
         self.is_running = False
@@ -631,11 +682,10 @@ class UnifiedActressClassifierGUI:
                 self.update_progress("\n🛑 任務已由使用者中止。\n")
                 self.status_var.set("任務已中止")
             elif result["status"] == "success":
-                self.update_progress(f"\n{'=' * 60}\n🎉 搜尋任務完成！\n")
+                self._append_search_summary("🎉 搜尋任務完成！", result)
                 self.status_var.set("就緒")
             else:
-                self.update_progress(f"\n💥 錯誤: {result['message']}\n")
-                self.status_var.set(f"錯誤: {result.get('message', '未知錯誤')}")
+                self._show_result_error(result)
 
     def start_japanese_search(self):
         """開始日文網站搜尋"""
@@ -692,7 +742,7 @@ class UnifiedActressClassifierGUI:
                 self.update_progress("\n🛑 任務已由使用者中止。\n")
                 self.status_var.set("任務已中止")
             elif result.get("status") == "success":
-                self.update_progress(f"\n{'=' * 60}\n🎉 日文網站搜尋任務完成！\n")
+                self._append_search_summary("🎉 日文網站搜尋任務完成！", result)
                 self.status_var.set("就緒")
 
                 # 儲存搜尋結果供預覽使用
@@ -702,8 +752,7 @@ class UnifiedActressClassifierGUI:
                 if self.show_results_var.get():
                     self.root.after(100, self._show_search_results_dialog)
             else:
-                self.update_progress(f"\n💥 錯誤: {result['message']}\n")
-                self.status_var.set(f"錯誤: {result.get('message', '未知錯誤')}")
+                self._show_result_error(result)
 
     def _javdb_search_worker(self, path):
         """JAVDB搜尋工作者"""
@@ -716,11 +765,10 @@ class UnifiedActressClassifierGUI:
                 self.update_progress("\n🛑 任務已由使用者中止。\n")
                 self.status_var.set("任務已中止")
             elif result["status"] == "success":
-                self.update_progress(f"\n{'=' * 60}\n🎉 JAVDB搜尋任務完成！\n")
+                self._append_search_summary("🎉 JAVDB 搜尋任務完成！", result)
                 self.status_var.set("就緒")
             else:
-                self.update_progress(f"\n💥 錯誤: {result['message']}\n")
-                self.status_var.set(f"錯誤: {result.get('message', '未知錯誤')}")
+                self._show_result_error(result)
 
     def start_interactive_move(self):
         path = self.selected_path.get()
@@ -766,11 +814,13 @@ class UnifiedActressClassifierGUI:
                 )
                 self.update_progress(summary)
                 self.status_var.set("就緒")
-            else:
+            elif result.get("status") == "no_data":
                 self.update_progress(
-                    f"\n💥 錯誤: {result.get('message', '未知錯誤')}\n"
+                    f"\n{'=' * 60}\n⚠️ {self._get_result_message(result)}\n"
                 )
-                self.status_var.set(f"錯誤: {result.get('message', '未知錯誤')}")
+                self.status_var.set("就緒")
+            else:
+                self._show_result_error(result)
 
     def start_standard_move(self):
         path = self.selected_path.get()
@@ -810,10 +860,7 @@ class UnifiedActressClassifierGUI:
                 self.update_progress(summary)
                 self.status_var.set("就緒")
             else:
-                self.update_progress(
-                    f"\n💥 錯誤: {result.get('message', '未知錯誤')}\n"
-                )
-                self.status_var.set(f"錯誤: {result.get('message', '未知錯誤')}")
+                self._show_result_error(result)
 
     def start_smart_search_and_move(self):
         """開始智慧搜尋並分類"""
@@ -892,15 +939,11 @@ class UnifiedActressClassifierGUI:
                     self.update_progress(summary)
                     self.status_var.set("就緒")
                 else:
-                    self.update_progress(
-                        f"\n💥 錯誤: {result.get('message', '未知錯誤')}\n"
-                    )
-                    self.status_var.set(f"錯誤: {result.get('message', '未知錯誤')}")
+                    self._show_result_error(result)
         except Exception as e:
             logger.error(f"智慧搜尋並分類失敗: {e}", exc_info=True)
             if self.is_running:
-                self.update_progress(f"\n💥 錯誤: {e}\n")
-                self.status_var.set(f"錯誤: {e}")
+                self._show_result_error({"message": str(e)})
 
     def start_studio_classification(self):
         """開始片商分類功能"""
