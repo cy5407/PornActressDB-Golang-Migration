@@ -73,7 +73,7 @@ type MoveLog struct {
 type OperationLog struct {
 	ID        string    `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
-	Type      string    `json:"type"` // move_batch, merge
+	Type      string    `json:"type"` // batch_move, merge
 	Items     []MoveLog `json:"items"`
 	Status    string    `json:"status"` // started, completed, partial, failed
 }
@@ -274,7 +274,7 @@ func (m *Mover) BatchMove(ctx context.Context, items []MoveItem) BatchResult {
 	}
 
 	// 建立操作日誌
-	opLog := m.createOperationLog("move_batch", items)
+	opLog := m.createOperationLog("batch_move", items)
 
 	for i, item := range items {
 		strategy := item.OnConflict

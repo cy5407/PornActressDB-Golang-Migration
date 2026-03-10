@@ -403,6 +403,12 @@ class GoBridge:
                 os.unlink(batch_file)
             except Exception:
                 pass
+
+    def _normalize_operation_type(self, operation_type: str) -> str:
+        """正規化操作類型，保留舊日誌相容性。"""
+        if operation_type == "move_batch":
+            return "batch_move"
+        return operation_type
     
     # === 操作歷史功能 ===
     
@@ -433,7 +439,7 @@ class GoBridge:
                     logs.append(OperationLog(
                         id=parts[0],
                         timestamp=f"{parts[1]} {parts[2]}",
-                        type=parts[3],
+						type=self._normalize_operation_type(parts[3]),
                         status=parts[4] if len(parts) > 4 else "",
                         items=[],
                     ))
@@ -462,7 +468,7 @@ class GoBridge:
             return OperationLog(
                 id=data.get("id", operation_id),
                 timestamp=data.get("timestamp", ""),
-                type=data.get("type", ""),
+				type=self._normalize_operation_type(data.get("type", "")),
                 status=data.get("status", ""),
                 items=data.get("items", []),
             )

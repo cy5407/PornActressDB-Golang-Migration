@@ -217,6 +217,7 @@ class OperationHistoryDialog:
         type_map = {
             "move": "📁 移動",
             "batch_move": "📦 批次移動",
+            "move_batch": "📦 批次移動",
             "copy": "📋 複製",
         }
         return type_map.get(op_type, op_type)

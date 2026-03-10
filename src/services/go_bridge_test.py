@@ -308,6 +308,27 @@ class TestGoBridgeHistory(unittest.TestCase):
         self.assertIsInstance(result, BatchMoveResult)
         self.assertEqual(result.success_count, 1)
 
+    @patch('subprocess.run')
+    def test_get_operation_normalizes_legacy_move_batch_type(self, mock_run):
+        """測試舊 move_batch 日誌會被正規化為 batch_move"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "id": "abc123",
+                "timestamp": "2026-03-10T13:00:00Z",
+                "type": "move_batch",
+                "status": "completed",
+                "items": [],
+            }),
+            stderr="",
+        )
+
+        bridge = GoBridge()
+        log = bridge.get_operation("abc123")
+
+        self.assertIsNotNone(log)
+        self.assertEqual(log.type, "batch_move")
+
 
 class TestConvenienceFunctions(unittest.TestCase):
     """測試便捷函式"""
