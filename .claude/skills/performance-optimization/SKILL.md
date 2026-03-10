@@ -62,7 +62,7 @@ go test ./pkg/extractor -bench=. -benchmem
 
 ```python
 # AV-WIKI 支援高併發
-results = await scraper.search_batch_concurrent(
+results = await scraper.batch_search_concurrent(
     codes,
     max_concurrent=15  # 15 個並發請求
 )

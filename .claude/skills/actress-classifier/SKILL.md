@@ -117,7 +117,7 @@ db.add_or_update_video(code, video_info)
 
 ```python
 # 批次併發搜尋（AV-WIKI 支援高併發）
-results = await scraper.search_batch_concurrent(
+results = await scraper.batch_search_concurrent(
     codes,
     max_concurrent=15,
     progress_callback=callback

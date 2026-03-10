@@ -18,7 +18,8 @@
 1. [src/services/web_searcher.py](src/services/web_searcher.py#L539) `batch_search`
 2. [src/services/web_searcher.py](src/services/web_searcher.py#L1102) `batch_cascade_search`
 3. [src/scrapers/unified_scraper.py](src/scrapers/unified_scraper.py#L421) `batch_search_videos`
-4. [src/scrapers/sources/avwiki_scraper.py](src/scrapers/sources/avwiki_scraper.py#L585) `search_batch_concurrent`
+4. [src/scrapers/sources/avwiki_scraper.py](src/scrapers/sources/avwiki_scraper.py#L585) `batch_search_concurrent`
+5. [src/scrapers/sources/avwiki_scraper.py](src/scrapers/sources/avwiki_scraper.py#L826) `search_batch_concurrent`（相容層）
 
 目前問題：
 1. 同一家族已經同時存在 `batch_search_*` 與 `search_batch_*`
@@ -45,6 +46,8 @@
 
 ### Commit 1: 建立新主名稱與相容 wrapper
 
+狀態：已完成（commit `8ad2a16`）
+
 目標：
 1. 在 AV-WIKI scraper 中新增 `batch_search_concurrent`
 2. 保留 `search_batch_concurrent` 作為薄 wrapper 或 deprecated alias
@@ -58,6 +61,8 @@
 2. 新名稱與舊名稱回傳結果完全一致
 
 ### Commit 2: 切換內部呼叫端到新主名稱
+
+狀態：已完成（commit `d1824c2`）
 
 目標：
 1. 將內部呼叫端從 `search_batch_concurrent` 改為 `batch_search_concurrent`
@@ -73,6 +78,8 @@
 
 ### Commit 3: 更新測試與文件名稱
 
+狀態：已完成（本次工作樹）
+
 目標：
 1. 將測試、說明、註解中的舊名同步換成新主名稱
 2. 文件只保留一個主名稱，舊名只在相容說明中出現
@@ -83,12 +90,14 @@
 
 驗證：
 1. 搜尋 repo，不再把舊名當成主名稱介紹
+2. 相容 wrapper 已有最小單元測試覆蓋
 
 ### Commit 4: 移除舊相容 wrapper
 
 前提：
 1. 所有內部呼叫端已完成切換
 2. 沒有外部依賴需要保留舊名
+3. 文件與測試已確認只把舊名視為遷移相容層
 
 目標：
 1. 刪除 `search_batch_concurrent`
@@ -120,3 +129,18 @@
 2. 相關批次搜尋流程是否仍正常回傳結果
 3. 進度回調、快取、併發限制是否未被 rename 破壞
 4. 文件與測試是否同步更新
+
+## 目前判定
+
+截至 2026-03-10：
+1. 內部正式呼叫端已切換到 `batch_search_concurrent`
+2. `search_batch_concurrent` 僅剩相容 wrapper 與遷移說明用途
+3. 已補上相容 wrapper 的最小測試，確認舊名仍正確代理到新主名稱
+4. 若外部使用者或其他分支沒有舊名依賴，可開始安排 Commit 4 移除 wrapper
+
+## Commit 4 啟動條件檢查
+
+1. 內部正式呼叫端：已完成切換
+2. 文件主名稱：已完成切換
+3. 相容層保護：已有最小測試可在移除前後協助比對
+4. 目前阻塞點：僅剩是否要保留對外相容性

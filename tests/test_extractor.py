@@ -2,8 +2,12 @@
 測試番號提取器模組
 """
 
+import asyncio
+from unittest.mock import AsyncMock
+
 import pytest
 
+from src.scrapers.sources.avwiki_scraper import AVWikiScraper
 from src.models.extractor import UnifiedCodeExtractor
 
 
@@ -117,3 +121,34 @@ class TestUnifiedCodeExtractor:
         """測試從完整路徑提取"""
         path = "/path/to/video/STARS-707.mp4"
         assert extractor.extract_code(path) == "STARS-707"
+
+
+class TestAVWikiScraperCompatibility:
+    """測試 AV-WIKI scraper 命名相容層"""
+
+    def test_search_batch_concurrent_delegates_to_batch_search_concurrent(self):
+        """測試舊名稱會委派到新主名稱"""
+        expected = {
+            "STARS-707": {
+                "video_code": "STARS-707",
+                "actresses": ["範例女優"],
+            }
+        }
+        async def run_test() -> tuple[AVWikiScraper, dict[str, dict[str, list[str] | str]]]:
+            scraper = AVWikiScraper()
+            scraper.batch_search_concurrent = AsyncMock(return_value=expected)
+            result = await scraper.search_batch_concurrent(
+                ["STARS-707"],
+                max_concurrent=7,
+                progress_callback=None,
+            )
+            return scraper, result
+
+        scraper, result = asyncio.run(run_test())
+
+        scraper.batch_search_concurrent.assert_awaited_once_with(
+            ["STARS-707"],
+            max_concurrent=7,
+            progress_callback=None,
+        )
+        assert result == expected
