@@ -63,6 +63,20 @@ argument-hint: "[feature-name]"
        result = python_scanner.scan(dir)    # 降級到 Python
    ```
 
+4. **命名對齊優先於局部美化**
+   - GoBridge 的資料庫公開 helper 已形成 `db_` 前綴家族，例如 `db_get_video`、`db_update_video`
+   - 片商識別已形成 `identify_studio` / `identify_studios_batch` 配對
+   - 搜尋服務已形成 `batch_search`、`batch_cascade_search` 這類前綴批次家族
+   - CLI 已穩定使用 `-dir`、`-src`、`-dst`、`-batch` 等旗標，新增介面時優先保留相容性
+
+### 命名對齊規則
+
+1. Python wrapper、Go 子命令、JSON 欄位要能一眼對照
+2. 若 wrapper 直接綁定 `db` 子命令家族，可使用 `db_` 前綴，不要再混入 `database_` 同義寫法
+3. 批次命名要延續既有家族，不要在同一功能面同時新增 `batch_xxx` 與 `xxx_batch`
+4. 若資料格式同時保留 `code` 與 `id`，文件與新程式碼必須把 `code` 視為主業務名稱，`id` 視為相容或內部識別
+5. 需要通用規範時，優先參考 `.claude/skills/naming-conventions/SKILL.md`
+
 ## 開發新功能的標準流程
 
 ### 流程 1: 新增 Go CLI 命令

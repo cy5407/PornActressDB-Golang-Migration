@@ -2,7 +2,7 @@
 name: code-review
 description: 審查 Python/Go 程式碼品質、執行緒安全、安全漏洞。用於審查新程式碼、Pull Request、Git diff 或偵測專案特定問題（GUI 執行緒、資料庫操作、GoBridge 整合）。
 argument-hint: "[file-path or git-diff]"
-user-invokable: true
+user-invocable: true
 ---
 
 # Code Review Skill
@@ -20,7 +20,7 @@ user-invokable: true
 
 **高信噪比** - 僅報告重要問題：
 - ✅ Bug、安全漏洞、執行緒不安全、效能問題
-- ❌ 風格、格式、命名（已有 linter）
+- ❌ 風格、格式、命名（預設不審；若使用者明確要求命名一致性，改搭配 `.claude/skills/naming-conventions/SKILL.md`）
 
 ---
 

@@ -84,6 +84,13 @@ python -m py_compile src/ui/main_gui.py
 - 函式/變數命名：snake_case
 - 常數命名：UPPER_SNAKE_CASE
 
+### 命名覆寫補充
+- 通用命名原則以 `.claude/skills/naming-conventions/SKILL.md` 為基準
+- 本專案主業務識別碼以 `code` 為主名稱；`id` 僅在部分 JSON 結構中作為內部或舊版相容欄位
+- GoBridge 的資料庫 wrapper 採 `db_` 前綴家族，例如 `db_get_video`、`db_get_stats`
+- 批次命名依模組家族延續既有模式：搜尋服務常用 `batch_search` / `batch_cascade_search`，片商識別維持 `identify_studios_batch`
+- Go CLI 已穩定使用 `-dir`、`-src`、`-dst`、`-batch` 等旗標，新文件與新介面描述需優先維持相容
+
 ### 日誌 Emoji 前綴
 - 🚀 開始操作
 - ✅ 成功完成
