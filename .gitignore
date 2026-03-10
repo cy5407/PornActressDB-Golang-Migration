@@ -121,5 +121,13 @@ coverage
 coverage.json
 coverage_report.txt
 
+# 應用程式執行期快取與備份
+/cache/
+/data/javdb_search_cache.json
+/data/javdb_stats.json
+/data/json_db/backup/
+/data/json_db/*.corrupted_
+/data/json_db/* copy.json
+
 # Session 相關（臨時工作檔案）
 .copilot/session-state/
