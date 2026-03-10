@@ -582,7 +582,7 @@ class AVWikiScraper(BaseScraper):
                 "error": str(e),
             }
 
-    async def search_batch_concurrent(
+    async def batch_search_concurrent(
         self,
         video_codes: list[str],
         max_concurrent: int = 15,
@@ -612,7 +612,7 @@ class AVWikiScraper(BaseScraper):
         concurrency_controller = AdaptiveConcurrencyController(
             initial=max_concurrent,
             minimum=2,
-            maximum=max_concurrent
+            maximum=max_concurrent,
         )
         backoff = ExponentialBackoff(base_delay=0.5, max_delay=10.0)
 
@@ -716,7 +716,11 @@ class AVWikiScraper(BaseScraper):
                         "actress_count": len(actresses),
                     }
 
-                except (TimeoutError, aiohttp.ClientResponseError, aiohttp.ClientConnectionError) as e:
+                except (
+                    TimeoutError,
+                    aiohttp.ClientResponseError,
+                    aiohttp.ClientConnectionError,
+                ) as e:
                     # 暫時性錯誤：回報失敗並加退避
                     error_type = type(e).__name__
                     is_temporary = True
@@ -810,8 +814,6 @@ class AVWikiScraper(BaseScraper):
                     f"[批次搜尋] 任務執行發生例外: {type(item).__name__} - {item}"
                 )
 
-        error_count + no_actress_count
-
         # 詳細的完成報告
         logger.info(
             f"✅ 批次搜尋完成 - 總計: {total_count}, 成功: {success_count} ({success_count / total_count * 100:.1f}%), "
@@ -820,3 +822,16 @@ class AVWikiScraper(BaseScraper):
         )
 
         return results
+
+    async def search_batch_concurrent(
+        self,
+        video_codes: list[str],
+        max_concurrent: int = 15,
+        progress_callback: callable | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """相容 wrapper：請改用 batch_search_concurrent。"""
+        return await self.batch_search_concurrent(
+            video_codes,
+            max_concurrent=max_concurrent,
+            progress_callback=progress_callback,
+        )
