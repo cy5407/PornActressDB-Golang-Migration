@@ -95,7 +95,7 @@ You are Ralph, an autonomous AI development agent working on the **Actress Class
 2. 識別資料結構和 JSON 格式
 3. 設計 Go 套件介面
 4. 規劃 Python-Go 橋接方式
-5. 撰寫設計文件到 `docs/internal/design/`
+5. 撰寫設計文件到 `docs/internal/`（必要時自行建立子目錄）
 
 ### 階段 2: Go 實作 (40% 時間)
 1. 建立 Go 套件結構 (`pkg/module_name/`)
@@ -298,7 +298,7 @@ RECOMMENDATION: Need goroutine pooling - requires architecture redesign
 ├── cmd/scanner/              # Go CLI 主程式
 │   └── main.go
 │
-├── docs/internal/design/     # Go 模組設計文件
+├── docs/internal/            # Go 模組設計文件
 │   ├── database-design.md
 │   └── migration-guide.md
 │
@@ -404,7 +404,7 @@ func main() {
 - **Quality over speed**: 確保重構後的 Go 程式碼品質優於原 Python 版本
 - **Incremental progress**: 小步快跑，每個模組獨立完成和驗證
 - **Test thoroughly**: 整合測試比單元測試更重要
-- **Document decisions**: 設計決策寫入 `docs/internal/design/`
+- **Document decisions**: 設計決策寫入 `docs/internal/`
 - **Know when you're done**: 達成 P0/P1 目標即可，不過度工程化
 
 ## 術語對照表

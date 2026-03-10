@@ -12,7 +12,7 @@
   - [x] 理解 Journal 增量機制
   - [x] 理解 Compact 合併邏輯
   - [x] 記錄 JSON 格式定義
-  - 📄 分析報告: `docs/core/DATABASE_ANALYSIS.md`
+  - 📄 分析報告: 已依文件保留規則清理，請改查 Git 歷史
 
 - [x] 設計 Go 資料庫套件 `pkg/database/` ✅ (2026-01-12)
   - [x] 設計 IncrementalDB struct (JSONDatabase)
@@ -95,7 +95,7 @@
   - [x] 理解快取索引機制（JSON 索引 + pickle 檔案）
   - [x] 理解 TTL 和清理邏輯（過期清理 + LRU 大小清理）
   - [x] 記錄快取檔案格式
-  - 📄 分析報告: `docs/internal/design/CACHE_MANAGER_ANALYSIS.md`
+  - 📄 分析報告: 已依文件保留規則清理，請改查 Git 歷史
 
 - [x] 設計 Go 快取套件 `pkg/cache/` ✅ (2026-01-19)
   - [x] 設計 CacheManager struct

@@ -260,11 +260,6 @@ python test_enhanced_search.py
 - [README.md](README.md) - 專案說明與快速開始（本檔案）
 - [QUICK_START_GUIDE.md](QUICK_START_GUIDE.md) - 快速上手指南
 
-### 設計與分析
-- [DATABASE_ANALYSIS.md](docs/core/DATABASE_ANALYSIS.md) - 增量資料庫架構分析
-- [IMPROVEMENT_PLAN.md](docs/core/IMPROVEMENT_PLAN.md) - 功能改善計畫
-- [GOLANG_REFACTORING_PROPOSAL.md](docs/core/GOLANG_REFACTORING_PROPOSAL.md) - Go 重構提案
-
 ### Agent Skills
 - [VSCODE_AGENT_SKILLS_GUIDE.md](docs/internal/ai/VSCODE_AGENT_SKILLS_GUIDE.md) - VS Code Agent Skills 完整指南
 - [CODE_REVIEW_SKILL_GUIDE.md](docs/internal/ai/CODE_REVIEW_SKILL_GUIDE.md) - Code Review Skill 使用指南
@@ -274,7 +269,7 @@ python test_enhanced_search.py
 - 11 個 Agent Skills 位於 `.claude/skills/` 目錄
 - 在 VS Code Copilot Chat 中自動載入
 - 查看 [VSCODE_SKILLS_QUICK_REFERENCE.md](docs/internal/ai/VSCODE_SKILLS_QUICK_REFERENCE.md) 快速參考
-- 查看 [docs/README.md](docs/README.md) 了解 `docs/core`、`docs/internal`、`docs/archive` 分層
+- 查看 [docs/README.md](docs/README.md) 了解目前保留的文件分類與清理規則
 
 ## 📈 版本歷史
 

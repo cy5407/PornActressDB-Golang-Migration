@@ -206,8 +206,7 @@ python fix_search_errors.py --no-backup
 
 ## 📚 參考文件
 
-- `docs/core/search-quality-improvement.md` - 完整改進方案
-- `docs/core/avwiki-batch-concurrent.md` - 批次併發搜尋說明
+- 相關方案文件已依保留規則清理，請改查 Git 歷史
 - `fix_search_errors.py` - 錯誤修正工具
 
 ---

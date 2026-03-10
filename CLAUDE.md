@@ -645,11 +645,6 @@ rg "(?P<name>pattern)" --pcre2
 - [README.md](README.md) - 專案說明與快速開始
 - [QUICK_START_GUIDE.md](QUICK_START_GUIDE.md) - 快速上手指南
 
-### 設計與分析文檔
-- [DATABASE_ANALYSIS.md](docs/core/DATABASE_ANALYSIS.md) - 增量資料庫架構分析
-- [IMPROVEMENT_PLAN.md](docs/core/IMPROVEMENT_PLAN.md) - 功能改善計畫
-- [GOLANG_REFACTORING_PROPOSAL.md](docs/core/GOLANG_REFACTORING_PROPOSAL.md) - Go 重構提案
-
 ### Agent Skills 文檔
 - [VSCODE_AGENT_SKILLS_GUIDE.md](docs/internal/ai/VSCODE_AGENT_SKILLS_GUIDE.md) - VS Code Agent Skills 完整指南
 - [VSCODE_SKILLS_QUICK_REFERENCE.md](docs/internal/ai/VSCODE_SKILLS_QUICK_REFERENCE.md) - Skills 快速參考

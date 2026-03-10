@@ -101,7 +101,7 @@ Ralph 會自動：
 2. 理解 Journal 增量機制
 3. 理解 Compact 合併邏輯
 4. 記錄 JSON 格式定義
-5. 撰寫分析報告到 `docs/internal/design/database-analysis.md`
+5. 撰寫分析報告到 `docs/internal/`（必要時自行建立子目錄）
 6. 更新 `@fix_plan.md` 標記完成
 
 **預計時間**: 1-2 個 Ralph 循環（約 30-60 分鐘）

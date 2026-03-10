@@ -282,7 +282,7 @@ cat RALPH_EXECUTION_REPORT.md
   - [ ] 分析 `src/models/incremental_json_database.py` 功能
   - [ ] 設計 Go 資料結構 (struct tags 確保 JSON 相容)
   - [ ] 規劃 Python-Go 橋接介面
-  - [ ] 撰寫設計文件至 `docs/internal/design/incremental_db_go_design.md`
+  - [ ] 撰寫設計文件至 `docs/internal/`（必要時自行建立子目錄）
 
 - [ ] **階段 2：Go 實作**
   - [ ] 建立 `pkg/database/` 目錄結構
