@@ -1,57 +1,35 @@
 # 女優分類系統
 
-Windows 桌面工具，用來掃描影片檔案、提取番號、搜尋女優資訊，並依女優或片商進行分類整理。
+女優分類系統是一套專為 **Windows 桌面環境** 設計的影片整理工具。
 
-專案採用 **Python + Go 混合架構**：
+它可以從影片檔名中提取番號，自動到多個網站搜尋女優資訊，再依女優名稱或片商將影片整理到對應資料夾，減少手動查詢與搬移檔案的時間。
 
-- Python 負責 GUI、搜尋流程、資料庫整合與業務邏輯
-- Go 負責檔案掃描、批次移動、資料庫工具與操作歷史
+本專案使用 **Python + Go 混合架構**：
 
-如果你只是想使用程式，從 `python run.py` 開始即可。
-
-如果你要開發、除錯或維護資料，這份 README 會告訴你主要入口、常用指令與資料維護工具。
+- **Python**：負責 GUI 介面、搜尋流程、資料庫整合與主要邏輯
+- **Go**：負責高速掃描、批次移動、資料庫工具與操作歷史
 
 ## 主要功能
 
-- 掃描指定資料夾中的影片檔案並提取番號
-- 透過 AV-WIKI、chiba-f.net、JAVDB 進行多來源搜尋
-- 將影片依女優自動分類，或在多人共演時進行互動式選擇
-- 依片商進行女優資料夾分類
-- 使用 Go CLI 提供較快的掃描、移動與操作歷史
+- 掃描資料夾中的影片檔案並提取番號
+- 透過 `AV-WIKI`、`chiba-f.net`、`JAVDB` 搜尋女優資訊
+- 依女優自動分類影片
+- 支援多人共演時的互動式分類
+- 依片商整理女優資料夾
+- 提供批次移動、操作歷史與回滾功能
 - 使用 JSON 資料庫保存影片、女優與搜尋結果
-- 支援操作歷史檢視與回滾
 
 ## 適用環境
 
-- 作業系統：Windows 10 / 11
-- Python：`3.11+`
-- Go：建議 `1.24.5+`（若要自行建置 `classifier.exe`）
+- Windows 10 / 11
+- Python 3.11+
+- Go 1.21+（若要自行建置 `classifier.exe`）
 
-> 專案目前以 Windows 為主要使用與測試平台。
+> 如果你只想使用 GUI，Python 環境是必要的；Go CLI 則屬於建議安裝，可提升掃描與搬移效率。
 
-## 專案入口
+## 安裝方式
 
-### GUI 主程式
-
-```powershell
-python run.py
-```
-
-### Go CLI
-
-```powershell
-classifier.exe help
-```
-
-若尚未建置：
-
-```powershell
-go build -o classifier.exe .\cmd\scanner
-```
-
-## 快速開始
-
-### 1. 複製專案
+### 1. 下載專案
 
 ```powershell
 git clone https://github.com/cy5407/PornActressDB-Golang-Migration
@@ -65,63 +43,94 @@ python -m venv .venv
 .\.venv\Scripts\activate
 ```
 
-### 3. 安裝 Python 相依套件
+### 3. 安裝相依套件
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-### 4. 準備設定檔
+### 4. 建立設定檔
 
 ```powershell
 Copy-Item config.ini.example config.ini
 ```
 
-請至少確認：
+建議先確認以下設定：
 
-- `default_input_dir`
-- `json_data_dir`
-- `go_integration.enabled`
+- `json_data_dir`：JSON 資料庫位置
+- `default_input_dir`：預設掃描資料夾
+- `go_integration.enabled`：是否啟用 Go CLI
+- `go_integration.log_dir`：操作歷史目錄
 
-### 5. 建置 Go CLI（選用但建議）
+### 5. 建置 Go CLI（選用，但建議）
 
 ```powershell
 go build -o classifier.exe .\cmd\scanner
 ```
 
-### 6. 啟動程式
+## 快速開始
+
+### 啟動主程式
 
 ```powershell
 python run.py
 ```
 
-## 常用操作
+啟動後，主介面可用來：
 
-### 使用 GUI
+- 掃描影片資料夾
+- 搜尋女優資訊
+- 執行智慧分類
+- 執行互動式分類
+- 進行片商分類
+- 查看操作歷史與回滾結果
 
-啟動後可在主介面中使用：
+## 使用方式
 
-- 日文網站搜尋
-- JAVDB 搜尋
-- 智慧分類
-- 互動式分類
-- 智慧搜尋並分類
-- 片商分類
-- 操作歷史
+### 一般使用流程
 
-### 使用 Go CLI 掃描
+1. 啟動 `python run.py`
+2. 選擇要處理的影片資料夾
+3. 執行搜尋功能取得女優資訊
+4. 檢查搜尋結果
+5. 執行分類或移動
+6. 如有需要，可從操作歷史中查看明細或回滾
+
+### 搜尋來源
+
+系統目前會依序使用以下來源搜尋：
+
+1. `AV-WIKI`
+2. `chiba-f.net`
+3. `JAVDB`
+
+### GUI 常見功能
+
+- **日文網站搜尋**：從日文網站取得女優資訊
+- **JAVDB 搜尋**：以 JAVDB 為主來源搜尋
+- **智慧分類**：自動套用分類邏輯
+- **互動式分類**：多人共演時讓使用者手動選擇
+- **智慧搜尋並分類**：搜尋完成後直接進行整理
+- **片商分類**：依片商規則整理資料夾
+- **操作歷史**：查看批次移動與回滾紀錄
+
+## Go CLI 用法
+
+若已建置 `classifier.exe`，可直接在終端機使用。
+
+### 掃描資料夾
 
 ```powershell
 classifier.exe scan -dir "D:\Videos" -workers 10
 ```
 
-### 使用 Go CLI 移動
+### 單檔移動
 
 ```powershell
 classifier.exe move -src "D:\Videos\A.mp4" -dst "D:\Sorted\A\A.mp4" -strategy skip
 ```
 
-### 使用 Go CLI 批次移動
+### 批次移動
 
 ```powershell
 classifier.exe move -batch moves.json
@@ -142,24 +151,26 @@ classifier.exe history rollback --last
 classifier.exe db stats
 classifier.exe db list
 classifier.exe db get STARS-707
+classifier.exe db update STARS-707 video.json
+classifier.exe db delete STARS-707
 classifier.exe db compact
 ```
 
-## JSON 資料庫說明
+## JSON 資料庫
 
-資料庫位於：
+本專案使用 JSON 資料庫保存影片與搜尋結果，預設位置為：
 
 ```text
 data\json_db\data.json
 ```
 
-根層是標準資料庫結構，影片資料位於：
+影片資料位於：
 
 ```text
 videos[番號]
 ```
 
-常見影片欄位包含：
+常見欄位包括：
 
 - `code`
 - `title`
@@ -170,20 +181,19 @@ videos[番號]
 - `last_search_date`
 - `original_filename`
 - `file_path`
-- `metadata`
 
-### 搜尋狀態規範
+### 搜尋狀態
 
-目前影片資料的 `search_status` 使用以下值：
+目前 `search_status` 使用以下值：
 
 - `imported`
 - `searched_found`
 - `searched_not_found`
 - `search_error`
 
-### 搜尋來源規範
+### 搜尋來源標記
 
-目前影片資料的 `search_method` 使用以下值：
+目前 `search_method` 使用以下值：
 
 - `legacy-import`
 - `AV-WIKI`
@@ -191,41 +201,33 @@ videos[番號]
 - `JAVDB`
 - `cascade`
 
-## JSON 資料庫 schema 維護工具
+## 資料維護工具
 
-如果 `data.json` 裡的歷史資料格式不一致，可使用這兩個腳本：
+如果 `data.json` 來自舊版流程，想檢查或整理資料格式，可使用以下工具。
 
-### 驗證 schema
+### 驗證資料格式
 
 ```powershell
 python tools\verify\verify_json_db_schema.py data\json_db\data.json
 ```
 
-### 預覽正規化變更
+### 預覽正規化結果
 
 ```powershell
 python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --dry-run
 ```
 
-### 輸出正規化結果到新檔案
+### 輸出正規化後的新檔案
 
 ```powershell
 python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --output normalized_data.json
 ```
 
-### 直接寫回原始資料（自動備份）
+### 直接寫回原始檔
 
 ```powershell
 python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --write
 ```
-
-正規化腳本目前會處理：
-
-- 統一 `search_status`
-- 統一 `search_method`
-- 移除 `id == code` 的重複欄位
-- 移除測試欄位 `test_field`
-- 補齊缺少的 `original_filename` / `file_path`
 
 ## 專案結構
 
@@ -234,91 +236,45 @@ python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --wr
 ├── run.py
 ├── config.ini.example
 ├── requirements.txt
-├── pyproject.toml
 ├── cmd\
 │   └── scanner\              # Go CLI 入口
-├── pkg\
-│   ├── cache\                # Go 快取工具
-│   ├── database\             # Go 資料庫工具
-│   ├── extractor\            # Go 番號提取
-│   ├── mover\                # Go 檔案移動與歷史
-│   └── studio\               # Go 片商識別
+├── pkg\                      # Go 套件
 ├── src\
-│   ├── models\               # JSON DB、設定、型別
-│   ├── services\             # 分類核心、GoBridge、搜尋流程
-│   ├── scrapers\             # 各網站搜尋來源
-│   ├── ui\                   # Tkinter GUI
-│   └── utils\                # 掃描器、進度、檔案工具
+│   ├── models\               # 設定與資料模型
+│   ├── services\             # 分類與搜尋核心
+│   ├── scrapers\             # 搜尋來源
+│   ├── ui\                   # GUI 介面
+│   └── utils\                # 工具模組
 ├── data\
 │   └── json_db\              # JSON 資料庫
-├── tools\                    # 維護、修復、驗證腳本
-├── tests\                    # Python 測試
-└── classifier.exe            # 建置後的 Go CLI
+├── tools\                    # 診斷與維護腳本
+└── tests\                    # 測試
 ```
 
 ## 開發與測試
 
-### Python 語法檢查
+### Python
 
 ```powershell
 python -m py_compile src\models\json_types.py src\services\classifier_core.py
-```
-
-### Python 測試
-
-```powershell
 python -m unittest src.services.go_bridge_test -v
 python -m pytest tests\ -v
 ```
 
-> `pytest` 相關套件列在 `requirements.txt`，若尚未安裝請先執行 `pip install -r requirements.txt`。
-
-### Go 測試
+### Go
 
 ```powershell
 go test .\pkg\... -v
-go test .\pkg\mover -v
-go test .\pkg\extractor -v
-```
-
-### Go 建置
-
-```powershell
 go build -o classifier.exe .\cmd\scanner
 ```
 
-## 設定檔
-
-範例設定檔位於：
-
-```text
-config.ini.example
-```
-
-主要段落：
-
-- `[database]`：JSON 資料庫位置
-- `[paths]`：預設輸入資料夾
-- `[search]`：批次搜尋與逾時設定
-- `[cache]`：快取保留策略
-- `[go_integration]`：Go CLI 啟用與日誌設定
-
-## 相關文件
-
-- `CLAUDE.md`：開發指引與專案架構
-- `QUICK_START_GUIDE.md`：特定功能的快速操作說明
-- `CODING_STANDARDS.md`：程式碼規範
-- `docs\`：補充文件
-
 ## 注意事項
 
-- GUI 與工具腳本預設從專案根目錄執行
-- 請不要直接手動編輯 `data\json_db\data.json`，除非你很清楚 schema 與後果
-- 若需要整理 `data.json`，優先使用 `tools\diagnostics\normalize_json_db_schema.py`
-- 若需要確認資料是否乾淨，優先使用 `tools\verify\verify_json_db_schema.py`
+- 建議從專案根目錄執行 GUI 與工具腳本
+- 若 Go CLI 不可用，部分流程會自動退回 Python 實作
+- 不建議直接手動修改 `data\json_db\data.json`
+- 若需要檢查或整理資料庫，請優先使用 `tools\verify` 與 `tools\diagnostics` 下的工具
 
 ## 授權
 
-本專案採用 `MIT License`。
-
-詳細內容請見 `LICENSE`。
+本專案採用 `MIT License`，詳細內容請參考 `LICENSE`。
