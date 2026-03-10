@@ -1,7 +1,7 @@
 # 系統級 Code Review 報告：GoBridge 模組
 
 > 審查範圍：`src/services/go_bridge.py`
-> 審查依據：`docs/code-review/SYSTEM_CODE_REVIEW_CORE.md`
+> 審查依據：`SYSTEM_CODE_REVIEW_CORE.md` 範本（未納入本 repo）
 
 ## 審查摘要
 1. **[嚴重隱患] 錯誤處理吞沒例外，破壞 Fallback 機制**：`db_*` 與 `identify_*` 系列的輔助函式過度捕捉例外，把 `GoBridgeError` 靜默掉回傳 `None/False/[]`，不僅與核心 API 風格不一，還會導致調用層無法判斷 Go 崩潰或不存在，造成無法降級（Fallback）回 Python。
@@ -51,7 +51,7 @@
 ### Top 5 風險
 1. **[P0]** 異常處理吞沒例外，破壞 GoBridge 架構規定的 Fallback 降級機制。
 2. **[P1]** `db_update/get` 等單點操作濫生子進程，大批次資料時將嚴重拖垮系統效能。
-3. **[P2]** 介面的回傳風格不一致（拋出例外 vs. 回傳預設空值）。 
+3. **[P2]** 介面的回傳風格不一致（拋出例外 vs. 回傳預設空值）。
 4. **[P2]** 暫存檔清除機制過於隨意，未將鎖定與異常情形打入日誌。
 
 ### 可在 1 天內完成的修復項目

@@ -22,7 +22,7 @@ description: 執行 Ralph 自動化重構循環 - 從任務清單選取最高優
 **分析任務**:
 - 閱讀 Python 原始碼
 - 理解資料結構和邏輯
-- 記錄到 `docs/design/`
+- 記錄到 `docs/internal/design/`
 
 **實作任務**:
 - 在 `pkg/` 建立 Go 套件

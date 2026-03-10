@@ -171,7 +171,7 @@ ln -s /c/Users/cy540/OneDrive/桌面/PornActressDB-Golang-Migration/GO_MIGRATION
    - 理解 Journal 增量機制
    - 理解 Compact 合併邏輯
    - 記錄 JSON 格式定義
-   - 撰寫分析報告到 docs/design/database-analysis.md
+   - 撰寫分析報告到 docs/internal/design/database-analysis.md
    ```
 
 3. **報告狀態**:

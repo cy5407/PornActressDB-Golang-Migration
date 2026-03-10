@@ -60,7 +60,7 @@
 
 ## 📄 測試計畫
 
-詳見 [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md)
+詳見 [`TEST_PLAN.md`](TEST_PLAN.md)
 
 ---
 

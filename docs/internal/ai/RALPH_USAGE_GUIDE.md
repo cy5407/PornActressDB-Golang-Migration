@@ -282,7 +282,7 @@ cat RALPH_EXECUTION_REPORT.md
   - [ ] 分析 `src/models/incremental_json_database.py` 功能
   - [ ] 設計 Go 資料結構 (struct tags 確保 JSON 相容)
   - [ ] 規劃 Python-Go 橋接介面
-  - [ ] 撰寫設計文件至 `docs/design/database_go_design.md`
+  - [ ] 撰寫設計文件至 `docs/internal/design/incremental_db_go_design.md`
 
 - [ ] **階段 2：Go 實作**
   - [ ] 建立 `pkg/database/` 目錄結構
@@ -422,11 +422,11 @@ grep "Performance" RALPH_EXECUTION_REPORT.md
   - [ ] classifier_core.py - 移除未使用的 import
   - [ ] web_searcher.py - 修正變數命名
   - [ ] file_mover.py - 新增缺少的 docstring
-  
+
 - [ ] 格式化 Go 程式碼
   - [ ] 執行 `go fmt ./...`
   - [ ] 執行 `golangci-lint run`
-  
+
 - [ ] 更新測試覆蓋率
   - [ ] 新增遺失的單元測試
   - [ ] 目標：Python 70%+, Go 80%+
@@ -808,7 +808,7 @@ ralph --todo-file docs/TODO.md &
 
 ### Q1: Ralph 和 GitHub Copilot 有什麼不同？
 
-**A**: 
+**A**:
 - **Copilot**: 即時程式碼補全、單行/片段建議
 - **Ralph**: 自主式長時間執行、多檔案修改、完整任務流程（分析→實作→測試→文件）
 
@@ -867,9 +867,9 @@ kill <PID>
 
 Ralph 是一個強大的自動化開發工具，特別適合：
 
-✅ 重複性開發任務（重構、遷移、測試）  
-✅ 多檔案修改（架構調整、依賴更新）  
-✅ 長時間執行任務（完整模組實作）  
+✅ 重複性開發任務（重構、遷移、測試）
+✅ 多檔案修改（架構調整、依賴更新）
+✅ 長時間執行任務（完整模組實作）
 ✅ 需要嚴格測試驗證的工作（品質保證）
 
 **記住**：

@@ -95,26 +95,26 @@ else:
 ```python
 def should_research(video_info: dict) -> bool:
     """判斷是否需要再次搜尋"""
-    
+
     status = video_info.get('search_status')
     actresses = video_info.get('actresses', [])
-    
+
     # 情況 1: 搜尋錯誤 → 再次搜尋
     if status == 'search_error':
         return True
-    
+
     # 情況 2: 未找到女優 → 再次搜尋
     if status == 'no_actress_found' or not actresses:
         return True
-    
+
     # 情況 3: 女優列表為 ['XXXX'] → 需用戶確認
     if actresses == ['XXXX']:
         return ask_user("是否重新搜尋?")
-    
+
     # 情況 4: 多位女優 (可能是合集) → 需用戶確認
     if status == 'searched_multiple':
         return ask_user(f"找到 {len(actresses)} 位女優，是否正確?")
-    
+
     # 情況 5: 已找到正常結果 → 跳過
     return False
 ```
@@ -206,13 +206,13 @@ python fix_search_errors.py --no-backup
 
 ## 📚 參考文件
 
-- `docs/search-quality-improvement.md` - 完整改進方案
-- `docs/avwiki-batch-concurrent.md` - 批次併發搜尋說明
+- `docs/core/search-quality-improvement.md` - 完整改進方案
+- `docs/core/avwiki-batch-concurrent.md` - 批次併發搜尋說明
 - `fix_search_errors.py` - 錯誤修正工具
 
 ---
 
-**修正時間**: 2025-11-15 21:33:45  
-**備份位置**: `data/json_db/data_backup_20251115_213345.json`  
-**修正記錄數**: 18 筆  
+**修正時間**: 2025-11-15 21:33:45
+**備份位置**: `data/json_db/data_backup_20251115_213345.json`
+**修正記錄數**: 18 筆
 **新增排除關鍵詞**: 47 個

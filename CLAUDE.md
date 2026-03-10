@@ -646,16 +646,16 @@ rg "(?P<name>pattern)" --pcre2
 - [QUICK_START_GUIDE.md](QUICK_START_GUIDE.md) - 快速上手指南
 
 ### 設計與分析文檔
-- [DATABASE_ANALYSIS.md](docs/DATABASE_ANALYSIS.md) - 增量資料庫架構分析
-- [IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md) - 功能改善計畫
-- [GOLANG_REFACTORING_PROPOSAL.md](docs/GOLANG_REFACTORING_PROPOSAL.md) - Go 重構提案
+- [DATABASE_ANALYSIS.md](docs/core/DATABASE_ANALYSIS.md) - 增量資料庫架構分析
+- [IMPROVEMENT_PLAN.md](docs/core/IMPROVEMENT_PLAN.md) - 功能改善計畫
+- [GOLANG_REFACTORING_PROPOSAL.md](docs/core/GOLANG_REFACTORING_PROPOSAL.md) - Go 重構提案
 
 ### Agent Skills 文檔
-- [VSCODE_AGENT_SKILLS_GUIDE.md](docs/VSCODE_AGENT_SKILLS_GUIDE.md) - VS Code Agent Skills 完整指南
-- [VSCODE_SKILLS_QUICK_REFERENCE.md](docs/VSCODE_SKILLS_QUICK_REFERENCE.md) - Skills 快速參考
-- [CODE_REVIEW_SKILL_GUIDE.md](docs/CODE_REVIEW_SKILL_GUIDE.md) - Code Review Skill 使用指南
-- [SKILLS_ANALYSIS_REPORT.md](docs/SKILLS_ANALYSIS_REPORT.md) - Skills 分析報告
+- [VSCODE_AGENT_SKILLS_GUIDE.md](docs/internal/ai/VSCODE_AGENT_SKILLS_GUIDE.md) - VS Code Agent Skills 完整指南
+- [VSCODE_SKILLS_QUICK_REFERENCE.md](docs/internal/ai/VSCODE_SKILLS_QUICK_REFERENCE.md) - Skills 快速參考
+- [CODE_REVIEW_SKILL_GUIDE.md](docs/internal/ai/CODE_REVIEW_SKILL_GUIDE.md) - Code Review Skill 使用指南
+- [SKILLS_ANALYSIS_REPORT.md](docs/internal/ai/SKILLS_ANALYSIS_REPORT.md) - Skills 分析報告
 
 ### 專案管理文檔
-- [SPECKIT_REMOVAL_REPORT.md](docs/SPECKIT_REMOVAL_REPORT.md) - Speckit 移除報告
-- [CODE_COMPLETENESS_REPORT.md](docs/CODE_COMPLETENESS_REPORT.md) - 程式碼完整性報告
+- [SPECKIT_REMOVAL_REPORT.md](docs/archive/SPECKIT_REMOVAL_REPORT.md) - Speckit 移除報告
+- [CODE_COMPLETENESS_REPORT.md](docs/archive/CODE_COMPLETENESS_REPORT.md) - 程式碼完整性報告
