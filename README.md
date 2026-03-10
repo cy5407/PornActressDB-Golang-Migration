@@ -253,6 +253,32 @@ python test_fc2_filter.py
 python test_enhanced_search.py
 ```
 
+### JSON 資料庫 Schema 維護
+
+當 `data/json_db/data.json` 的 `videos` 欄位出現歷史遺留格式不一致時，可使用以下工具腳本：
+
+```bash
+# 先檢查目前 schema 問題（非 0 exit code 代表驗證失敗）
+python tools\verify\verify_json_db_schema.py data\json_db\data.json
+
+# 預覽正規化變更，不寫入檔案
+python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --dry-run
+
+# 輸出正規化結果到新檔案
+python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --output normalized_data.json
+
+# 直接覆寫原始 data.json（會自動建立 backup）
+python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --write
+```
+
+目前正規化腳本會處理：
+
+- 統一 `search_status` 為 `imported`、`searched_found`、`searched_not_found`、`search_error`
+- 統一 `search_method` 為 `legacy-import`、`AV-WIKI`、`chiba-f.net`、`JAVDB`、`cascade`
+- 移除 `id == code` 的重複欄位
+- 移除測試欄位 `test_field`
+- 補齊缺少的 `original_filename` / `file_path`
+
 ## 📚 文件
 
 ### 核心文檔

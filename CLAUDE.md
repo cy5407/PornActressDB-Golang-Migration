@@ -190,13 +190,36 @@ pkg/
 ```
 tools/
 ├── analysis/         # 資料分析腳本 (analyze_actresses.py, analyze_names.py)
-├── diagnostics/      # 診斷與修復腳本 (check_database.py, debug_avwiki.py)
+├── diagnostics/      # 診斷與修復腳本 (含 normalize_json_db_schema.py)
 ├── manual_tests/     # 手動測試腳本 (test_smart_search.py)
 ├── studio_updates/   # 片商資料維護 (update_s1_studio.py)
-└── verify/           # 驗證腳本 (verify_fixes.py)
+└── verify/           # 驗證腳本 (含 verify_json_db_schema.py)
 ```
 
 **執行規則**: 工具腳本預設依賴 `data/json_db/data.json` 和 `config.ini`，建議從專案根目錄執行。
+
+### JSON 資料庫 schema 維護工具
+
+當 `data/json_db/data.json` 的 `videos` 欄位需要清理或驗證時，優先使用既有工具腳本：
+
+```bash
+# 驗證目前 schema 是否符合規範
+python tools\verify\verify_json_db_schema.py data\json_db\data.json
+
+# 預覽正規化結果（不改檔）
+python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --dry-run
+
+# 直接套用正規化（自動備份）
+python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --write
+```
+
+目前影片資料欄位規範以 `src/models/json_types.py` 為準，重點如下：
+
+- `search_status`: `imported`、`searched_found`、`searched_not_found`、`search_error`
+- `search_method`: `legacy-import`、`AV-WIKI`、`chiba-f.net`、`JAVDB`、`cascade`
+- 影片資料應包含 `original_filename`、`file_path`
+- `id == code` 視為重複欄位，可由正規化腳本移除
+- `search_error_reason`、`original_actress_count` 屬於合法診斷欄位，可保留
 
 ## 核心架構設計
 

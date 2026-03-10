@@ -349,12 +349,12 @@ class UnifiedClassifierCore:
 
                     # 重新搜尋條件：
                     # 1. 搜尋過但無結果 (searched_not_found)
-                    # 2. 搜尋失敗 (failed)
+                    # 2. 搜尋失敗 (search_error)
                     # 3. 有 0 位女優的記錄（新增：零女優番號）
                     # 4. 超過 7 天未搜尋
                     should_research = False
 
-                    if search_status in ["searched_not_found", "failed"]:
+                    if search_status in ["searched_not_found", "search_error", "failed"]:
                         should_research = True
                     elif not actresses or len(actresses) == 0:
                         # 特別處理零女優番號

@@ -28,10 +28,15 @@ class VideoDict(TypedDict, total=False):
     release_date: str  # 發行日期 (ISO 8601: YYYY-MM-DD)
     url: str  # 線上連結
     actresses: list[str]  # 女優名稱清單
-    search_status: str  # "success" | "partial" | "failed"
+    search_status: str  # "imported" | "searched_found" | "searched_not_found" | "search_error"
+    search_method: str  # "legacy-import" | "AV-WIKI" | "chiba-f.net" | "JAVDB" | "cascade"
     last_search_date: str  # 最後搜尋日期 (ISO 8601)
     created_at: str  # 建立時間 (ISO 8601)
     updated_at: str  # 更新時間 (ISO 8601)
+    original_filename: str  # 原始檔名
+    file_path: str  # 原始檔案完整路徑
+    search_error_reason: str  # 搜尋失敗原因（選填）
+    original_actress_count: int  # 原始解析到的女優數量（選填）
     metadata: MetadataDict  # 額外資訊
 
 
@@ -113,9 +118,38 @@ SCHEMA_VERSION = "1.0.0"
 
 # 搜尋狀態
 SEARCH_STATUSES = {
-    "SUCCESS": "success",
-    "PARTIAL": "partial",
-    "FAILED": "failed",
+    "IMPORTED": "imported",
+    "SEARCHED_FOUND": "searched_found",
+    "SEARCHED_NOT_FOUND": "searched_not_found",
+    "SEARCH_ERROR": "search_error",
+}
+
+# 搜尋來源
+SEARCH_METHODS = {
+    "LEGACY_IMPORT": "legacy-import",
+    "AV_WIKI": "AV-WIKI",
+    "CHIBA_F": "chiba-f.net",
+    "JAVDB": "JAVDB",
+    "CASCADE": "cascade",
+}
+
+VIDEO_ALLOWED_FIELDS = {
+    "code",
+    "title",
+    "studio",
+    "release_date",
+    "url",
+    "actresses",
+    "search_status",
+    "search_method",
+    "last_search_date",
+    "created_at",
+    "updated_at",
+    "original_filename",
+    "file_path",
+    "search_error_reason",
+    "original_actress_count",
+    "metadata",
 }
 
 # 角色類型
@@ -235,10 +269,13 @@ def get_empty_video() -> VideoDict:
         "release_date": "",
         "url": "",
         "actresses": [],
-        "search_status": SEARCH_STATUSES["SUCCESS"],
+        "search_status": SEARCH_STATUSES["IMPORTED"],
+        "search_method": SEARCH_METHODS["LEGACY_IMPORT"],
         "last_search_date": now,
         "created_at": now,
         "updated_at": now,
+        "original_filename": "",
+        "file_path": "",
         "metadata": {
             "source": "",
             "confidence": 0.0,
