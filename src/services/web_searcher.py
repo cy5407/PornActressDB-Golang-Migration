@@ -1052,7 +1052,7 @@ class WebSearcher:
                     break
 
                 chunk = uncached_codes[i : i + chunk_size]
-                chunk_results = await avwiki_scraper.search_batch_concurrent(
+                chunk_results = await avwiki_scraper.batch_search_concurrent(
                     chunk,
                     max_concurrent=self.avwiki_max_concurrent,
                     progress_callback=wrapped_progress_callback,
