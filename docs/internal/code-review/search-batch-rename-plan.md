@@ -136,11 +136,18 @@
 1. 內部正式呼叫端已切換到 `batch_search_concurrent`
 2. `search_batch_concurrent` 僅剩相容 wrapper 與遷移說明用途
 3. 已補上相容 wrapper 的最小測試，確認舊名仍正確代理到新主名稱
-4. 若外部使用者或其他分支沒有舊名依賴，可開始安排 Commit 4 移除 wrapper
+4. 本輪採保守策略：先保留 wrapper，等下一個 checkpoint 再評估移除
 
 ## Commit 4 啟動條件檢查
 
 1. 內部正式呼叫端：已完成切換
 2. 文件主名稱：已完成切換
 3. 相容層保護：已有最小測試可在移除前後協助比對
-4. 目前阻塞點：僅剩是否要保留對外相容性
+4. 目前阻塞點：本輪決策為保留對外相容性到下一個 checkpoint
+
+## 遷移註記
+
+1. 正式主名稱：`batch_search_concurrent`
+2. 暫時保留舊名稱：`search_batch_concurrent`
+3. 保留原因：避免外部腳本、個人分支或未同步文件在本輪 rename 後立即失效
+4. 下個 checkpoint 要做的事：重新掃描呼叫點、確認外部依賴是否已完成切換，再執行 Commit 4

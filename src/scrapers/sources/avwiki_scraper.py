@@ -829,7 +829,13 @@ class AVWikiScraper(BaseScraper):
         max_concurrent: int = 15,
         progress_callback: callable | None = None,
     ) -> dict[str, dict[str, Any]]:
-        """相容 wrapper：請改用 batch_search_concurrent。"""
+        """相容 wrapper。
+
+        遷移註記：
+        1. `batch_search_concurrent` 已是正式主名稱
+        2. 保留此舊名稱到下一個 checkpoint，避免外部呼叫端立即中斷
+        3. 下一輪若確認無對外依賴，再移除此 wrapper
+        """
         return await self.batch_search_concurrent(
             video_codes,
             max_concurrent=max_concurrent,
