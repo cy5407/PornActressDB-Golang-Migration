@@ -441,6 +441,16 @@ classifier.exe db compact
 classifier.exe db merge -source dist\data\json_db\data.json
 ```
 
+`db merge` behavior:
+
+- Default mode: if the same video code already exists, keep existing data and skip incoming record.
+- Use `-overwrite` to replace existing records with incoming data for the same video code.
+- Merge summary output includes added/updated/skipped counts for videos, actresses, and links.
+
+```powershell
+classifier.exe db merge -source dist\data\json_db\data.json -overwrite
+```
+
 ## JSON Database
 
 This project uses a JSON database to save videos and search results. The default location is:
