@@ -66,6 +66,8 @@ class ProgressThrottler:
             "💥",
             "🎉",
             "⚠️",
+            "💾",
+            "已寫入",
         ]
         return any(keyword in message for keyword in important_keywords)
 
@@ -115,14 +117,14 @@ class SafeGUIUpdater:
         self._process_queue()
 
     def _process_queue(self):
-        """處理訊息佇列（每 50ms 執行一次）"""
+        """處理訊息佇列（高頻率輪詢，確保進度即時顯示）"""
         if not self.is_running:
             return
 
         try:
             # 批次處理訊息以提高效率
             messages_processed = 0
-            max_messages_per_cycle = 10
+            max_messages_per_cycle = 100
 
             while messages_processed < max_messages_per_cycle:
                 try:
@@ -138,7 +140,7 @@ class SafeGUIUpdater:
             if self.is_running:
                 from contextlib import suppress
                 with suppress(tk.TclError):
-                    self.root.after(50, self._process_queue)
+                    self.root.after(20, self._process_queue)
 
     def _process_message(self, msg: GUIMessage):
         """處理單一訊息"""

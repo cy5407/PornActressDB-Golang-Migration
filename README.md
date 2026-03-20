@@ -154,6 +154,7 @@ classifier.exe db get STARS-707
 classifier.exe db update STARS-707 video.json
 classifier.exe db delete STARS-707
 classifier.exe db compact
+classifier.exe db merge -source dist\data\json_db\data.json
 ```
 
 ## JSON 資料庫
@@ -437,6 +438,7 @@ classifier.exe db get STARS-707
 classifier.exe db update STARS-707 video.json
 classifier.exe db delete STARS-707
 classifier.exe db compact
+classifier.exe db merge -source dist\data\json_db\data.json
 ```
 
 ## JSON Database

@@ -92,6 +92,10 @@ class TestStudioIdentifier:
         """測試日文片商名稱標準化"""
         assert identifier.normalize_studio_name("エスワン") == "S1"
         assert identifier.normalize_studio_name("ファレノ") == "FALENO"
+        assert identifier.normalize_studio_name("ムーディーズ") == "MOODYZ"
+        assert identifier.normalize_studio_name("アタッカーズ") == "ATTACKERS"
+        assert identifier.normalize_studio_name("マドンナ") == "MADONNA"
+        assert identifier.normalize_studio_name("プレステージ") == "PRESTIGE"
 
     def test_normalize_studio_name_with_code(self, identifier):
         """測試使用番號推斷片商"""

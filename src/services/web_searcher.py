@@ -260,6 +260,29 @@ class WebSearcher:
 
             # 搜尋片商資訊
             studio_info = self._extract_studio_info(soup, code)
+            if not studio_info.get("studio") and not stop_event.is_set():
+                detail_url = self._extract_avwiki_detail_url(soup, code)
+                if detail_url:
+                    logger.debug(f"🔍 AV-WIKI 詳情頁補抓片商: {code} -> {detail_url}")
+
+                    def make_detail_request(url, **kwargs):
+                        with httpx.Client(timeout=self.timeout, **kwargs) as client:
+                            response = client.get(url, headers=self.japanese_headers)
+                            response.raise_for_status()
+                            decoded_content = self._detect_and_decode_content(response)
+                            return BeautifulSoup(decoded_content, "html.parser")
+
+                    detail_soup = self.safe_searcher.safe_request(
+                        make_detail_request, detail_url
+                    )
+                    if detail_soup is not None:
+                        detail_studio = self._extract_studio_info(detail_soup, code)
+                        if detail_studio.get("studio"):
+                            studio_info["studio"] = detail_studio["studio"]
+                        if detail_studio.get("studio_code"):
+                            studio_info["studio_code"] = detail_studio["studio_code"]
+                        if detail_studio.get("release_date"):
+                            studio_info["release_date"] = detail_studio["release_date"]
 
             if not actresses:
                 page_text = soup.get_text()
@@ -304,6 +327,40 @@ class WebSearcher:
             logger.error(f"AV-WIKI 搜尋 {code} 時發生錯誤: {e}", exc_info=True)
 
         return None
+
+    def _extract_avwiki_detail_url(self, soup: BeautifulSoup, code: str) -> str | None:
+        """從 AV-WIKI 搜尋結果頁提取作品詳情頁網址"""
+        code_slug = code.lower()
+        if "/" in code_slug:
+            code_slug = code_slug.replace("/", "-")
+
+        candidates: list[str] = []
+        for link in soup.find_all("a", href=True):
+            href = (link.get("href") or "").strip()
+            if not href:
+                continue
+
+            # 優先選擇「続きを読む」連結，通常會指向 AV-WIKI 作品詳情頁
+            link_text = link.get_text(strip=True)
+            is_readmore = "続きを読む" in link_text
+            is_avwiki_link = "av-wiki.net/" in href or href.startswith("/")
+            if not (is_readmore and is_avwiki_link):
+                continue
+
+            if href.startswith("/"):
+                href = f"https://av-wiki.net{href}"
+            if href.startswith("https://av-wiki.net/"):
+                candidates.append(href)
+
+        if not candidates:
+            return None
+
+        # 優先匹配番號 slug 的詳情頁
+        for url in candidates:
+            if code_slug in url.lower():
+                return url
+
+        return candidates[0]
 
     def _is_actress_name(self, text: str) -> bool:
         """判斷文字是否可能是女優名稱"""
@@ -542,6 +599,7 @@ class WebSearcher:
         task_func,
         stop_event: threading.Event,
         progress_callback=None,
+        result_callback=None,
     ) -> dict:
         results = {}
         total_batches = (len(items) + self.batch_size - 1) // self.batch_size
@@ -566,6 +624,8 @@ class WebSearcher:
                     try:
                         result = future.result()
                         results[item] = result
+                        if result_callback:
+                            result_callback(item, result, None)
                         if progress_callback:
                             if result and result.get("actresses"):
                                 progress_callback(f"✅ {item}: 找到資料\n")
@@ -573,6 +633,9 @@ class WebSearcher:
                                 progress_callback(f"❌ {item}: 未找到結果\n")
                     except Exception as e:
                         logger.error(f"批次處理 {item} 時發生錯誤: {e}")
+                        results[item] = None
+                        if result_callback:
+                            result_callback(item, None, e)
                         if progress_callback:
                             progress_callback(f"💥 {item}: 處理失敗 - {e}\n")
             if i + self.batch_size < len(items) and total_batches > 1:
@@ -735,14 +798,7 @@ class WebSearcher:
                             studio_info["studio"] = studio_text
                         break
 
-            # 方法2: 如果方法1失敗，嘗試從番號中提取片商代碼
-            if not studio_info["studio"]:
-                studio_code = self._extract_studio_code_from_number(code)
-                if studio_code:
-                    studio_info["studio_code"] = studio_code
-                    studio_info["studio"] = self._get_studio_name_by_code(studio_code)
-
-            # 方法3: 從網頁內容中搜尋片商資訊（最後手段）
+            # 方法2: 如果方法1失敗，從頁面文字中提取片商資訊
             if not studio_info["studio"]:
                 # 搜尋常見的片商名稱和模式
                 studio_patterns = [
@@ -755,6 +811,7 @@ class WebSearcher:
                     (r"製作[：:]\s*([^\n\r]+)", r"\1"),
                     (r"發行[：:]\s*([^\n\r]+)", r"\1"),
                     (r"メーカー[：:]\s*([^\n\r]+)", r"\1"),
+                    (r"メーカー\s*[\r\n]+\s*([^\n\r]+)", r"\1"),
                     # 番號前綴模式
                     (r"品番[：:]\s*([A-Z]+)-?\d+", r"\1"),
                 ]
@@ -774,6 +831,13 @@ class WebSearcher:
                             ):
                                 studio_info["studio_code"] = extracted_studio
                             break
+
+            # 方法3: 如果仍失敗，嘗試從番號中提取片商代碼
+            if not studio_info["studio"]:
+                studio_code = self._extract_studio_code_from_number(code)
+                if studio_code:
+                    studio_info["studio_code"] = studio_code
+                    studio_info["studio"] = self._get_studio_name_by_code(studio_code)
 
             # 方法4: 嘗試提取發行日期（總是執行）
             date_patterns = [
@@ -1106,6 +1170,7 @@ class WebSearcher:
         progress_callback=None,
         enable_javdb: bool = True,
         javdb_delay: float = 0.0,
+        result_callback=None,
     ) -> dict[str, dict]:
         """
         批次級聯搜尋
@@ -1168,6 +1233,8 @@ class WebSearcher:
                     "tried_sources": ["AV-WIKI"],
                     "final_source": "AV-WIKI",
                 }
+                if result_callback:
+                    result_callback(code, results[code], None)
                 progress.update(code, is_success=True, source="AV-WIKI")
             else:
                 failed_codes.append(code)
@@ -1217,6 +1284,8 @@ class WebSearcher:
                         "tried_sources": ["AV-WIKI", "chiba-f"],
                         "final_source": "chiba-f",
                     }
+                    if result_callback:
+                        result_callback(code, results[code], None)
                     progress.update(
                         code, is_success=True, source="chiba-f", increment=False
                     )
@@ -1278,11 +1347,15 @@ class WebSearcher:
                         + ["JAVDB"],
                         "final_source": "JAVDB",
                     }
+                    if result_callback:
+                        result_callback(code, results[code], None)
                     progress.update(
                         code, is_success=True, source="JAVDB", increment=False
                     )
                 else:
                     results[code]["tried_sources"].append("JAVDB")
+                    if result_callback:
+                        result_callback(code, results[code], None)
                     progress.update(code, is_success=False, increment=False)
 
                 # 額外延遲（選用）：SafeJAVDBSearcher 已內建延遲，此處僅在明確指定時再加
@@ -1291,6 +1364,8 @@ class WebSearcher:
         else:
             # 標記剩餘失敗
             for code in failed_codes:
+                if result_callback:
+                    result_callback(code, results[code], None)
                 progress.update(code, is_success=False, increment=False)
 
         # 輸出摘要

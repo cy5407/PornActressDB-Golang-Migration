@@ -68,7 +68,7 @@ type Metadata struct {
 // 注意：某些欄位可能有 id 或 code，需要同時支援
 type VideoData struct {
 	Code             string   `json:"code"`
-	ID               string   `json:"id,omitempty"`                // 舊版相容欄位
+	ID               string   `json:"id,omitempty"` // 舊版相容欄位
 	Title            string   `json:"title"`
 	Studio           string   `json:"studio"`
 	StudioCode       string   `json:"studio_code,omitempty"`
@@ -82,7 +82,7 @@ type VideoData struct {
 	Metadata         Metadata `json:"metadata"`
 	OriginalFilename string   `json:"original_filename,omitempty"`
 	FilePath         string   `json:"file_path,omitempty"`
-	SearchMethod string `json:"search_method,omitempty"`
+	SearchMethod     string   `json:"search_method,omitempty"`
 	// TestField は測試專用欄位，正式版本可安全移除
 	// 若需完整隔離，請改以 build tag 控制或移至 test 輔助結構
 	TestField string `json:"test_field,omitempty"`
@@ -130,7 +130,7 @@ type DatabaseData struct {
 	Videos        map[string]*VideoData   `json:"videos"`
 	Actresses     map[string]*ActressData `json:"actresses"`
 	Links         []VideoActressLink      `json:"links"`
-	Statistics    map[string]any  `json:"statistics"`
+	Statistics    map[string]any          `json:"statistics"`
 }
 
 // ============================================================================
@@ -193,6 +193,16 @@ type Stats struct {
 	TotalLinks           int     `json:"total_links,omitempty"`
 	DataFileSizeBytes    int64   `json:"data_file_size_bytes,omitempty"`
 	JournalFileSizeBytes int64   `json:"journal_file_size_bytes,omitempty"`
+}
+
+// MergeStats 資料庫合併結果統計
+type MergeStats struct {
+	VideosAdded      int `json:"videos_added"`
+	VideosUpdated    int `json:"videos_updated"`
+	VideosSkipped    int `json:"videos_skipped"`
+	ActressesAdded   int `json:"actresses_added"`
+	ActressesUpdated int `json:"actresses_updated"`
+	LinksAdded       int `json:"links_added"`
 }
 
 // ============================================================================

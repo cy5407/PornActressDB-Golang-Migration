@@ -52,6 +52,7 @@ class SafeJAVDBSearcher:
         self.daily_limit = 80  # 降低每日限制更安全
         self.min_delay = 3.0  # 增加最小延遲
         self.max_delay = 7.0  # 增加最大延遲
+        self.max_retry_wait_seconds = 60.0  # 超過 1 分鐘即放棄重試
 
         # 檢查當日統計
         self._check_daily_reset()
@@ -205,6 +206,13 @@ class SafeJAVDBSearcher:
                 if response.status_code == 429:  # Too Many Requests
                     if retry_count < 3:
                         wait_time = 60 + random.uniform(30, 90)  # 1-2.5分鐘
+                        if wait_time > self.max_retry_wait_seconds:
+                            logger.warning(
+                                "⚠️ 429 重試等待時間 %.1f 秒超過上限 %.0f 秒，直接放棄",
+                                wait_time,
+                                self.max_retry_wait_seconds,
+                            )
+                            return None
                         logger.warning(
                             f"⚠️ 收到 429 錯誤，等待 {wait_time:.1f} 秒後重試..."
                         )
@@ -220,6 +228,13 @@ class SafeJAVDBSearcher:
                         # 重新建立 session 並等待更長時間
                         self.create_session()
                         wait_time = 120 + random.uniform(60, 180)  # 2-5分鐘
+                        if wait_time > self.max_retry_wait_seconds:
+                            logger.warning(
+                                "⚠️ 403 重試等待時間 %.1f 秒超過上限 %.0f 秒，直接放棄",
+                                wait_time,
+                                self.max_retry_wait_seconds,
+                            )
+                            return None
                         logger.info(f"⏳ 等待 {wait_time:.1f} 秒後重試...")
                         time.sleep(wait_time)
                         return self.safe_request(url, retry_count + 1)

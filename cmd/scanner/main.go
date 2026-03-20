@@ -66,7 +66,7 @@ func printUsage() {
   scan      掃描目錄中的影片檔案，提取番號
   move      移動檔案（單檔或批次）
   history   查看操作歷史或回滾
-  db        資料庫操作（get, update, delete, list, stats）
+  db        資料庫操作（get, update, delete, list, stats, merge）
   identify  識別番號所屬片商
   cache     快取管理（stats, prune, clear）
 
@@ -80,6 +80,7 @@ func printUsage() {
   classifier.exe db update STARS-707 video.json
   classifier.exe db list
   classifier.exe db stats
+  classifier.exe db merge -source dist\data\json_db\data.json
   classifier.exe identify SONE-123
   classifier.exe identify -batch codes.txt
   classifier.exe cache stats
@@ -380,7 +381,7 @@ func historyCmd(args []string) {
 
 func dbCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact> [選項]")
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge> [選項]")
 		os.Exit(1)
 	}
 
@@ -490,6 +491,30 @@ func dbCmd(args []string) {
 		}
 
 		printSuccess("Journal 合併成功")
+
+	case "merge":
+		mergeFS := flag.NewFlagSet("db merge", flag.ExitOnError)
+		sourceFile := mergeFS.String("source", "", "來源 data.json 檔案路徑")
+		overwrite := mergeFS.Bool("overwrite", false, "若番號已存在，是否覆蓋現有資料")
+		mergeFS.Parse(args[1:]) //nolint:errcheck // ExitOnError 模式下不會回傳 error
+
+		if strings.TrimSpace(*sourceFile) == "" {
+			fmt.Fprintln(os.Stderr, "用法: classifier.exe db merge -source <來源data.json> [-overwrite]")
+			os.Exit(1)
+		}
+
+		stats, err := db.MergeFromFile(*sourceFile, *overwrite)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "合併資料庫失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := db.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
+			os.Exit(1)
+		}
+
+		outputJSON(stats)
 
 	default:
 		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)

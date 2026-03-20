@@ -2,7 +2,10 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -323,5 +326,96 @@ func BenchmarkBatchUpdate(b *testing.B) {
 		if err := db.BatchUpdate(updates); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestMergeFromFile_NoOverwrite(t *testing.T) {
+	db, tmpDir := setupTestDB(t)
+
+	existing := NewVideo("CODE-001")
+	existing.Title = "old-title"
+	if err := db.UpdateVideo("CODE-001", existing); err != nil {
+		t.Fatalf("Failed to seed existing video: %v", err)
+	}
+
+	source := NewDatabaseData()
+	source.Videos["CODE-001"] = &VideoData{Code: "CODE-001", Title: "new-title"}
+	source.Videos["CODE-002"] = &VideoData{Code: "CODE-002", Title: "added-title"}
+	source.Actresses["act-1"] = &ActressData{ID: "act-1", Name: "Actress 1"}
+	source.Links = []VideoActressLink{
+		{VideoCode: "CODE-002", ActressID: "act-1", RoleType: RoleMain, Timestamp: "2026-01-01T00:00:00Z"},
+	}
+
+	sourcePath := filepath.Join(tmpDir, "source.json")
+	raw, err := json.Marshal(source)
+	if err != nil {
+		t.Fatalf("Failed to marshal source: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, raw, 0644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+
+	stats, err := db.MergeFromFile(sourcePath, false)
+	if err != nil {
+		t.Fatalf("MergeFromFile failed: %v", err)
+	}
+
+	if stats.VideosAdded != 1 || stats.VideosSkipped != 1 || stats.VideosUpdated != 0 {
+		t.Fatalf("Unexpected video stats: %+v", stats)
+	}
+
+	v1, err := db.GetVideo("CODE-001")
+	if err != nil {
+		t.Fatalf("Failed to get CODE-001: %v", err)
+	}
+	if v1.Title != "old-title" {
+		t.Fatalf("Expected CODE-001 title to remain old-title, got %s", v1.Title)
+	}
+
+	v2, err := db.GetVideo("CODE-002")
+	if err != nil {
+		t.Fatalf("Failed to get CODE-002: %v", err)
+	}
+	if v2.Title != "added-title" {
+		t.Fatalf("Expected CODE-002 added-title, got %s", v2.Title)
+	}
+}
+
+func TestMergeFromFile_WithOverwrite(t *testing.T) {
+	db, tmpDir := setupTestDB(t)
+
+	existing := NewVideo("CODE-003")
+	existing.Title = "old-title"
+	if err := db.UpdateVideo("CODE-003", existing); err != nil {
+		t.Fatalf("Failed to seed existing video: %v", err)
+	}
+
+	source := NewDatabaseData()
+	source.Videos["CODE-003"] = &VideoData{Code: "CODE-003", Title: "new-title"}
+
+	sourcePath := filepath.Join(tmpDir, "source-overwrite.json")
+	raw, err := json.Marshal(source)
+	if err != nil {
+		t.Fatalf("Failed to marshal source: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, raw, 0644); err != nil {
+		t.Fatalf("Failed to write source file: %v", err)
+	}
+
+	stats, err := db.MergeFromFile(sourcePath, true)
+	if err != nil {
+		t.Fatalf("MergeFromFile failed: %v", err)
+	}
+
+	if stats.VideosUpdated != 1 || stats.VideosAdded != 0 || stats.VideosSkipped != 0 {
+		t.Fatalf("Unexpected video stats: %+v", stats)
+	}
+
+	v, err := db.GetVideo("CODE-003")
+	if err != nil {
+		t.Fatalf("Failed to get CODE-003: %v", err)
+	}
+	if v.Title != "new-title" {
+		t.Fatalf("Expected CODE-003 title to be overwritten to new-title, got %s", v.Title)
 	}
 }

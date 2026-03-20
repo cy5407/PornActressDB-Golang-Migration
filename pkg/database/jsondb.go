@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -37,10 +38,10 @@ type JSONDatabase struct {
 	loaded      bool          // 是否已載入
 
 	// Dirty tracking（與 Python 相容）
-	dirtyVideos    map[string]bool
-	dirtyActresses map[string]bool
-	dirtyLinks     map[string]bool
-	journalSize    int
+	dirtyVideos      map[string]bool
+	dirtyActresses   map[string]bool
+	dirtyLinks       map[string]bool
+	journalSize      int
 	journalCreatedAt time.Time
 }
 
@@ -599,19 +600,19 @@ func (db *JSONDatabase) GetStats() (map[string]any, error) {
 	needsCompact := db.journalSize >= JournalSizeThreshold || journalAge >= float64(JournalAgeThreshold)
 
 	stats := map[string]any{
-		"video_count":          len(db.root.Videos),
-		"actress_count":        len(db.root.Actresses),
-		"link_count":           len(db.root.Links),
-		"schema_version":       db.root.SchemaVersion,
-		"created_at":           db.root.CreatedAt,
-		"updated_at":           db.root.UpdatedAt,
-		"journal_size":         db.journalSize,
-		"journal_age_seconds":  journalAge,
-		"dirty_videos":         len(db.dirtyVideos),
-		"dirty_actresses":      len(db.dirtyActresses),
-		"dirty_links":          len(db.dirtyLinks),
-		"needs_compact":        needsCompact,
-		"total_videos":         len(db.root.Videos),
+		"video_count":         len(db.root.Videos),
+		"actress_count":       len(db.root.Actresses),
+		"link_count":          len(db.root.Links),
+		"schema_version":      db.root.SchemaVersion,
+		"created_at":          db.root.CreatedAt,
+		"updated_at":          db.root.UpdatedAt,
+		"journal_size":        db.journalSize,
+		"journal_age_seconds": journalAge,
+		"dirty_videos":        len(db.dirtyVideos),
+		"dirty_actresses":     len(db.dirtyActresses),
+		"dirty_links":         len(db.dirtyLinks),
+		"needs_compact":       needsCompact,
+		"total_videos":        len(db.root.Videos),
 	}
 
 	return stats, nil
@@ -640,4 +641,133 @@ func (db *JSONDatabase) GetStatsStruct() (*Stats, error) {
 		TotalActresses:    len(db.root.Actresses),
 		TotalLinks:        len(db.root.Links),
 	}, nil
+}
+
+// MergeFromFile 從 JSON 檔案合併資料到目前資料庫
+func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*MergeStats, error) {
+	if strings.TrimSpace(sourceFile) == "" {
+		return nil, errors.New("source file path cannot be empty")
+	}
+
+	sourceData, err := os.ReadFile(sourceFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read source file: %w", err)
+	}
+
+	var sourceRoot DatabaseData
+	if err := json.Unmarshal(sourceData, &sourceRoot); err != nil {
+		return nil, fmt.Errorf("failed to parse source JSON: %w", err)
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if !db.loaded {
+		return nil, ErrDatabaseNotLoaded
+	}
+
+	if sourceRoot.Videos == nil {
+		sourceRoot.Videos = make(map[string]*VideoData)
+	}
+	if sourceRoot.Actresses == nil {
+		sourceRoot.Actresses = make(map[string]*ActressData)
+	}
+	if sourceRoot.Links == nil {
+		sourceRoot.Links = []VideoActressLink{}
+	}
+
+	stats := &MergeStats{}
+	now := time.Now().UTC().Format(ISODateTimeFormat)
+
+	for mapCode, video := range sourceRoot.Videos {
+		if video == nil {
+			continue
+		}
+
+		code := strings.TrimSpace(video.GetCode())
+		if code == "" {
+			code = strings.TrimSpace(mapCode)
+		}
+		if code == "" {
+			continue
+		}
+
+		videoCopy := *video
+		videoCopy.Code = code
+		videoCopy.ID = ""
+		videoCopy.UpdatedAt = now
+
+		if existing, exists := db.root.Videos[code]; exists {
+			if !overwrite {
+				stats.VideosSkipped++
+				continue
+			}
+			videoCopy.CreatedAt = existing.CreatedAt
+			db.root.Videos[code] = &videoCopy
+			stats.VideosUpdated++
+		} else {
+			if videoCopy.CreatedAt == "" {
+				videoCopy.CreatedAt = now
+			}
+			db.root.Videos[code] = &videoCopy
+			stats.VideosAdded++
+		}
+
+		db.dirtyVideos[code] = true
+	}
+
+	for id, actress := range sourceRoot.Actresses {
+		if actress == nil {
+			continue
+		}
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+
+		actressCopy := *actress
+		actressCopy.ID = id
+		actressCopy.UpdatedAt = now
+
+		if existing, exists := db.root.Actresses[id]; exists {
+			if !overwrite {
+				continue
+			}
+			actressCopy.CreatedAt = existing.CreatedAt
+			db.root.Actresses[id] = &actressCopy
+			stats.ActressesUpdated++
+		} else {
+			if actressCopy.CreatedAt == "" {
+				actressCopy.CreatedAt = now
+			}
+			db.root.Actresses[id] = &actressCopy
+			stats.ActressesAdded++
+		}
+
+		db.dirtyActresses[id] = true
+	}
+
+	linkSet := make(map[string]bool, len(db.root.Links)+len(sourceRoot.Links))
+	for _, link := range db.root.Links {
+		key := link.VideoCode + "|" + link.ActressID + "|" + link.RoleType + "|" + link.Timestamp
+		linkSet[key] = true
+	}
+
+	for _, link := range sourceRoot.Links {
+		key := link.VideoCode + "|" + link.ActressID + "|" + link.RoleType + "|" + link.Timestamp
+		if linkSet[key] {
+			continue
+		}
+		db.root.Links = append(db.root.Links, link)
+		linkSet[key] = true
+		stats.LinksAdded++
+	}
+
+	db.root.UpdatedAt = now
+	db.journalSize += stats.VideosAdded + stats.VideosUpdated + stats.ActressesAdded + stats.ActressesUpdated + stats.LinksAdded
+
+	if err := db.saveIndex(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+	}
+
+	return stats, nil
 }
