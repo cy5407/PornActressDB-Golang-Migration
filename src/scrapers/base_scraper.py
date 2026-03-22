@@ -323,8 +323,14 @@ class HealthChecker:
                 except Exception as e:
                     logger.error(f"健康檢查任務失敗: {e}")
 
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("⚠️ 無執行中的事件迴圈，略過自動健康檢查背景任務")
+            return
+
         # 在背景執行
-        asyncio.create_task(health_check_worker())
+        loop.create_task(health_check_worker())
         logger.info(f"🏥 健康檢查任務已啟動 (間隔: {self.config.check_interval}秒)")
 
     def get_health_report(self) -> dict[str, Any]:

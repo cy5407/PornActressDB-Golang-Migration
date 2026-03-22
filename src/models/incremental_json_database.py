@@ -20,12 +20,15 @@
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import orjson
 from filelock import FileLock
+
+# Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
+UTC = timezone.utc
 
 from src.models.json_database import JSONDBManager
 from src.models.json_types import (

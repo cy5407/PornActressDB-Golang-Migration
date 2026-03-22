@@ -60,15 +60,23 @@ func (cm *CacheManager) loadIndex() (*CacheIndex, error) {
 	return &index, nil
 }
 
-// saveIndex 儲存索引檔案
+// saveIndex 儲存索引檔案（使用 tmp+rename 確保原子寫入，避免中途中斷留下損壞的索引）
 func (cm *CacheManager) saveIndex(index *CacheIndex) error {
-	data, err := json.MarshalIndent(index, "", "  ")
+	data, err := json.MarshalIndent(index, "", "  ") // 序列化索引為縮排 JSON
 	if err != nil {
 		return fmt.Errorf("序列化索引失敗: %w", err)
 	}
 
-	if err := os.WriteFile(cm.indexPath, data, 0644); err != nil {
-		return fmt.Errorf("寫入索引失敗: %w", err)
+	// 先寫入暫存檔（與正式檔案同目錄，確保 rename 為同一掛載點上的原子操作）
+	tmpPath := cm.indexPath + ".tmp" // 暫存檔路徑，與正式檔案同目錄
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("寫入暫存索引失敗: %w", err)
+	}
+
+	// 原子性替換正式檔案（rename 在同一檔案系統內保證原子性）
+	if err := os.Rename(tmpPath, cm.indexPath); err != nil {
+		os.Remove(tmpPath) // rename 失敗時清理暫存檔，避免殘留
+		return fmt.Errorf("替換索引檔案失敗: %w", err)
 	}
 
 	return nil

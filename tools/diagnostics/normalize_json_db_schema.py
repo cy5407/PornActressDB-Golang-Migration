@@ -47,8 +47,6 @@ METHOD_MAPPING = {
     "AV-WIKI": SEARCH_METHODS["AV_WIKI"],
     "AV-WIKI (安全增強版)": SEARCH_METHODS["AV_WIKI"],
     "AV-WIKI (安全 增強版)": SEARCH_METHODS["AV_WIKI"],
-    "chiba-f.net": SEARCH_METHODS["CHIBA_F"],
-    "chiba-f.net (安全增強版)": SEARCH_METHODS["CHIBA_F"],
     "JAVDB": SEARCH_METHODS["JAVDB"],
     "JAVDB (安全增強版)": SEARCH_METHODS["JAVDB"],
     "cascade": SEARCH_METHODS["CASCADE"],

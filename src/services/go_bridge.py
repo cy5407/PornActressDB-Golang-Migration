@@ -613,14 +613,25 @@ def db_get_video(code: str, data_dir: str = "data/json_db") -> Optional[dict]:
     """
     bridge = get_bridge()
     try:
-        cmd = ["db", "get", code]
+        # 先放 flags，再放 positional args（Go flag.FlagSet 遇到非 flag 參數就停止解析）
+        cmd = ["db", "get"]
         if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])
+            cmd.extend(["-data-dir", data_dir])  # flag 必須在 positional arg 前面
+        cmd.append(code)  # positional arg 放最後
 
-        result = bridge._run_command(cmd)
-        return bridge._parse_json(result.stdout)
+        result = bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
+        data = bridge._parse_json(result.stdout)  # JSON 解析失敗時拋出 GoBridgeError
+        return data
+    except GoBridgeError as e:
+        error_msg = str(e)
+        # 區分錯誤類型：parse 失敗 vs bridge 故障
+        if "JSON" in error_msg:
+            logger.warning(f"⚠️ JSON 解析失敗 (影片 {code}): {error_msg}")  # JSON 解析失敗為 warning
+        else:
+            logger.error(f"❌ Go CLI 執行失敗 (影片 {code}): {error_msg}")  # Go CLI 執行失敗為 error
+        return None
     except Exception as e:
-        logger.error(f"❌ 取得影片失敗 {code}: {e}")
+        logger.error(f"❌ 取得影片失敗 {code}: {e}")  # 其他異常為 error
         return None
 
 
@@ -637,6 +648,7 @@ def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> b
         成功返回 True，失敗返回 False
     """
     bridge = get_bridge()
+    temp_file = None
     try:
         # 寫入暫存 JSON 檔案
         with tempfile.NamedTemporaryFile(
@@ -646,21 +658,28 @@ def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> b
             temp_file = f.name
 
         try:
-            cmd = ["db", "update", code, temp_file]
+            # 先放 flags，再放 positional args（Go flag.FlagSet 遇到非 flag 參數就停止解析）
+            cmd = ["db", "update"]
             if data_dir != "data/json_db":
-                cmd.extend(["-data-dir", data_dir])
+                cmd.extend(["-data-dir", data_dir])  # flag 必須在 positional args 前面
+            cmd.extend([code, temp_file])  # positional args 放最後
 
-            bridge._run_command(cmd)
+            bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
             logger.info(f"✅ 影片 {code} 更新成功")
             return True
+        except GoBridgeError as e:
+            error_msg = str(e)
+            logger.error(f"❌ Go CLI 執行失敗，影片 {code} 更新失敗: {error_msg}")  # Go CLI 執行失敗為 error
+            return False
         finally:
             # 清理暫存檔
-            try:
-                os.unlink(temp_file)
-            except Exception:
-                pass
+            if temp_file:  # 清理暫存 JSON 檔案
+                try:
+                    os.unlink(temp_file)
+                except Exception:
+                    pass
     except Exception as e:
-        logger.error(f"❌ 更新影片失敗 {code}: {e}")
+        logger.error(f"❌ 更新影片失敗 {code}: {e}")  # 其他異常為 error
         return False
 
 
@@ -677,15 +696,20 @@ def db_delete_video(code: str, data_dir: str = "data/json_db") -> bool:
     """
     bridge = get_bridge()
     try:
-        cmd = ["db", "delete", code]
+        # 先放 flags，再放 positional args（Go flag.FlagSet 遇到非 flag 參數就停止解析）
+        cmd = ["db", "delete"]
         if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])
+            cmd.extend(["-data-dir", data_dir])  # flag 必須在 positional arg 前面
+        cmd.append(code)  # positional arg 放最後
 
-        bridge._run_command(cmd)
+        bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
         logger.info(f"✅ 影片 {code} 刪除成功")
         return True
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 執行失敗，影片 {code} 刪除失敗: {e}")  # Go CLI 執行失敗為 error
+        return False
     except Exception as e:
-        logger.error(f"❌ 刪除影片失敗 {code}: {e}")
+        logger.error(f"❌ 刪除影片失敗 {code}: {e}")  # 其他異常為 error
         return False
 
 
@@ -701,15 +725,24 @@ def db_list_videos(data_dir: str = "data/json_db") -> list[str]:
     """
     bridge = get_bridge()
     try:
+        # 先放 flags（db list 無 positional args，但統一放在命令後面保持一致）
         cmd = ["db", "list"]
         if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])
+            cmd.extend(["-data-dir", data_dir])  # flag 放在子命令後、任何 positional arg 前
 
-        result = bridge._run_command(cmd)
-        data = bridge._parse_json(result.stdout)
+        result = bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
+        data = bridge._parse_json(result.stdout)  # JSON 解析失敗時拋出 GoBridgeError
         return data if isinstance(data, list) else []
+    except GoBridgeError as e:
+        error_msg = str(e)
+        # 區分錯誤類型：parse 失敗 vs bridge 故障
+        if "JSON" in error_msg:
+            logger.warning(f"⚠️ JSON 解析失敗: {error_msg}")  # JSON 解析失敗為 warning
+        else:
+            logger.error(f"❌ Go CLI 執行失敗，列出影片失敗: {error_msg}")  # Go CLI 執行失敗為 error
+        return []
     except Exception as e:
-        logger.error(f"❌ 列出影片失敗: {e}")
+        logger.error(f"❌ 列出影片失敗: {e}")  # 其他異常為 error
         return []
 
 
@@ -725,15 +758,24 @@ def db_get_stats(data_dir: str = "data/json_db") -> dict:
     """
     bridge = get_bridge()
     try:
+        # 先放 flags（db stats 無 positional args，但統一放在命令後面保持一致）
         cmd = ["db", "stats"]
         if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])
+            cmd.extend(["-data-dir", data_dir])  # flag 放在子命令後、任何 positional arg 前
 
-        result = bridge._run_command(cmd)
-        data = bridge._parse_json(result.stdout)
+        result = bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
+        data = bridge._parse_json(result.stdout)  # JSON 解析失敗時拋出 GoBridgeError
         return data if isinstance(data, dict) else {}
+    except GoBridgeError as e:
+        error_msg = str(e)
+        # 區分錯誤類型：parse 失敗 vs bridge 故障
+        if "JSON" in error_msg:
+            logger.warning(f"⚠️ JSON 解析失敗: {error_msg}")  # JSON 解析失敗為 warning
+        else:
+            logger.error(f"❌ Go CLI 執行失敗，取得統計失敗: {error_msg}")  # Go CLI 執行失敗為 error
+        return {}
     except Exception as e:
-        logger.error(f"❌ 取得統計失敗: {e}")
+        logger.error(f"❌ 取得統計失敗: {e}")  # 其他異常為 error
         return {}
 
 
@@ -749,15 +791,19 @@ def db_compact_journal(data_dir: str = "data/json_db") -> bool:
     """
     bridge = get_bridge()
     try:
+        # 先放 flags（db compact 無 positional args，但統一放在命令後面保持一致）
         cmd = ["db", "compact"]
         if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])
+            cmd.extend(["-data-dir", data_dir])  # flag 放在子命令後、任何 positional arg 前
 
-        bridge._run_command(cmd)
+        bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
         logger.info("✅ Journal 合併成功")
         return True
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 執行失敗，合併 journal 失敗: {e}")  # Go CLI 執行失敗為 error
+        return False
     except Exception as e:
-        logger.error(f"❌ 合併 journal 失敗: {e}")
+        logger.error(f"❌ 合併 journal 失敗: {e}")  # 其他異常為 error
         return False
 
 # === 片商識別功能 ===

@@ -11,12 +11,15 @@ JSON 資料庫管理器 (JSONDBManager)
 import hashlib
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import orjson
 from filelock import FileLock
+
+# Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
+UTC = timezone.utc
 
 try:
     from utils.json_utils import load as json_load
@@ -77,6 +80,7 @@ class JSONDBManager:
         try:
             # 設定檔案路徑
             self.data_dir = Path(data_dir)
+            self.db_dir = self.data_dir  # 舊版測試/呼叫端相容別名
             self.data_file = self.data_dir / "data.json"
             self.backup_dir = self.data_dir / "backup"
 
@@ -169,6 +173,8 @@ class JSONDBManager:
                 logger.error(f"❌ JSON 解析失敗: {e}")
                 raise CorruptedDataError(f"JSON 格式錯誤: {e}") from e
 
+            loaded_data = self._normalize_loaded_data(loaded_data)
+
             # 驗證資料結構
             self._validate_json_format(loaded_data)
 
@@ -185,6 +191,63 @@ class JSONDBManager:
         except Exception as e:
             logger.error(f"❌ 內部資料載入失敗: {e}")
             raise CorruptedDataError(f"內部載入失敗: {e}") from e
+
+    def _normalize_loaded_data(self, loaded_data: Any) -> JSONDatabaseDict:
+        """
+        將舊版資料結構補齊為目前 schema。
+
+        支援缺少 `schema_version` / `links` / `statistics` 的舊資料，
+        並將早期的 `video_actress_links` 轉為目前使用的 `links` 清單。
+        """
+        if not isinstance(loaded_data, dict):
+            raise ValidationError("根層必須是字典")
+
+        default_data = get_empty_json_database()
+        normalized: JSONDatabaseDict = default_data.copy()
+        normalized.update(loaded_data)
+
+        legacy_links = loaded_data.get("video_actress_links")
+        if "links" not in loaded_data and legacy_links is not None:
+            normalized["links"] = self._normalize_legacy_links(legacy_links)
+        elif isinstance(normalized.get("links"), dict):
+            normalized["links"] = self._normalize_legacy_links(normalized["links"])
+
+        statistics = normalized.get("statistics")
+        if not isinstance(statistics, dict):
+            normalized["statistics"] = default_data["statistics"]
+        else:
+            merged_statistics = default_data["statistics"].copy()
+            merged_statistics.update(statistics)
+            normalized["statistics"] = merged_statistics
+
+        return normalized
+
+    @staticmethod
+    def _normalize_legacy_links(legacy_links: Any) -> list[dict[str, Any]]:
+        """將舊版 link 結構統一為目前的 list 格式。"""
+        if legacy_links is None:
+            return []
+
+        if isinstance(legacy_links, list):
+            return legacy_links
+
+        if not isinstance(legacy_links, dict):
+            raise ValidationError("'links' 必須是清單")
+
+        normalized_links: list[dict[str, Any]] = []
+        for video_code, actress_ids in legacy_links.items():
+            if not isinstance(actress_ids, list):
+                continue
+            for actress_id in actress_ids:
+                if isinstance(actress_id, str):
+                    normalized_links.append(
+                        {
+                            "video_code": video_code,
+                            "actress_id": actress_id,
+                        }
+                    )
+
+        return normalized_links
 
     def _save_all_data(self, data: JSONDatabaseDict) -> None:
         """
@@ -706,15 +769,17 @@ class JSONDBManager:
     # CRUD 操作 (T010 實現)
     # ========================================================================
 
-    def add_or_update_video(self, code: str, info: dict) -> str:
+    def add_or_update_video(
+        self, code: str | VideoDict, info: dict[str, Any] | None = None
+    ) -> str:
         """
         新增或更新影片
 
         若影片番號已存在則更新，否則建立新記錄。
 
         Args:
-            code: 影片番號 (例如: "DOCZ-004")
-            info: 影片資訊字典
+            code: 影片番號，或直接傳入包含 `code` 的影片資訊字典
+            info: 影片資訊字典（當第一個參數為番號時必填）
 
         Returns:
             影片番號 (新建或已更新)
@@ -725,11 +790,18 @@ class JSONDBManager:
             CorruptedDataError: 若寫入失敗
         """
         try:
-            # 驗證輸入
-            if not isinstance(info, dict):
-                raise ValidationError("影片資訊必須是字典")
+            if isinstance(code, dict):
+                if info is not None:
+                    raise ValidationError("傳入影片字典時不可同時提供 info")
+                video_info = code.copy()
+                video_code = video_info.get("code")
+            else:
+                if not isinstance(info, dict):
+                    raise ValidationError("影片資訊必須是字典")
+                video_code = code
+                video_info = info.copy()
 
-            if not code:
+            if not isinstance(video_code, str) or not video_code:
                 raise ValidationError("影片番號必須存在")
 
             # 獲取寫鎖定
@@ -741,14 +813,14 @@ class JSONDBManager:
 
                 # 準備影片資料
                 video_dict = get_empty_video()
-                video_dict["code"] = code
-                video_dict.update(info)
+                video_dict["code"] = video_code
+                video_dict.update(video_info)
                 video_dict["updated_at"] = datetime.now(UTC).strftime(
                     ISO_DATETIME_FORMAT
                 )
 
                 # 新增或更新
-                self.data["videos"][code] = video_dict
+                self.data["videos"][video_code] = video_dict
 
                 # 驗證完整性
                 self._validate_referential_integrity(self.data)
@@ -759,8 +831,8 @@ class JSONDBManager:
                 # 保存
                 self._save_all_data(self.data)
 
-                logger.info(f"✅ 影片已新增/更新: {code}")
-                return code
+                logger.info(f"✅ 影片已新增/更新: {video_code}")
+                return video_code
 
             finally:
                 self._release_locks()

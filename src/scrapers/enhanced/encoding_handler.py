@@ -274,8 +274,6 @@ class ImprovedScraper:
             # 這裡可以添加特定網站的解析邏輯
             if "av-wiki.net" in url:
                 info.update(self._extract_avwiki_info(soup))
-            elif "chiba-f.net" in url:
-                info.update(self._extract_chibaf_info(soup))
 
             return info if any(info.values()) else None
 
@@ -298,7 +296,6 @@ if __name__ == "__main__":
     # 測試 URL
     test_urls = [
         "https://av-wiki.net/?s=MIDV-661&post_type=product",
-        "https://chiba-f.net/search/?keyword=MIDV-661",
     ]
 
     for url in test_urls:

@@ -14,7 +14,7 @@ from .base_scraper import HealthCheckConfig, RetryConfig
 from .cache_manager import CacheConfig, CacheManager
 from .encoding_utils import install_encoding_warning_filter
 from .rate_limiter import DomainConfig, RateLimiter
-from .sources import AVWikiScraper, ChibaFScraper, JAVDBScraper
+from .sources import AVWikiScraper, JAVDBScraper
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,6 @@ class DataSource(Enum):
 
     JAVDB = "javdb"
     AVWIKI = "avwiki"
-    CHIBAF = "chibaf"
 
 
 @dataclass
@@ -60,7 +59,6 @@ class UnifiedScraperConfig:
             self.source_priority = [
                 DataSource.JAVDB,
                 DataSource.AVWIKI,
-                DataSource.CHIBAF,
             ]
 
         if self.retry_config is None:
@@ -94,9 +92,6 @@ class UnifiedWebScraper:
             DataSource.AVWIKI: AVWikiScraper(
                 cache_manager=self.cache_manager, rate_limiter=self.rate_limiter
             ),
-            DataSource.CHIBAF: ChibaFScraper(
-                cache_manager=self.cache_manager, rate_limiter=self.rate_limiter
-            ),
         }
 
         # 統計資訊
@@ -128,13 +123,6 @@ class UnifiedWebScraper:
                 burst_limit=3,
                 min_interval=2.0,
                 max_interval=5.0,
-            ),
-            "chiba-f.net": DomainConfig(
-                requests_per_minute=15,
-                requests_per_hour=500,
-                burst_limit=4,
-                min_interval=1.5,
-                max_interval=4.0,
             ),
         }
 

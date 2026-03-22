@@ -26,8 +26,9 @@ class UnifiedClassifierCore:
 
     def __init__(self, config: ConfigManager):
         self.config = config
-        # 使用增量資料庫管理器替代標準管理器
-        self.db_manager = IncrementalJSONDB("data/json_db")
+        # 使用增量資料庫管理器替代標準管理器，從設定檔讀取資料庫目錄
+        json_data_dir = config.get("database", "json_data_dir", fallback="data/json_db")  # 從設定檔讀取資料庫目錄，預設為 data/json_db
+        self.db_manager = IncrementalJSONDB(json_data_dir)
         self.code_extractor = UnifiedCodeExtractor()
         # 使用設定檔建立掃描器（支援 Go 加速）
         self.file_scanner = UnifiedFileScanner.from_config(config)
@@ -292,7 +293,7 @@ class UnifiedClassifierCore:
         progress_callback=None,
         use_avwiki_concurrent=True,
     ):
-        """僅使用日文網站搜尋 (AV-WIKI 和 chiba-f.net)
+        """僅使用 AV-WIKI 搜尋
 
         Args:
             folder_path: 資料夾路徑
@@ -617,10 +618,10 @@ class UnifiedClassifierCore:
         progress_callback=None,
         enable_cascade: bool = True,
     ):
-        """使用級聯搜尋策略（AV-WIKI → chiba-f → JAVDB）
+        """使用級聯搜尋策略（AV-WIKI → JAVDB）
 
-        此方法會先使用 AV-WIKI 批次搜尋，對於未找到的番號再依序
-        使用 chiba-f 和 JAVDB 進行補充搜尋，最大化搜尋成功率。
+        此方法會先使用 AV-WIKI 批次搜尋，對於未找到的番號再
+        使用 JAVDB 進行補充搜尋，最大化搜尋成功率。
 
         Args:
             folder_path: 資料夾路徑
@@ -747,7 +748,7 @@ class UnifiedClassifierCore:
             if progress_callback:
                 if enable_cascade:
                     progress_callback(
-                        "🚀 啟用級聯搜尋策略：AV-WIKI → chiba-f → JAVDB\n\n"
+                        "🚀 啟用級聯搜尋策略：AV-WIKI → JAVDB\n\n"
                     )
                 else:
                     progress_callback("🔍 使用 AV-WIKI 單一搜尋模式\n\n")
@@ -1070,13 +1071,13 @@ class UnifiedClassifierCore:
                 if use_full_search:
                     if progress_callback:
                         progress_callback(
-                            "🌐 使用完整搜尋（AV-WIKI → chiba-f → JAVDB）...\n"
+                            "🌐 使用完整搜尋（AV-WIKI → JAVDB）...\n"
                         )
                     search_method = self.web_searcher.search_info
                 else:
                     if progress_callback:
                         progress_callback(
-                            "🇯🇵 使用日文網站搜尋（AV-WIKI → chiba-f）...\n"
+                            "🇯🇵 使用 AV-WIKI 搜尋...\n"
                         )
                     search_method = self.web_searcher.search_japanese_sites
 

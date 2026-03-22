@@ -9,12 +9,11 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import asyncio
 from src.scrapers.sources.javdb_scraper import JAVDBScraper
 from src.scrapers.sources.avwiki_scraper import AVWikiScraper
 
 
-async def test_javdb_scraper_with_filter():
+def test_javdb_scraper_with_filter():
     """測試 JAVDB 爬蟲整合過濾器"""
     scraper = JAVDBScraper()
     
@@ -38,7 +37,7 @@ async def test_javdb_scraper_with_filter():
     print("\n✅ JAVDB 爬蟲整合測試通過！")
 
 
-async def test_avwiki_scraper_with_filter():
+def test_avwiki_scraper_with_filter():
     """測試 AV-WIKI 爬蟲整合過濾器"""
     scraper = AVWikiScraper()
     
@@ -62,16 +61,16 @@ async def test_avwiki_scraper_with_filter():
     print("\n✅ AV-WIKI 爬蟲整合測試通過！")
 
 
-async def main():
+def main():
     """執行所有整合測試"""
     print("=" * 60)
     print("女優名字過濾器整合測試")
     print("=" * 60)
     print()
     
-    await test_javdb_scraper_with_filter()
+    test_javdb_scraper_with_filter()
     print()
-    await test_avwiki_scraper_with_filter()
+    test_avwiki_scraper_with_filter()
     
     print()
     print("=" * 60)
@@ -80,4 +79,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

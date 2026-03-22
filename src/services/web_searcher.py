@@ -45,7 +45,7 @@ class WebSearcher:
         # 初始化安全搜尋器
         self.safe_searcher = SafeSearcher(safe_config)
 
-        # 初始化日文網站專用的更快速配置（av-wiki 和 chiba-f 比較不會擋爬蟲）
+        # 初始化日文網站專用的更快速配置（av-wiki 比較不會擋爬蟲）
         japanese_config = RequestConfig(
             min_interval=config.getfloat(
                 "search", "japanese_min_interval", fallback=0.5
@@ -117,7 +117,7 @@ class WebSearcher:
             )
 
     def search_info(self, code: str, stop_event: threading.Event) -> dict | None:
-        """多層級搜尋策略 - AV-WIKI -> chiba-f.net -> JAVDB"""
+        """多層級搜尋策略 - AV-WIKI -> JAVDB"""
         if stop_event.is_set():
             return None
         if code in self.search_cache:
@@ -131,15 +131,7 @@ class WebSearcher:
                 self.search_cache[code] = result
                 return result
 
-            # 第二層：chiba-f.net 搜尋
-            if not stop_event.is_set():
-                logger.debug(f"🔍 第二層搜尋 - chiba-f.net: {code}")
-                result = self._search_chiba_f_net(code, stop_event)
-                if result and result.get("actresses"):
-                    self.search_cache[code] = result
-                    return result
-
-            # 第三層：使用安全的 JAVDB 搜尋
+            # 第二層：使用安全的 JAVDB 搜尋
             if not stop_event.is_set():
                 logger.debug(f"🔍 第三層搜尋 - JAVDB: {code}")
                 javdb_result = self.javdb_searcher.search_javdb(code)
@@ -642,136 +634,6 @@ class WebSearcher:
                 time.sleep(self.batch_delay)
         return results
 
-    def _search_chiba_f_net(
-        self, code: str, stop_event: threading.Event
-    ) -> dict | None:
-        """使用 chiba-f.net 搜尋女優資訊"""
-        if stop_event.is_set():
-            return None
-
-        # 🔧 檢查 Cloudflare 保護狀態（快取結果避免重複檢查）
-        if getattr(self, "_chiba_cloudflare_blocked", False):
-            logger.debug(f"chiba-f.net 被 Cloudflare 保護，跳過搜尋: {code}")
-            return None
-
-        search_url = f"https://chiba-f.net/search/?keyword={quote(code)}"
-
-        # 使用日文網站專用標頭和增強編碼檢測
-        def make_request(url, **kwargs):
-            with httpx.Client(timeout=self.timeout, **kwargs) as client:
-                response = client.get(url, headers=self.japanese_headers)
-
-                # 🔧 偵測 Cloudflare 挑戰
-                cf_mitigated = response.headers.get("cf-mitigated", "")
-                if response.status_code == 403 and cf_mitigated == "challenge":
-                    self._chiba_cloudflare_blocked = True
-                    logger.warning(
-                        "⚠️ chiba-f.net 啟用了 Cloudflare 保護，本次執行將跳過此來源"
-                    )
-                    return None
-
-                response.raise_for_status()
-                # 🔧 使用增強的編碼檢測機制
-                decoded_content = self._detect_and_decode_content(response)
-                logger.debug(f"📄 chiba-f.net 內容長度: {len(decoded_content)} 字符")
-                logger.debug(f"📄 chiba-f.net 內容開頭: {decoded_content[:100]}...")
-                return BeautifulSoup(decoded_content, "html.parser")
-
-        try:
-            soup = self.safe_searcher.safe_request(make_request, search_url)
-
-            if soup is None:
-                logger.debug(f"無法獲取 {code} 的 chiba-f.net 搜尋頁面")
-                return None
-
-            # 查找產品區塊
-            product_divs = soup.find_all("div", class_="product-div")
-            logger.info(
-                f"chiba-f.net 解析: 找到 {len(product_divs)} 個 product-div 元素"
-            )
-
-            for product_div in product_divs:
-                # 檢查番號是否匹配
-                pno_element = product_div.find("div", class_="pno")
-                if pno_element and code.upper() in pno_element.text.upper():
-                    logger.info(f"chiba-f.net 找到匹配番號: {code}")
-                    return self._extract_chiba_product_info(product_div, code)
-
-            # 如果沒有找到完全匹配，嘗試模糊匹配
-            for product_div in product_divs:
-                product_text = product_div.get_text()
-                if code.upper() in product_text.upper():
-                    logger.info(f"chiba-f.net 模糊匹配找到番號: {code}")
-                    return self._extract_chiba_product_info(product_div, code)
-
-            if not product_divs:
-                logger.debug(
-                    f"chiba-f.net 未找到任何產品區塊，HTML開頭: {str(soup)[:200]}..."
-                )
-
-        except Exception as e:
-            # 🔧 403 錯誤時檢查是否為 Cloudflare
-            if "403" in str(e):
-                self._chiba_cloudflare_blocked = True
-                logger.warning(
-                    f"⚠️ chiba-f.net 返回 403，可能被 Cloudflare 保護: {code}"
-                )
-            else:
-                logger.debug(f"chiba-f.net 搜尋 {code} 時發生錯誤: {e}")
-
-        return None
-
-    def _extract_chiba_product_info(self, product_div, code: str) -> dict:
-        """從 chiba-f.net 產品區塊提取資訊"""
-        result = {
-            "source": "chiba-f.net (安全增強版)",
-            "actresses": [],
-            "studio": None,
-            "studio_code": None,
-            "release_date": None,
-        }
-
-        try:
-            # 提取女優名稱
-            actress_span = product_div.find("span", class_="fw-bold")
-            if actress_span:
-                result["actresses"] = [actress_span.text.strip()]
-
-            # 提取系列/片商資訊
-            series_link = product_div.find("a", href=re.compile(r"../series/"))
-            if series_link:
-                result["studio"] = series_link.text.strip()
-                # 從 href 提取片商代碼
-                href = series_link.get("href", "")
-                if "../series/" in href:
-                    result["studio_code"] = href.replace("../series/", "").strip()
-
-            # 提取發行日期
-            date_span = product_div.find("span", class_="start_date")
-            if date_span:
-                result["release_date"] = date_span.text.strip()
-
-            # 如果沒有找到片商，嘗試從番號推測
-            if not result["studio_code"]:
-                result["studio_code"] = self._extract_studio_code_from_number(code)
-
-            # 🔧 標準化片商名稱
-            if result.get("studio"):
-                result["studio"] = self.studio_identifier.normalize_studio_name(
-                    result["studio"], code
-                )
-
-            if result["actresses"]:
-                self.search_cache[code] = result
-                logger.info(
-                    f"番號 {code} 透過 {result['source']} 找到: {', '.join(result['actresses'])}, 片商: {result.get('studio', '未知')}"
-                )
-
-        except Exception as e:
-            logger.warning(f"提取 {code} 從 chiba-f.net 資訊時發生部分錯誤: {str(e)}")
-
-        return result if result.get("actresses") else None
-
     def _extract_studio_info(self, soup: BeautifulSoup, code: str) -> dict:
         """從網頁中提取片商資訊"""
         studio_info = {"studio": None, "studio_code": None, "release_date": None}
@@ -951,29 +813,21 @@ class WebSearcher:
     def search_japanese_sites_only(
         self, code: str, stop_event: threading.Event
     ) -> dict | None:
-        """僅搜尋日文網站 - AV-WIKI 和 chiba-f.net"""
+        """僅搜尋 AV-WIKI"""
         if stop_event.is_set():
             return None
         if code in self.search_cache:
             return self.search_cache[code]
 
         try:
-            # 第一層：AV-WIKI 搜尋
-            logger.debug(f"🇯🇵 日文網站搜尋 - AV-WIKI: {code}")
+            # AV-WIKI 搜尋
+            logger.debug(f"🇯🇵 AV-WIKI 搜尋: {code}")
             result = self._search_av_wiki(code, stop_event)
             if result and result.get("actresses"):
                 self.search_cache[code] = result
                 return result
 
-            # 第二層：chiba-f.net 搜尋
-            if not stop_event.is_set():
-                logger.debug(f"🇯🇵 日文網站搜尋 - chiba-f.net: {code}")
-                result = self._search_chiba_f_net(code, stop_event)
-                if result and result.get("actresses"):
-                    self.search_cache[code] = result
-                    return result
-
-            logger.debug(f"🇯🇵 日文網站未找到: {code}")
+            logger.debug(f"🇯🇵 AV-WIKI 未找到: {code}")
             return None
 
         except Exception as e:
@@ -1026,32 +880,24 @@ class WebSearcher:
     def search_japanese_sites(
         self, code: str, stop_event: threading.Event
     ) -> dict | None:
-        """只搜尋日文網站 (AV-WIKI 和 chiba-f.net)"""
+        """只搜尋 AV-WIKI"""
         if stop_event.is_set():
             return None
         if code in self.search_cache:
             return self.search_cache[code]
 
         try:
-            # 第一層：AV-WIKI 搜尋
-            logger.debug(f"🇯🇵 日文網站搜尋 - AV-WIKI: {code}")
+            # AV-WIKI 搜尋
+            logger.debug(f"🇯🇵 AV-WIKI 搜尋: {code}")
             result = self._search_av_wiki(code, stop_event)
             if result and result.get("actresses"):
                 self.search_cache[code] = result
                 return result
 
-            # 第二層：chiba-f.net 搜尋
-            if not stop_event.is_set():
-                logger.debug(f"🇯🇵 日文網站搜尋 - chiba-f.net: {code}")
-                result = self._search_chiba_f_net(code, stop_event)
-                if result and result.get("actresses"):
-                    self.search_cache[code] = result
-                    return result
-
-            logger.warning(f"番號 {code} 未在日文網站中找到女優資訊。")
+            logger.warning(f"番號 {code} 未在 AV-WIKI 中找到女優資訊。")
             return None
         except Exception as e:
-            logger.error(f"日文網站搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
+            logger.error(f"AV-WIKI 搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
             return None
 
     def batch_search_avwiki_concurrent(
@@ -1178,8 +1024,7 @@ class WebSearcher:
         策略：
         1. 先用 AV-WIKI 批次併發搜尋所有番號
         2. 收集失敗的番號
-        3. 對失敗番號逐一嘗試 chiba-f
-        4. 再對仍失敗的嘗試 JAVDB（可選）
+        3. 對失敗番號逐一嘗試 JAVDB（可選）
 
         Args:
             codes: 番號列表
@@ -1248,70 +1093,10 @@ class WebSearcher:
         if stop_event.is_set():
             return results
 
-        # 第二階段：chiba-f 逐筆搜尋失敗的番號
-        if failed_codes:
-            if progress_callback:
-                progress_callback(f"\n{'=' * 60}\n")
-                progress_callback(
-                    f"🔄 第二階段：chiba-f 備援搜尋 ({len(failed_codes)} 個番號)\n"
-                )
-                progress_callback(f"{'=' * 60}\n")
-
-            progress.set_phase(2, "chiba-f 備援搜尋")
-            still_failed = []
-            consecutive_failures = 0  # 連續失敗計數
-
-            for i, code in enumerate(failed_codes):
-                if stop_event.is_set():
-                    break
-
-                # 更新進度
-                progress.current = len(codes) - len(failed_codes) + i + 1
-                progress.current_code = code
-                progress.current_source = "chiba-f"
-
-                if progress_callback:
-                    progress_callback(progress.format_progress() + "\n")
-
-                # 搜尋 chiba-f
-                result = self._search_chiba_f_net(code, stop_event)
-
-                if result and result.get("actresses"):
-                    # 成功，重置計數器
-                    consecutive_failures = 0
-                    results[code] = {
-                        **result,
-                        "tried_sources": ["AV-WIKI", "chiba-f"],
-                        "final_source": "chiba-f",
-                    }
-                    if result_callback:
-                        result_callback(code, results[code], None)
-                    progress.update(
-                        code, is_success=True, source="chiba-f", increment=False
-                    )
-                    self.search_cache[code] = result
-                else:
-                    # 失敗，累計計數
-                    consecutive_failures += 1
-                    results[code]["tried_sources"].append("chiba-f")
-                    still_failed.append(code)
-
-                    # 連續失敗 ≥ 3 次，加入遞增延遲
-                    if consecutive_failures >= 3:
-                        # 延遲公式：(consecutive_failures - 2) × 0.5s，上限 3.0s
-                        backoff_delay = min((consecutive_failures - 2) * 0.5, 3.0)
-                        logger.debug(
-                            f"⏰ chiba-f 連續失敗 {consecutive_failures} 次，"
-                            f"加入退避 {backoff_delay:.1f}s"
-                        )
-                        time.sleep(backoff_delay)
-
-            failed_codes = still_failed
-
         if stop_event.is_set():
             return results
 
-        # 第三階段：JAVDB 逐筆搜尋仍然失敗的番號
+        # 第二階段：JAVDB 逐筆搜尋失敗的番號
         if failed_codes and enable_javdb:
             if progress_callback:
                 progress_callback(f"\n{'=' * 60}\n")
@@ -1383,12 +1168,12 @@ class WebSearcher:
         Args:
             code: 影片番號
             stop_event: 停止事件
-            sources: 搜尋來源順序，預設 ['avwiki', 'chibaf', 'javdb']
+            sources: 搜尋來源順序，預設 ['avwiki', 'javdb']
 
         Returns:
             搜尋結果（含 tried_sources 欄位）
         """
-        sources = sources or ["avwiki", "chibaf", "javdb"]
+        sources = sources or ["avwiki", "javdb"]
         tried = []
 
         # 檢查快取
@@ -1409,8 +1194,6 @@ class WebSearcher:
             try:
                 if source == "avwiki":
                     result = self._search_av_wiki(code, stop_event)
-                elif source == "chibaf":
-                    result = self._search_chiba_f_net(code, stop_event)
                 elif source == "javdb":
                     time.sleep(2.0)  # JAVDB 速率限制
                     result = self.search_javdb_only(code, stop_event)

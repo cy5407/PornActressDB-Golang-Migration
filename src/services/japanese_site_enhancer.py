@@ -1,5 +1,5 @@
 """
-日文網站編碼增強器 - 專門處理 av-wiki.net 和 chiba-f.net
+日文網站編碼增強器 - 專門處理 av-wiki.net
 修正版本，針對不同網站使用適當的編碼策略
 """
 
@@ -12,18 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 class JapaneseSiteEnhancer:
-    """日文網站編碼增強器 - 專為 av-wiki.net 和 chiba-f.net 設計"""
+    """日文網站編碼增強器 - 專為 av-wiki.net 設計"""
 
     def __init__(self):
         # 支援的日文網站
-        self.supported_domains = ["av-wiki.net", "chiba-f.net"]
+        self.supported_domains = ["av-wiki.net"]
 
     def _get_encoding_priority(self, url: str):
         """根據網站選擇適當的編碼優先順序"""
-        if "chiba-f.net" in url:
-            # chiba-f.net 使用 UTF-8 編碼
-            return ["utf-8", "cp932", "shift_jis", "euc-jp"]
-        elif "av-wiki.net" in url:
+        if "av-wiki.net" in url:
             # av-wiki.net 實際使用 UTF-8 編碼（根據實際測試結果調整）
             return ["utf-8", "cp932", "shift_jis", "euc-jp"]
         else:

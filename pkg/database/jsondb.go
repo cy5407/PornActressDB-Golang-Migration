@@ -416,8 +416,10 @@ func (db *JSONDatabase) DeleteVideo(code string) error {
 		if err := db.appendJournalEntry(entry); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to write journal: %v\n", err)
 		} else {
-			// 更新 dirty tracking
-			delete(db.dirtyVideos, code)
+			// 更新 dirty tracking：保留 code 在 dirty set 中，
+			// 表示 journal 仍有一筆待 compact 的 DELETE 操作，
+			// 與 ADD/UPDATE 行為語義一致（compact 前都應視為 dirty）
+			db.dirtyVideos[code] = true
 			db.journalSize++
 			if err := db.saveIndex(); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)

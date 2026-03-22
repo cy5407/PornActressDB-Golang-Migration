@@ -259,7 +259,7 @@ class UnifiedActressClassifierGUI:
         ).pack()
         ttk.Label(
             title_frame,
-            text="級聯搜尋版 - 支援 AV-WIKI → chiba-f → JAVDB 自動備援",
+            text="級聯搜尋版 - 支援 AV-WIKI → JAVDB 自動備援",
             font=("Arial", 10),
         ).pack()
 
@@ -697,7 +697,7 @@ class UnifiedActressClassifierGUI:
             return
         self.clear_results()
         self.update_progress(f"目標資料夾: {path}\n")
-        self.update_progress("搜尋模式: 🇯🇵 日文網站 (av-wiki.net, chiba-f.net)\n")
+        self.update_progress("搜尋模式: 🇯🇵 AV-WIKI (av-wiki.net)\n")
         self.update_progress(f"{'=' * 60}\n")
         self.stop_event.clear()
         threading.Thread(
@@ -877,8 +877,8 @@ class UnifiedActressClassifierGUI:
             "🔍 智慧搜尋並分類\n\n"
             "系統會自動搜尋無資料的番號，然後進行智慧分類。\n\n"
             "請選擇搜尋方式：\n\n"
-            "• 是 → 使用完整搜尋（AV-WIKI → chiba-f → JAVDB）\n"
-            "• 否 → 僅使用日文網站（AV-WIKI → chiba-f）\n\n"
+            "• 是 → 使用完整搜尋（AV-WIKI → JAVDB）\n"
+            "• 否 → 僅使用 AV-WIKI 搜尋\n\n"
             "建議：如果 AV-WIKI 找不到，選擇完整搜尋",
         )
 

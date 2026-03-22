@@ -147,11 +147,17 @@ func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult 
 
 		case Overwrite:
 			if !m.DryRun {
-				if err := os.Remove(dst); err != nil {
-					result.Error = fmt.Sprintf("無法刪除目標檔案: %v", err)
+				// 使用暫存檔原子替換，避免先 Remove 後 Rename 失敗時目標消失
+				if err := m.replaceFileSafely(src, dst); err != nil {
+					result.Error = fmt.Sprintf("覆蓋目標檔案失敗: %v", err)
 					return result
 				}
+				// replaceFileSafely 已完整搬移 src→dst，直接回傳成功
+				result.Success = true
+				result.Destination = dst
+				return result
 			}
+			// DryRun 模式：不執行實際替換，繼續到下方 DryRun 判斷區段
 
 		case Rename:
 			newDst := m.generateUniqueName(dst)
@@ -343,33 +349,51 @@ func (m *Mover) Rollback(operationID string) (BatchResult, error) {
 		return BatchResult{}, fmt.Errorf("無法載入操作日誌: %v", err)
 	}
 
-	// 建立回滾項目（反向）
+	// 建立回滾項目（反向），並記錄每個回滾項目對應的原始 opLog.Items 索引
 	var items []MoveItem
-	for _, item := range opLog.Items {
+	var originalIndices []int // 回滾項目索引 → 原始 opLog.Items 索引的映射
+	for i, item := range opLog.Items {
 		if item.Status == "success" {
 			items = append(items, MoveItem{
-				Source:      item.Destination,
-				Destination: item.Source,
+				Source:      item.Destination, // 回滾來源為原操作的目標
+				Destination: item.Source,      // 回滾目標為原操作的來源
 				OnConflict:  Skip,
 			})
+			originalIndices = append(originalIndices, i)
 		}
 	}
 
 	// 執行回滾
 	result := m.batchMoveWithType(context.Background(), items, "rollback")
 
-	// 更新原操作日誌
-	rolledBackCount := 0
-	for i := range opLog.Items {
-		if opLog.Items[i].Status == "success" {
-			opLog.Items[i].Status = "rolled_back"
-			rolledBackCount++
+	// 根據實際回滾結果更新原操作日誌各項目狀態（區分回滾成功、衝突跳過、失敗）
+	for ri, origIdx := range originalIndices {
+		if ri < len(result.Results) {
+			r := result.Results[ri]
+			if r.Success && !r.Skipped {
+				opLog.Items[origIdx].Status = "rolled_back"
+			} else if r.Skipped {
+				opLog.Items[origIdx].Status = "rollback_skipped" // 目標位置已有檔案，跳過
+			} else {
+				opLog.Items[origIdx].Status = "rollback_failed"
+			}
 		}
 	}
-	if rolledBackCount > 0 {
+
+	// 更新整體操作日誌狀態
+	if result.SkippedCount > 0 || result.FailedCount > 0 {
+		opLog.Status = "rollback_partial" // 部分回滾：有衝突跳過或失敗
+	} else if len(items) > 0 {
 		opLog.Status = "rolled_back"
 	}
 	m.saveOperationLog(opLog)
+
+	// 若有跳過項目，更新回傳 result 讓呼叫方明確知道回滾不完整
+	if result.SkippedCount > 0 {
+		result.Status = "partial"
+		result.Summary = fmt.Sprintf("%s（%d 項因衝突跳過，回滾不完整）",
+			formatBatchSummary(result), result.SkippedCount)
+	}
 
 	return result, nil
 }
@@ -472,6 +496,32 @@ func (m *Mover) copyFile(src, dst string) error {
 	srcInfo, err := os.Stat(src)
 	if err == nil {
 		os.Chmod(dst, srcInfo.Mode())
+	}
+
+	return nil
+}
+
+// replaceFileSafely 使用暫存檔原子替換目標，確保中途失敗時目標檔案仍保持完整
+// 步驟：複製 src 到同目錄暫存檔 → Rename 覆蓋 dst → 刪除 src
+func (m *Mover) replaceFileSafely(src, dst string) error { // src: 來源路徑，dst: 目標路徑
+	// 暫存檔放在與目標相同目錄，以時間戳結尾確保唯一性
+	tmpDst := fmt.Sprintf("%s.tmp-%d", dst, time.Now().UnixNano()) // 暫存檔路徑
+
+	// 第一步：將 src 完整複製到暫存位置（此時原 dst 仍完整）
+	if err := m.copyFile(src, tmpDst); err != nil {
+		return fmt.Errorf("無法複製到暫存檔: %w", err)
+	}
+
+	// 第二步：原子 Rename 替換目標（即使 dst 存在也會覆蓋，原 dst 在此步驟前仍完整）
+	if err := os.Rename(tmpDst, dst); err != nil {
+		os.Remove(tmpDst) // 清理暫存檔，確保原 dst 不受影響
+		return fmt.Errorf("無法以暫存檔替換目標: %w", err)
+	}
+
+	// 第三步：刪除來源（目標已成功替換，來源不再需要）
+	if err := os.Remove(src); err != nil {
+		// 目標已替換成功，但來源未能刪除；回傳錯誤讓呼叫方決定處理方式
+		return fmt.Errorf("目標已替換但刪除來源失敗: %w", err)
 	}
 
 	return nil

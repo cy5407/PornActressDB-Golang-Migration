@@ -4,8 +4,11 @@ JSON 資料庫型別定義和常數
 此模組定義了 JSON 資料庫系統中使用的所有型別定義和常數。
 """
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, TypedDict
+
+# Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
+UTC = timezone.utc
 
 # ============================================================================
 # 資料結構型別定義 (TypedDict)
@@ -29,7 +32,7 @@ class VideoDict(TypedDict, total=False):
     url: str  # 線上連結
     actresses: list[str]  # 女優名稱清單
     search_status: str  # "imported" | "searched_found" | "searched_not_found" | "search_error"
-    search_method: str  # "legacy-import" | "AV-WIKI" | "chiba-f.net" | "JAVDB" | "cascade"
+    search_method: str  # "legacy-import" | "AV-WIKI" | "JAVDB" | "cascade"
     last_search_date: str  # 最後搜尋日期 (ISO 8601)
     created_at: str  # 建立時間 (ISO 8601)
     updated_at: str  # 更新時間 (ISO 8601)
@@ -89,10 +92,10 @@ class CrossStatisticsDict(TypedDict, total=False):
 class StatisticsDict(TypedDict, total=False):
     """統計快取結構型別定義"""
 
-    actress_stats: list[ActressStatisticsDict]
-    studio_stats: list[StudioStatisticsDict]
-    cross_stats: list[CrossStatisticsDict]
-    last_computed: str  # 最後計算時間 (ISO 8601)
+    actress_statistics: list[ActressStatisticsDict]  # 女優統計清單
+    studio_statistics: list[StudioStatisticsDict]  # 片商統計清單
+    enhanced_actress_studio_statistics: list[CrossStatisticsDict]  # 增強交叉統計清單
+    computed_at: str  # 最後計算時間 (ISO 8601)
 
 
 class JSONDatabaseDict(TypedDict, total=False):
@@ -128,7 +131,6 @@ SEARCH_STATUSES = {
 SEARCH_METHODS = {
     "LEGACY_IMPORT": "legacy-import",
     "AV_WIKI": "AV-WIKI",
-    "CHIBA_F": "chiba-f.net",
     "JAVDB": "JAVDB",
     "CASCADE": "cascade",
 }
@@ -250,10 +252,10 @@ def get_empty_json_database() -> JSONDatabaseDict:
         "actresses": {},
         "links": [],
         "statistics": {
-            "actress_stats": [],
-            "studio_stats": [],
-            "cross_stats": [],
-            "last_computed": now,
+            "actress_statistics": [],  # 女優統計清單
+            "studio_statistics": [],  # 片商統計清單
+            "enhanced_actress_studio_statistics": [],  # 增強交叉統計清單
+            "computed_at": now,  # 計算時間
         },
     }
 

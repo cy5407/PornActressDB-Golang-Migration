@@ -257,13 +257,6 @@ class RateLimiter:
                 min_interval=1.0,
                 max_interval=3.0,
             ),
-            "chiba-f.net": DomainConfig(
-                requests_per_minute=15,
-                requests_per_hour=500,
-                burst_limit=4,
-                min_interval=1.5,
-                max_interval=4.0,
-            ),
         }
 
         logger.info("🚦 頻率限制器已初始化")

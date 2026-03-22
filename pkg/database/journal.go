@@ -159,9 +159,38 @@ func (db *JSONDatabase) applyVideoJournalEntry(entry *JournalEntry) {
 }
 
 // applyVideoUpdates 將更新套用到影片
-func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]any) {
+// updates 可以是完整 VideoData 的 JSON 物件或部分欄位的 map
+func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]any) { // updates: 欲套用的欄位 map
+	hasUpdatedAt := false // 追蹤是否有明確提供 updated_at，避免不必要的時間覆蓋
+
 	for key, value := range updates {
 		switch key {
+		case "id": // 舊版相容欄位
+			if v, ok := value.(string); ok {
+				video.ID = v
+			}
+		case "code": // 影片番號
+			if v, ok := value.(string); ok {
+				video.Code = v
+			}
+		case "created_at": // 建立時間（保留原始值，不以目前時間覆蓋）
+			if v, ok := value.(string); ok {
+				video.CreatedAt = v
+			}
+		case "updated_at": // 更新時間（若明確提供則保留，否則使用目前時間）
+			if v, ok := value.(string); ok {
+				video.UpdatedAt = v
+				hasUpdatedAt = true // 已明確提供，稍後不再覆蓋
+			}
+		case "metadata": // 元資料（source, confidence）
+			if m, ok := value.(map[string]any); ok {
+				if src, ok := m["source"].(string); ok {
+					video.Metadata.Source = src
+				}
+				if conf, ok := m["confidence"].(float64); ok {
+					video.Metadata.Confidence = conf
+				}
+			}
 		case "title":
 			if v, ok := value.(string); ok {
 				video.Title = v
@@ -218,7 +247,11 @@ func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]a
 			}
 		}
 	}
-	video.UpdatedAt = GetCurrentTimestamp()
+
+	// 若更新資料中未明確提供 updated_at（例如部分欄位更新），才以目前時間填入
+	if !hasUpdatedAt {
+		video.UpdatedAt = GetCurrentTimestamp()
+	}
 }
 
 // legacyJournalEntry 舊格式 journal 記錄

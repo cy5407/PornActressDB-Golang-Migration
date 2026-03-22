@@ -147,7 +147,7 @@ class GoAcceleratedDB:
                 from src.services.go_bridge import db_update_video
 
                 # 取得現有影片資料
-                existing = self.get_video_info(code)
+                existing = self.get_video_info(code)  # 現有影片資訊
                 if not existing:
                     raise ValueError(f"影片不存在: {code}")
 
@@ -156,8 +156,9 @@ class GoAcceleratedDB:
 
                 # 使用 Go 更新
                 if db_update_video(code, existing, self.data_dir):
-                    # 同步到 Python 記憶體快取（保持一致性）
-                    self._python_db.base_db.data["videos"][code] = existing
+                    # Go 操作成功後重建 Python DB state，確保 dirty_videos/journal_size 等內部狀態一致
+                    self._python_db = IncrementalJSONDB(self.data_dir)
+                    logger.debug(f"✅ Go update_video 成功，已重建 Python 快取: {code}")
                     return
 
             except Exception as e:
@@ -178,8 +179,9 @@ class GoAcceleratedDB:
 
                 # Go CLI 使用 update 命令新增（不存在時自動建立）
                 if db_update_video(video["code"], video, self.data_dir):
-                    # 同步到 Python 記憶體快取
-                    self._python_db.base_db.data["videos"][video["code"]] = video
+                    # Go 操作成功後重建 Python DB state，確保 dirty_videos/journal_size 等內部狀態一致
+                    self._python_db = IncrementalJSONDB(self.data_dir)
+                    logger.debug(f"✅ Go add_video 成功，已重建 Python 快取: {video['code']}")
                     return
 
             except Exception as e:
@@ -199,9 +201,9 @@ class GoAcceleratedDB:
                 from src.services.go_bridge import db_delete_video
 
                 if db_delete_video(code, self.data_dir):
-                    # 同步到 Python 記憶體快取
-                    if code in self._python_db.base_db.data["videos"]:
-                        del self._python_db.base_db.data["videos"][code]
+                    # Go 操作成功後重建 Python DB state，確保 dirty_videos/journal_size 等內部狀態一致
+                    self._python_db = IncrementalJSONDB(self.data_dir)
+                    logger.debug(f"✅ Go delete_video 成功，已重建 Python 快取: {code}")
                     return
 
             except Exception as e:
@@ -278,9 +280,8 @@ class GoAcceleratedDB:
         if existing:
             self.update_video(code, info)
         else:
-            from datetime import UTC, datetime
-
-            from src.models.json_types import ISO_DATETIME_FORMAT, get_empty_video
+            from src.models.json_types import ISO_DATETIME_FORMAT, UTC, get_empty_video
+            from datetime import datetime  # UTC 由 json_types 提供，相容 Python 3.10
 
             video_dict = get_empty_video()
             video_dict["code"] = code

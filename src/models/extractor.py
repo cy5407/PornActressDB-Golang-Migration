@@ -141,26 +141,10 @@ class UnifiedCodeExtractor:
         """檢查是否應該跳過此檔案（FC2/PPV 相關）"""
         upper_name = base_name.upper()
 
-        # 精確匹配 FC2/PPV 相關模式
-        skip_patterns = [
-            r"^FC2[-_]",  # FC2- 或 FC2_
-            r"^FC2PPV[-_]",  # FC2PPV- 或 FC2PPV_
-            r"^FC2\d",  # FC2 後直接接數字
-            r"^PPV[-_]\d",  # PPV-數字 或 PPV_數字
-            r"^PPV\d",  # PPV 後直接接數字
-        ]
-
-        # 檢查是否符合任何需要跳過的模式
-        for pattern in skip_patterns:
-            if re.match(pattern, upper_name):
+        # 檢查是否符合預設的跳過前綴（skip_prefixes）
+        for prefix in self.skip_prefixes:  # 檢查是否以跳過前綴開頭
+            if upper_name.startswith(prefix):
                 return True
-
-        # 額外檢查：檔名中包含明顯的 FC2/PPV 標識
-        return bool(any(marker in upper_name for marker in ["FC2PPV", "FC2-PPV", "FC2_PPV"]))
-
-    def _should_skip_file(self, base_name: str) -> bool:
-        """檢查是否應該跳過此檔案（FC2/PPV 相關）"""
-        upper_name = base_name.upper()
 
         # 精確匹配 FC2/PPV 相關模式
         skip_patterns = [
@@ -172,9 +156,9 @@ class UnifiedCodeExtractor:
         ]
 
         # 檢查是否符合任何需要跳過的模式
-        for pattern in skip_patterns:
+        for pattern in skip_patterns:  # 檢查是否符合跳過的正規表達式模式
             if re.match(pattern, upper_name):
                 return True
 
         # 額外檢查：檔名中包含明顯的 FC2/PPV 標識
-        return bool(any(marker in upper_name for marker in ["FC2PPV", "FC2-PPV", "FC2_PPV"]))
+        return bool(any(marker in upper_name for marker in ["FC2PPV", "FC2-PPV", "FC2_PPV"]))  # 檢查是否包含 FC2PPV/FC2-PPV/FC2_PPV 標識
