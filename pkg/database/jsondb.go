@@ -38,9 +38,23 @@ type JSONDatabase struct {
 	loaded      bool          // 是否已載入
 
 	// Dirty tracking（與 Python 相容）
-	dirtyVideos      map[string]bool
-	dirtyActresses   map[string]bool
-	dirtyLinks       map[string]bool
+	//
+	// dirtyVideos 記錄所有在 journal 中有待 compact 操作的影片 code，
+	// 無論操作類型為 ADD、UPDATE 或 DELETE，均統一標記為 dirty。
+	// 這與 Python IncrementalJSONDB 的行為完全一致。
+	//
+	// 重要語義：
+	//   - dirtyVideos 中的 code 不代表影片「存在」，DELETE 後仍會留在其中
+	//   - 呼叫方若需區分操作類型，應查閱 journal 檔案或使用 deletedVideos
+	//   - compact 後 dirtyVideos 會被清空（journal 已合併到主資料庫）
+	dirtyVideos    map[string]bool
+	dirtyActresses map[string]bool
+	dirtyLinks     map[string]bool
+
+	// deletedVideos 獨立追蹤在本 session（自上次 compact 後）被刪除的影片 code
+	// 用途：讓呼叫方無需解析 journal 即可查詢哪些影片已被刪除
+	// 注意：compact 後此 set 會被清空
+	deletedVideos    map[string]bool
 	journalSize      int
 	journalCreatedAt time.Time
 }
@@ -57,6 +71,7 @@ func NewJSONDatabase(dataDir string) *JSONDatabase {
 		dirtyVideos:    make(map[string]bool),
 		dirtyActresses: make(map[string]bool),
 		dirtyLinks:     make(map[string]bool),
+		deletedVideos:  make(map[string]bool),
 		journalSize:    0,
 	}
 }
@@ -420,6 +435,8 @@ func (db *JSONDatabase) DeleteVideo(code string) error {
 			// 表示 journal 仍有一筆待 compact 的 DELETE 操作，
 			// 與 ADD/UPDATE 行為語義一致（compact 前都應視為 dirty）
 			db.dirtyVideos[code] = true
+			// 同步記錄到 deletedVideos，讓呼叫方可區分「已刪除」與「已修改」
+			db.deletedVideos[code] = true
 			db.journalSize++
 			if err := db.saveIndex(); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
@@ -534,10 +551,11 @@ func (db *JSONDatabase) CompactJournal() error {
 		f.Close()
 	}
 
-	// 重設 dirty tracking
+	// 重設 dirty tracking（compact 後 journal 已合併，所有 dirty/deleted 記錄清空）
 	db.dirtyVideos = make(map[string]bool)
 	db.dirtyActresses = make(map[string]bool)
 	db.dirtyLinks = make(map[string]bool)
+	db.deletedVideos = make(map[string]bool) // compact 後刪除追蹤也一併清空
 	db.journalSize = 0
 	db.journalCreatedAt = time.Now().UTC()
 
@@ -635,7 +653,8 @@ func (db *JSONDatabase) GetStatsStruct() (*Stats, error) {
 	return &Stats{
 		JournalSize:       db.journalSize,
 		JournalAgeSeconds: journalAge,
-		DirtyVideos:       len(db.dirtyVideos),
+		DirtyVideos:       len(db.dirtyVideos),   // ADD + UPDATE + DELETE 的合計
+		DeletedVideos:     len(db.deletedVideos), // 僅 DELETE 操作
 		DirtyActresses:    len(db.dirtyActresses),
 		DirtyLinks:        len(db.dirtyLinks),
 		NeedsCompact:      needsCompact,
@@ -643,6 +662,24 @@ func (db *JSONDatabase) GetStatsStruct() (*Stats, error) {
 		TotalActresses:    len(db.root.Actresses),
 		TotalLinks:        len(db.root.Links),
 	}, nil
+}
+
+// GetDeletedCodes 回傳本 session（自上次 compact 後）被刪除的影片 code 清單
+// 讓呼叫方無需解析 journal 即可查詢哪些影片已被刪除
+// 注意：compact 後此清單會被清空
+func (db *JSONDatabase) GetDeletedCodes() ([]string, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if !db.loaded {
+		return nil, ErrDatabaseNotLoaded
+	}
+
+	codes := make([]string, 0, len(db.deletedVideos))
+	for code := range db.deletedVideos {
+		codes = append(codes, code)
+	}
+	return codes, nil
 }
 
 // MergeFromFile 從 JSON 檔案合併資料到目前資料庫
@@ -696,7 +733,16 @@ func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*Merge
 
 		videoCopy := *video
 		videoCopy.Code = code
-		videoCopy.ID = ""
+		// 向後相容：若 code 欄位為空但 id 欄位有值（舊版資料），
+		// 將 id 遷移到 code，避免識別符遺失
+		if videoCopy.Code == "" && videoCopy.ID != "" {
+			videoCopy.Code = videoCopy.ID
+		}
+		// 只在確認 code 有效時才清空舊版 id 欄位，
+		// 防止邊界情況下因 id 清空而遺失識別符
+		if videoCopy.Code != "" {
+			videoCopy.ID = ""
+		}
 		videoCopy.UpdatedAt = now
 
 		if existing, exists := db.root.Videos[code]; exists {

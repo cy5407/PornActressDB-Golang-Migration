@@ -33,6 +33,7 @@ subprocess 呼叫 classifier.exe 執行效能敏感的操作。
 import json
 import logging
 import os
+import platform  # 用於跨平台執行權限檢查
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -143,13 +144,22 @@ class GoBridge:
         
         for path in possible_paths:
             if path.exists():
-                logger.info(f"🔍 找到 classifier.exe: {path}")
-                return str(path.resolve())
+                resolved = str(path.resolve())
+                # Linux/macOS 需額外確認執行權限（Windows 上 os.X_OK 行為不一致，僅檢查存在性）
+                if platform.system() != "Windows" and not os.access(resolved, os.X_OK):
+                    logger.warning(
+                        f"⚠️ 找到 {resolved} 但缺少執行權限（+x），"
+                        "請執行 `chmod +x <path>` 後重試"
+                    )
+                    continue  # 跳過無執行權限的路徑
+                logger.info(f"🔍 找到 classifier.exe: {resolved}")
+                return resolved
         
         # 嘗試在 PATH 中找
         import shutil
         exe_in_path = shutil.which("classifier.exe") or shutil.which("classifier")
         if exe_in_path:
+            # shutil.which 本身已隱含執行權限檢查，此處無需再次驗證
             logger.info(f"🔍 在 PATH 中找到: {exe_in_path}")
             return exe_in_path
         
@@ -609,30 +619,43 @@ def db_get_video(code: str, data_dir: str = "data/json_db") -> Optional[dict]:
         data_dir: 資料庫目錄
 
     Returns:
-        影片資料 dict，或 None (如果不存在)
+        影片資料 dict，或 None（影片不存在時）
+
+    Raises:
+        GoBridgeError: Go CLI 執行失敗時（與「資料不存在」不同，需由呼叫者決定是否 fallback）
+
+    注意：
+        「資料不存在」返回 None（Go CLI 回應 null 或空輸出）
+        「CLI 執行失敗」拋出 GoBridgeError，呼叫者應捕捉並 fallback 到 Python 實作
     """
     bridge = get_bridge()
-    try:
-        # 先放 flags，再放 positional args（Go flag.FlagSet 遇到非 flag 參數就停止解析）
-        cmd = ["db", "get"]
-        if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])  # flag 必須在 positional arg 前面
-        cmd.append(code)  # positional arg 放最後
+    # 先放 flags，再放 positional args（Go flag.FlagSet 遇到非 flag 參數就停止解析）
+    cmd = ["db", "get"]
+    if data_dir != "data/json_db":
+        cmd.extend(["-data-dir", data_dir])  # flag 必須在 positional arg 前面
+    cmd.append(code)  # positional arg 放最後
 
+    try:
         result = bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
-        data = bridge._parse_json(result.stdout)  # JSON 解析失敗時拋出 GoBridgeError
-        return data
     except GoBridgeError as e:
-        error_msg = str(e)
-        # 區分錯誤類型：parse 失敗 vs bridge 故障
-        if "JSON" in error_msg:
-            logger.warning(f"⚠️ JSON 解析失敗 (影片 {code}): {error_msg}")  # JSON 解析失敗為 warning
-        else:
-            logger.error(f"❌ Go CLI 執行失敗 (影片 {code}): {error_msg}")  # Go CLI 執行失敗為 error
+        # Go CLI 執行失敗（如找不到執行檔、權限不足、逾時等）→ 記錄後重新拋出
+        logger.error(f"❌ Go CLI 執行失敗 (影片 {code}): {e}")  # Go CLI 執行失敗為 error
+        raise  # 讓呼叫者決定是否 fallback 到 Python
+
+    # 輸出為空或 null → 影片不存在（正常情況，不需要 fallback）
+    output = result.stdout.strip()
+    if not output or output == "null":
         return None
-    except Exception as e:
-        logger.error(f"❌ 取得影片失敗 {code}: {e}")  # 其他異常為 error
-        return None
+
+    try:
+        data = bridge._parse_json(output)  # JSON 解析失敗時拋出 GoBridgeError
+    except GoBridgeError as e:
+        # JSON 解析失敗（輸出格式異常）→ 記錄後重新拋出，讓呼叫者決定是否 fallback
+        logger.warning(f"⚠️ JSON 解析失敗 (影片 {code}): {e}")  # JSON 解析失敗為 warning
+        raise
+
+    # 確保返回值為 dict（防禦性處理）
+    return data if isinstance(data, dict) else None
 
 
 def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> bool:

@@ -5,6 +5,7 @@
 """
 
 import logging
+import time  # 用於重試間隔
 import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Optional
@@ -33,6 +34,71 @@ class OperationHistoryDialog:
         self.tree: Optional[ttk.Treeview] = None
         self.operations: list = []
         
+    def _connect_with_retry(self, max_retries: int = 3) -> bool:
+        """
+        帶重試機制的 Go CLI 連線檢查
+
+        嘗試最多 max_retries 次，每次失敗後等待 1 秒。
+        若所有重試均失敗，詢問使用者是否再試一次或使用 Python fallback。
+
+        Returns:
+            True  — 連線成功，可繼續使用 Go CLI
+            False — 使用者選擇 Python fallback 或取消
+        """
+        if not self.file_mover.go_bridge:
+            # go_bridge 不存在（未初始化），無法重試
+            logger.warning("Go Bridge 未初始化，跳過重試")
+            return False
+
+        # 強制重置快取狀態，確保每次都做真實的可用性檢查
+        self.file_mover.go_bridge._available = None
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                if self.file_mover.go_bridge.is_available:
+                    if attempt > 1:
+                        logger.info(f"✅ Go CLI 在第 {attempt} 次嘗試後連線成功")
+                    return True
+            except Exception as e:
+                logger.warning(f"⚠️ Go CLI 連線第 {attempt}/{max_retries} 次嘗試失敗: {e}")
+
+            if attempt < max_retries:
+                time.sleep(1)  # 等待 1 秒後重試（最多增加 max_retries-1 秒延遲）
+            # 重置快取，確保下次嘗試不使用舊結果
+            self.file_mover.go_bridge._available = None
+
+        # 所有重試均失敗，詢問使用者的偏好
+        logger.warning(f"⚠️ Go CLI 在 {max_retries} 次嘗試後仍無法連線")
+        user_wants_retry = messagebox.askyesno(
+            "Go CLI 連接失敗",
+            f"連接 Go CLI 失敗（已嘗試 {max_retries} 次）。\n\n"
+            "是否再試一次？\n\n"
+            "• 是（Yes）— 再試一次\n"
+            "• 否（No）— 關閉此功能（操作歷史需要 Go CLI）",
+            parent=self.parent,
+        )
+
+        if user_wants_retry:
+            # 使用者選擇再試：重置快取後做最後一次嘗試
+            self.file_mover.go_bridge._available = None
+            try:
+                if self.file_mover.go_bridge.is_available:
+                    logger.info("✅ Go CLI 最終重試成功")
+                    return True
+            except Exception as e:
+                logger.warning(f"⚠️ 最終重試失敗: {e}")
+
+            messagebox.showwarning(
+                "無法連線",
+                "Go CLI 仍無法連線。\n\n"
+                "請確認 classifier.exe 存在且具備執行權限，\n"
+                "然後重新開啟此對話框。",
+                parent=self.parent,
+            )
+
+        # 使用者選擇放棄或最終重試仍失敗
+        return False
+
     def show(self):
         """顯示對話框"""
         # 檢查 Go 模式是否可用
@@ -46,14 +112,9 @@ class OperationHistoryDialog:
                 parent=self.parent
             )
             return
-        
-        if not self.file_mover.go_bridge:
-            messagebox.showerror(
-                "錯誤",
-                "無法連接到 Go CLI。\n\n"
-                "請確認 classifier.exe 是否存在。",
-                parent=self.parent
-            )
+
+        # 使用重試機制連接 Go CLI
+        if not self._connect_with_retry(max_retries=3):
             return
         
         # 建立對話框

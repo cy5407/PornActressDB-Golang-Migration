@@ -120,18 +120,27 @@ class GoAcceleratedDB:
         取得影片資訊
 
         優先使用 Go CLI，失敗時 fallback 到 Python。
+
+        容錯邏輯：
+            - Go 成功返回資料 → 直接回傳
+            - Go 返回 None  → 影片不存在，不需要 fallback，直接回傳 None
+            - Go 拋出 GoBridgeError → CLI 執行失敗，fallback 到 Python
         """
         if self.use_go:
             try:
-                from src.services.go_bridge import db_get_video
+                from src.services.go_bridge import GoBridgeError, db_get_video
 
+                # db_get_video: 找到→回傳 dict, 不存在→回傳 None, CLI 故障→拋出 GoBridgeError
                 result = db_get_video(code, self.data_dir)
-                if result is not None:
-                    return result
-                # Go 返回 None 表示影片不存在，不需要 fallback
-                return None
+                # None 表示「資料不存在」（Go CLI 正常執行但找不到），直接回傳，不需要 fallback
+                return result
+            except GoBridgeError as e:
+                # Go CLI 執行失敗 → 記錄警告並 fallback 到 Python
+                logger.warning(f"⚠️ Go 查詢失敗，fallback 到 Python (影片 {code}): {e}")  # Go CLI 執行失敗為 warning
+                self.fallback_count += 1
             except Exception as e:
-                logger.debug(f"Go 查詢失敗，fallback 到 Python: {e}")
+                # 其他意外錯誤（如 ImportError 等）→ 也 fallback
+                logger.warning(f"⚠️ 查詢異常，fallback 到 Python (影片 {code}): {e}")  # 其他異常為 warning
                 self.fallback_count += 1
 
         return self._python_db.get_video_info(code)

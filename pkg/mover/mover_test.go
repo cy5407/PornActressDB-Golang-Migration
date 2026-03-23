@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings" // 用於 Summary 訊息的字串比對測試
 	"testing"
 )
 
@@ -376,6 +377,78 @@ func TestRollback_Basic(t *testing.T) {
 	}
 	if fileExists(dstFile) {
 		t.Error("回滾後目標應該不存在")
+	}
+}
+
+// TestRollback_SummaryAllSuccess 測試全部回滾成功時的 Summary 訊息
+func TestRollback_SummaryAllSuccess(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcFile := filepath.Join(tempDir, "source", "file.txt") // 來源路徑
+	dstFile := filepath.Join(tempDir, "dest", "file.txt")   // 目標路徑
+
+	createTestFile(t, srcFile, "Content")
+
+	m := NewMover(tempDir)
+	m.BatchMove(context.Background(), []MoveItem{
+		{Source: srcFile, Destination: dstFile},
+	})
+
+	logs, _ := m.ListOperations()
+	if len(logs) == 0 {
+		t.Fatal("沒有操作日誌")
+	}
+
+	result, err := m.Rollback(logs[0].ID)
+	if err != nil {
+		t.Fatalf("回滾失敗: %v", err)
+	}
+
+	// 全部成功：Summary 應包含「回滾完成」關鍵字
+	if !strings.Contains(result.Summary, "回滾完成") {
+		t.Errorf("全部成功時 Summary 應包含「回滾完成」，實際為：%s", result.Summary)
+	}
+	if result.Status == "partial" {
+		t.Errorf("全部成功時 Status 不應為 partial，實際為：%s", result.Status)
+	}
+}
+
+// TestRollback_SummarySkippedItems 測試部分因衝突跳過時的 Summary 訊息
+func TestRollback_SummarySkippedItems(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcFile := filepath.Join(tempDir, "source", "file.txt") // 來源路徑
+	dstFile := filepath.Join(tempDir, "dest", "file.txt")   // 目標路徑
+
+	createTestFile(t, srcFile, "Content")
+
+	m := NewMover(tempDir)
+	m.BatchMove(context.Background(), []MoveItem{
+		{Source: srcFile, Destination: dstFile},
+	})
+
+	// 在原來源路徑預先放一個檔案，造成回滾時衝突（Skip 策略）
+	createTestFile(t, srcFile, "Blocker")
+
+	logs, _ := m.ListOperations()
+	if len(logs) == 0 {
+		t.Fatal("沒有操作日誌")
+	}
+
+	result, err := m.Rollback(logs[0].ID)
+	if err != nil {
+		t.Fatalf("回滾執行出錯: %v", err)
+	}
+
+	// 有衝突跳過：Summary 應包含「跳過」或「部分」關鍵字
+	if !strings.Contains(result.Summary, "跳過") {
+		t.Errorf("有衝突跳過時 Summary 應包含「跳過」，實際為：%s", result.Summary)
+	}
+	// Status 應設為 partial
+	if result.Status != "partial" {
+		t.Errorf("有衝突跳過時 Status 應為 partial，實際為：%s", result.Status)
 	}
 }
 

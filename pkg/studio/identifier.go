@@ -2,6 +2,8 @@ package studio
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -60,8 +62,10 @@ func NewStudioIdentifier(rulesFile string) (*StudioIdentifier, error) {
 	// 載入 studios.json（即使失敗也繼續，使用預設規則）
 	err := si.loadRules(rulesFile)
 
-	// 載入 major_studios.json（即使失敗也使用預設清單）
-	si.loadMajorStudios(rulesFile)
+	// 載入 major_studios.json（即使找不到也使用預設清單，但解析失敗會記錄 warning）
+	if warnMsg := si.loadMajorStudios(rulesFile); warnMsg != "" {
+		log.Printf("[WARNING] StudioIdentifier: %s", warnMsg)
+	}
 
 	// 建立反向對應表
 	si.CodeToStudio = si.buildCodeToStudioMap()
@@ -70,10 +74,17 @@ func NewStudioIdentifier(rulesFile string) (*StudioIdentifier, error) {
 }
 
 // loadMajorStudios 從 major_studios.json 載入大片商清單
-func (si *StudioIdentifier) loadMajorStudios(rulesFile string) {
+// 回傳值：若有值表示警告訊息（非空時應由呼叫方記錄），若為空字串表示成功或已使用預設清單
+//
+// 行為說明：
+//   - 成功從任一路徑載入 → 回傳 ""（成功）
+//   - 檔案存在但 JSON 解析失敗 → 回傳錯誤訊息（應視為配置錯誤）
+//   - 所有路徑均找不到檔案 → 使用預設清單，若明確指定了目錄則回傳 warning 訊息
+func (si *StudioIdentifier) loadMajorStudios(rulesFile string) string {
 	// 嘗試與 studios.json 同目錄的 major_studios.json
 	dir := filepath.Dir(rulesFile)
-	if rulesFile == "" || rulesFile == "studios.json" {
+	isExplicitDir := rulesFile != "" && rulesFile != "studios.json"
+	if !isExplicitDir {
 		dir = "."
 	}
 
@@ -88,23 +99,32 @@ func (si *StudioIdentifier) loadMajorStudios(rulesFile string) {
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			continue
+			continue // 檔案不存在，嘗試下一個路徑
 		}
 
+		// 檔案存在但解析失敗 — 這是配置錯誤，不應靜默忽略
 		var list []string
 		if err := json.Unmarshal(data, &list); err != nil {
-			continue
+			return fmt.Sprintf("major_studios.json 解析失敗 (%s): %v，使用預設清單", path, err)
 		}
 
 		// 成功載入
 		for _, name := range list {
 			si.majorStudios[name] = true
 		}
-		return
+		return "" // 成功
 	}
 
-	// 所有路徑失敗，使用預設清單
+	// 所有路徑均找不到 major_studios.json，使用預設清單
 	si.majorStudios = defaultMajorStudios
+
+	// 若明確指定了 rulesFile，預期在特定目錄找到清單但未找到，記錄 warning
+	if isExplicitDir {
+		return fmt.Sprintf("在目錄 %s 中找不到 major_studios.json，已使用預設清單", dir)
+	}
+
+	// 自動尋找失敗屬正常情況（例如開發環境），靜默使用預設清單
+	return ""
 }
 
 // loadRules 載入片商規則檔案

@@ -388,11 +388,32 @@ func (m *Mover) Rollback(operationID string) (BatchResult, error) {
 	}
 	m.saveOperationLog(opLog)
 
-	// 若有跳過項目，更新回傳 result 讓呼叫方明確知道回滾不完整
-	if result.SkippedCount > 0 {
+	// 根據回滾結果設定明確的 Summary 訊息，讓呼叫方清楚知道回滾是否完整
+	switch {
+	case result.SkippedCount > 0 && result.FailedCount > 0:
+		// 同時有衝突跳過和執行失敗
 		result.Status = "partial"
-		result.Summary = fmt.Sprintf("%s（%d 項因衝突跳過，回滾不完整）",
-			formatBatchSummary(result), result.SkippedCount)
+		result.Summary = fmt.Sprintf(
+			"回滾未完整：%d 項成功，%d 項因衝突跳過，%d 項失敗（共 %d 項）",
+			result.SuccessCount, result.SkippedCount, result.FailedCount, result.TotalItems,
+		)
+	case result.SkippedCount > 0:
+		// 有衝突跳過（目標路徑已有檔案）
+		result.Status = "partial"
+		result.Summary = fmt.Sprintf(
+			"回滾部分完成：%d 項成功，%d 項因衝突跳過（共 %d 項）",
+			result.SuccessCount, result.SkippedCount, result.TotalItems,
+		)
+	case result.FailedCount > 0:
+		// 有執行失敗（非衝突原因）
+		result.Status = "partial"
+		result.Summary = fmt.Sprintf(
+			"回滾部分完成：%d 項成功，%d 項失敗（共 %d 項）",
+			result.SuccessCount, result.FailedCount, result.TotalItems,
+		)
+	default:
+		// 全部成功（或沒有可回滾項目）
+		result.Summary = fmt.Sprintf("回滾完成：共 %d 項成功", result.SuccessCount)
 	}
 
 	return result, nil
@@ -440,9 +461,17 @@ func (m *Mover) ListOperations() ([]OperationLog, error) {
 
 // === 內部輔助函式 ===
 
-// generateUniqueNameMaxAttempts 是 generateUniqueName 的最大重試次數
+// generateUniqueNameMaxAttempts 是 generateUniqueName 的最大遞增編號嘗試次數
+// 超過上限後改用時間戳確保唯一性
 const generateUniqueNameMaxAttempts = 10000
 
+// generateUniqueName 在指定路徑已存在時，產生不衝突的唯一路徑
+//
+// 策略：
+//  1. 嘗試 file_1.ext、file_2.ext ... 直到找到不存在的名稱
+//  2. 若嘗試次數超過 generateUniqueNameMaxAttempts，
+//     改以「file_YYYYMMDDHHMMSS.ext」格式（可讀時間戳）作為後備
+//     並記錄 warning 到 stderr，告知開發者出現了極端的命名衝突
 func (m *Mover) generateUniqueName(path string) string {
 	dir := filepath.Dir(path)
 	fileExt := filepath.Ext(path)
@@ -450,15 +479,22 @@ func (m *Mover) generateUniqueName(path string) string {
 	name := base[:len(base)-len(fileExt)]
 
 	for i := 1; i <= generateUniqueNameMaxAttempts; i++ {
-		newName := fmt.Sprintf("%s_%d%s", name, i, fileExt)
-		newPath := filepath.Join(dir, newName)
-		if _, err := os.Stat(newPath); os.IsNotExist(err) {
-			return newPath
+		candidate := fmt.Sprintf("%s_%d%s", name, i, fileExt)
+		candidatePath := filepath.Join(dir, candidate)
+		if _, err := os.Stat(candidatePath); os.IsNotExist(err) {
+			return candidatePath
 		}
 	}
 
-	// 超過上限，回傳附加時間戳的唯一名稱避免衝突
-	return filepath.Join(dir, fmt.Sprintf("%s_conflict_%d%s", name, time.Now().UnixNano(), fileExt))
+	// Fallback：以可讀時間戳確保唯一性（格式：YYYYMMDDHHMMSS）
+	// 記錄 warning：正常情況下不應到達此處，可能目錄下有大量同名衝突檔案
+	timestamp := time.Now().Format("20060102150405")
+	result := filepath.Join(dir, fmt.Sprintf("%s_%s%s", name, timestamp, fileExt))
+	fmt.Fprintf(os.Stderr,
+		"[WARNING] generateUniqueName: 達到最大嘗試次數 (%d)，改用時間戳後備名稱：%s\n",
+		generateUniqueNameMaxAttempts, result,
+	)
+	return result
 }
 
 func (m *Mover) copyFile(src, dst string) error {

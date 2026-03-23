@@ -241,10 +241,6 @@ func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]a
 			if v, ok := value.(string); ok {
 				video.SearchMethod = v
 			}
-		case "test_field":
-			if v, ok := value.(string); ok {
-				video.TestField = v
-			}
 		}
 	}
 

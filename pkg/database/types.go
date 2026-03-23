@@ -83,9 +83,6 @@ type VideoData struct {
 	OriginalFilename string   `json:"original_filename,omitempty"`
 	FilePath         string   `json:"file_path,omitempty"`
 	SearchMethod     string   `json:"search_method,omitempty"`
-	// TestField は測試專用欄位，正式版本可安全移除
-	// 若需完整隔離，請改以 build tag 控制或移至 test 輔助結構
-	TestField string `json:"test_field,omitempty"`
 }
 
 // GetCode 取得影片番號（優先 code，其次 id）
@@ -181,10 +178,15 @@ type DirtyIndex struct {
 // ============================================================================
 
 // Stats 資料庫統計資訊（與 Python get_stats() 返回格式相容）
+//
+// DirtyVideos 包含所有待 compact 的影片操作（ADD + UPDATE + DELETE）。
+// DeletedVideos 是其子集，僅包含本 session 中被刪除的影片（自上次 compact 後）。
+// compact 後兩者均會被清空。
 type Stats struct {
 	JournalSize          int     `json:"journal_size"`
 	JournalAgeSeconds    float64 `json:"journal_age_seconds"`
-	DirtyVideos          int     `json:"dirty_videos"`
+	DirtyVideos          int     `json:"dirty_videos"`          // ADD + UPDATE + DELETE 的合計
+	DeletedVideos        int     `json:"deleted_videos"`        // 僅 DELETE 操作（DirtyVideos 的子集）
 	DirtyActresses       int     `json:"dirty_actresses"`
 	DirtyLinks           int     `json:"dirty_links"`
 	NeedsCompact         bool    `json:"needs_compact"`
