@@ -39,12 +39,14 @@ pip install -r requirements.txt
 **建置 Go CLI** (可選，用於效能加速):
 ```bash
 # 從專案根目錄執行
-go build -o classifier.exe cmd/scanner/main.go
+go build -o classifier.exe ./cmd/scanner
 
 # 或使用標準 Go 工具鏈
 cd cmd/scanner
 go build -o ../../classifier.exe
 ```
+
+> 不要直接編譯 `cmd/scanner/main.go`，否則會漏掉同套件的其他 `.go` 檔案。
 
 **驗證 Go CLI**:
 ```bash
@@ -522,7 +524,7 @@ auto_apply_preferences = true
 **修改番號提取邏輯**:
 1. 編輯 `pkg/extractor/extractor.go`
 2. 執行測試: `go test ./pkg/extractor -v`
-3. 重新建置: `go build -o classifier.exe cmd/scanner/main.go`
+3. 重新建置: `go build -o classifier.exe ./cmd/scanner`
 4. 驗證 Python 整合: `python -c "from services.go_bridge import GoBridge; print(GoBridge().is_available)"`
 
 **範例: 新增番號模式**:

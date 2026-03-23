@@ -436,7 +436,7 @@ git log --oneline -5
 ls classifier.exe
 
 # 重新編譯
-go build -o classifier.exe cmd/scanner/main.go
+go build -o classifier.exe ./cmd/scanner
 
 # 測試 GoBridge
 python -c "from src.services.go_bridge import GoBridge; print(GoBridge().is_available)"

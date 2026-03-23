@@ -197,7 +197,7 @@ func main() {
 
 ```bash
 # 從專案根目錄
-go build -o classifier.exe cmd/scanner/main.go
+go build -o classifier.exe ./cmd/scanner
 
 # 測試命令
 classifier.exe validate "test.mp4"
@@ -282,7 +282,7 @@ func TestExtractCodeMGS(t *testing.T) {
 go test ./pkg/extractor -v
 
 # 重新編譯
-go build -o classifier.exe cmd/scanner/main.go
+go build -o classifier.exe ./cmd/scanner
 
 # 驗證
 classifier.exe scan -dir "測試目錄" | findstr "259LUXU"
@@ -412,7 +412,7 @@ FileNotFoundError: [WinError 2] The system cannot find the file specified: 'clas
 **解決**:
 ```bash
 # 確認編譯
-go build -o classifier.exe cmd/scanner/main.go
+go build -o classifier.exe ./cmd/scanner
 
 # 確認位置（應在專案根目錄）
 dir classifier.exe

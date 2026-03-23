@@ -20,11 +20,13 @@ argument-hint: "[task]"
 
 ```bash
 # Windows
-go build -o classifier.exe cmd/scanner/main.go
+go build -o classifier.exe ./cmd/scanner
 
 # 最佳化建置
-go build -ldflags "-s -w" -o classifier.exe cmd/scanner/main.go
+go build -ldflags "-s -w" -o classifier.exe ./cmd/scanner
 ```
+
+> 請建置 `./cmd/scanner` 套件，不要直接指定 `main.go`。
 
 ### 2. 執行測試
 
@@ -56,6 +58,14 @@ go test ./... -v
 ├── data/
 └── logs/
 ```
+
+若要產生 Windows GUI 發行檔，可使用：
+
+```bash
+python -m PyInstaller --clean --noconfirm "女優分類系統_修復版.spec"
+```
+
+PyInstaller 只會建立 GUI EXE；若要讓發行資料夾保留 Go 加速功能，需另外複製最新的 `classifier.exe` 到 `dist/`。
 
 ## 版本管理
 

@@ -31,7 +31,7 @@ jobs:
       # ─── 建置 Go CLI ───
       - name: Build classifier CLI
         run: |
-          go build -o classifier.exe ./cmd/scanner/main.go
+          go build -o classifier.exe ./cmd/scanner
           chmod +x classifier.exe
           echo "✅ classifier.exe 建置成功"
           ./classifier.exe help || true

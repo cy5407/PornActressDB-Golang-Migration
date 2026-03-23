@@ -15,7 +15,7 @@ COPY cmd/ ./cmd/
 COPY pkg/ ./pkg/
 
 # 建置 classifier CLI
-RUN go build -o classifier ./cmd/scanner/main.go
+RUN go build -o classifier ./cmd/scanner
 
 # 執行 Go 單元測試
 RUN go test ./pkg/... -v -race -coverprofile=/tmp/go-coverage.out 2>&1 | tee /tmp/go-test-results.txt

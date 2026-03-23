@@ -68,6 +68,19 @@ Copy-Item config.ini.example config.ini
 go build -o classifier.exe .\cmd\scanner
 ```
 
+> 請使用套件路徑建置，不要直接指定 `cmd\scanner\main.go`，否則會漏掉同套件中的輔助檔案。
+
+### 6. 建立 Windows GUI 發行版（選用）
+
+```powershell
+python -m PyInstaller --clean --noconfirm "女優分類系統_修復版.spec"
+Copy-Item .\classifier.exe .\dist\classifier.exe -Force
+```
+
+完成後，主要 GUI 發行檔位於 `dist\女優分類系統_修復版.exe`。
+
+`女優分類系統_修復版.spec` 不會自動把 `classifier.exe` 放進 `dist`，如果要保留 Go 加速功能，請另外同步最新的 `dist\classifier.exe`。
+
 ## 快速開始
 
 ### 啟動主程式
@@ -351,6 +364,19 @@ It is recommended to confirm the following settings first:
 ```powershell
 go build -o classifier.exe .\cmd\scanner
 ```
+
+> Build the package path instead of compiling `cmd\scanner\main.go` directly, otherwise helper files from the same package will be skipped.
+
+### 6. Build the Windows GUI Release (Optional)
+
+```powershell
+python -m PyInstaller --clean --noconfirm "女優分類系統_修復版.spec"
+Copy-Item .\classifier.exe .\dist\classifier.exe -Force
+```
+
+The main GUI release artifact is `dist\女優分類系統_修復版.exe`.
+
+`女優分類系統_修復版.spec` does not automatically place `classifier.exe` into `dist`, so copy the latest `dist\classifier.exe` separately if you want to keep Go acceleration available in the packaged folder.
 
 ## Quick Start
 

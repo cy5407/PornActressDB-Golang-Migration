@@ -25,7 +25,7 @@
 ### 建置 Go CLI
 ```bash
 # 從專案根目錄執行
-go build -o classifier.exe cmd/scanner/main.go
+go build -o classifier.exe ./cmd/scanner
 
 # 或使用標準 Go 工具鏈
 cd cmd/scanner
@@ -515,7 +515,7 @@ GOOS=darwin GOARCH=amd64 go build -o classifier
 ls classifier.exe
 
 # 重新編譯
-go build -o classifier.exe cmd/scanner/main.go
+go build -o classifier.exe ./cmd/scanner
 
 # 檢查 PATH
 echo $PATH
