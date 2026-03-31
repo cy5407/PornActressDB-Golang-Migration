@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 
@@ -11,6 +12,8 @@ if str(SRC_DIR) not in sys.path:
 
 from src.services import classifier_core as classifier_core_module
 from src.services.web_searcher import WebSearcher
+from src.scrapers.base_scraper import BaseScraper, ErrorType, ScrapingException
+from src.scrapers.rate_limiter import RateLimiter
 
 
 class _DummyConfig:
@@ -67,3 +70,37 @@ def test_search_japanese_sites_only_delegates_to_unified_method():
 
     assert result == {"actresses": ["Aoi"]}
     assert captured["args"] == ("ABCD-123", stop_event)
+
+
+class _RateLimitOnlyScraper(BaseScraper):
+    async def scrape_url(self, url: str) -> dict:
+        raise ScrapingException(
+            "請求過於頻繁",
+            ErrorType.RATE_LIMIT_ERROR,
+            url,
+            429,
+            retry_after=7,
+        )
+
+    def parse_content(self, content: str, url: str) -> dict:
+        return {}
+
+
+def test_safe_scrape_records_retry_after_on_rate_limit():
+    rate_limiter = RateLimiter()
+    scraper = _RateLimitOnlyScraper(rate_limiter=rate_limiter)
+    url = "https://javdb.com/search?q=ABCD-123&f=all"
+
+    try:
+        asyncio.run(scraper.safe_scrape(url))
+        raise AssertionError("預期 safe_scrape 應拋出 ScrapingException")
+    except ScrapingException as exc:
+        exc_info = exc
+
+    domain_stats = rate_limiter.get_domain_stats("javdb.com")
+
+    assert exc_info.retry_after == 7
+    assert domain_stats is not None
+    assert domain_stats["failed_requests"] == 1
+    assert domain_stats["is_retry_after_active"] is True
+    assert 0 < domain_stats["retry_after_remaining"] <= 7

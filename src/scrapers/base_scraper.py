@@ -72,11 +72,13 @@ class ScrapingException(Exception):
         error_type: ErrorType,
         url: str = None,
         status_code: int = None,
+        retry_after: int | None = None,
     ):
         super().__init__(message)
         self.error_type = error_type
         self.url = url
         self.status_code = status_code
+        self.retry_after = retry_after
         self.timestamp = time.time()
 
 
@@ -447,7 +449,15 @@ class BaseScraper(ABC):
 
         except Exception as e:
             # 記錄失敗
-            self.rate_limiter.record_request(url, False, 0.0)
+            retry_after = e.retry_after if isinstance(e, ScrapingException) else None
+            status_code = e.status_code if isinstance(e, ScrapingException) else None
+            self.rate_limiter.record_request(
+                url,
+                False,
+                0.0,
+                status_code=status_code,
+                retry_after=retry_after,
+            )
             self.stats["failed_requests"] += 1
             raise e
 

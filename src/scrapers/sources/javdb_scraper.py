@@ -22,6 +22,19 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
+def _parse_retry_after_value(header_value: str | None) -> int | None:
+    """解析 Retry-After 標頭秒數，無法解析時返回 None。"""
+    if not header_value:
+        return None
+
+    try:
+        retry_after = int(header_value.strip())
+    except (TypeError, ValueError):
+        return None
+
+    return retry_after if retry_after > 0 else None
+
+
 class JAVDBScraper(BaseScraper):
     """JAVDB 專用爬蟲類"""
 
@@ -61,9 +74,15 @@ class JAVDBScraper(BaseScraper):
                         "伺服器錯誤", ErrorType.SERVER_ERROR, url, response.status
                     )
                 elif response.status == 429:
-                    response.headers.get("Retry-After")
+                    retry_after = _parse_retry_after_value(
+                        response.headers.get("Retry-After")
+                    )
                     raise ScrapingException(
-                        "請求過於頻繁", ErrorType.RATE_LIMIT_ERROR, url, 429
+                        "請求過於頻繁",
+                        ErrorType.RATE_LIMIT_ERROR,
+                        url,
+                        429,
+                        retry_after=retry_after,
                     )
 
                 response.raise_for_status()

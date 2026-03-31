@@ -57,8 +57,8 @@ class SafeJAVDBSearcher:
         # 檢查當日統計
         self._check_daily_reset()
 
-        # 線程鎖保護共享資源
-        self._lock = threading.Lock()
+        # safe_request 會在重試時遞迴呼叫自己，因此需要可重入鎖避免自我死鎖
+        self._lock = threading.RLock()
 
         # 初始化會話
         self.create_session()
