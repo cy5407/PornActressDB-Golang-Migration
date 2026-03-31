@@ -3,11 +3,12 @@
 """
 
 import logging
-import random
 import threading
 import time
 from datetime import date
 from pathlib import Path
+from secrets import choice as secure_choice
+from secrets import randbelow
 from typing import Any
 from urllib.parse import quote, urljoin
 
@@ -27,6 +28,15 @@ except ImportError:  # pragma: no cover
     from src.utils.json_utils import load as json_load
 
 logger = logging.getLogger(__name__)
+
+
+def _random_delay(minimum: float, maximum: float) -> float:
+    """使用較難預測的隨機來源產生延遲秒數。"""
+    if maximum <= minimum:
+        return minimum
+
+    precision = 1_000_000
+    return minimum + (randbelow(precision) / precision) * (maximum - minimum)
 
 
 class SafeJAVDBSearcher:
@@ -126,6 +136,13 @@ class SafeJAVDBSearcher:
 
     def create_session(self):
         """建立模擬真實瀏覽器的 session"""
+        previous_session = getattr(self, "session", None)
+        if previous_session is not None and hasattr(previous_session, "close"):
+            try:
+                previous_session.close()
+            except Exception as e:
+                logger.warning(f"⚠️ 關閉舊 JAVDB session 失敗: {e}")
+
         user_agents = [
             # Chrome on Windows
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -140,7 +157,7 @@ class SafeJAVDBSearcher:
         ]
 
         headers = {
-            "User-Agent": random.choice(user_agents),
+            "User-Agent": secure_choice(user_agents),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "zh-TW,zh;q=0.9,ja;q=0.8,en-US;q=0.7,en;q=0.6",
             # 暫時移除 br 壓縮以避免解碼問題
@@ -154,10 +171,10 @@ class SafeJAVDBSearcher:
             "Cache-Control": "max-age=0",
         }
         # 隨機添加一些可選標頭
-        if random.choice([True, False]):
+        if randbelow(2) == 1:
             headers["DNT"] = "1"
 
-        if random.choice([True, False]):
+        if randbelow(2) == 1:
             headers["Referer"] = "https://www.google.com/"
 
         self.session = httpx.Client(
@@ -188,7 +205,7 @@ class SafeJAVDBSearcher:
 
             try:
                 # 智能隨機延遲
-                base_delay = random.uniform(self.min_delay, self.max_delay)
+                base_delay = _random_delay(self.min_delay, self.max_delay)
                 # 如果是重試，增加額外延遲
                 if retry_count > 0:
                     base_delay += retry_count * 2.0
@@ -205,7 +222,7 @@ class SafeJAVDBSearcher:
                 # 處理不同的 HTTP 狀態碼
                 if response.status_code == 429:  # Too Many Requests
                     if retry_count < 3:
-                        wait_time = 60 + random.uniform(30, 90)  # 1-2.5分鐘
+                        wait_time = 60 + _random_delay(30, 90)  # 1-2.5分鐘
                         if wait_time > self.max_retry_wait_seconds:
                             logger.warning(
                                 "⚠️ 429 重試等待時間 %.1f 秒超過上限 %.0f 秒，直接放棄",
@@ -227,7 +244,7 @@ class SafeJAVDBSearcher:
                     if retry_count < 2:
                         # 重新建立 session 並等待更長時間
                         self.create_session()
-                        wait_time = 120 + random.uniform(60, 180)  # 2-5分鐘
+                        wait_time = 120 + _random_delay(60, 180)  # 2-5分鐘
                         if wait_time > self.max_retry_wait_seconds:
                             logger.warning(
                                 "⚠️ 403 重試等待時間 %.1f 秒超過上限 %.0f 秒，直接放棄",
@@ -540,5 +557,5 @@ class SafeJAVDBSearcher:
                 self.save_cache()
             if hasattr(self, "stats"):
                 self.save_stats()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("忽略 SafeJAVDBSearcher 析構清理錯誤: %s", e)

@@ -27,6 +27,14 @@ class _SequencedDummySession:
         return httpx.Response(status_code, request=request)
 
 
+class _ClosableSession:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
 def test_403_retry_wait_over_limit_should_give_up_without_long_sleep(tmp_path, monkeypatch):
     """403 等待超過上限時應直接放棄，不進入長時間等待"""
     searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path))
@@ -40,13 +48,11 @@ def test_403_retry_wait_over_limit_should_give_up_without_long_sleep(tmp_path, m
     def fake_sleep(seconds: float):
         sleep_calls.append(seconds)
 
-    uniform_values = iter([0.0, 180.0])  # base_delay=0, 403 wait=300
-
-    def fake_uniform(_a, _b):
-        return next(uniform_values)
-
     monkeypatch.setattr(searcher_module.time, "sleep", fake_sleep)
-    monkeypatch.setattr(searcher_module.random, "uniform", fake_uniform)
+    random_values = iter([0.0, 180.0])  # base_delay=0, 403 wait=300
+    monkeypatch.setattr(
+        searcher_module, "_random_delay", lambda _a, _b: next(random_values)
+    )
 
     result = searcher.safe_request("https://javdb.com/search?q=TEST&f=all")
 
@@ -68,13 +74,11 @@ def test_403_retry_can_reenter_without_deadlock(tmp_path, monkeypatch):
     def fake_sleep(seconds: float):
         sleep_calls.append(seconds)
 
-    uniform_values = iter([0.0, 0.0, 0.0])  # base_delay, 403 wait, retry base_delay
-
-    def fake_uniform(_a, _b):
-        return next(uniform_values)
-
     monkeypatch.setattr(searcher_module.time, "sleep", fake_sleep)
-    monkeypatch.setattr(searcher_module.random, "uniform", fake_uniform)
+    random_values = iter([0.0, 0.0, 0.0])  # base_delay, 403 wait, retry base_delay
+    monkeypatch.setattr(
+        searcher_module, "_random_delay", lambda _a, _b: next(random_values)
+    )
 
     response = searcher.safe_request("https://javdb.com/search?q=TEST&f=all")
 
@@ -82,3 +86,14 @@ def test_403_retry_can_reenter_without_deadlock(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert searcher.request_count == 2
     assert sleep_calls == [0.0, 120.0, 2.0]
+
+
+def test_create_session_closes_previous_client(tmp_path):
+    """重建 session 前應先關閉舊 client，避免長時間累積未關閉連線。"""
+    searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path))
+    previous_session = _ClosableSession()
+    searcher.session = previous_session
+
+    searcher.create_session()
+
+    assert previous_session.closed is True

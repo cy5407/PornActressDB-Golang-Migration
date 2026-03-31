@@ -1,7 +1,7 @@
 # 專案程式碼巡檢持續追蹤報告
 
-最後更新：2026-04-01 10:42 (Asia/Taipei)
-基準提交：`8612d25` `review: harden fallback and record tracking report`
+最後更新：2026-04-01 10:47 (Asia/Taipei)
+基準提交：`de98fdc` `fix: harden javdb retry handling`
 
 ## 本輪檢查範圍
 
@@ -10,7 +10,7 @@
   - `security_reports/one_time_fix_schedule_2026-03-31.md`
   - `security_reports/security_fix_summary_2026-03-31.md`
 - 先比對最近提交：
-  - `8612d25`、`7651546`、`8148592`、`a35e965` 起的最近 20 筆 commit
+  - `de98fdc`、`8612d25`、`7651546`、`8148592`、`a35e965` 起的最近 20 筆 commit
 - 針對三類問題做增量巡檢：
   - 資安 / 安全性
   - 程式碼冗餘 / 一致性衝突
@@ -30,6 +30,23 @@
    - 掃描呼叫透過 `_run_command()` 執行，預設 timeout 為 60 秒，「掃描永久掛起」不再是目前狀態。
 
 ## 本輪已修正
+
+### 0. `SafeJAVDBSearcher` session 重建會遺留舊連線，且隨機來源與 `SafeSearcher` 不一致
+
+- 位置：
+  - `src/services/safe_javdb_searcher.py`
+  - `tests/test_safe_javdb_searcher.py`
+- 類型：資安一致性 / 資源管理 / 效能穩定性
+- 問題：
+  - `create_session()` 在達到 session 請求上限或遇到 403 時會重建 `httpx.Client`，但原本直接覆蓋 `self.session`，沒有先關閉舊 client。
+  - 長時間執行下會累積未主動釋放的連線資源，屬於低風險但明確可優化的穩定性問題。
+  - 同檔案仍使用 `random.choice` / `random.uniform`，與先前已修正為 `secrets` 來源的 `SafeSearcher` 不一致，也會持續被 Bandit 列出低風險告警。
+- 修正：
+  - 新增 `_random_delay()`，統一使用 `secrets.randbelow` 產生延遲秒數。
+  - `create_session()` 改用 `secrets.choice` 選擇 User-Agent，可選標頭改用 `randbelow(2)`。
+  - 重建 session 前，若舊物件支援 `close()`，會先顯式關閉舊 client。
+  - `__del__()` 的清理錯誤改記錄 debug log，移除 `except: pass`。
+  - 補上回歸測試，確認重試等待上限行為未退化，且重建 session 時會關閉舊 client。
 
 ### 1. JAVDB 429 `Retry-After` 沒有導入 limiter
 
@@ -68,12 +85,21 @@
 
 - 本輪主要增量問題都已直接修補並完成驗證。
 - 尚未看到新的高風險資安缺口、明顯冗餘衝突或可立即安全落地的大型效能退化點。
+- 全專案 `bandit -r src` 仍有數個 LOW 告警：
+  - 多處 jitter / delay 使用一般亂數（`base_scraper.py`、`rate_limiter.py`、`encoding_handler.py`、`retry_utils.py`）
+  - 少量 `except ...` 吞錯或 `subprocess` 靜態提醒
+  - 目前未見直接可利用風險，建議後續按模組逐步收斂，不必與本輪修正混在同一批大改。
 
 ## 本輪驗證指令
 
 ```text
 python -m pytest tests/test_code_review_regressions.py -q -p no:cacheprovider
 結果：3 passed
+```
+
+```text
+python -m bandit -q -r src/services/safe_javdb_searcher.py
+結果：No issues identified.
 ```
 
 ```text
@@ -85,11 +111,18 @@ python -m py_compile src/services/safe_javdb_searcher.py src/scrapers/base_scrap
 inline Python 驗證：
 - RateLimiter 會記錄 429 的 retry_after
 - SafeJAVDBSearcher 在 403 重試時不再自我死鎖
+- SafeJAVDBSearcher 重建 session 時會先關閉舊 client
 結果：TARGETED_VALIDATION_OK
+```
+
+```text
+python -m pytest tests/test_safe_javdb_searcher.py tests/test_code_review_regressions.py -q -p no:cacheprovider
+結果：測試內容本身通過，但此 Windows 環境的 pytest 暫存目錄清理會觸發 PermissionError；
+因此本輪延續使用工作區內 inline Python 做定向驗證，避免環境噪音影響結論。
 ```
 
 ## 後續建議
 
-1. 若下一輪持續巡檢爬蟲穩定性，可檢查 `avwiki_scraper.py` 是否也需要支援 `Retry-After` 傳遞。
+1. 若下一輪持續收斂 LOW 告警，優先檢查 `base_scraper.py`、`rate_limiter.py`、`retry_utils.py` 的 jitter 是否要統一為 `secrets` 或明確註記非安全用途。
 2. 若要擴大效能盤點，可檢查 `WebSearcher` 其他批次流程是否還有重複 JSON / HTML 解析。
 3. `pytest` 在這台 Windows 環境建立 / 清理暫存目錄時會遇到 `PermissionError`，後續若要擴充測試建議優先沿用工作區內定向驗證腳本。
