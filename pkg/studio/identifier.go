@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"actress-classifier/pkg/safefile"
 )
 
 // StudioIdentifier 片商識別器
@@ -97,7 +98,7 @@ func (si *StudioIdentifier) loadMajorStudios(rulesFile string) string {
 	}
 
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
+		data, err := safefile.ReadFile(path)
 		if err != nil {
 			continue // 檔案不存在，嘗試下一個路徑
 		}
@@ -144,7 +145,7 @@ func (si *StudioIdentifier) loadRules(rulesFile string) error {
 
 	var lastErr error
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
+		data, err := safefile.ReadFile(path)
 		if err != nil {
 			lastErr = err
 			continue

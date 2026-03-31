@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"actress-classifier/pkg/safefile"
 )
 
 // CacheManager 快取管理器
@@ -33,7 +35,7 @@ func New(cacheDir string) *CacheManager {
 
 // loadIndex 載入索引檔案
 func (cm *CacheManager) loadIndex() (*CacheIndex, error) {
-	data, err := os.ReadFile(cm.indexPath)
+	data, err := safefile.ReadFile(cm.indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// 返回空索引
@@ -69,13 +71,13 @@ func (cm *CacheManager) saveIndex(index *CacheIndex) error {
 
 	// 先寫入暫存檔（與正式檔案同目錄，確保 rename 為同一掛載點上的原子操作）
 	tmpPath := cm.indexPath + ".tmp" // 暫存檔路徑，與正式檔案同目錄
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	if err := safefile.WriteFile(tmpPath, data, 0600); err != nil {
 		return fmt.Errorf("寫入暫存索引失敗: %w", err)
 	}
 
 	// 原子性替換正式檔案（rename 在同一檔案系統內保證原子性）
 	if err := os.Rename(tmpPath, cm.indexPath); err != nil {
-		os.Remove(tmpPath) // rename 失敗時清理暫存檔，避免殘留
+		_ = os.Remove(tmpPath) // rename 失敗時清理暫存檔，避免殘留
 		return fmt.Errorf("替換索引檔案失敗: %w", err)
 	}
 

@@ -8,12 +8,13 @@ import builtins
 import contextlib
 import gzip
 import hashlib
+import json
 import logging
-import pickle
 import threading
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,8 @@ except ImportError:  # pragma: no cover
     from src.utils.json_utils import load as json_load
 
 logger = logging.getLogger(__name__)
+
+CACHE_PAYLOAD_VERSION = 1
 
 
 @dataclass
@@ -163,10 +166,10 @@ class CacheManager:
         return cache_file_dir / f"{cache_key}.cache"
 
     def _serialize_value(self, value: Any) -> tuple[bytes, bool]:
-        """序列化值並選擇性壓縮"""
+        """以 JSON 序列化值並選擇性壓縮。"""
         try:
-            # 序列化
-            serialized = pickle.dumps(value)
+            payload = {"version": CACHE_PAYLOAD_VERSION, "value": value}
+            serialized = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
             # 決定是否壓縮
             should_compress = (
@@ -187,11 +190,17 @@ class CacheManager:
             return b"", False
 
     def _deserialize_value(self, data: bytes, compressed: bool) -> Any:
-        """反序列化值"""
+        """僅接受 JSON 格式的快取資料，避免反序列化不受信任位元組。"""
         try:
             if compressed:
                 data = gzip.decompress(data)
-            return pickle.loads(data)
+            payload = json.loads(data.decode("utf-8"))
+            if not isinstance(payload, dict) or payload.get("version") != CACHE_PAYLOAD_VERSION:
+                raise ValueError("不支援的快取格式版本")
+            return payload.get("value")
+        except (UnicodeDecodeError, JSONDecodeError, ValueError) as e:
+            logger.warning(f"⚠️ 偵測到無效或舊版快取資料，將忽略該條目: {e}")
+            return None
         except Exception as e:
             logger.error(f"反序列化值失敗: {e}")
             return None
@@ -337,6 +346,7 @@ class CacheManager:
                                 self.stats["disk_hits"] += 1
                                 logger.debug(f"💿 磁碟快取命中: {key}")
                                 return value
+                            self._delete_cache_entry(cache_key, file_path)
                     else:
                         # 過期，清理
                         self._delete_cache_entry(cache_key, file_path)

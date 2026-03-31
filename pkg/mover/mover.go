@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"actress-classifier/pkg/safefile"
 	"github.com/google/uuid"
 )
 
@@ -130,7 +131,7 @@ func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult 
 	// 確保目標目錄存在
 	dstDir := filepath.Dir(dst)
 	if !m.DryRun {
-		if err := os.MkdirAll(dstDir, 0755); err != nil {
+		if err := safefile.MkdirAll(dstDir, 0700); err != nil {
 			result.Error = fmt.Sprintf("無法建立目標目錄: %v", err)
 			return result
 		}
@@ -333,7 +334,9 @@ func (m *Mover) batchMoveWithType(ctx context.Context, items []MoveItem, opType 
 	opLog.SkippedCount = result.SkippedCount
 
 	// 儲存操作日誌
-	m.saveOperationLog(opLog)
+	if err := m.saveOperationLog(opLog); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARNING] 儲存操作日誌失敗: %v\n", err)
+	}
 
 	result.OperationID = opLog.ID
 	result.Status = opLog.Status
@@ -386,7 +389,9 @@ func (m *Mover) Rollback(operationID string) (BatchResult, error) {
 	} else if len(items) > 0 {
 		opLog.Status = "rolled_back"
 	}
-	m.saveOperationLog(opLog)
+	if err := m.saveOperationLog(opLog); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARNING] 儲存回滾日誌失敗: %v\n", err)
+	}
 
 	// 根據回滾結果設定明確的 Summary 訊息，讓呼叫方清楚知道回滾是否完整
 	switch {
@@ -440,7 +445,7 @@ func (m *Mover) ListOperations() ([]OperationLog, error) {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(logPath, entry.Name()))
+		data, err := safefile.ReadFile(filepath.Join(logPath, entry.Name()))
 		if err != nil {
 			continue
 		}
@@ -498,40 +503,40 @@ func (m *Mover) generateUniqueName(path string) string {
 }
 
 func (m *Mover) copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
+	srcFile, err := safefile.OpenRead(src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.Create(dst)
+	dstFile, err := safefile.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
 
 	if _, err = io.Copy(dstFile, srcFile); err != nil {
-		dstFile.Close()
-		os.Remove(dst) // 清理複製失敗的不完整目標檔案
+		_ = dstFile.Close()
+		_ = os.Remove(dst) // 清理複製失敗的不完整目標檔案
 		return fmt.Errorf("failed to copy file contents: %w", err)
 	}
 
 	// 確保資料寫入磁碟
 	if err := dstFile.Sync(); err != nil {
-		dstFile.Close()
-		os.Remove(dst)
+		_ = dstFile.Close()
+		_ = os.Remove(dst)
 		return fmt.Errorf("failed to sync destination file: %w", err)
 	}
 
 	// 明確處理 Close() 的 error
 	if err := dstFile.Close(); err != nil {
-		os.Remove(dst)
+		_ = os.Remove(dst)
 		return fmt.Errorf("failed to close destination file: %w", err)
 	}
 
 	// 保留檔案權限
 	srcInfo, err := os.Stat(src)
 	if err == nil {
-		os.Chmod(dst, srcInfo.Mode())
+		_ = os.Chmod(dst, srcInfo.Mode())
 	}
 
 	return nil
@@ -550,7 +555,7 @@ func (m *Mover) replaceFileSafely(src, dst string) error { // src: 來源路徑�
 
 	// 第二步：原子 Rename 替換目標（即使 dst 存在也會覆蓋，原 dst 在此步驟前仍完整）
 	if err := os.Rename(tmpDst, dst); err != nil {
-		os.Remove(tmpDst) // 清理暫存檔，確保原 dst 不受影響
+		_ = os.Remove(tmpDst) // 清理暫存檔，確保原 dst 不受影響
 		return fmt.Errorf("無法以暫存檔替換目標: %w", err)
 	}
 
@@ -600,7 +605,7 @@ func (m *Mover) saveOperationLog(log *OperationLog) error {
 	}
 
 	logPath := filepath.Join(m.LogDir, "operations")
-	if err := os.MkdirAll(logPath, 0755); err != nil {
+	if err := safefile.MkdirAll(logPath, 0700); err != nil {
 		return err
 	}
 
@@ -614,7 +619,7 @@ func (m *Mover) saveOperationLog(log *OperationLog) error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(logPath, filename), data, 0644)
+	return safefile.WriteFile(filepath.Join(logPath, filename), data, 0600)
 }
 
 func (m *Mover) loadOperationLog(id string) (*OperationLog, error) {
@@ -632,7 +637,7 @@ func (m *Mover) loadOperationLog(id string) (*OperationLog, error) {
 	}
 
 	for _, match := range matches {
-		data, err := os.ReadFile(match)
+		data, err := safefile.ReadFile(match)
 		if err != nil {
 			continue
 		}

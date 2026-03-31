@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"actress-classifier/pkg/safefile"
 )
 
 // appendJournalEntry 附加 journal 記錄（與 Python IncrementalJSONDB 格式相容）
@@ -17,7 +19,7 @@ func (db *JSONDatabase) appendJournalEntry(entry *JournalEntry) error {
 	}
 
 	// 附加到 journal 檔案
-	f, err := os.OpenFile(db.journalFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := safefile.OpenFile(db.journalFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open journal file: %w", err)
 	}
@@ -70,7 +72,7 @@ func (db *JSONDatabase) loadJournal() error {
 		return nil // journal 不存在，正常情況
 	}
 
-	f, err := os.Open(db.journalFile)
+	f, err := safefile.OpenRead(db.journalFile)
 	if err != nil {
 		return fmt.Errorf("failed to open journal: %w", err)
 	}
@@ -293,7 +295,7 @@ func (db *JSONDatabase) GetJournalEntryCount() (int, error) {
 		return 0, nil
 	}
 
-	f, err := os.Open(db.journalFile)
+	f, err := safefile.OpenRead(db.journalFile)
 	if err != nil {
 		return 0, err
 	}

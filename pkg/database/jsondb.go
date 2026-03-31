@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"actress-classifier/pkg/safefile"
 )
 
 var (
@@ -84,7 +86,7 @@ func (db *JSONDatabase) Load(ctx context.Context) error {
 	defer db.mu.Unlock()
 
 	// 確保資料目錄存在
-	if err := os.MkdirAll(db.dataDir, 0755); err != nil {
+	if err := safefile.MkdirAll(db.dataDir, 0700); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
@@ -98,7 +100,7 @@ func (db *JSONDatabase) Load(ctx context.Context) error {
 	}
 
 	// 讀取檔案
-	data, err := os.ReadFile(db.dataFile)
+	data, err := safefile.ReadFile(db.dataFile)
 	if err != nil {
 		return fmt.Errorf("failed to read database file: %w", err)
 	}
@@ -137,7 +139,7 @@ func (db *JSONDatabase) Load(ctx context.Context) error {
 
 // loadIndex 載入 dirty index
 func (db *JSONDatabase) loadIndex() {
-	data, err := os.ReadFile(db.indexFile)
+	data, err := safefile.ReadFile(db.indexFile)
 	if err != nil {
 		// Index 不存在是正常情況
 		db.journalCreatedAt = time.Now().UTC()
@@ -201,7 +203,7 @@ func (db *JSONDatabase) saveIndex() error {
 		return err
 	}
 
-	return os.WriteFile(db.indexFile, data, 0644)
+	return safefile.WriteFile(db.indexFile, data, 0600)
 }
 
 // Save 儲存資料庫
@@ -229,13 +231,13 @@ func (db *JSONDatabase) saveUnsafe() error {
 
 	// 寫入暫存檔
 	tmpFile := db.dataFile + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+	if err := safefile.WriteFile(tmpFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 
 	// 原子性替換
 	if err := os.Rename(tmpFile, db.dataFile); err != nil {
-		os.Remove(tmpFile) // 清理暫存檔
+		_ = os.Remove(tmpFile) // 清理暫存檔
 		return fmt.Errorf("failed to replace database file: %w", err)
 	}
 
@@ -546,9 +548,9 @@ func (db *JSONDatabase) CompactJournal() error {
 	}
 
 	// 重建空的 journal
-	f, err := os.Create(db.journalFile)
+	f, err := safefile.OpenFile(db.journalFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err == nil {
-		f.Close()
+		_ = f.Close()
 	}
 
 	// 重設 dirty tracking（compact 後 journal 已合併，所有 dirty/deleted 記錄清空）
@@ -688,7 +690,7 @@ func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*Merge
 		return nil, errors.New("source file path cannot be empty")
 	}
 
-	sourceData, err := os.ReadFile(sourceFile)
+	sourceData, err := safefile.ReadFile(sourceFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %w", err)
 	}

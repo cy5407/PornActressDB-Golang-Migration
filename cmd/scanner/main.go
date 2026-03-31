@@ -14,12 +14,19 @@ import (
 	"actress-classifier/pkg/database"
 	"actress-classifier/pkg/extractor"
 	"actress-classifier/pkg/mover"
+	"actress-classifier/pkg/safefile"
 	"actress-classifier/pkg/studio"
 )
 
 type ScanResult struct {
 	Path string `json:"path"`
 	Code string `json:"code"`
+}
+
+func parseFlagsOrExit(fs *flag.FlagSet, args []string) {
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
 }
 
 func main() {
@@ -96,7 +103,7 @@ func scanCmd(args []string) {
 	workers := fs.Int("workers", 10, "並行工作數")
 	recursive := fs.Bool("recursive", true, "是否遞迴掃描子目錄")
 	showProgress := fs.Bool("progress", false, "顯示掃描進度條（輸出至 stderr）")
-	fs.Parse(args)
+	parseFlagsOrExit(fs, args)
 
 	// 驗證目錄
 	if _, err := os.Stat(*dir); os.IsNotExist(err) {
@@ -121,7 +128,7 @@ func scanCmd(args []string) {
 	if *showProgress {
 		total := 0
 		absDir, _ := filepath.Abs(*dir)
-		filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck
+		if err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
 			if err != nil || d == nil {
 				return nil
 			}
@@ -138,7 +145,9 @@ func scanCmd(args []string) {
 				total++
 			}
 			return nil
-		})
+		}); err != nil {
+			printWarning("預掃描檔案數量時發生錯誤: %v", err)
+		}
 		pb = NewProgressBar(total, "掃描中")
 	}
 
@@ -213,7 +222,7 @@ func moveCmd(args []string) {
 	strategy := fs.String("strategy", "skip", "衝突策略: skip, overwrite, rename")
 	dryRun := fs.Bool("dry-run", false, "模擬執行模式")
 	logDir := fs.String("log-dir", "logs", "操作日誌目錄")
-	fs.Parse(args)
+	parseFlagsOrExit(fs, args)
 
 	m := mover.NewMover(*logDir)
 	m.DryRun = *dryRun
@@ -234,7 +243,7 @@ func moveCmd(args []string) {
 
 	// 批次模式
 	if *batch != "" {
-		data, err := os.ReadFile(*batch)
+		data, err := safefile.ReadFile(*batch)
 		if err != nil {
 			printError(fmt.Sprintf("無法讀取批次檔案: %v", err), "請確認檔案路徑正確")
 			os.Exit(1)
@@ -283,7 +292,7 @@ func historyCmd(args []string) {
 	fs := flag.NewFlagSet("history "+subCmd, flag.ExitOnError)
 	logDir := fs.String("log-dir", "logs", "操作日誌目錄")
 	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
-	fs.Parse(args[1:]) //nolint:errcheck // ExitOnError 模式下不會回傳 error
+	parseFlagsOrExit(fs, args[1:])
 	remaining := fs.Args()
 
 	m := mover.NewMover(*logDir)
@@ -390,7 +399,7 @@ func dbCmd(args []string) {
 	// 使用 flag.FlagSet 統一解析 -data-dir 參數
 	fs := flag.NewFlagSet("db "+subCmd, flag.ExitOnError)
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
-	fs.Parse(args[1:]) //nolint:errcheck // ExitOnError 模式下不會回傳 error
+	parseFlagsOrExit(fs, args[1:])
 	remaining := fs.Args()
 
 	db := database.NewJSONDatabase(*dataDir)
@@ -423,7 +432,7 @@ func dbCmd(args []string) {
 		code := remaining[0]
 		jsonFile := remaining[1]
 
-		data, err := os.ReadFile(jsonFile)
+		data, err := safefile.ReadFile(jsonFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "無法讀取 JSON 檔案: %v\n", err)
 			os.Exit(1)
@@ -496,7 +505,7 @@ func dbCmd(args []string) {
 		mergeFS := flag.NewFlagSet("db merge", flag.ExitOnError)
 		sourceFile := mergeFS.String("source", "", "來源 data.json 檔案路徑")
 		overwrite := mergeFS.Bool("overwrite", false, "若番號已存在，是否覆蓋現有資料")
-		mergeFS.Parse(args[1:]) //nolint:errcheck // ExitOnError 模式下不會回傳 error
+		parseFlagsOrExit(mergeFS, args[1:])
 
 		if strings.TrimSpace(*sourceFile) == "" {
 			fmt.Fprintln(os.Stderr, "用法: classifier.exe db merge -source <來源data.json> [-overwrite]")
@@ -531,7 +540,7 @@ func identifyCmd(args []string) {
 	showPrefixes := fs.Bool("prefixes", false, "顯示指定片商的所有前綴")
 	listStudios := fs.Bool("list", false, "列出所有片商")
 	checkMajor := fs.Bool("major", false, "檢查是否為大片商")
-	fs.Parse(args)
+	parseFlagsOrExit(fs, args)
 
 	// 初始化片商識別器
 	identifier, err := studio.NewStudioIdentifier(*rulesFile)
@@ -570,7 +579,7 @@ func identifyCmd(args []string) {
 
 	// 批次處理
 	if *batchFile != "" {
-		data, err := os.ReadFile(*batchFile)
+		data, err := safefile.ReadFile(*batchFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "錯誤: 無法讀取批次檔案: %v\n", err)
 			os.Exit(1)
@@ -652,7 +661,7 @@ func cacheCmd(args []string) {
 func cacheStatsCmd(args []string) {
 	fs := flag.NewFlagSet("cache stats", flag.ExitOnError)
 	cacheDir := fs.String("cache-dir", "cache", "快取目錄")
-	fs.Parse(args)
+	parseFlagsOrExit(fs, args)
 
 	cm := cache.NewCacheManager(*cacheDir)
 	stats, err := cm.GetStats()
@@ -671,7 +680,7 @@ func cachePruneCmd(args []string) {
 	maxSizeMB := fs.Int("max-size", 500, "最大快取大小 (MB)")
 	minKeep := fs.Int("min-keep", 100, "最小保留條目數")
 	dryRun := fs.Bool("dry-run", false, "模擬執行（不實際刪除）")
-	fs.Parse(args)
+	parseFlagsOrExit(fs, args)
 
 	cm := cache.NewCacheManager(*cacheDir)
 	config := cache.PruneConfig{
@@ -701,7 +710,7 @@ func cacheClearCmd(args []string) {
 	cacheDir := fs.String("cache-dir", "cache", "快取目錄")
 	confirm := fs.Bool("confirm", false, "確認清空所有快取")
 	dryRun := fs.Bool("dry-run", false, "模擬執行（不實際刪除）")
-	fs.Parse(args)
+	parseFlagsOrExit(fs, args)
 
 	if !*confirm && !*dryRun {
 		fmt.Println("⚠️ 清空所有快取需要 -confirm 參數")

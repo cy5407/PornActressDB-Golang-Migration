@@ -6,12 +6,13 @@ import builtins
 import contextlib
 import hashlib
 import logging
-import random
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from secrets import choice as secure_choice
+from secrets import randbelow
 from typing import Any
 
 try:
@@ -166,7 +167,9 @@ class SafeSearcher:
         )
 
         # 隨機化部分標頭
-        headers["Cache-Control"] = random.choice(["no-cache", "max-age=0", "no-store"])
+        headers["Cache-Control"] = secure_choice(
+            ["no-cache", "max-age=0", "no-store"]
+        )
 
         return headers
 
@@ -179,7 +182,13 @@ class SafeSearcher:
             # 計算隨機延遲
             min_wait = self.config.min_interval
             max_wait = self.config.max_interval
-            wait_time = random.uniform(min_wait, max_wait)
+            if max_wait <= min_wait:
+                wait_time = min_wait
+            else:
+                precision = 1_000_000
+                wait_time = min_wait + (
+                    randbelow(precision) / precision
+                ) * (max_wait - min_wait)
 
             if elapsed < wait_time:
                 sleep_time = wait_time - elapsed
