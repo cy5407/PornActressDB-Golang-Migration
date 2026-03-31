@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## 語言偏好
 
@@ -657,7 +657,7 @@ rg "(?P<name>pattern)" --pcre2
 **在 VS Code Copilot Chat 中**：
 - Skills 會根據上下文自動載入
 - 手動觸發：`@workspace /actress-classifier`（範例）
-- 查看可用 Skills：檢查 `.claude/skills/` 目錄
+- 查看可用 Skills：檢查 `.Codex/skills/` 目錄
 
 **在其他環境中**：
 - Skills 遵循 [agentskills.io](https://agentskills.io) 開放標準
@@ -666,7 +666,7 @@ rg "(?P<name>pattern)" --pcre2
 ## 參考文件
 
 ### 核心架構文檔
-- [CLAUDE.md](CLAUDE.md) - AI 開發指引（本檔案）
+- [AGENTS.md](AGENTS.md) - AI 開發指引（本檔案）
 - [README.md](README.md) - 專案說明與快速開始
 - [QUICK_START_GUIDE.md](QUICK_START_GUIDE.md) - 快速上手指南
 
@@ -688,7 +688,7 @@ rg "(?P<name>pattern)" --pcre2
 > 審查時應先執行 `git log --oneline -20` 確認最新狀態。
 
 ### 2026-03-24 `348517c` — build: fix CLI build paths and release docs
-- ✅ CLI 建置路徑修正（CLAUDE.md 快速開始指令對齊實際目錄結構）
+- ✅ CLI 建置路徑修正（AGENTS.md 快速開始指令對齊實際目錄結構）
 - ✅ 發布文件更新
 
 ### 2026-03-23 `dc9c2ca` — openclaw-review 10 項修復

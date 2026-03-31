@@ -131,3 +131,6 @@ coverage_report.txt
 
 # Session 相關（臨時工作檔案）
 .copilot/session-state/
+
+# 本地保留的安全掃描原始產物
+security_reports/_local_archives/
