@@ -11,6 +11,7 @@ from pathlib import Path
 from models.config import ConfigManager
 from models.extractor import UnifiedCodeExtractor
 from models.incremental_json_database import IncrementalJSONDB
+from models.json_database import JSONDBManager
 from models.studio import StudioIdentifier
 from services.interactive_classifier import InteractiveClassifier
 from services.studio_classifier import StudioClassificationCore
@@ -28,7 +29,14 @@ class UnifiedClassifierCore:
         self.config = config
         # 使用增量資料庫管理器替代標準管理器，從設定檔讀取資料庫目錄
         json_data_dir = config.get("database", "json_data_dir", fallback="data/json_db")  # 從設定檔讀取資料庫目錄，預設為 data/json_db
-        self.db_manager = IncrementalJSONDB(json_data_dir)
+        try:
+            self.db_manager = IncrementalJSONDB(json_data_dir)
+            logger.info(f"✅ 使用 IncrementalJSONDB: {json_data_dir}")
+        except Exception as e:
+            logger.warning(
+                f"⚠️ IncrementalJSONDB 初始化失敗，降級為 JSONDBManager: {e}"
+            )
+            self.db_manager = JSONDBManager(json_data_dir)
         self.code_extractor = UnifiedCodeExtractor()
         # 使用設定檔建立掃描器（支援 Go 加速）
         self.file_scanner = UnifiedFileScanner.from_config(config)

@@ -8,6 +8,7 @@ import logging
 import re
 import threading
 import time
+from pathlib import Path
 from urllib.parse import quote
 
 import chardet
@@ -91,6 +92,7 @@ class WebSearcher:
         self.thread_count = config.getint("search", "thread_count", fallback=5)
         self.batch_delay = config.getfloat("search", "batch_delay", fallback=2.0)
         self.timeout = config.getint("search", "request_timeout", fallback=20)
+        self._studio_code_mapping = self._load_studio_code_mapping()
 
         # 初始化片商識別器（用於標準化片商名稱）
         self.studio_identifier = StudioIdentifier()
@@ -731,27 +733,10 @@ class WebSearcher:
 
     def _get_studio_name_by_code(self, studio_code: str) -> str | None:
         """根據片商代碼獲取片商名稱（從 studios.json 載入）"""
-        try:
-            try:
-                from utils.json_utils import load as json_load
-            except ImportError:  # pragma: no cover
-                from src.utils.json_utils import load as json_load
+        return self._studio_code_mapping.get(studio_code.upper(), studio_code)
 
-            # 載入 studios.json 檔案
-            studios_file = Path(__file__).parent.parent.parent / "studios.json"
-            if studios_file.exists():
-                with open(studios_file, encoding="utf-8") as f:
-                    studios_data = json_load(f)
-
-                # 反向查找：從代碼找到片商
-                studio_code_upper = studio_code.upper()
-                for studio_name, codes in studios_data.items():
-                    if studio_code_upper in [code.upper() for code in codes]:
-                        return studio_name
-        except Exception as e:
-            logger.warning(f"載入 studios.json 失敗: {e}")
-
-        # 回退到內建對應表
+    def _load_studio_code_mapping(self) -> dict[str, str]:
+        """載入片商代碼對照表，避免批次搜尋時重複讀取磁碟。"""
         studio_mapping = {
             "STAR": "SOD",
             "STARS": "SOD",
@@ -773,7 +758,24 @@ class WebSearcher:
             "JUY": "MADONNA",
         }
 
-        return studio_mapping.get(studio_code.upper(), studio_code)
+        try:
+            try:
+                from utils.json_utils import load as json_load
+            except ImportError:  # pragma: no cover
+                from src.utils.json_utils import load as json_load
+
+            studios_file = Path(__file__).parent.parent.parent / "studios.json"
+            if studios_file.exists():
+                with open(studios_file, encoding="utf-8") as f:
+                    studios_data = json_load(f)
+
+                for studio_name, codes in studios_data.items():
+                    for code in codes:
+                        studio_mapping[code.upper()] = studio_name
+        except Exception as e:
+            logger.warning(f"載入 studios.json 失敗: {e}")
+
+        return studio_mapping
 
     def get_safe_searcher_stats(self) -> dict:
         """獲取安全搜尋器統計資訊"""
@@ -813,26 +815,8 @@ class WebSearcher:
     def search_japanese_sites_only(
         self, code: str, stop_event: threading.Event
     ) -> dict | None:
-        """僅搜尋 AV-WIKI"""
-        if stop_event.is_set():
-            return None
-        if code in self.search_cache:
-            return self.search_cache[code]
-
-        try:
-            # AV-WIKI 搜尋
-            logger.debug(f"🇯🇵 AV-WIKI 搜尋: {code}")
-            result = self._search_av_wiki(code, stop_event)
-            if result and result.get("actresses"):
-                self.search_cache[code] = result
-                return result
-
-            logger.debug(f"🇯🇵 AV-WIKI 未找到: {code}")
-            return None
-
-        except Exception as e:
-            logger.error(f"搜尋 {code} 時發生錯誤: {e}", exc_info=True)
-            return None
+        """僅搜尋 AV-WIKI。保留舊 API，內部委派到統一實作。"""
+        return self.search_japanese_sites(code, stop_event)
 
     def search_javdb_only(self, code: str, stop_event: threading.Event) -> dict | None:
         """僅搜尋 JAVDB"""

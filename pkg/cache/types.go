@@ -2,7 +2,7 @@
 //
 // 此套件專注於快取索引操作（stats, prune, clear），
 // 與 Python cache_manager.py 完全相容。
-// 讀寫快取值仍由 Python 處理（因 pickle 序列化）。
+// 讀寫快取值仍由 Python 處理（目前為 JSON 載荷格式）。
 package cache
 
 // IndexEntry 索引條目
