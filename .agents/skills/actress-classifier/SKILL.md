@@ -7,7 +7,7 @@ description: 女優分類系統開發指引 - 用於理解專案架構、程式�
 
 ## 專案概述
 
-這是一個 Python + Tkinter GUI 的影片女優分類系統 (v5.4.3)。
+這是一個 Python + Tkinter GUI 的影片女優分類系統 (v6.x)。
 主要功能：從影片檔名提取番號，搜尋女優資訊，自動分類到對應資料夾。
 
 ## 語言規範
@@ -55,8 +55,7 @@ src/
 ├── scrapers/                            # 爬蟲
 │   └── sources/
 │       ├── avwiki_scraper.py            # AV-WIKI（主要來源）
-│       ├── chibaf_scraper.py            # chiba-f（備援）
-│       └── javdb_scraper.py             # JAVDB（補充）
+│       └── javdb_scraper.py             # JAVDB（補充 / 備援）
 └── ui/                                  # 介面
     ├── main_gui.py                      # 主 GUI
     └── search_result_dialog.py          # 搜尋結果對話框
@@ -142,7 +141,7 @@ self.root.after(0, lambda: self.update_ui())
 
 ### 4. 級聯搜尋策略
 
-搜尋順序：AV-WIKI → chiba-f → JAVDB
+搜尋順序：AV-WIKI → JAVDB
 
 ```python
 result = self.web_searcher.batch_cascade_search(
@@ -159,6 +158,7 @@ result = self.web_searcher.batch_cascade_search(
 2. **執行緒安全**：GUI 更新需使用 `root.after()` 回到主執行緒
 3. **進度回報**：併發搜尋使用 threading.Lock 確保順序
 4. **快取清理**：程式關閉時自動清理過期快取
+5. **現況優先**：若 `AGENTS.md` 與本 Skill 對版本或流程描述不同，優先以 `AGENTS.md` 與目前程式碼為準
 
 ## 專案術語
 

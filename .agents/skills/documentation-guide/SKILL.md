@@ -1,6 +1,6 @@
 ---
 name: documentation-guide
-description: 文件撰寫指引 - 用於更新 README、撰寫 API 文件、建立使用指南、維護 CHANGELOG 和規範註解
+description: 文件撰寫指引 - 用於更新 README、撰寫 API 文件、建立使用指南、維護 AGENTS.md 與 docs 文件，以及規範註解
 argument-hint: "[doc-type]"
 ---
 
@@ -12,7 +12,7 @@ argument-hint: "[doc-type]"
 1. **更新 README**（新功能說明）
 2. **撰寫 API 文件**（函式說明）
 3. **建立使用指南**（操作步驟）
-4. **維護 CHANGELOG**（版本記錄）
+4. **維護專案文件**（`AGENTS.md`、`docs/`、操作指南）
 5. **規範程式碼註解**
 
 ## 文件結構
@@ -27,8 +27,7 @@ docs/
 專案根目錄/
 ├── README.md                              # 專案概述
 ├── AGENTS.md                              # Codex 開發指引
-├── QUICK_START_GUIDE.md                   # 快速開始
-└── CHANGELOG.md                           # 變更日誌
+└── QUICK_START_GUIDE.md                   # 快速開始
 ```
 
 ## 文件規範
@@ -74,3 +73,9 @@ def add_video(code: str, info: dict) -> bool:
 - `README.md` - 專案主文件
 - `AGENTS.md` - 開發指引
 - `docs/` - 詳細文件目錄
+
+## 現況提醒
+
+- 本 repo 目前沒有固定維護 `CHANGELOG.md`
+- 文件更新時，優先同步 `README.md`、`AGENTS.md` 與 `docs/` 內現存文件
+- 若文件描述與實際程式碼不一致，必須先以目前 repo 狀態為準，再回寫文件

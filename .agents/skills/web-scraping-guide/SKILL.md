@@ -20,9 +20,7 @@ argument-hint: "[scraper-name]"
 ```
 AV-WIKI (主要)
     ↓ 失敗
-chiba-f.net (備援)
-    ↓ 失敗
-JAVDB (最終)
+JAVDB (備援 / 最終)
 ```
 
 ## 爬蟲架構
@@ -31,9 +29,10 @@ JAVDB (最終)
 src/scrapers/
 ├── sources/
 │   ├── avwiki_scraper.py     # AV-WIKI 爬蟲
-│   ├── chibaf_scraper.py     # chiba-f 爬蟲
 │   └── javdb_scraper.py      # JAVDB 爬蟲
 ├── cache_manager.py          # 快取管理
+├── base_scraper.py           # 共用錯誤處理 / RateLimiter 整合
+├── rate_limiter.py           # 速率限制與 Retry-After
 └── unified_scraper.py        # 統一介面
 ```
 
@@ -100,12 +99,7 @@ class WebSearcher:
         if result:
             return result
         
-        # 3. chiba-f
-        result = await self.chibaf.search(code)
-        if result:
-            return result
-        
-        # 4. JAVDB (最終)
+        # 3. JAVDB (最終備援)
         return await self.javdb.search(code)
 ```
 
@@ -130,7 +124,7 @@ def decode_japanese_html(content: bytes) -> str:
 ## 速率限制
 
 ```python
-# SafeSearcher 自動處理速率限制
+# SafeSearcher / BaseScraper / RateLimiter 共同處理速率限制
 from services.safe_searcher import SafeSearcher
 
 searcher = SafeSearcher(
@@ -144,5 +138,13 @@ searcher = SafeSearcher(
 ## 相關檔案
 
 - `src/scrapers/sources/` - 爬蟲實作
+- `src/scrapers/base_scraper.py` - 共用錯誤傳遞與 Retry-After
+- `src/scrapers/rate_limiter.py` - 速率限制與退避
 - `src/services/web_searcher.py` - 級聯搜尋協調器
 - `src/services/safe_searcher.py` - 安全 HTTP 請求
+- `src/services/safe_javdb_searcher.py` - JAVDB 專用安全搜尋器
+
+## 現況提醒
+
+- 本專案目前正式級聯鏈路是 `AV-WIKI → JAVDB`
+- `chiba-f` 已移除，不應再作為新功能或新文件的依據

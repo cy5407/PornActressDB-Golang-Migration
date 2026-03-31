@@ -364,8 +364,7 @@ path = Path("C:/Users/test/file.mp4")  # ✅ 自動轉換
 ```python
 # 正確的級聯順序
 # 1. AV-WIKI (主要)
-# 2. chiba-f (備援)
-# 3. JAVDB (最終)
+# 2. JAVDB (備援)
 ```
 
 #### 檢查重點
@@ -414,8 +413,8 @@ path = Path("C:/Users/test/file.mp4")  # ✅ 自動轉換
 - `AGENTS.md` - 完整開發規範
 - `src/services/go_bridge.py` - Python ↔ Go 橋接層
 - `pkg/` - Go 套件原始碼
-- `.Codex/skills/go-bridge-development/SKILL.md` - Go 開發指引
-- `.Codex/skills/gui-development/SKILL.md` - GUI 執行緒安全指引
+- `.agents/skills/go-bridge-development/SKILL.md` - Go 開發指引
+- `.agents/skills/gui-development/SKILL.md` - GUI 執行緒安全指引
 
 ---
 

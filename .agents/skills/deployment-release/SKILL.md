@@ -11,8 +11,8 @@ argument-hint: "[task]"
 當需要：
 1. **建置 Go CLI**（編譯 classifier.exe）
 2. **打包應用程式**（包含所有相依檔案）
-3. **版本管理**（更新版本號、CHANGELOG）
-4. **發布新版本**（GitHub Release）
+3. **版本管理**（同步 README、AGENTS.md、發布文件）
+4. **驗證發布流程**（build、test、workflow 對齊）
 
 ## 建置流程
 
@@ -38,12 +38,12 @@ python -m pytest tests/ -v
 go test ./... -v
 ```
 
-### 3. 更新版本
+### 3. 更新發布文件
 
-編輯：`run.py`
-```python
-# 版本：v5.4.3 → v5.4.4
-```
+依實際變更更新下列文件，而不是假設固定改單一版本號：
+- `README.md`
+- `AGENTS.md`
+- `docs/` 內相關發布或操作文件
 
 ### 4. 打包檔案
 
@@ -69,33 +69,20 @@ PyInstaller 只會建立 GUI EXE；若要讓發行資料夾保留 Go 加速功�
 
 ## 版本管理
 
-### 語義化版本 (SemVer)
+本 repo 目前沒有固定維護 `CHANGELOG.md`。發布相關記錄以：
+- git commit / tag
+- `README.md`
+- `AGENTS.md`
+- `docs/` 內專案文件
 
-```
-v5.4.3
-│ │ │
-│ │ └─ 修補版本（Bug 修復）
-│ └─── 次版本（新功能）
-└───── 主版本（重大變更）
-```
+為主。
 
-### CHANGELOG 格式
-
-```markdown
-## [5.4.4] - 2025-01-15
-
-### 新增
-- 新增 MGS 番號支援
-
-### 修正
-- 修復 Journal 損壞問題
-
-### 變更
-- 優化搜尋效能
-```
+若未來新增正式版本文件，再把流程補回此 Skill，不要先假設檔案存在。
 
 ## 相關檔案
 
-- `run.py` - 主程式進入點（版本號）
-- `CHANGELOG.md` - 變更日誌
+- `run.py` - 主程式進入點
+- `cmd/scanner/main.go` - Go CLI 入口
 - `README.md` - 使用說明
+- `AGENTS.md` - 開發與建置規範
+- `.github/workflows/` - CI 驗證流程
