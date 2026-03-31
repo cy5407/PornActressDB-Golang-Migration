@@ -191,7 +191,7 @@ class SafeSearcher:
     def _generate_cache_key(self, url: str, params: dict = None) -> str:
         """生成快取鍵值"""
         cache_string = f"{url}_{str(params or {})}"
-        return hashlib.md5(cache_string.encode("utf-8")).hexdigest()
+        return hashlib.md5(cache_string.encode("utf-8"), usedforsecurity=False).hexdigest()  # 僅用於快取鍵值，非安全用途
 
     def _is_cache_valid(self, cache_entry: CacheEntry) -> bool:
         """檢查快取是否有效"""
