@@ -13,9 +13,9 @@ from urllib.parse import urlparse
 
 import aiohttp
 
-from .cache_manager import CacheManager
+from .cache_manager import CacheManager, get_global_cache_manager
 from .encoding_utils import EncodingDetector, install_encoding_warning_filter
-from .rate_limiter import RateLimiter
+from .rate_limiter import RateLimiter, get_global_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +64,8 @@ class AsyncWebScraper:
         self.encoding_detector = EncodingDetector()
 
         # 初始化限流器和快取管理器
-        self.rate_limiter = RateLimiter()
-        self.cache_manager = cache_manager or CacheManager()
+        self.rate_limiter = get_global_rate_limiter()
+        self.cache_manager = cache_manager or get_global_cache_manager()
 
         # 統計資訊
         self.stats = {
@@ -153,6 +153,20 @@ class AsyncWebScraper:
                 timeout=timeout,
                 max_redirects=self.config.max_redirects,
             ) as response:
+                response_time = time.time() - start_time
+
+                if response.status >= 400:
+                    error_msg = f"HTTP {response.status}: {url}"
+                    logger.warning(f"🌐 {error_msg}")
+                    self._update_stats(domain, False, response_time)
+                    return ScrapingResult(
+                        url=url,
+                        success=False,
+                        error=error_msg,
+                        status_code=response.status,
+                        response_time=response_time,
+                    )
+
                 # 讀取響應內容
                 content_bytes = await response.read()
 
@@ -162,7 +176,6 @@ class AsyncWebScraper:
                 )
 
                 # 更新統計
-                response_time = time.time() - start_time
                 self._update_stats(domain, True, response_time, encoding)
 
                 # 儲存到快取
@@ -211,6 +224,9 @@ class AsyncWebScraper:
 
                 last_result = result
 
+                if not self._should_retry_result(result):
+                    return result
+
                 # 如果不是最後一次嘗試，則等待後重試
                 if attempt < self.config.max_retries:
                     wait_time = self.config.backoff_factor**attempt
@@ -228,6 +244,16 @@ class AsyncWebScraper:
         return last_result or ScrapingResult(
             url=url, success=False, error="所有重試都失敗"
         )
+
+    def _should_retry_result(self, result: ScrapingResult) -> bool:
+        """僅對暫時性失敗重試，避免 4xx 類錯誤重複浪費請求。"""
+        if result.status_code is None:
+            return True
+
+        if result.status_code in (408, 429):
+            return True
+
+        return not 400 <= result.status_code < 500
 
     async def scrape_multiple(
         self, urls: list[str], progress_callback: Callable[[str], None] | None = None

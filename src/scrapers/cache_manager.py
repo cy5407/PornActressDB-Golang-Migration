@@ -903,7 +903,20 @@ class CacheManager:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.get, key)
 
-    async def delete_async(self, key: str) -> bool:
+async def delete_async(self, key: str) -> bool:
         """非同步刪除快取值"""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.delete, key)
+
+
+_global_cache_manager: CacheManager | None = None
+_global_cache_lock = threading.RLock()
+
+
+def get_global_cache_manager() -> CacheManager:
+    """取得共用快取管理器，避免重複建立背景清理執行緒。"""
+    global _global_cache_manager
+    with _global_cache_lock:
+        if _global_cache_manager is None:
+            _global_cache_manager = CacheManager()
+        return _global_cache_manager

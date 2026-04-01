@@ -5,6 +5,7 @@
 import asyncio
 import logging
 import random
+import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -12,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from .cache_manager import CacheManager
+from .cache_manager import CacheManager, get_global_cache_manager
 from .encoding_utils import EncodingDetector
 from .rate_limiter import RateLimiter, get_global_rate_limiter
 
@@ -360,6 +361,19 @@ class HealthChecker:
         }
 
 
+_global_health_checker: HealthChecker | None = None
+_global_health_checker_lock = threading.RLock()
+
+
+def get_global_health_checker() -> HealthChecker:
+    """取得共用健康檢查器，避免重複註冊背景健康檢查任務。"""
+    global _global_health_checker
+    with _global_health_checker_lock:
+        if _global_health_checker is None:
+            _global_health_checker = HealthChecker()
+        return _global_health_checker
+
+
 class BaseScraper(ABC):
     """基礎爬蟲抽象類"""
 
@@ -373,9 +387,9 @@ class BaseScraper(ABC):
     ):
         self.encoding_detector = encoding_detector or EncodingDetector()
         self.rate_limiter = rate_limiter or get_global_rate_limiter()
-        self.cache_manager = cache_manager or CacheManager()
+        self.cache_manager = cache_manager or get_global_cache_manager()
         self.retry_manager = retry_manager or RetryManager()
-        self.health_checker = health_checker or HealthChecker()
+        self.health_checker = health_checker or get_global_health_checker()
 
         self.stats = {
             "total_requests": 0,

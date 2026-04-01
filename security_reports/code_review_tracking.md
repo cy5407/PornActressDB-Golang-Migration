@@ -1,7 +1,7 @@
 # 專案程式碼巡檢持續追蹤報告
 
-最後更新：2026-04-01 10:47 (Asia/Taipei)
-基準提交：`de98fdc` `fix: harden javdb retry handling`
+最後更新：2026-04-01 11:25 (Asia/Taipei)
+基準提交：`709229c` `security: harden javdb session lifecycle`
 
 ## 本輪檢查範圍
 
@@ -31,7 +31,25 @@
 
 ## 本輪已修正
 
-### 0. `SafeJAVDBSearcher` session 重建會遺留舊連線，且隨機來源與 `SafeSearcher` 不一致
+### 0. 從 detached worktree 回收 scraper 修正，補齊 HTTP 失敗判定與共用背景資源
+
+- 位置：
+  - `src/scrapers/async_scraper.py`
+  - `src/scrapers/base_scraper.py`
+  - `src/scrapers/cache_manager.py`
+  - `tests/test_code_review_regressions.py`
+- 類型：一致性 / 穩定性 / 效能
+- 問題：
+  - 先前有三個 detached worktree 殘留未提交修正，其中 scraper 相關兩批內容尚未整併到 `main`。
+  - `AsyncWebScraper._make_request()` 會把 HTTP 4xx/5xx 回應當成成功，導致統計與上層行為失真，且 404 這類明確 client error 仍會重試。
+  - `BaseScraper`、`AsyncWebScraper` 與 `CacheManager` 預設會重複建立快取管理器與健康檢查器，長時間執行下容易累積重複背景執行緒 / task。
+- 修正：
+  - 將 `AsyncWebScraper` 改為正確回傳 HTTP 錯誤結果，並新增 `_should_retry_result()`，只對暫時性失敗重試。
+  - 新增 `get_global_cache_manager()` 與 `get_global_health_checker()`，改為共用快取、健康檢查與限流器實例。
+  - 全域共用物件建立流程補上 `RLock`，避免多執行緒下重複初始化。
+  - 補上回歸測試，覆蓋 404 不重試與 scraper 共用背景資源兩個情境。
+
+### 1. `SafeJAVDBSearcher` session 重建會遺留舊連線，且隨機來源與 `SafeSearcher` 不一致
 
 - 位置：
   - `src/services/safe_javdb_searcher.py`
@@ -48,7 +66,7 @@
   - `__del__()` 的清理錯誤改記錄 debug log，移除 `except: pass`。
   - 補上回歸測試，確認重試等待上限行為未退化，且重建 session 時會關閉舊 client。
 
-### 1. JAVDB 429 `Retry-After` 沒有導入 limiter
+### 2. JAVDB 429 `Retry-After` 沒有導入 limiter
 
 - 位置：
   - `src/scrapers/sources/javdb_scraper.py`
@@ -65,7 +83,7 @@
   - `tests/test_code_review_regressions.py::test_safe_scrape_records_retry_after_on_rate_limit`
   - `python -m pytest tests/test_code_review_regressions.py -q -p no:cacheprovider`
 
-### 2. `SafeJAVDBSearcher` 重試路徑會自我死鎖
+### 3. `SafeJAVDBSearcher` 重試路徑會自我死鎖
 
 - 位置：`src/services/safe_javdb_searcher.py`
 - 類型：穩定性 / 可用性 / 一致性
@@ -94,7 +112,7 @@
 
 ```text
 python -m pytest tests/test_code_review_regressions.py -q -p no:cacheprovider
-結果：3 passed
+結果：5 passed
 ```
 
 ```text
@@ -104,6 +122,11 @@ python -m bandit -q -r src/services/safe_javdb_searcher.py
 
 ```text
 python -m py_compile src/services/safe_javdb_searcher.py src/scrapers/base_scraper.py src/scrapers/sources/javdb_scraper.py tests/test_code_review_regressions.py tests/test_safe_javdb_searcher.py
+結果：通過
+```
+
+```text
+python -m py_compile src/scrapers/async_scraper.py src/scrapers/base_scraper.py src/scrapers/cache_manager.py tests/test_code_review_regressions.py
 結果：通過
 ```
 
