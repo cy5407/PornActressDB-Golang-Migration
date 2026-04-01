@@ -266,6 +266,33 @@ class TestGoBridgeBatchMove(unittest.TestCase):
         self.assertEqual(result.success_count, 1)
         self.assertEqual(result.failed_count, 1)
 
+    @patch('services.go_bridge.os.unlink', side_effect=PermissionError("locked"))
+    @patch('subprocess.run')
+    def test_batch_move_cleanup_failure_does_not_override_result(
+        self, mock_run, mock_unlink
+    ):
+        """測試暫存檔清理失敗不會覆蓋批次移動結果"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "total_items": 1,
+                "success_count": 1,
+                "failed_count": 0,
+                "skipped_count": 0,
+                "results": [
+                    {"source": "a.mp4", "destination": "dest/a.mp4", "success": True},
+                ],
+                "duration": "10ms",
+            }),
+            stderr="",
+        )
+
+        bridge = GoBridge()
+        result = bridge.batch_move([{"source": "a.mp4", "destination": "dest/a.mp4"}])
+
+        self.assertEqual(result.success_count, 1)
+        mock_unlink.assert_called_once()
+
 
 class TestGoBridgeHistory(unittest.TestCase):
     """測試操作歷史"""
@@ -373,6 +400,29 @@ class TestConvenienceFunctions(unittest.TestCase):
         
         self.assertIsInstance(result, dict)
         self.assertTrue(result["success"])
+
+
+class TestGoBridgeDatabaseAndStudioHelpers(unittest.TestCase):
+    """測試會建立暫存檔的便捷 helper"""
+
+    @patch('services.go_bridge.os.unlink', side_effect=PermissionError("locked"))
+    @patch('subprocess.run')
+    def test_identify_studios_batch_cleanup_failure_does_not_return_empty(
+        self, mock_run, mock_unlink
+    ):
+        """測試批次片商識別成功結果不會被清理失敗覆蓋"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps([{"code": "SSIS-001", "studio": "S1"}]),
+            stderr="",
+        )
+
+        from services.go_bridge import identify_studios_batch
+
+        result = identify_studios_batch(["SSIS-001"])
+
+        self.assertEqual(result, [{"code": "SSIS-001", "studio": "S1"}])
+        mock_unlink.assert_called_once()
 
 
 class TestGoBridgeIntegration(unittest.TestCase):

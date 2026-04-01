@@ -1,7 +1,7 @@
 # 專案程式碼巡檢持續追蹤報告
 
-最後更新：2026-04-01 11:25 (Asia/Taipei)
-基準提交：`709229c` `security: harden javdb session lifecycle`
+最後更新：2026-04-01 23:26 (Asia/Taipei)
+基準提交：`ad15933` `review: recover scraper worktree fixes`
 
 ## 本輪檢查範圍
 
@@ -92,12 +92,28 @@
   - 原本使用 `threading.Lock()`，重試路徑會嘗試重複取得同一把鎖，造成流程卡死。
 - 修正：
   - 將 `_lock` 改為 `threading.RLock()`，讓重試流程可安全重入。
-  - 補上回歸測試，驗證 403 後可重試並成功返回 response。
+- 補上回歸測試，驗證 403 後可重試並成功返回 response。
 - 驗證：
   - `tests/test_safe_javdb_searcher.py`
   - 以 inline Python 驗證：
     - 403 等待超過上限時直接放棄，不進入長時間 sleep。
     - 403 後重入 `safe_request()` 可成功拿到第二次 200 response。
+
+### 4. `go_bridge` 暫存檔清理失敗會造成結果不一致，且重複清理邏輯難追蹤
+
+- 位置：
+  - `src/services/go_bridge.py`
+  - `src/services/go_bridge_test.py`
+- 類型：一致性 / 可觀測性 / 維護性
+- 問題：
+  - `batch_move()`、`db_update_video()` 各自吞掉 `os.unlink()` 失敗，`identify_studios_batch()` 則直接在 `finally` 呼叫 `os.unlink(temp_file)`。
+  - 當暫存檔已被外部程序鎖住或權限異常時，`identify_studios_batch()` 會讓清理例外覆蓋原本成功的 CLI 結果，對外錯誤地回傳空陣列。
+  - 同類清理邏輯分散三處，日後追查暫存檔殘留問題不易。
+- 修正：
+  - 新增 `_cleanup_temp_file()` helper，統一處理暫存檔刪除。
+  - 將清理失敗改為 warning log，不再覆蓋主流程結果。
+  - `batch_move()`、`db_update_video()`、`identify_studios_batch()` 全部改用同一個 helper。
+  - 補上回歸測試，確認 unlink 失敗時 `batch_move()` 與 `identify_studios_batch()` 仍保留原本成功結果。
 
 ## 本輪未新增待修高優先問題
 
@@ -128,6 +144,21 @@ python -m py_compile src/services/safe_javdb_searcher.py src/scrapers/base_scrap
 ```text
 python -m py_compile src/scrapers/async_scraper.py src/scrapers/base_scraper.py src/scrapers/cache_manager.py tests/test_code_review_regressions.py
 結果：通過
+```
+
+```text
+python -m pytest src/services/go_bridge_test.py -q -p no:cacheprovider
+結果：24 passed
+```
+
+```text
+python -m py_compile src/services/go_bridge.py src/services/go_bridge_test.py
+結果：通過
+```
+
+```text
+python -m bandit -q src/services/go_bridge.py
+結果：僅剩預期的 subprocess LOW 告警（B404/B603），未新增中高風險問題
 ```
 
 ```text

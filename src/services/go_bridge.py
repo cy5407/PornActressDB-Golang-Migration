@@ -43,6 +43,19 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _cleanup_temp_file(path: str | None, context: str) -> None:
+    """清理暫存檔，避免清理失敗覆蓋主流程結果。"""
+    if not path:
+        return
+
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return
+    except Exception as e:
+        logger.warning(f"⚠️ 無法清理 {context} 暫存檔 {path}: {e}")
+
+
 @dataclass
 class ScanResult:
     """掃描結果"""
@@ -460,11 +473,7 @@ class GoBridge:
             return self._build_batch_move_result(data, default_total_items=len(items))
             
         finally:
-            # 清理暫存檔
-            try:
-                os.unlink(batch_file)
-            except Exception:
-                pass
+            _cleanup_temp_file(batch_file, "batch_move")
 
     def _normalize_operation_type(self, operation_type: str) -> str:
         """正規化操作類型，保留舊日誌相容性。"""
@@ -695,12 +704,7 @@ def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> b
             logger.error(f"❌ Go CLI 執行失敗，影片 {code} 更新失敗: {error_msg}")  # Go CLI 執行失敗為 error
             return False
         finally:
-            # 清理暫存檔
-            if temp_file:  # 清理暫存 JSON 檔案
-                try:
-                    os.unlink(temp_file)
-                except Exception:
-                    pass
+            _cleanup_temp_file(temp_file, "db_update_video")
     except Exception as e:
         logger.error(f"❌ 更新影片失敗 {code}: {e}")  # 其他異常為 error
         return False
@@ -881,7 +885,7 @@ def identify_studios_batch(codes: list[str], check_major: bool = False) -> list[
             result = bridge._run_command(cmd)
             return bridge._parse_json(result.stdout)
         finally:
-            os.unlink(temp_file)
+            _cleanup_temp_file(temp_file, "identify_studios_batch")
     except Exception as e:
         logger.error(f"❌ 批次識別片商失敗: {e}")
         return []
