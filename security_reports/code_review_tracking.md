@@ -1,6 +1,6 @@
 ﻿# 專案程式碼巡檢持續追蹤報告
 
-最後更新：2026-04-02 15:00 (Asia/Taipei)
+最後更新：2026-04-02 15:12 (Asia/Taipei)
 基準提交：`7c71346` `Add automated security scan reports`
 
 ## 本輪檢查範圍
@@ -30,32 +30,48 @@
 3. `src/services/go_bridge.py`
    - 掃描與一般 CLI 呼叫仍統一經過 `_run_command()` timeout 控制；本輪未發現 timeout 回歸。
 
+## 2026-04-02 修補更新
+
+### 本輪已修正
+
+1. `src/services/classifier_core.py:17`
+   - 類型：一致性 / 可觀測性
+   - 修正：
+     - 新增 `_should_research_stale_record()` helper，統一判斷既有紀錄是否需要重新搜尋。
+     - `last_search_date` 無法解析時不再靜默跳過，會記錄 warning，並保守改為重新搜尋。
+   - 驗證：
+     - `tests/test_code_review_regressions.py::test_classifier_core_researches_record_when_last_search_date_is_invalid`
+
+2. `src/scrapers/enhanced/encoding_handler.py:159`
+   - 類型：效能 / 資源管理
+   - 修正：
+     - `RateLimitedRequester.get()` 改用 `with requests.Session() as session:`，確保每次請求後正確釋放 session。
+   - 驗證：
+     - `tests/test_code_review_regressions.py::test_rate_limited_requester_closes_session`
+
 ### 本輪新增待追蹤
+
+1. `src/services/unified_cache.py:54`
+   - 類型：一致性 / 可觀測性
+   - 問題：
+     - 建構子載入 cache 設定時仍有 `except Exception: pass`。
+     - 這會降低設定錯誤的可觀測性，但目前只影響 TTL / 大小上限 fallback，尚未看到直接資料錯誤或安全風險。
+   - 建議：
+     - 後續可改為記錄 warning，保留 fallback 但不要完全靜默。
+
+### 本輪已解除待追蹤
 
 1. `src/services/classifier_core.py:443`
    - 類型：一致性 / 可觀測性
-   - 問題：
-     - `process_and_search_javdb()` 針對既有影片是否需要重新搜尋，會解析 `last_search_date`。
-     - 若資料庫內日期格式損壞或混入非 ISO 字串，`fromisoformat()` 例外會被直接吞掉，`should_research` 保持 `False`。
-     - 結果是本來應該重新搜尋的舊紀錄會被靜默跳過，尤其是零女優或歷史失敗紀錄，後續可能長期停留在過期狀態。
-   - 建議：
-     - 至少記錄 warning，並在解析失敗時退回「視為需要重搜」或使用保守 fallback，避免靜默失效。
+   - 狀態：已修正，改為 warning + 保守重搜策略。
 
 2. `src/scrapers/enhanced/encoding_handler.py:177`
    - 類型：效能 / 資源管理
-   - 問題：
-     - `RateLimitedRequester.get()` 每次呼叫都建立新的 `requests.Session()`，但沒有使用 context manager，也沒有明確 `close()`。
-     - 這個模組目前看起來未被主流程直接引用，但若被工具腳本或後續功能重新使用，長時間批次抓取會累積未即時釋放的連線資源。
-   - 建議：
-     - 改成 `with requests.Session() as session:`，或重構成可重用的長生命週期 session。
+   - 狀態：已修正，改用 context manager 管理 session 關閉。
 
 ### 本輪觀察但暫不升級
 
-1. `src/services/unified_cache.py:54`
-   - 建構子載入 cache 設定時仍有 `except Exception: pass`。
-   - 這會降低設定錯誤的可觀測性，但目前只影響 TTL / 大小上限 fallback，尚未看到直接資料錯誤或安全風險，因此先維持低優先追蹤。
-
-2. `src/scrapers/base_scraper.py:117`
+1. `src/scrapers/base_scraper.py:117`
    - `src/scrapers/rate_limiter.py:111`
    - `src/scrapers/enhanced/encoding_handler.py:164`
    - `src/utils/retry_utils.py:56`
@@ -173,7 +189,7 @@
 本輪更新：
 - 以上結論維持成立。
 - 本次重新掃描 `python -m bandit -q -r src`，結果仍為 10 個 LOW、0 個 Medium / High。
-- 本輪沒有發現需要立即建立 `codex/automation-review` branch 的安全可提交修補；因此依 automation 規則只更新報告，不建立 branch、不提交程式碼。
+- 本輪已切換到 `codex/automation-review` 並完成 2 個小範圍修補，尚未提交。
 
 ## 本輪驗證指令
 
@@ -194,6 +210,16 @@ python -m bandit -q -r src
 - B311: jitter / delay 使用一般亂數（4 處）
 - B110: 吞錯（3 處）
 - B404/B603: go_bridge subprocess 靜態提醒（3 處，屬既知低風險）
+```
+
+```text
+python -m py_compile src/services/classifier_core.py src/scrapers/enhanced/encoding_handler.py tests/test_code_review_regressions.py
+結果：通過
+```
+
+```text
+python -m pytest tests/test_code_review_regressions.py -q -p no:cacheprovider
+結果：7 passed
 ```
 
 ```text
@@ -238,7 +264,7 @@ python -m pytest tests/test_safe_javdb_searcher.py tests/test_code_review_regres
 ## 後續建議
 
 1. 若下一輪持續收斂 LOW 告警，優先檢查 `base_scraper.py`、`rate_limiter.py`、`retry_utils.py` 的 jitter 是否要統一為 `secrets` 或明確註記非安全用途。
-2. 優先補 `src/services/classifier_core.py:443` 的日期解析 fallback，避免資料髒值讓重新搜尋條件失效。
-3. 若要清理舊模組技術債，可先處理 `src/scrapers/enhanced/encoding_handler.py:177` 的 session 生命週期，再決定是否保留這組輔助模組。
-4. `pytest` 在這台 Windows 環境建立 / 清理暫存目錄時會遇到 `PermissionError`，後續若要擴充測試建議優先沿用工作區內定向驗證腳本。
+2. 下一輪可優先處理 `src/services/unified_cache.py:54` 的靜默 fallback，補 warning 後可再從追蹤清單移除。
+3. `pytest` 在這台 Windows 環境建立 / 清理暫存目錄時會遇到 `PermissionError`，後續若要擴充測試建議優先沿用工作區內定向驗證腳本。
+
 

@@ -22,6 +22,30 @@ from utils.scanner import UnifiedFileScanner
 logger = logging.getLogger(__name__)
 
 
+def _should_research_stale_record(
+    code: str,
+    last_search_date: str | None,
+    threshold_days: int = 7,
+) -> bool:
+    """判斷搜尋記錄是否過舊；日期無法解析時保守改為重新搜尋。"""
+    if not last_search_date:
+        return False
+
+    from datetime import datetime, timedelta
+
+    try:
+        normalized_date = last_search_date.replace("Z", "+00:00")
+        last_search = datetime.fromisoformat(normalized_date)
+    except (AttributeError, TypeError, ValueError) as e:
+        logger.warning(
+            f"⚠️ 番號 {code} 的 last_search_date 無法解析 ({last_search_date!r})，"
+            f"將改為重新搜尋: {e}"
+        )
+        return True
+
+    return datetime.now(last_search.tzinfo) - last_search > timedelta(days=threshold_days)
+
+
 class UnifiedClassifierCore:
     """核心業務邏輯類別 - 包含片商分類功能"""
 
@@ -399,7 +423,7 @@ class UnifiedClassifierCore:
                 progress_callback(f"📁 發現 {len(video_files)} 個影片檔案。\n")
 
             # 改進：獲取所有影片並檢查搜尋狀態
-            from datetime import datetime, timedelta
+            from datetime import datetime
 
             all_videos = self.db_manager.get_all_videos()
             codes_in_db = {v["code"]: v for v in all_videos}
@@ -440,17 +464,8 @@ class UnifiedClassifierCore:
                             zero_actress_code_map[code] = []
                         zero_actress_code_map[code].append(file_path)
                         should_research = False  # 在第二輪單獨處理
-                    elif last_search_date:
-                        try:
-                            last_search = datetime.fromisoformat(
-                                last_search_date.replace("Z", "+00:00")
-                            )
-                            if datetime.now(
-                                last_search.tzinfo
-                            ) - last_search > timedelta(days=7):
-                                should_research = True
-                        except Exception:  # noqa: BLE001
-                            pass
+                    elif _should_research_stale_record(code, last_search_date):
+                        should_research = True
 
                     if should_research:
                         if code not in research_code_file_map:
