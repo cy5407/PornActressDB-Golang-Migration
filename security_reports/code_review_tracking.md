@@ -1,7 +1,49 @@
 ﻿# 專案程式碼巡檢持續追蹤報告
 
-最後更新：2026-04-02 15:12 (Asia/Taipei)
+最後更新：2026-04-02 15:33 (Asia/Taipei)
 基準提交：`7c71346` `Add automated security scan reports`
+
+## 2026-04-02 修復重驗證
+
+### 本輪處理方式
+
+- 依 automation 規範，程式碼修復統一在固定 branch `codex/automation-review` 進行。
+- 因該 branch 已被既有 worktree `C:\Users\cy5407\.codex\worktrees\c51f\PornActressDB-Golang-Migration` 使用，本輪直接在該 worktree 接手驗證。
+- 本輪未新增額外程式碼修補；重點是確認 `d3c72ce` 的兩個既有修正仍在目前環境穩定成立。
+
+### 本輪確認修正
+
+1. `src/services/classifier_core.py`
+   - `_should_research_stale_record()` 仍存在。
+   - `last_search_date` 無法解析時會記錄 warning，並保守改為重新搜尋，不再靜默吞掉異常。
+
+2. `src/scrapers/enhanced/encoding_handler.py`
+   - `RateLimitedRequester.get()` 仍使用 `with requests.Session() as session:`。
+   - 連線資源會在每次請求後釋放，不再依賴隱式回收。
+
+### 本輪驗證指令
+
+```text
+python -m py_compile src/services/classifier_core.py src/scrapers/enhanced/encoding_handler.py tests/test_code_review_regressions.py
+結果：通過
+```
+
+```text
+python -m pytest tests/test_code_review_regressions.py -q -p no:cacheprovider
+結果：7 passed, 1 warning
+備註：warning 來自本機 `requests` 相依版本提示，未影響本輪修正結論
+```
+
+```text
+inline Python smoke test
+結果：SMOKE_OK stale_fallback_and_session_guard
+```
+
+### 本輪狀態
+
+- 修正狀態：已存在於 `codex/automation-review`，且已重新驗證通過
+- 本輪 branch：`codex/automation-review`
+- 本輪未新增待修高優先問題
 
 ## 本輪檢查範圍
 
@@ -266,5 +308,6 @@ python -m pytest tests/test_safe_javdb_searcher.py tests/test_code_review_regres
 1. 若下一輪持續收斂 LOW 告警，優先檢查 `base_scraper.py`、`rate_limiter.py`、`retry_utils.py` 的 jitter 是否要統一為 `secrets` 或明確註記非安全用途。
 2. 下一輪可優先處理 `src/services/unified_cache.py:54` 的靜默 fallback，補 warning 後可再從追蹤清單移除。
 3. `pytest` 在這台 Windows 環境建立 / 清理暫存目錄時會遇到 `PermissionError`，後續若要擴充測試建議優先沿用工作區內定向驗證腳本。
+
 
 
