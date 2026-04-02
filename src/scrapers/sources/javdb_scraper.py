@@ -279,8 +279,8 @@ class JAVDBScraper(BaseScraper):
                 rating_match = re.search(r"([\d.]+)", rating_text)
                 if rating_match:
                     result["rating"] = float(rating_match.group(1))
-            except Exception:  # noqa: BLE001
-                pass
+            except (TypeError, ValueError) as e:
+                logger.debug(f"JAVDB 評分解析失敗，略過 rating 欄位: {e}")
 
         # 從標題中提取片商代碼
         if result["title"]:

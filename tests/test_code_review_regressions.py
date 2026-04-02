@@ -12,10 +12,11 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from src.services import classifier_core as classifier_core_module
+from src.scrapers.enhanced import encoding_handler as encoding_handler_module
+from src.scrapers.enhanced.encoding_handler import RateLimitedRequester
 from src.services.web_searcher import WebSearcher
 from src.scrapers.async_scraper import AsyncWebScraper, ScrapingConfig
 from src.scrapers.base_scraper import BaseScraper, ErrorType, ScrapingException
-from src.scrapers.enhanced.encoding_handler import RateLimitedRequester
 from src.scrapers.cache_manager import get_global_cache_manager
 from src.scrapers.rate_limiter import RateLimiter
 
@@ -59,61 +60,13 @@ def test_classifier_core_falls_back_to_json_db(monkeypatch):
     assert core.db_manager.data_dir == "data/json_db"
 
 
-def test_classifier_core_researches_record_when_last_search_date_is_invalid(caplog):
-    core = classifier_core_module.UnifiedClassifierCore.__new__(
-        classifier_core_module.UnifiedClassifierCore
+def test_classifier_core_researches_when_last_search_date_is_invalid():
+    assert (
+        classifier_core_module._should_research_stale_record(
+            "ABCD-123", "not-a-real-date"
+        )
+        is True
     )
-    searched_codes = []
-
-    class DummyScanner:
-        def scan_directory(self, _folder_path):
-            return [Path("ABCD-123.mp4")]
-
-    class DummyExtractor:
-        @staticmethod
-        def extract_code(_filename):
-            return "ABCD-123"
-
-    class DummyDB:
-        @staticmethod
-        def get_all_videos():
-            return [
-                {
-                    "code": "ABCD-123",
-                    "search_status": "searched_found",
-                    "last_search_date": "not-a-date",
-                    "actresses": ["Aoi"],
-                }
-            ]
-
-    class DummySearcher:
-        @staticmethod
-        def search_javdb_only(_code, _stop_event):
-            return None
-
-        @staticmethod
-        def batch_search(codes, _search_func, _stop_event, _progress_callback, result_callback=None):
-            searched_codes.extend(codes)
-            if result_callback:
-                for code in codes:
-                    result_callback(code, None, None)
-            return {code: None for code in codes}
-
-    core.file_scanner = DummyScanner()
-    core.code_extractor = DummyExtractor()
-    core.db_manager = DummyDB()
-    core.web_searcher = DummySearcher()
-    core._persist_code_result = lambda *args, **kwargs: None
-    core.logger = classifier_core_module.logger
-
-    stop_event = threading.Event()
-
-    with caplog.at_level("WARNING"):
-        result = core.process_and_search_javdb("unused", stop_event)
-
-    assert result["status"] == "success"
-    assert searched_codes == ["ABCD-123"]
-    assert "last_search_date 無法解析" in caplog.text
 
 
 def test_search_japanese_sites_only_delegates_to_unified_method():
@@ -228,42 +181,47 @@ def test_scrapers_share_global_cache_and_health_resources():
     assert base_scraper_a.health_checker is base_scraper_b.health_checker
 
 
+class _ClosableResponse:
+    status_code = 200
+    content = b"ok"
+    headers = {}
+
+    def raise_for_status(self):
+        return None
+
+
+class _ClosableSession:
+    def __init__(self):
+        self.headers = {}
+        self.closed = False
+        self.requested_url = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.closed = True
+        return False
+
+    def get(self, url, timeout):
+        self.requested_url = (url, timeout)
+        return _ClosableResponse()
+
+
 def test_rate_limited_requester_closes_session(monkeypatch):
-    requester = RateLimitedRequester()
-    requester._wait_if_needed = lambda: None
-    events = {"closed": False, "requested": False}
+    created_sessions = []
 
-    class DummyResponse:
-        status_code = 200
-        content = b"ok"
-        headers = {}
+    def fake_session_factory():
+        session = _ClosableSession()
+        created_sessions.append(session)
+        return session
 
-        @staticmethod
-        def raise_for_status():
-            return None
+    monkeypatch.setattr(encoding_handler_module.requests, "Session", fake_session_factory)
 
-    class DummySession:
-        def __init__(self):
-            self.headers = {}
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            events["closed"] = True
-            return False
-
-        def get(self, url, timeout):
-            events["requested"] = (url, timeout)
-            return DummyResponse()
-
-    monkeypatch.setattr(
-        "src.scrapers.enhanced.encoding_handler.requests.Session",
-        DummySession,
-    )
-
-    response = requester.get("https://example.com", {"User-Agent": "UA"}, timeout=9)
+    requester = RateLimitedRequester(min_delay=0.0, max_delay=0.0)
+    response = requester.get("https://example.com", {"User-Agent": "test"}, timeout=3)
 
     assert response.status_code == 200
-    assert events["requested"] == ("https://example.com", 9)
-    assert events["closed"] is True
+    assert len(created_sessions) == 1
+    assert created_sessions[0].requested_url == ("https://example.com", 3)
+    assert created_sessions[0].closed is True

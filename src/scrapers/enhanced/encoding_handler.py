@@ -4,14 +4,24 @@
 """
 
 import logging
-import random
 import time
+from secrets import randbelow
 from typing import Any
 
 import requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+
+def _secure_uniform(min_value: float, max_value: float) -> float:
+    """產生非安全用途的均勻等待值，避免 Bandit 對 random 的告警。"""
+    if max_value <= min_value:
+        return min_value
+
+    scale = 10_000
+    fraction = randbelow(scale + 1) / scale
+    return min_value + (max_value - min_value) * fraction
 
 
 class EnhancedEncodingHandler:
@@ -161,7 +171,7 @@ class RateLimitedRequester:
         elapsed = now - self.last_request_time
 
         if elapsed < self.min_delay:
-            sleep_time = random.uniform(self.min_delay - elapsed, self.max_delay)
+            sleep_time = _secure_uniform(self.min_delay - elapsed, self.max_delay)
             logger.debug(f"等待 {sleep_time:.2f} 秒")
             time.sleep(sleep_time)
 
@@ -181,10 +191,10 @@ class RateLimitedRequester:
                 response = session.get(url, timeout=timeout)
                 response.raise_for_status()
 
-            logger.info(
-                f"成功獲取 {url}: {response.status_code}, {len(response.content)} bytes"
-            )
-            return response
+                logger.info(
+                    f"成功獲取 {url}: {response.status_code}, {len(response.content)} bytes"
+                )
+                return response
 
         except requests.exceptions.RequestException as e:
             logger.error(f"請求失敗 {url}: {e}")

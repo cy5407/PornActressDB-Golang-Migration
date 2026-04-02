@@ -5,9 +5,19 @@
 """
 
 import logging
-import random
+from secrets import randbelow
 
 logger = logging.getLogger(__name__)
+
+
+def _secure_uniform(min_value: float, max_value: float) -> float:
+    """產生非安全用途的抖動值，避免 Bandit 對 random 的告警。"""
+    if max_value <= min_value:
+        return min_value
+
+    scale = 10_000
+    fraction = randbelow(scale + 1) / scale
+    return min_value + (max_value - min_value) * fraction
 
 
 class ExponentialBackoff:
@@ -53,7 +63,7 @@ class ExponentialBackoff:
 
         # 加入隨機抖動，避免雷同時機（±20%）
         if self.jitter:
-            jitter_factor = random.uniform(0.8, 1.2)
+            jitter_factor = _secure_uniform(0.8, 1.2)
             delay *= jitter_factor
 
         # 遞增計數器

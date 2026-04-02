@@ -31,8 +31,6 @@ def _should_research_stale_record(
     if not last_search_date:
         return False
 
-    from datetime import datetime, timedelta
-
     try:
         normalized_date = last_search_date.replace("Z", "+00:00")
         last_search = datetime.fromisoformat(normalized_date)
@@ -43,7 +41,11 @@ def _should_research_stale_record(
         )
         return True
 
-    return datetime.now(last_search.tzinfo) - last_search > timedelta(days=threshold_days)
+    from datetime import timedelta
+
+    return datetime.now(last_search.tzinfo) - last_search > timedelta(
+        days=threshold_days
+    )
 
 
 class UnifiedClassifierCore:
@@ -421,9 +423,6 @@ class UnifiedClassifierCore:
                 return {"status": "success", "message": "未發現影片檔案"}
             if progress_callback:
                 progress_callback(f"📁 發現 {len(video_files)} 個影片檔案。\n")
-
-            # 改進：獲取所有影片並檢查搜尋狀態
-            from datetime import datetime
 
             all_videos = self.db_manager.get_all_videos()
             codes_in_db = {v["code"]: v for v in all_videos}

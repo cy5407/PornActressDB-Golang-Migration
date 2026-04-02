@@ -57,8 +57,10 @@ class UnifiedCacheManager:
                 self.max_cache_size_mb = config.getint(
                     "cache", "max_size_mb", fallback=500
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"⚠️ 讀取 cache 設定失敗，改用預設值: {e}"
+                )
 
         logger.info(
             f"🔗 統一快取管理器已初始化 (TTL: {self.default_ttl_days} 天, 大小限制: {self.max_cache_size_mb} MB)"

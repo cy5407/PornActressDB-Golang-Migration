@@ -5,14 +5,24 @@
 
 import asyncio
 import logging
-import random
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from secrets import randbelow
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+
+def _secure_uniform(min_value: float, max_value: float) -> float:
+    """產生非安全用途的抖動值，避免 Bandit 對 random 的告警。"""
+    if max_value <= min_value:
+        return min_value
+
+    scale = 10_000
+    fraction = randbelow(scale + 1) / scale
+    return min_value + (max_value - min_value) * fraction
 
 
 @dataclass
@@ -108,7 +118,7 @@ class DomainLimiter:
             self.current_delay = max(self.current_delay * 0.9, self.config.min_interval)
 
         # 添加隨機化避免同步
-        jitter = random.uniform(0.8, 1.2)
+        jitter = _secure_uniform(0.8, 1.2)
         return self.current_delay * jitter
 
     def can_make_request(self) -> tuple[bool, float]:

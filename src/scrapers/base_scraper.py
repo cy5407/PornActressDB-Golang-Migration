@@ -4,13 +4,13 @@
 
 import asyncio
 import logging
-import random
 import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from secrets import randbelow
 from typing import Any
 
 from .cache_manager import CacheManager, get_global_cache_manager
@@ -18,6 +18,16 @@ from .encoding_utils import EncodingDetector
 from .rate_limiter import RateLimiter, get_global_rate_limiter
 
 logger = logging.getLogger(__name__)
+
+
+def _secure_uniform(min_value: float, max_value: float) -> float:
+    """產生非安全用途的均勻抖動值，避免 Bandit 對 random 的告警。"""
+    if max_value <= min_value:
+        return min_value
+
+    scale = 10_000
+    fraction = randbelow(scale + 1) / scale
+    return min_value + (max_value - min_value) * fraction
 
 
 class ErrorType(Enum):
@@ -114,7 +124,7 @@ class RetryManager:
         if self.config.jitter:
             # 添加±25%的隨機抖動
             jitter_range = delay * 0.25
-            delay += random.uniform(-jitter_range, jitter_range)
+            delay += _secure_uniform(-jitter_range, jitter_range)
 
         return max(delay, 0.1)  # 最小延遲0.1秒
 

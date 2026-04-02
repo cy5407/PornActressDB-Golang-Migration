@@ -34,7 +34,7 @@ import json
 import logging
 import os
 import platform  # 用於跨平台執行權限檢查
-import subprocess
+import subprocess  # nosec B404
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -105,6 +105,17 @@ class OperationLog:
 class GoBridgeError(Exception):
     """Go 橋接層錯誤"""
     pass
+
+
+def _run_subprocess(cmd: list[str], timeout: int) -> subprocess.CompletedProcess:
+    """以受控參數列表執行本機 CLI，不經 shell。"""
+    return subprocess.run(  # nosec B603
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=timeout,
+    )
 
 
 class GoBridge:
@@ -189,13 +200,7 @@ class GoBridge:
     def _check_availability(self) -> bool:
         """實際檢查 Go CLI 是否可用"""
         try:
-            result = subprocess.run(
-                [self.exe_path, "help"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
+            result = _run_subprocess([self.exe_path, "help"], timeout=5)
             available = result.returncode == 0
             if available:
                 logger.info("✅ Go CLI 可用")
@@ -236,13 +241,7 @@ class GoBridge:
         logger.debug(f"執行命令: {' '.join(cmd)}")
         
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=timeout,
-            )
+            result = _run_subprocess(cmd, timeout=timeout)
             
             if check and result.returncode != 0:
                 error_msg = result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
