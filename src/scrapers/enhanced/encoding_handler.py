@@ -174,12 +174,12 @@ class RateLimitedRequester:
         self._wait_if_needed()
 
         try:
-            session = requests.Session()
-            session.headers.update(headers)
+            with requests.Session() as session:
+                session.headers.update(headers)
 
-            logger.debug(f"請求 URL: {url}")
-            response = session.get(url, timeout=timeout)
-            response.raise_for_status()
+                logger.debug(f"請求 URL: {url}")
+                response = session.get(url, timeout=timeout)
+                response.raise_for_status()
 
             logger.info(
                 f"成功獲取 {url}: {response.status_code}, {len(response.content)} bytes"

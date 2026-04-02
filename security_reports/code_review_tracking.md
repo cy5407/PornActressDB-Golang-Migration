@@ -1,7 +1,7 @@
-# 專案程式碼巡檢持續追蹤報告
+﻿# 專案程式碼巡檢持續追蹤報告
 
-最後更新：2026-04-01 23:26 (Asia/Taipei)
-基準提交：`ad15933` `review: recover scraper worktree fixes`
+最後更新：2026-04-02 15:12 (Asia/Taipei)
+基準提交：`7c71346` `Add automated security scan reports`
 
 ## 本輪檢查範圍
 
@@ -9,12 +9,74 @@
   - `security_reports/manual_fix_progress_2026-03-31.md`
   - `security_reports/one_time_fix_schedule_2026-03-31.md`
   - `security_reports/security_fix_summary_2026-03-31.md`
+  - `security_reports/code_review_tracking.md`
 - 先比對最近提交：
-  - `de98fdc`、`8612d25`、`7651546`、`8148592`、`a35e965` 起的最近 20 筆 commit
+  - `7c71346`、`8e0cf0c`、`ad15933`、`709229c`、`de98fdc` 起的最近 20 筆 commit
 - 針對三類問題做增量巡檢：
   - 資安 / 安全性
   - 程式碼冗餘 / 一致性衝突
   - 明顯低效可優化寫法
+
+## 2026-04-02 本輪新增驗證
+
+### 已確認不再列為新問題
+
+1. `src/services/classifier_core.py:31`
+   - `IncrementalJSONDB` 初始化失敗時，目前已明確 fallback 到 `JSONDBManager` 並記錄 warning，不再列為待修。
+
+2. `src/scrapers/sources/javdb_scraper.py:64`
+   - `Retry-After` 已解析並透過 `ScrapingException.retry_after` 傳遞至 `RateLimiter`，不再列為待修。
+
+3. `src/services/go_bridge.py`
+   - 掃描與一般 CLI 呼叫仍統一經過 `_run_command()` timeout 控制；本輪未發現 timeout 回歸。
+
+## 2026-04-02 修補更新
+
+### 本輪已修正
+
+1. `src/services/classifier_core.py:17`
+   - 類型：一致性 / 可觀測性
+   - 修正：
+     - 新增 `_should_research_stale_record()` helper，統一判斷既有紀錄是否需要重新搜尋。
+     - `last_search_date` 無法解析時不再靜默跳過，會記錄 warning，並保守改為重新搜尋。
+   - 驗證：
+     - `tests/test_code_review_regressions.py::test_classifier_core_researches_record_when_last_search_date_is_invalid`
+
+2. `src/scrapers/enhanced/encoding_handler.py:159`
+   - 類型：效能 / 資源管理
+   - 修正：
+     - `RateLimitedRequester.get()` 改用 `with requests.Session() as session:`，確保每次請求後正確釋放 session。
+   - 驗證：
+     - `tests/test_code_review_regressions.py::test_rate_limited_requester_closes_session`
+
+### 本輪新增待追蹤
+
+1. `src/services/unified_cache.py:54`
+   - 類型：一致性 / 可觀測性
+   - 問題：
+     - 建構子載入 cache 設定時仍有 `except Exception: pass`。
+     - 這會降低設定錯誤的可觀測性，但目前只影響 TTL / 大小上限 fallback，尚未看到直接資料錯誤或安全風險。
+   - 建議：
+     - 後續可改為記錄 warning，保留 fallback 但不要完全靜默。
+
+### 本輪已解除待追蹤
+
+1. `src/services/classifier_core.py:443`
+   - 類型：一致性 / 可觀測性
+   - 狀態：已修正，改為 warning + 保守重搜策略。
+
+2. `src/scrapers/enhanced/encoding_handler.py:177`
+   - 類型：效能 / 資源管理
+   - 狀態：已修正，改用 context manager 管理 session 關閉。
+
+### 本輪觀察但暫不升級
+
+1. `src/scrapers/base_scraper.py:117`
+   - `src/scrapers/rate_limiter.py:111`
+   - `src/scrapers/enhanced/encoding_handler.py:164`
+   - `src/utils/retry_utils.py:56`
+   - 這些 `random.uniform()` 仍會被 Bandit 視為 B311 LOW。
+   - 目前用途都是 jitter / delay，偏向工具噪音與一致性議題，不列為本輪高價值修補目標。
 
 ## 本輪已驗證結論
 
@@ -124,6 +186,11 @@
   - 少量 `except ...` 吞錯或 `subprocess` 靜態提醒
   - 目前未見直接可利用風險，建議後續按模組逐步收斂，不必與本輪修正混在同一批大改。
 
+本輪更新：
+- 以上結論維持成立。
+- 本次重新掃描 `python -m bandit -q -r src`，結果仍為 10 個 LOW、0 個 Medium / High。
+- 本輪已切換到 `codex/automation-review` 並完成 2 個小範圍修補，尚未提交。
+
 ## 本輪驗證指令
 
 ```text
@@ -134,6 +201,25 @@ python -m pytest tests/test_code_review_regressions.py -q -p no:cacheprovider
 ```text
 python -m bandit -q -r src/services/safe_javdb_searcher.py
 結果：No issues identified.
+```
+
+```text
+python -m bandit -q -r src
+結果：10 個 LOW，0 個 Medium / High
+重點：
+- B311: jitter / delay 使用一般亂數（4 處）
+- B110: 吞錯（3 處）
+- B404/B603: go_bridge subprocess 靜態提醒（3 處，屬既知低風險）
+```
+
+```text
+python -m py_compile src/services/classifier_core.py src/scrapers/enhanced/encoding_handler.py tests/test_code_review_regressions.py
+結果：通過
+```
+
+```text
+python -m pytest tests/test_code_review_regressions.py -q -p no:cacheprovider
+結果：7 passed
 ```
 
 ```text
@@ -178,5 +264,7 @@ python -m pytest tests/test_safe_javdb_searcher.py tests/test_code_review_regres
 ## 後續建議
 
 1. 若下一輪持續收斂 LOW 告警，優先檢查 `base_scraper.py`、`rate_limiter.py`、`retry_utils.py` 的 jitter 是否要統一為 `secrets` 或明確註記非安全用途。
-2. 若要擴大效能盤點，可檢查 `WebSearcher` 其他批次流程是否還有重複 JSON / HTML 解析。
+2. 下一輪可優先處理 `src/services/unified_cache.py:54` 的靜默 fallback，補 warning 後可再從追蹤清單移除。
 3. `pytest` 在這台 Windows 環境建立 / 清理暫存目錄時會遇到 `PermissionError`，後續若要擴充測試建議優先沿用工作區內定向驗證腳本。
+
+

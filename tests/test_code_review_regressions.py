@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import threading
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -14,6 +15,7 @@ from src.services import classifier_core as classifier_core_module
 from src.services.web_searcher import WebSearcher
 from src.scrapers.async_scraper import AsyncWebScraper, ScrapingConfig
 from src.scrapers.base_scraper import BaseScraper, ErrorType, ScrapingException
+from src.scrapers.enhanced.encoding_handler import RateLimitedRequester
 from src.scrapers.cache_manager import get_global_cache_manager
 from src.scrapers.rate_limiter import RateLimiter
 
@@ -55,6 +57,63 @@ def test_classifier_core_falls_back_to_json_db(monkeypatch):
 
     assert isinstance(core.db_manager, DummyJSONDBManager)
     assert core.db_manager.data_dir == "data/json_db"
+
+
+def test_classifier_core_researches_record_when_last_search_date_is_invalid(caplog):
+    core = classifier_core_module.UnifiedClassifierCore.__new__(
+        classifier_core_module.UnifiedClassifierCore
+    )
+    searched_codes = []
+
+    class DummyScanner:
+        def scan_directory(self, _folder_path):
+            return [Path("ABCD-123.mp4")]
+
+    class DummyExtractor:
+        @staticmethod
+        def extract_code(_filename):
+            return "ABCD-123"
+
+    class DummyDB:
+        @staticmethod
+        def get_all_videos():
+            return [
+                {
+                    "code": "ABCD-123",
+                    "search_status": "searched_found",
+                    "last_search_date": "not-a-date",
+                    "actresses": ["Aoi"],
+                }
+            ]
+
+    class DummySearcher:
+        @staticmethod
+        def search_javdb_only(_code, _stop_event):
+            return None
+
+        @staticmethod
+        def batch_search(codes, _search_func, _stop_event, _progress_callback, result_callback=None):
+            searched_codes.extend(codes)
+            if result_callback:
+                for code in codes:
+                    result_callback(code, None, None)
+            return {code: None for code in codes}
+
+    core.file_scanner = DummyScanner()
+    core.code_extractor = DummyExtractor()
+    core.db_manager = DummyDB()
+    core.web_searcher = DummySearcher()
+    core._persist_code_result = lambda *args, **kwargs: None
+    core.logger = classifier_core_module.logger
+
+    stop_event = threading.Event()
+
+    with caplog.at_level("WARNING"):
+        result = core.process_and_search_javdb("unused", stop_event)
+
+    assert result["status"] == "success"
+    assert searched_codes == ["ABCD-123"]
+    assert "last_search_date 無法解析" in caplog.text
 
 
 def test_search_japanese_sites_only_delegates_to_unified_method():
@@ -167,3 +226,44 @@ def test_scrapers_share_global_cache_and_health_resources():
     assert async_scraper_a.cache_manager is get_global_cache_manager()
     assert base_scraper_a.cache_manager is base_scraper_b.cache_manager
     assert base_scraper_a.health_checker is base_scraper_b.health_checker
+
+
+def test_rate_limited_requester_closes_session(monkeypatch):
+    requester = RateLimitedRequester()
+    requester._wait_if_needed = lambda: None
+    events = {"closed": False, "requested": False}
+
+    class DummyResponse:
+        status_code = 200
+        content = b"ok"
+        headers = {}
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    class DummySession:
+        def __init__(self):
+            self.headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            events["closed"] = True
+            return False
+
+        def get(self, url, timeout):
+            events["requested"] = (url, timeout)
+            return DummyResponse()
+
+    monkeypatch.setattr(
+        "src.scrapers.enhanced.encoding_handler.requests.Session",
+        DummySession,
+    )
+
+    response = requester.get("https://example.com", {"User-Agent": "UA"}, timeout=9)
+
+    assert response.status_code == 200
+    assert events["requested"] == ("https://example.com", 9)
+    assert events["closed"] is True
