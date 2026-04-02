@@ -1,0 +1,350 @@
+{
+  "scan_metadata": {
+    "scan_date": "2026-04-02T12:33:39.997326+08:00",
+    "project": "PornActressDB-Golang-Migration",
+    "scan_scope": {
+      "python_files": 75,
+      "go_files": 16,
+      "total_files": 91
+    },
+    "tools_used": {
+      "bandit": "1.9.4",
+      "gosec": "NOT_INSTALLED - used manual review",
+      "semgrep": "NOT_INSTALLED",
+      "go_vet": "NOT_INSTALLED - Go not present in scan environment"
+    },
+    "notes": "gosec/go vet not available (Go not installed in scan env). Go files reviewed manually. semgrep not available."
+  },
+  "summary": {
+    "total_issues": 29,
+    "by_severity": {
+      "CRITICAL": 0,
+      "HIGH": 2,
+      "MEDIUM": 11,
+      "LOW": 16
+    },
+    "python_issues": 14,
+    "go_issues": 15
+  },
+  "issues": [
+    {
+      "issue_hash": "668ec2c28b1d",
+      "severity": "LOW",
+      "file": "run.py",
+      "line_number": 15,
+      "description": "Try, Except, Pass detected.",
+      "issue_type": "B110",
+      "cwe": "CWE-703",
+      "tool": "bandit",
+      "recommendation": "Review and fix B110 issue. See: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html"
+    },
+    {
+      "issue_hash": "4de3235b369a",
+      "severity": "LOW",
+      "file": "src/scrapers/base_scraper.py",
+      "line_number": 117,
+      "description": "Standard pseudo-random generators are not suitable for security/cryptographic purposes.",
+      "issue_type": "B311",
+      "cwe": "CWE-330",
+      "tool": "bandit",
+      "recommendation": "Review and fix B311 issue. See: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random"
+    },
+    {
+      "issue_hash": "3e62e020319d",
+      "severity": "LOW",
+      "file": "src/scrapers/enhanced/encoding_handler.py",
+      "line_number": 164,
+      "description": "Standard pseudo-random generators are not suitable for security/cryptographic purposes.",
+      "issue_type": "B311",
+      "cwe": "CWE-330",
+      "tool": "bandit",
+      "recommendation": "Review and fix B311 issue. See: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random"
+    },
+    {
+      "issue_hash": "f1ecb9c5682a",
+      "severity": "LOW",
+      "file": "src/scrapers/rate_limiter.py",
+      "line_number": 111,
+      "description": "Standard pseudo-random generators are not suitable for security/cryptographic purposes.",
+      "issue_type": "B311",
+      "cwe": "CWE-330",
+      "tool": "bandit",
+      "recommendation": "Review and fix B311 issue. See: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random"
+    },
+    {
+      "issue_hash": "dcabe50bd8fe",
+      "severity": "LOW",
+      "file": "src/scrapers/sources/javdb_scraper.py",
+      "line_number": 282,
+      "description": "Try, Except, Pass detected.",
+      "issue_type": "B110",
+      "cwe": "CWE-703",
+      "tool": "bandit",
+      "recommendation": "Review and fix B110 issue. See: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html"
+    },
+    {
+      "issue_hash": "080513dfbf67",
+      "severity": "LOW",
+      "file": "src/services/classifier_core.py",
+      "line_number": 452,
+      "description": "Try, Except, Pass detected.",
+      "issue_type": "B110",
+      "cwe": "CWE-703",
+      "tool": "bandit",
+      "recommendation": "Review and fix B110 issue. See: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html"
+    },
+    {
+      "issue_hash": "2a4efd35e254",
+      "severity": "LOW",
+      "file": "src/services/go_bridge.py",
+      "line_number": 37,
+      "description": "Consider possible security implications associated with the subprocess module.",
+      "issue_type": "B404",
+      "cwe": "CWE-78",
+      "tool": "bandit",
+      "recommendation": "Review and fix B404 issue. See: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess"
+    },
+    {
+      "issue_hash": "ad85333af0f9",
+      "severity": "LOW",
+      "file": "src/services/go_bridge.py",
+      "line_number": 192,
+      "description": "subprocess call - check for execution of untrusted input.",
+      "issue_type": "B603",
+      "cwe": "CWE-78",
+      "tool": "bandit",
+      "recommendation": "Review and fix B603 issue. See: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html"
+    },
+    {
+      "issue_hash": "3b3a30b40d8c",
+      "severity": "LOW",
+      "file": "src/services/go_bridge.py",
+      "line_number": 239,
+      "description": "subprocess call - check for execution of untrusted input.",
+      "issue_type": "B603",
+      "cwe": "CWE-78",
+      "tool": "bandit",
+      "recommendation": "Review and fix B603 issue. See: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html"
+    },
+    {
+      "issue_hash": "cc68c162121c",
+      "severity": "LOW",
+      "file": "src/services/unified_cache.py",
+      "line_number": 60,
+      "description": "Try, Except, Pass detected.",
+      "issue_type": "B110",
+      "cwe": "CWE-703",
+      "tool": "bandit",
+      "recommendation": "Review and fix B110 issue. See: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html"
+    },
+    {
+      "issue_hash": "3db79ee68583",
+      "severity": "LOW",
+      "file": "src/utils/retry_utils.py",
+      "line_number": 56,
+      "description": "Standard pseudo-random generators are not suitable for security/cryptographic purposes.",
+      "issue_type": "B311",
+      "cwe": "CWE-330",
+      "tool": "bandit",
+      "recommendation": "Review and fix B311 issue. See: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random"
+    },
+    {
+      "issue_hash": "bc35a1bed8c9",
+      "severity": "LOW",
+      "file": "tests/test_cache_manager_security.py",
+      "line_number": 7,
+      "description": "Consider possible security implications associated with pickle module.",
+      "issue_type": "B403",
+      "cwe": "CWE-502",
+      "tool": "bandit",
+      "recommendation": "Review and fix B403 issue. See: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle"
+    },
+    {
+      "issue_hash": "70ebb0e58472",
+      "severity": "LOW",
+      "file": "tools/integration/go_integration.py",
+      "line_number": 7,
+      "description": "Consider possible security implications associated with the subprocess module.",
+      "issue_type": "B404",
+      "cwe": "CWE-78",
+      "tool": "bandit",
+      "recommendation": "Review and fix B404 issue. See: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess"
+    },
+    {
+      "issue_hash": "20fce18ac0fb",
+      "severity": "LOW",
+      "file": "tools/integration/go_integration.py",
+      "line_number": 22,
+      "description": "subprocess call - check for execution of untrusted input.",
+      "issue_type": "B603",
+      "cwe": "CWE-78",
+      "tool": "bandit",
+      "recommendation": "Review and fix B603 issue. See: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html"
+    },
+    {
+      "issue_hash": "a005c3df722b",
+      "severity": "MEDIUM",
+      "file": "cmd/scanner/main.go",
+      "line_number": 109,
+      "description": "Directory path from user input is passed to filepath.WalkDir without proper validation. No verification that the resolved absolute path is within expected boundaries.",
+      "issue_type": "Insufficient Path Validation",
+      "cwe": "CWE-22",
+      "tool": "manual_go_review",
+      "recommendation": "Use filepath.Join and filepath.Rel to verify the resolved absolute path stays within the intended directory."
+    },
+    {
+      "issue_hash": "d74587ee7445",
+      "severity": "MEDIUM",
+      "file": "cmd/scanner/main.go",
+      "line_number": 246,
+      "description": "User-supplied JSON from batch file is unmarshalled directly without schema validation or size limits, potentially allowing large allocations.",
+      "issue_type": "Unsafe JSON Deserialization",
+      "cwe": "CWE-502",
+      "tool": "manual_go_review",
+      "recommendation": "Implement size limits on JSON input (use io.LimitReader), validate field types explicitly."
+    },
+    {
+      "issue_hash": "2890852b89c8",
+      "severity": "MEDIUM",
+      "file": "pkg/cache/cache.go",
+      "line_number": 79,
+      "description": "os.Rename operation is not atomic at application level. Between checking file existence and performing rename, another process could create the file.",
+      "issue_type": "TOCTOU Race Condition",
+      "cwe": "CWE-367",
+      "tool": "manual_go_review",
+      "recommendation": "Use atomic file operations; write to temp file, then use os.Rename which is atomic on most filesystems."
+    },
+    {
+      "issue_hash": "273bdc76b86b",
+      "severity": "MEDIUM",
+      "file": "pkg/database/jsondb.go",
+      "line_number": 110,
+      "description": "Large JSON database files are unmarshalled without size validation. This could cause memory exhaustion if attacker controls the data.json file.",
+      "issue_type": "Unsafe JSON Deserialization",
+      "cwe": "CWE-502",
+      "tool": "manual_go_review",
+      "recommendation": "Implement size limits on file reads. For large files, use json.Decoder with streaming approach."
+    },
+    {
+      "issue_hash": "2484cbf1b59e",
+      "severity": "LOW",
+      "file": "pkg/database/jsondb.go",
+      "line_number": 232,
+      "description": "Temporary files created with predictable pattern 'dataFile + .tmp'. If multiple processes write simultaneously, collisions could occur.",
+      "issue_type": "Predictable Temporary File",
+      "cwe": "CWE-377",
+      "tool": "manual_go_review",
+      "recommendation": "Use os.CreateTemp to generate cryptographically random temp filenames."
+    },
+    {
+      "issue_hash": "0f12b1b369d9",
+      "severity": "MEDIUM",
+      "file": "pkg/database/jsondb.go",
+      "line_number": 239,
+      "description": "Write to tmp file + os.Rename sequence has a potential race window where data loss could occur if process crashes between operations.",
+      "issue_type": "TOCTOU Race Condition",
+      "cwe": "CWE-367",
+      "tool": "manual_go_review",
+      "recommendation": "Implement file locking (fcntl/flock) around the entire write-rename sequence."
+    },
+    {
+      "issue_hash": "f096ffd01aac",
+      "severity": "MEDIUM",
+      "file": "pkg/database/journal.go",
+      "line_number": 29,
+      "description": "Journal entries are unmarshalled line-by-line without size validation. Malicious journal entries could cause memory exhaustion.",
+      "issue_type": "Unsafe JSON Deserialization",
+      "cwe": "CWE-502",
+      "tool": "manual_go_review",
+      "recommendation": "Add maximum line length validation before json.Unmarshal. Use bufio.Scanner.Buffer() to limit line sizes."
+    },
+    {
+      "issue_hash": "c4794f91be8e",
+      "severity": "HIGH",
+      "file": "pkg/mover/mover.go",
+      "line_number": 152,
+      "description": "Check if destination exists then perform operations. Between check and operation, destination could be created/modified by another process, causing overwrite of unintended file.",
+      "issue_type": "TOCTOU Race Condition - File Overwrite Risk",
+      "cwe": "CWE-367",
+      "tool": "manual_go_review",
+      "recommendation": "Use atomic file operations with O_EXCL flag or file locking. Avoid separate stat/rename calls."
+    },
+    {
+      "issue_hash": "f58e3986b77f",
+      "severity": "HIGH",
+      "file": "pkg/mover/mover.go",
+      "line_number": 272,
+      "description": "os.RemoveAll(src) is called after batch operations. If some files failed but result shows success, RemoveAll could delete files that were skipped or failed.",
+      "issue_type": "Unsafe Batch File Deletion - Data Loss Risk",
+      "cwe": "CWE-662",
+      "tool": "manual_go_review",
+      "recommendation": "Only delete source if ALL files successfully moved. Track which files actually moved to prevent deleting unprocessed files."
+    },
+    {
+      "issue_hash": "aaab95fe6b46",
+      "severity": "MEDIUM",
+      "file": "pkg/mover/mover.go",
+      "line_number": 195,
+      "description": "If copyFile succeeds but os.Remove(src) fails, file is duplicated but error is returned. Caller does not know source still exists, potentially causing data duplication.",
+      "issue_type": "Incomplete File Operation Recovery",
+      "cwe": "CWE-662",
+      "tool": "manual_go_review",
+      "recommendation": "Implement transaction-style rollback: if Remove fails, remove the copied dst and return error."
+    },
+    {
+      "issue_hash": "8a7e41e222bf",
+      "severity": "MEDIUM",
+      "file": "pkg/mover/mover.go",
+      "line_number": 238,
+      "description": "filepath.Walk traverses user-supplied path without validation. Symlinks in the source directory could lead to operations outside intended scope.",
+      "issue_type": "Path Traversal Risk",
+      "cwe": "CWE-22",
+      "tool": "manual_go_review",
+      "recommendation": "Before walking, resolve source path to absolute and verify it does not contain symlinks to parent directories."
+    },
+    {
+      "issue_hash": "a331bca847a4",
+      "severity": "MEDIUM",
+      "file": "pkg/mover/mover.go",
+      "line_number": 548,
+      "description": "Temporary file name uses time.Now().UnixNano() for uniqueness, but in high-concurrency scenarios two processes could generate identical timestamps.",
+      "issue_type": "Predictable Temporary File",
+      "cwe": "CWE-377",
+      "tool": "manual_go_review",
+      "recommendation": "Use os.CreateTemp instead of manual naming. It uses cryptographically secure randomness."
+    },
+    {
+      "issue_hash": "bb9a8b9ca6a3",
+      "severity": "MEDIUM",
+      "file": "pkg/safefile/safefile.go",
+      "line_number": 59,
+      "description": "root.Open(name) returns a file handle but the file is never closed in OpenRead function. Caller must close it, but if caller forgets, file descriptor leaks.",
+      "issue_type": "File Handle Resource Leak",
+      "cwe": "CWE-775",
+      "tool": "manual_go_review",
+      "recommendation": "Document that caller must close the returned file. Consider returning only data (bytes) rather than file handles."
+    },
+    {
+      "issue_hash": "57912a308cf8",
+      "severity": "MEDIUM",
+      "file": "pkg/studio/identifier.go",
+      "line_number": 148,
+      "description": "Studios.json is unmarshalled without size validation. Malicious JSON could cause memory exhaustion.",
+      "issue_type": "Unsafe JSON Deserialization",
+      "cwe": "CWE-502",
+      "tool": "manual_go_review",
+      "recommendation": "Add file size limits before reading. Use json.Decoder with streaming for large files."
+    },
+    {
+      "issue_hash": "1f4dfad8b3b7",
+      "severity": "LOW",
+      "file": "pkg/extractor/extractor.go",
+      "line_number": 97,
+      "description": "Regex patterns could match very long strings, potentially causing Regex Denial of Service in edge cases.",
+      "issue_type": "Potential ReDoS",
+      "cwe": "CWE-1333",
+      "tool": "manual_go_review",
+      "recommendation": "Add string length limits before regex matching. Test regexes with very long inputs."
+    }
+  ]
+}
