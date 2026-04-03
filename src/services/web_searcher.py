@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from models.config import ConfigManager
 from models.studio import StudioIdentifier
 from scrapers.sources.avwiki_scraper import AVWikiScraper  # noqa: E402
+from scrapers.sources.shiroutowiki_scraper import ShiroutoWikiScraper  # noqa: E402
 
 from .safe_javdb_searcher import SafeJAVDBSearcher  # noqa: E402
 from .safe_searcher import RequestConfig, SafeSearcher  # noqa: E402
@@ -92,6 +93,9 @@ class WebSearcher:
         self.thread_count = config.getint("search", "thread_count", fallback=5)
         self.batch_delay = config.getfloat("search", "batch_delay", fallback=2.0)
         self.timeout = config.getint("search", "request_timeout", fallback=20)
+        self.shiroutowiki_scraper = ShiroutoWikiScraper(
+            self.japanese_searcher, self.japanese_headers, self.timeout
+        )
         self._studio_code_mapping = self._load_studio_code_mapping()
 
         # 初始化片商識別器（用於標準化片商名稱）
@@ -113,10 +117,54 @@ class WebSearcher:
         logger.info("🛡️ 已啟用安全搜尋器功能")
         logger.info("🇯🇵 已啟用日文網站快速搜尋功能")
         logger.info("🎬 已啟用 JAVDB 安全搜尋功能")
+        logger.info("🧑 已啟用 shiroutowiki 獨立搜尋功能")
         if self.avwiki_concurrent_enabled:
             logger.info(
                 f"🚀 已啟用 AV-WIKI 批次併發搜尋 (併發數: {self.avwiki_max_concurrent})"
             )
+
+    def _build_code_candidates(self, code: str) -> list[str]:
+        """建立搜尋候選番號。
+
+        目前僅對英文-00xxx 的可疑 FANZA 形式加入去除雙 0 的 fallback，
+        避免直接改壞合法保留前導 0 的番號。
+        """
+        candidates = [code]
+        match = re.match(r"^([A-Z]{2,6})-00(\d{3})$", code.upper())
+        if match:
+            alias_code = f"{match.group(1)}-{match.group(2)}"
+            if alias_code not in candidates:
+                candidates.append(alias_code)
+        return candidates
+
+    @staticmethod
+    def _attach_alias_metadata(
+        result: dict | None, original_code: str, matched_code: str
+    ) -> dict | None:
+        """保留原始搜尋碼，並標記別名命中結果。"""
+        if not result:
+            return None
+
+        enriched = dict(result)
+        enriched["searched_code"] = original_code
+        if matched_code != original_code:
+            enriched["matched_code"] = matched_code
+            enriched["search_alias_used"] = True
+        return enriched
+
+    def _build_shiroutowiki_candidates(self, code: str) -> list[str]:
+        """建立 shiroutowiki 查詢候選。
+
+        先保留既有 00xxx alias fallback，再展開網站專用候選格式。
+        """
+        candidates: list[str] = []
+        for base_candidate in self._build_code_candidates(code):
+            for candidate in self.shiroutowiki_scraper.build_search_candidates(
+                base_candidate
+            ):
+                if candidate not in candidates:
+                    candidates.append(candidate)
+        return candidates
 
     def search_info(self, code: str, stop_event: threading.Event) -> dict | None:
         """多層級搜尋策略 - AV-WIKI -> JAVDB"""
@@ -126,57 +174,67 @@ class WebSearcher:
             return self.search_cache[code]
 
         try:
+            candidates = self._build_code_candidates(code)
+
             # 第一層：原有的 AV-WIKI 搜尋
-            logger.debug(f"🔍 第一層搜尋 - AV-WIKI: {code}")
-            result = self._search_av_wiki(code, stop_event)
-            if result and result.get("actresses"):
-                self.search_cache[code] = result
-                return result
+            for candidate in candidates:
+                logger.debug(f"🔍 第一層搜尋 - AV-WIKI: {candidate}")
+                result = self._search_av_wiki(candidate, stop_event)
+                if result and result.get("actresses"):
+                    result = self._attach_alias_metadata(result, code, candidate)
+                    self.search_cache[code] = result
+                    return result
 
             # 第二層：使用安全的 JAVDB 搜尋
             if not stop_event.is_set():
-                logger.debug(f"🔍 第三層搜尋 - JAVDB: {code}")
-                javdb_result = self.javdb_searcher.search_javdb(code)
-                if javdb_result and javdb_result.get("actresses"):
-                    # 🔧 標準化片商名稱
-                    raw_studio = javdb_result.get("studio")
-                    normalized_studio = self.studio_identifier.normalize_studio_name(
-                        raw_studio, code
-                    )
+                for candidate in candidates:
+                    logger.debug(f"🔍 第三層搜尋 - JAVDB: {candidate}")
+                    javdb_result = self.javdb_searcher.search_javdb(candidate)
+                    if javdb_result and javdb_result.get("actresses"):
+                        # 🔧 標準化片商名稱
+                        raw_studio = javdb_result.get("studio")
+                        normalized_studio = (
+                            self.studio_identifier.normalize_studio_name(
+                                raw_studio, candidate
+                            )
+                        )
 
-                    # 轉換為統一格式
-                    result = {
-                        "source": javdb_result["source"],
-                        "actresses": javdb_result["actresses"],
-                        "studio": normalized_studio,
-                        "studio_code": javdb_result.get("studio_code"),
-                        "release_date": javdb_result.get("release_date"),
-                        "title": javdb_result.get("title"),
-                        "duration": javdb_result.get("duration"),
-                        "director": javdb_result.get("director"),
-                        "series": javdb_result.get("series"),
-                        "rating": javdb_result.get("rating"),
-                        "categories": javdb_result.get("categories", []),
-                    }
-                    self.search_cache[code] = result
+                        # 轉換為統一格式
+                        result = {
+                            "source": javdb_result["source"],
+                            "actresses": javdb_result["actresses"],
+                            "studio": normalized_studio,
+                            "studio_code": javdb_result.get("studio_code"),
+                            "release_date": javdb_result.get("release_date"),
+                            "title": javdb_result.get("title"),
+                            "duration": javdb_result.get("duration"),
+                            "director": javdb_result.get("director"),
+                            "series": javdb_result.get("series"),
+                            "rating": javdb_result.get("rating"),
+                            "categories": javdb_result.get("categories", []),
+                        }
+                        result = self._attach_alias_metadata(result, code, candidate)
+                        self.search_cache[code] = result
 
-                    # 豐富的日誌輸出
-                    log_parts = [f"番號 {code} 透過 {result['source']} 找到:"]
-                    log_parts.append(f"女優: {', '.join(result['actresses'])}")
-                    log_parts.append(f"片商: {result.get('studio', '未知')}")
+                        # 豐富的日誌輸出
+                        log_parts = [f"番號 {code} 透過 {result['source']} 找到:"]
+                        log_parts.append(f"女優: {', '.join(result['actresses'])}")
+                        log_parts.append(f"片商: {result.get('studio', '未知')}")
 
-                    if result.get("rating"):
-                        log_parts.append(f"評分: {result['rating']}")
-                    if result.get("categories"):
-                        categories_str = ", ".join(
-                            result["categories"][:3]
-                        )  # 只顯示前3個類別
-                        if len(result["categories"]) > 3:
-                            categories_str += f" 等{len(result['categories'])}個類別"
-                        log_parts.append(f"類別: {categories_str}")
+                        if result.get("rating"):
+                            log_parts.append(f"評分: {result['rating']}")
+                        if result.get("categories"):
+                            categories_str = ", ".join(
+                                result["categories"][:3]
+                            )  # 只顯示前3個類別
+                            if len(result["categories"]) > 3:
+                                categories_str += (
+                                    f" 等{len(result['categories'])}個類別"
+                                )
+                            log_parts.append(f"類別: {categories_str}")
 
-                    logger.info(" | ".join(log_parts))
-                    return result
+                        logger.info(" | ".join(log_parts))
+                        return result
 
             logger.warning(f"番號 {code} 未在所有搜尋源中找到女優資訊。")
             return None
@@ -861,6 +919,38 @@ class WebSearcher:
             logger.error(f"JAVDB 搜尋 {code} 時發生錯誤: {e}", exc_info=True)
             return None
 
+    def search_shiroutowiki_only(
+        self, code: str, stop_event: threading.Event
+    ) -> dict | None:
+        """僅搜尋 shiroutowiki.work。"""
+        if stop_event.is_set():
+            return None
+
+        cache_key = f"shiroutowiki::{code}"
+        if cache_key in self.search_cache:
+            return self.search_cache[cache_key]
+
+        try:
+            candidates = self._build_shiroutowiki_candidates(code)
+            logger.debug(
+                f"🧑 shiroutowiki 搜尋 {code}，候選: {', '.join(candidates)}"
+            )
+
+            result = self.shiroutowiki_scraper.search_video(code, candidates)
+            if result and result.get("actresses"):
+                matched_code = result.get("matched_code", code)
+                result = self._attach_alias_metadata(result, code, matched_code)
+                self.search_cache[cache_key] = result
+                return result
+
+            logger.warning(f"番號 {code} 未在 shiroutowiki 中找到女優資訊。")
+            return None
+        except Exception as e:
+            logger.error(
+                f"shiroutowiki 搜尋番號 {code} 時發生錯誤: {e}", exc_info=True
+            )
+            return None
+
     def search_japanese_sites(
         self, code: str, stop_event: threading.Event
     ) -> dict | None:
@@ -871,12 +961,13 @@ class WebSearcher:
             return self.search_cache[code]
 
         try:
-            # AV-WIKI 搜尋
-            logger.debug(f"🇯🇵 AV-WIKI 搜尋: {code}")
-            result = self._search_av_wiki(code, stop_event)
-            if result and result.get("actresses"):
-                self.search_cache[code] = result
-                return result
+            for candidate in self._build_code_candidates(code):
+                logger.debug(f"🇯🇵 AV-WIKI 搜尋: {candidate}")
+                result = self._search_av_wiki(candidate, stop_event)
+                if result and result.get("actresses"):
+                    result = self._attach_alias_metadata(result, code, candidate)
+                    self.search_cache[code] = result
+                    return result
 
             logger.warning(f"番號 {code} 未在 AV-WIKI 中找到女優資訊。")
             return None
@@ -1074,6 +1165,53 @@ class WebSearcher:
             return results
 
         progress.set_phase(2, "整理 AV-WIKI 搜尋結果")
+
+        # 第二階段：僅對可疑的 00xxx 番號追加 AV-WIKI 別名 fallback
+        alias_map = {}
+        alias_codes = []
+        for code in failed_codes:
+            candidates = self._build_code_candidates(code)
+            if len(candidates) > 1:
+                alias_code = candidates[1]
+                alias_map[code] = alias_code
+                alias_codes.append(alias_code)
+
+        if alias_codes and not stop_event.is_set():
+            unique_alias_codes = list(dict.fromkeys(alias_codes))
+
+            if progress_callback:
+                progress_callback(f"\n{'=' * 60}\n")
+                progress_callback(
+                    f"🧪 第二階段：可疑番號別名 fallback ({len(unique_alias_codes)} 個候選)\n"
+                )
+                progress_callback(f"{'=' * 60}\n")
+
+            alias_results = self.batch_search_avwiki_concurrent(
+                unique_alias_codes, stop_event, phase1_callback
+            )
+
+            remaining_failed_codes = []
+            for code in failed_codes:
+                alias_code = alias_map.get(code)
+                alias_result = alias_results.get(alias_code) if alias_code else None
+                if alias_result and alias_result.get("actresses"):
+                    results[code] = {
+                        **self._attach_alias_metadata(alias_result, code, alias_code),
+                        "tried_sources": ["AV-WIKI", f"AV-WIKI alias:{alias_code}"],
+                        "final_source": "AV-WIKI",
+                    }
+                    if result_callback:
+                        result_callback(code, results[code], None)
+                    progress.update(
+                        code,
+                        is_success=True,
+                        source="AV-WIKI alias",
+                        increment=False,
+                    )
+                else:
+                    remaining_failed_codes.append(code)
+
+            failed_codes = remaining_failed_codes
 
         for code in failed_codes:
             if result_callback:

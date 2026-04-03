@@ -259,7 +259,7 @@ class UnifiedActressClassifierGUI:
         ).pack()
         ttk.Label(
             title_frame,
-            text="智慧搜尋版 - AV-WIKI 批次搜尋 + JAVDB 獨立搜尋",
+            text="智慧搜尋版 - AV-WIKI 批次搜尋 + JAVDB / shiroutowiki 獨立搜尋",
             font=("Arial", 10),
         ).pack()
 
@@ -293,7 +293,7 @@ class UnifiedActressClassifierGUI:
         # 第一排按鈕 - 分離的搜尋按鈕
         row1_frame = ttk.Frame(button_frame)
         row1_frame.pack(fill="x", pady=(0, 5))
-        row1_frame.columnconfigure((0, 1, 2), weight=1)
+        row1_frame.columnconfigure((0, 1, 2, 3), weight=1)
 
         self.search_japanese_btn = ttk.Button(
             row1_frame, text="🇯🇵 日文網站搜尋", command=self.start_japanese_search
@@ -307,10 +307,19 @@ class UnifiedActressClassifierGUI:
         )
         self.search_javdb_btn.grid(row=0, column=1, padx=2, sticky="ew", ipady=5)
 
+        self.search_shiroutowiki_btn = ttk.Button(
+            row1_frame,
+            text="🧑 shiroutowiki 搜尋",
+            command=self.start_shiroutowiki_search,
+        )
+        self.search_shiroutowiki_btn.grid(
+            row=0, column=2, padx=2, sticky="ew", ipady=5
+        )
+
         self.settings_btn = ttk.Button(
             row1_frame, text="⚙️ 偏好設定", command=self.show_preferences
         )
-        self.settings_btn.grid(row=0, column=2, padx=(2, 0), sticky="ew", ipady=5)
+        self.settings_btn.grid(row=0, column=3, padx=(2, 0), sticky="ew", ipady=5)
 
         # 第二排按鈕 - 包含片商分類按鈕
         row2_frame = ttk.Frame(button_frame)
@@ -618,6 +627,7 @@ class UnifiedActressClassifierGUI:
             self.browse_btn,
             self.search_japanese_btn,
             self.search_javdb_btn,
+            self.search_shiroutowiki_btn,
             self.interactive_move_btn,
             self.standard_move_btn,
             self.smart_search_move_btn,
@@ -713,6 +723,23 @@ class UnifiedActressClassifierGUI:
             target=self._run_task, args=(self._javdb_search_worker, path), daemon=True
         ).start()
 
+    def start_shiroutowiki_search(self):
+        """開始 shiroutowiki 搜尋"""
+        path = self.selected_path.get()
+        if not Path(path).is_dir():
+            messagebox.showerror("錯誤", "請選擇一個有效的資料夾！")
+            return
+        self.clear_results()
+        self.update_progress(f"目標資料夾: {path}\n")
+        self.update_progress("搜尋模式: 🧑 shiroutowiki.work\n")
+        self.update_progress(f"{'=' * 60}\n")
+        self.stop_event.clear()
+        threading.Thread(
+            target=self._run_task,
+            args=(self._shiroutowiki_search_worker, path),
+            daemon=True,
+        ).start()
+
     def _japanese_search_worker(self, path):
         """日文網站搜尋工作者（AV-WIKI 批次搜尋 + 結果預覽）"""
         self.status_var.set("執行中：日文網站搜尋...")
@@ -750,6 +777,25 @@ class UnifiedActressClassifierGUI:
             elif result["status"] == "success":
                 self._append_search_summary("🎉 JAVDB 搜尋任務完成！", result)
                 self.status_var.set("就緒")
+            else:
+                self._show_result_error(result)
+
+    def _shiroutowiki_search_worker(self, path):
+        """shiroutowiki 搜尋工作者"""
+        self.status_var.set("執行中：shiroutowiki 搜尋...")
+        result = self.core.process_and_search_shiroutowiki(
+            path, self.stop_event, self.update_progress
+        )
+        if self.is_running:
+            if self.stop_event.is_set():
+                self.update_progress("\n🛑 任務已由使用者中止。\n")
+                self.status_var.set("任務已中止")
+            elif result.get("status") == "success":
+                self._append_search_summary("🎉 shiroutowiki 搜尋任務完成！", result)
+                self.status_var.set("就緒")
+                self.last_search_results = result.get("search_results", {})
+                if self.show_results_var.get() and self.last_search_results:
+                    self.root.after(100, self._show_search_results_dialog)
             else:
                 self._show_result_error(result)
 

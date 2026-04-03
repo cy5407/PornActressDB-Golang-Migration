@@ -633,6 +633,153 @@ class UnifiedClassifierCore:
             self.logger.error(f"JAVDB 搜尋過程中發生錯誤: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
+    def process_and_search_shiroutowiki(
+        self, folder_path: str, stop_event: threading.Event, progress_callback=None
+    ):
+        """僅使用 shiroutowiki.work 搜尋女優資訊。"""
+        try:
+            if progress_callback:
+                progress_callback("🧑 開始掃描資料夾 (shiroutowiki 搜尋模式)...\n")
+
+            video_files = self.file_scanner.scan_directory(folder_path)
+            if not video_files:
+                if progress_callback:
+                    progress_callback("🤷 未發現任何影片檔案。\n")
+                return {"status": "success", "message": "未發現影片檔案"}
+
+            if progress_callback:
+                progress_callback(f"📁 發現 {len(video_files)} 個影片檔案。\n")
+
+            all_videos = self.db_manager.get_all_videos()
+            codes_in_db = {v["code"] for v in all_videos}
+            zero_actress_codes = {
+                video["code"]
+                for video in all_videos
+                if not video.get("actresses")
+            }
+
+            new_code_file_map = {}
+            zero_actress_file_map = {}
+
+            for file_path in video_files:
+                code = self.code_extractor.extract_code(file_path.name)
+                if not code:
+                    continue
+
+                if code not in codes_in_db:
+                    new_code_file_map.setdefault(code, []).append(file_path)
+                elif code in zero_actress_codes:
+                    zero_actress_file_map.setdefault(code, []).append(file_path)
+
+            if progress_callback:
+                progress_callback(
+                    f"✅ 資料庫中已存在 {len(codes_in_db)} 個影片的番號記錄。\n"
+                )
+                if zero_actress_file_map:
+                    progress_callback(
+                        f"⚠️ 發現 {len(zero_actress_file_map)} 個零女優番號，將進行重新搜尋。\n"
+                    )
+                progress_callback(
+                    f"🎯 需要透過 shiroutowiki 搜尋 {len(new_code_file_map)} 個新番號。\n\n"
+                )
+
+            all_codes_to_search = dict(new_code_file_map)
+            for code, files in zero_actress_file_map.items():
+                all_codes_to_search.setdefault(code, []).extend(files)
+
+            if not all_codes_to_search:
+                if progress_callback:
+                    progress_callback("🎉 所有影片都已有女優資料，無需重新搜尋。\n")
+                return {"status": "success", "message": "所有番號都已存在於資料庫中"}
+
+            success_count = 0
+            failed_codes = []
+            processed_codes = set()
+            source_stats: dict[str, int] = {}
+
+            def on_shiroutowiki_result(
+                code: str, result: dict | None, _error: Exception | None
+            ):
+                nonlocal success_count
+                processed_codes.add(code)
+
+                actresses = result.get("actresses", []) if result else []
+                source_name = (
+                    result.get("source")
+                    if result and result.get("source")
+                    else "shiroutowiki"
+                )
+
+                if actresses:
+                    success_count += 1
+                    source_stats[source_name] = source_stats.get(source_name, 0) + 1
+                    self._persist_code_result(
+                        code=code,
+                        file_paths=all_codes_to_search.get(code, []),
+                        result=result,
+                        fallback_method="shiroutowiki",
+                        progress_callback=progress_callback,
+                    )
+                else:
+                    failed_codes.append(code)
+                    self._persist_code_result(
+                        code=code,
+                        file_paths=all_codes_to_search.get(code, []),
+                        result=None,
+                        fallback_method="shiroutowiki",
+                        progress_callback=progress_callback,
+                    )
+
+            if progress_callback:
+                progress_callback(
+                    "🔎 開始 shiroutowiki 搜尋（搜尋頁為主、作品頁驗證）...\n\n"
+                )
+
+            search_results = self.web_searcher.batch_search(
+                list(all_codes_to_search.keys()),
+                self.web_searcher.search_shiroutowiki_only,
+                stop_event,
+                progress_callback,
+                result_callback=on_shiroutowiki_result,
+            )
+
+            for code, result in search_results.items():
+                if code in processed_codes:
+                    continue
+                on_shiroutowiki_result(code, result, None)
+
+            if progress_callback:
+                progress_callback("\n" + "=" * 50 + "\n")
+                progress_callback("📊 shiroutowiki 搜尋結果摘要\n")
+                progress_callback("=" * 50 + "\n")
+                progress_callback(
+                    f"✅ 成功: {success_count}/{len(all_codes_to_search)}\n"
+                )
+                progress_callback(
+                    f"❌ 失敗: {len(failed_codes)}/{len(all_codes_to_search)}\n"
+                )
+                if failed_codes and len(failed_codes) <= 10:
+                    progress_callback(f"\n⚠️ 未找到的番號: {', '.join(failed_codes)}\n")
+                elif failed_codes:
+                    progress_callback(
+                        f"\n⚠️ 未找到的番號: {', '.join(failed_codes[:10])}... 等 {len(failed_codes)} 個\n"
+                    )
+
+            return {
+                "status": "success",
+                "total_files": len(video_files),
+                "new_codes": len(new_code_file_map),
+                "zero_actress_codes": len(zero_actress_file_map),
+                "success": success_count,
+                "failed": len(failed_codes),
+                "failed_codes": failed_codes,
+                "source_stats": source_stats,
+                "search_results": search_results,
+            }
+        except Exception as e:
+            self.logger.error(f"shiroutowiki 搜尋過程中發生錯誤: {e}", exc_info=True)
+            return {"status": "error", "message": str(e)}
+
     def process_and_search_cascade(
         self,
         folder_path: str,
