@@ -10,6 +10,8 @@ func TestExtractCode(t *testing.T) {
 		expected string
 	}{
 		{"STARS-707.mp4", "STARS-707"},
+		{"ssis-020-4k.mp4", "SSIS-020"},
+		{"ipx_123.mp4", "IPX-123"},
 		{"STARS707.mp4", "STARS-707"},
 		{"SSIS-999[H265].mp4", "SSIS-999"},
 		{"IPX-123 (1080p).mp4", "IPX-123"},

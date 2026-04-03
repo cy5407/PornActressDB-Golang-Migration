@@ -729,10 +729,10 @@ class UnifiedActressClassifierGUI:
                 self.status_var.set("就緒")
 
                 # 儲存搜尋結果供預覽使用
-                self.last_search_results = result
+                self.last_search_results = result.get("search_results", {})
 
                 # 顯示結果預覽（如果啟用）
-                if self.show_results_var.get():
+                if self.show_results_var.get() and self.last_search_results:
                     self.root.after(100, self._show_search_results_dialog)
             else:
                 self._show_result_error(result)

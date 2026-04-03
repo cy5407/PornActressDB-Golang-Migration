@@ -103,7 +103,7 @@ func (e *CodeExtractor) ExtractCode(filename string) string {
 	}
 
 	// Clean filename
-	cleaned := e.cleanFilename(baseName)
+	cleaned := strings.ToUpper(e.cleanFilename(baseName))
 
 	// Try each pattern
 	for _, pattern := range e.codePatterns {

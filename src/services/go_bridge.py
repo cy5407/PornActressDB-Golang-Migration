@@ -35,6 +35,7 @@ import logging
 import os
 import platform  # 用於跨平台執行權限檢查
 import subprocess  # nosec B404
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -158,6 +159,8 @@ class GoBridge:
         # 3. PATH 環境變數
         
         possible_paths = [
+            # PyInstaller 打包後的解壓目錄 (sys._MEIPASS)
+            Path(getattr(sys, "_MEIPASS", "")) / "classifier.exe",
             # 專案根目錄 (相對於此檔案)
             Path(__file__).parent.parent.parent / "classifier.exe",
             # 當前工作目錄

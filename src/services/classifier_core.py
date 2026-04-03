@@ -806,6 +806,7 @@ class UnifiedClassifierCore:
                 "failed": len(failed_codes),
                 "failed_codes": failed_codes,
                 "source_stats": source_stats,
+                "search_results": search_results,
             }
         except Exception as e:
             self.logger.error(f"AV-WIKI 批次搜尋過程中發生錯誤: {e}", exc_info=True)
