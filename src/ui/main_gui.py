@@ -207,7 +207,7 @@ class UnifiedActressClassifierGUI:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("女優分類系統 - v5.2 (級聯搜尋版)")
+        self.root.title("女優分類系統 - v5.2 (智慧搜尋版)")
         self.root.geometry("900x750")
         self.is_running = True
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -259,7 +259,7 @@ class UnifiedActressClassifierGUI:
         ).pack()
         ttk.Label(
             title_frame,
-            text="級聯搜尋版 - 支援 AV-WIKI → JAVDB 自動備援",
+            text="智慧搜尋版 - AV-WIKI 批次搜尋 + JAVDB 獨立搜尋",
             font=("Arial", 10),
         ).pack()
 
@@ -278,14 +278,6 @@ class UnifiedActressClassifierGUI:
         # 搜尋選項區域（新增）
         options_frame = ttk.LabelFrame(main_frame, text="🔧 搜尋選項", padding="5")
         options_frame.pack(fill="x", pady=5)
-
-        self.cascade_var = tk.BooleanVar(value=True)
-        cascade_check = ttk.Checkbutton(
-            options_frame,
-            text="🔄 啟用級聯搜尋 (找不到時自動嘗試其他來源)",
-            variable=self.cascade_var,
-        )
-        cascade_check.pack(side="left", padx=5)
 
         self.show_results_var = tk.BooleanVar(value=True)
         results_check = ttk.Checkbutton(
@@ -722,22 +714,11 @@ class UnifiedActressClassifierGUI:
         ).start()
 
     def _japanese_search_worker(self, path):
-        """日文網站搜尋工作者（支援級聯搜尋和結果預覽）"""
+        """日文網站搜尋工作者（AV-WIKI + 結果預覽）"""
         self.status_var.set("執行中：日文網站搜尋...")
-
-        # 檢查是否啟用級聯搜尋
-        use_cascade = self.cascade_var.get()
-
-        if use_cascade:
-            # 使用級聯搜尋
-            result = self.core.process_and_search_cascade(
-                path, self.stop_event, self.update_progress, enable_cascade=True
-            )
-        else:
-            # 使用原有的日文網站搜尋
-            result = self.core.process_and_search_japanese_sites(
-                path, self.stop_event, self.update_progress
-            )
+        result = self.core.process_and_search_japanese_sites(
+            path, self.stop_event, self.update_progress
+        )
 
         if self.is_running:
             if self.stop_event.is_set():
@@ -871,21 +852,12 @@ class UnifiedActressClassifierGUI:
             messagebox.showerror("錯誤", "請選擇一個有效的資料夾！")
             return
 
-        # 詢問搜尋方式
-        use_full_search = messagebox.askyesno(
-            "選擇搜尋方式",
-            "🔍 智慧搜尋並分類\n\n"
-            "系統會自動搜尋無資料的番號，然後進行智慧分類。\n\n"
-            "請選擇搜尋方式：\n\n"
-            "• 是 → 使用完整搜尋（AV-WIKI → JAVDB）\n"
-            "• 否 → 僅使用 AV-WIKI 搜尋\n\n"
-            "建議：如果 AV-WIKI 找不到，選擇完整搜尋",
-        )
+        use_full_search = False
 
         if not messagebox.askyesno(
             "確認智慧搜尋並分類",
             f"確定要對 '{path}' 執行智慧搜尋並分類嗎？\n\n"
-            f"🔍 搜尋方式: {'完整搜尋（含 JAVDB）' if use_full_search else '日文網站搜尋'}\n\n"
+            f"🔍 搜尋方式: AV-WIKI 搜尋（JAVDB 請改用獨立按鈕）\n\n"
             f"流程：\n"
             f"1. 掃描影片檔案\n"
             f"2. 搜尋無資料番號\n"

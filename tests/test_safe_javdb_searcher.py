@@ -35,9 +35,14 @@ class _ClosableSession:
         self.closed = True
 
 
+def _build_searcher(tmp_path, monkeypatch):
+    monkeypatch.setattr(SafeJAVDBSearcher, "_warmup", lambda self: None)
+    return SafeJAVDBSearcher(cache_dir=str(tmp_path))
+
+
 def test_403_retry_wait_over_limit_should_give_up_without_long_sleep(tmp_path, monkeypatch):
     """403 等待超過上限時應直接放棄，不進入長時間等待"""
-    searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path))
+    searcher = _build_searcher(tmp_path, monkeypatch)
     searcher.min_delay = 0.0
     searcher.max_delay = 0.0
     searcher.max_retry_wait_seconds = 60.0
@@ -84,16 +89,29 @@ def test_403_retry_can_reenter_without_deadlock(tmp_path, monkeypatch):
 
     assert response is not None
     assert response.status_code == 200
+    assert searcher.consecutive_errors == 0
     assert searcher.request_count == 2
-    assert sleep_calls == [0.0, 120.0, 2.0]
+    assert sleep_calls == [0.0, 30.0, 2.0]
 
 
-def test_create_session_closes_previous_client(tmp_path):
+def test_create_session_closes_previous_client(tmp_path, monkeypatch):
     """重建 session 前應先關閉舊 client，避免長時間累積未關閉連線。"""
-    searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path))
+    searcher = _build_searcher(tmp_path, monkeypatch)
     previous_session = _ClosableSession()
     searcher.session = previous_session
 
     searcher.create_session()
 
     assert previous_session.closed is True
+
+
+def test_get_stats_includes_session_state(tmp_path, monkeypatch):
+    """統計資訊應包含 session 類型與連續錯誤次數。"""
+    searcher = _build_searcher(tmp_path, monkeypatch)
+    searcher.consecutive_errors = 3
+    searcher._session_type = "httpx"
+
+    stats = searcher.get_stats()
+
+    assert stats["consecutive_errors"] == 3
+    assert stats["session_type"] == "httpx"

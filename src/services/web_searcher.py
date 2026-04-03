@@ -119,66 +119,20 @@ class WebSearcher:
             )
 
     def search_info(self, code: str, stop_event: threading.Event) -> dict | None:
-        """多層級搜尋策略 - AV-WIKI -> JAVDB"""
+        """統一搜尋入口，目前僅使用 AV-WIKI。"""
         if stop_event.is_set():
             return None
         if code in self.search_cache:
             return self.search_cache[code]
 
         try:
-            # 第一層：原有的 AV-WIKI 搜尋
-            logger.debug(f"🔍 第一層搜尋 - AV-WIKI: {code}")
+            logger.debug(f"🔍 統一搜尋入口 - AV-WIKI: {code}")
             result = self._search_av_wiki(code, stop_event)
             if result and result.get("actresses"):
                 self.search_cache[code] = result
                 return result
 
-            # 第二層：使用安全的 JAVDB 搜尋
-            if not stop_event.is_set():
-                logger.debug(f"🔍 第三層搜尋 - JAVDB: {code}")
-                javdb_result = self.javdb_searcher.search_javdb(code)
-                if javdb_result and javdb_result.get("actresses"):
-                    # 🔧 標準化片商名稱
-                    raw_studio = javdb_result.get("studio")
-                    normalized_studio = self.studio_identifier.normalize_studio_name(
-                        raw_studio, code
-                    )
-
-                    # 轉換為統一格式
-                    result = {
-                        "source": javdb_result["source"],
-                        "actresses": javdb_result["actresses"],
-                        "studio": normalized_studio,
-                        "studio_code": javdb_result.get("studio_code"),
-                        "release_date": javdb_result.get("release_date"),
-                        "title": javdb_result.get("title"),
-                        "duration": javdb_result.get("duration"),
-                        "director": javdb_result.get("director"),
-                        "series": javdb_result.get("series"),
-                        "rating": javdb_result.get("rating"),
-                        "categories": javdb_result.get("categories", []),
-                    }
-                    self.search_cache[code] = result
-
-                    # 豐富的日誌輸出
-                    log_parts = [f"番號 {code} 透過 {result['source']} 找到:"]
-                    log_parts.append(f"女優: {', '.join(result['actresses'])}")
-                    log_parts.append(f"片商: {result.get('studio', '未知')}")
-
-                    if result.get("rating"):
-                        log_parts.append(f"評分: {result['rating']}")
-                    if result.get("categories"):
-                        categories_str = ", ".join(
-                            result["categories"][:3]
-                        )  # 只顯示前3個類別
-                        if len(result["categories"]) > 3:
-                            categories_str += f" 等{len(result['categories'])}個類別"
-                        log_parts.append(f"類別: {categories_str}")
-
-                    logger.info(" | ".join(log_parts))
-                    return result
-
-            logger.warning(f"番號 {code} 未在所有搜尋源中找到女優資訊。")
+            logger.warning(f"番號 {code} 未在 AV-WIKI 中找到女優資訊。")
             return None
         except Exception as e:
             logger.error(f"搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
@@ -989,73 +943,49 @@ class WebSearcher:
                 progress_callback(f"❌ AV-WIKI 批次搜尋失敗: {e}\n")
             return cached_results
 
-    # ============================================================
-    # 級聯搜尋功能（新增）
-    # ============================================================
-
     def batch_cascade_search(
         self,
         codes: list[str],
         stop_event: threading.Event,
         progress_callback=None,
-        enable_javdb: bool = True,
+        enable_javdb: bool = False,
         javdb_delay: float = 0.0,
         result_callback=None,
     ) -> dict[str, dict]:
         """
-        批次級聯搜尋
+        舊級聯搜尋 API 的相容包裝。
 
-        策略：
-        1. 先用 AV-WIKI 批次併發搜尋所有番號
-        2. 收集失敗的番號
-        3. 對失敗番號逐一嘗試 JAVDB（可選）
+        目前自動批次搜尋僅使用 AV-WIKI；JAVDB 保留為獨立手動搜尋功能。
 
         Args:
             codes: 番號列表
             stop_event: 停止事件
             progress_callback: 進度回調函式
-            enable_javdb: 是否啟用 JAVDB 作為最後的備援來源
+            enable_javdb: 已停用，保留相容簽章
             javdb_delay: JAVDB 搜尋延遲（秒）
 
         Returns:
-            Dict[番號, 搜尋結果（含 tried_sources 欄位）]
+            Dict[番號, 搜尋結果（含 tried_sources 欄位）
         """
-        from utils.progress_tracker import SearchProgressInfo
-
         if not codes:
             return {}
 
-        total_codes = len(codes)
-        results = {}
-
-        # 初始化進度追蹤
-        progress = SearchProgressInfo(total=total_codes)
-
-        # 第一階段：AV-WIKI 批次併發搜尋
         if progress_callback:
             progress_callback(f"\n{'=' * 60}\n")
-            progress_callback(
-                f"📡 第一階段：AV-WIKI 批次併發搜尋 ({total_codes} 個番號)\n"
-            )
+            progress_callback(f"📡 AV-WIKI 批次搜尋 ({len(codes)} 個番號)\n")
             progress_callback(f"{'=' * 60}\n")
+            if enable_javdb:
+                progress_callback("ℹ️ 自動 JAVDB 備援已停用；請改用獨立 JAVDB 搜尋。\n")
 
-        progress.set_phase(1, "AV-WIKI 批次搜尋", 3 if enable_javdb else 2)
-
-        def phase1_callback(msg):
-            if progress_callback:
-                progress_callback(msg)
-
-        avwiki_results = self.batch_search_avwiki_concurrent(
-            codes, stop_event, phase1_callback
+        raw_results = self.batch_search_avwiki_concurrent(
+            codes, stop_event, progress_callback
         )
-
-        # 處理 AV-WIKI 結果
-        failed_codes = []
+        results = {}
         for code in codes:
             if stop_event.is_set():
                 break
 
-            result = avwiki_results.get(code)
+            result = raw_results.get(code)
             if result and result.get("actresses"):
                 results[code] = {
                     **result,
@@ -1064,82 +994,15 @@ class WebSearcher:
                 }
                 if result_callback:
                     result_callback(code, results[code], None)
-                progress.update(code, is_success=True, source="AV-WIKI")
             else:
-                failed_codes.append(code)
                 results[code] = {
                     "actresses": [],
                     "source": None,
                     "tried_sources": ["AV-WIKI"],
                     "final_source": None,
                 }
-
-        if stop_event.is_set():
-            return results
-
-        if stop_event.is_set():
-            return results
-
-        # 第二階段：JAVDB 逐筆搜尋失敗的番號
-        if failed_codes and enable_javdb:
-            if progress_callback:
-                progress_callback(f"\n{'=' * 60}\n")
-                progress_callback(
-                    f"📊 第三階段：JAVDB 備援搜尋 ({len(failed_codes)} 個番號)\n"
-                )
-                progress_callback(
-                    "⚠️ 注意：JAVDB 有速率限制，已啟用內建安全延遲（約 3-7 秒/次）\n"
-                )
-                progress_callback(f"{'=' * 60}\n")
-
-            progress.set_phase(3, "JAVDB 備援搜尋")
-
-            for i, code in enumerate(failed_codes):
-                if stop_event.is_set():
-                    break
-
-                # 更新進度
-                progress.current = len(codes) - len(failed_codes) + i + 1
-                progress.current_code = code
-                progress.current_source = "JAVDB"
-
-                if progress_callback:
-                    progress_callback(progress.format_progress() + "\n")
-
-                # 搜尋 JAVDB
-                result = self.search_javdb_only(code, stop_event)
-
-                if result and result.get("actresses"):
-                    results[code] = {
-                        **result,
-                        "tried_sources": results[code].get("tried_sources", [])
-                        + ["JAVDB"],
-                        "final_source": "JAVDB",
-                    }
-                    if result_callback:
-                        result_callback(code, results[code], None)
-                    progress.update(
-                        code, is_success=True, source="JAVDB", increment=False
-                    )
-                else:
-                    results[code]["tried_sources"].append("JAVDB")
-                    if result_callback:
-                        result_callback(code, results[code], None)
-                    progress.update(code, is_success=False, increment=False)
-
-                # 額外延遲（選用）：SafeJAVDBSearcher 已內建延遲，此處僅在明確指定時再加
-                if javdb_delay > 0 and i < len(failed_codes) - 1:
-                    time.sleep(javdb_delay)
-        else:
-            # 標記剩餘失敗
-            for code in failed_codes:
                 if result_callback:
                     result_callback(code, results[code], None)
-                progress.update(code, is_success=False, increment=False)
-
-        # 輸出摘要
-        if progress_callback:
-            progress_callback(f"\n{progress.format_summary()}\n")
 
         return results
 
@@ -1157,7 +1020,7 @@ class WebSearcher:
         Returns:
             搜尋結果（含 tried_sources 欄位）
         """
-        sources = sources or ["avwiki", "javdb"]
+        sources = sources or ["avwiki"]
         tried = []
 
         # 檢查快取
