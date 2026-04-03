@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"actress-classifier/pkg/safefile"
@@ -24,6 +25,28 @@ func NewCacheManager(cacheDir string) *CacheManager {
 		cacheDir:  cacheDir,
 		indexPath: filepath.Join(cacheDir, "cache_index.json"),
 	}
+}
+
+// validateCachePath 驗證檔案路徑是否在快取目錄範圍內，防止路徑穿越攻擊
+func (cm *CacheManager) validateCachePath(filePath string) bool {
+	absCache, err := filepath.Abs(cm.cacheDir) // 取得快取目錄絕對路徑
+	if err != nil {
+		return false
+	}
+	absFile, err := filepath.Abs(filePath) // 取得檔案絕對路徑
+	if err != nil {
+		return false
+	}
+	// 確認檔案路徑以快取目錄為前綴
+	return strings.HasPrefix(absFile, absCache+string(filepath.Separator)) || absFile == absCache
+}
+
+// safeRemoveCacheFile 安全刪除快取檔案，先驗證路徑是否在快取目錄內
+func (cm *CacheManager) safeRemoveCacheFile(filePath string) error {
+	if !cm.validateCachePath(filePath) {
+		return fmt.Errorf("refusing to delete file outside cache directory: %s", filePath)
+	}
+	return os.Remove(filePath)
 }
 
 // New 建立快取管理器（向後相容別名，建議改用 NewCacheManager）
@@ -184,9 +207,9 @@ func (cm *CacheManager) CleanupExpired(config PruneConfig) (*CleanupResult, erro
 	// 執行刪除
 	for _, e := range expired {
 		if !config.DryRun {
-			// 刪除檔案
+			// 刪除檔案（驗證路徑在快取目錄內）
 			if e.entry.FilePath != "" {
-				if err := os.Remove(e.entry.FilePath); err != nil && !os.IsNotExist(err) {
+				if err := cm.safeRemoveCacheFile(e.entry.FilePath); err != nil && !os.IsNotExist(err) {
 					result.Errors++
 					continue
 				}
@@ -272,9 +295,9 @@ func (cm *CacheManager) CleanupBySize(config PruneConfig) (*CleanupResult, error
 		}
 
 		if !config.DryRun {
-			// 刪除檔案
+			// 刪除檔案（驗證路徑在快取目錄內）
 			if e.entry.FilePath != "" {
-				if err := os.Remove(e.entry.FilePath); err != nil && !os.IsNotExist(err) {
+				if err := cm.safeRemoveCacheFile(e.entry.FilePath); err != nil && !os.IsNotExist(err) {
 					result.Errors++
 					continue
 				}
@@ -310,11 +333,11 @@ func (cm *CacheManager) ClearAll(dryRun bool) (*CleanupResult, error) {
 
 	result := &CleanupResult{}
 
-	// 刪除所有快取檔案
+	// 刪除所有快取檔案（驗證路徑在快取目錄內）
 	for key, entry := range index.Entries {
 		if !dryRun {
 			if entry.FilePath != "" {
-				if err := os.Remove(entry.FilePath); err != nil && !os.IsNotExist(err) {
+				if err := cm.safeRemoveCacheFile(entry.FilePath); err != nil && !os.IsNotExist(err) {
 					result.Errors++
 					continue
 				}
@@ -388,7 +411,7 @@ func (cm *CacheManager) AutoCleanup(ctx context.Context, config PruneConfig) (*C
 		for _, e := range expired {
 			if !config.DryRun {
 				if e.entry.FilePath != "" {
-					if rmErr := os.Remove(e.entry.FilePath); rmErr != nil && !os.IsNotExist(rmErr) {
+					if rmErr := cm.safeRemoveCacheFile(e.entry.FilePath); rmErr != nil && !os.IsNotExist(rmErr) {
 						result.Errors++
 						continue
 					}
@@ -437,7 +460,7 @@ func (cm *CacheManager) AutoCleanup(ctx context.Context, config PruneConfig) (*C
 			}
 			if !config.DryRun {
 				if e.entry.FilePath != "" {
-					if rmErr := os.Remove(e.entry.FilePath); rmErr != nil && !os.IsNotExist(rmErr) {
+					if rmErr := cm.safeRemoveCacheFile(e.entry.FilePath); rmErr != nil && !os.IsNotExist(rmErr) {
 						result.Errors++
 						continue
 					}

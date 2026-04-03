@@ -127,14 +127,21 @@ func scanCmd(args []string) {
 	var pb *ProgressBar
 	if *showProgress {
 		total := 0
-		absDir, _ := filepath.Abs(*dir)
+		absDir, absErr := filepath.Abs(*dir) // 取得絕對路徑用於比對
+		if absErr != nil {
+			printError("無法取得目錄絕對路徑: %v", absErr)
+			return
+		}
 		if err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
 			if err != nil || d == nil {
 				return nil
 			}
 			if d.IsDir() {
 				if !*recursive {
-					absPath, _ := filepath.Abs(path)
+					absPath, absPathErr := filepath.Abs(path) // 取得子路徑絕對路徑
+					if absPathErr != nil {
+						return nil // 無法解析路徑，跳過此目錄
+					}
 					if absPath != absDir {
 						return filepath.SkipDir
 					}
@@ -170,7 +177,11 @@ func scanCmd(args []string) {
 		}()
 	}
 
-	absDir, _ := filepath.Abs(*dir)
+	absDir, absErr := filepath.Abs(*dir) // 取得絕對路徑用於比對
+	if absErr != nil {
+		printError("無法取得目錄絕對路徑: %v", absErr)
+		return
+	}
 
 	err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -178,7 +189,10 @@ func scanCmd(args []string) {
 		}
 		if d.IsDir() {
 			if !*recursive {
-				absPath, _ := filepath.Abs(path)
+				absPath, absPathErr := filepath.Abs(path) // 取得子路徑絕對路徑
+				if absPathErr != nil {
+					return nil // 無法解析路徑，跳過此目錄
+				}
 				if absPath != absDir {
 					return filepath.SkipDir
 				}

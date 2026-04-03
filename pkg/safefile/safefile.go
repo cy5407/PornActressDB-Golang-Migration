@@ -23,7 +23,18 @@ func splitPath(path string) (string, string, error) {
 		dir = "."
 	}
 
-	return dir, name, nil
+	// 防止 symlink 穿越：解析目錄的真實路徑並驗證一致性
+	realDir, err := filepath.EvalSymlinks(dir) // 解析 symlink 取得真實路徑
+	if err != nil {
+		// 目錄不存在時 EvalSymlinks 會失敗，此時使用原始路徑（由呼叫端處理）
+		return dir, name, nil
+	}
+	// 確認解析後的路徑仍在預期範圍內（Clean 後應一致）
+	if filepath.Clean(realDir) != realDir {
+		return "", "", fmt.Errorf("suspicious symlink detected in directory path: %s", dir)
+	}
+
+	return realDir, name, nil
 }
 
 func ReadFile(path string) ([]byte, error) {

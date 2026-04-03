@@ -1,0 +1,130 @@
+{
+  "f8dd2450d4fc": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "cmd/scanner/main.go",
+    "line": 130,
+    "type": "Path traversal via ignored errors"
+  },
+  "221184a64751": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "cmd/scanner/main.go",
+    "line": 137,
+    "type": "Path traversal via ignored errors"
+  },
+  "1a51b4ca4efc": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "cmd/scanner/main.go",
+    "line": 173,
+    "type": "Path traversal via ignored errors"
+  },
+  "6cc82255f826": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "cmd/scanner/main.go",
+    "line": 181,
+    "type": "Path traversal via ignored errors"
+  },
+  "17034c8dde4f": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/database/jsondb.go",
+    "line": 687,
+    "type": "No path validation in MergeFromFile"
+  },
+  "1ed25625d9ab": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/cache/cache.go",
+    "line": 189,
+    "type": "Path from untrusted index"
+  },
+  "55072fdc311e": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/cache/cache.go",
+    "line": 277,
+    "type": "Path from untrusted index"
+  },
+  "9328cae31ecf": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/cache/cache.go",
+    "line": 317,
+    "type": "Path from untrusted index"
+  },
+  "11f3485a628c": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/cache/cache.go",
+    "line": 391,
+    "type": "Path from untrusted index"
+  },
+  "315f4ab72d0a": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/cache/cache.go",
+    "line": 440,
+    "type": "Path from untrusted index"
+  },
+  "c5c8cd81e7e1": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/safefile/safefile.go",
+    "line": 35,
+    "type": "Root file access symlink"
+  },
+  "8e6c139b4f72": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/safefile/safefile.go",
+    "line": 50,
+    "type": "Root file access symlink"
+  },
+  "8c396114dabf": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/safefile/safefile.go",
+    "line": 65,
+    "type": "Root file access symlink"
+  },
+  "4f1f57e3c633": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/safefile/safefile.go",
+    "line": 75,
+    "type": "Root file access symlink"
+  },
+  "c82fce5f63c3": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/safefile/safefile.go",
+    "line": 101,
+    "type": "Root file access symlink"
+  },
+  "541788ce3d06": {
+    "attempts": 1,
+    "last_result": "fixed",
+    "last_attempt_date": "2026-04-04",
+    "file": "pkg/mover/mover.go",
+    "line": 489,
+    "type": "TOCTOU race condition"
+  }
+}

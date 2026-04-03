@@ -690,7 +690,18 @@ func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*Merge
 		return nil, errors.New("source file path cannot be empty")
 	}
 
-	sourceData, err := safefile.ReadFile(sourceFile)
+	// 安全驗證：清理路徑並防止路徑穿越攻擊
+	cleanedPath := filepath.Clean(sourceFile) // 正規化路徑，移除 .. 等相對路徑元素
+	absPath, err := filepath.Abs(cleanedPath) // 轉換為絕對路徑
+	if err != nil {
+		return nil, fmt.Errorf("invalid source file path: %w", err)
+	}
+	// 確保解析後的路徑與清理後的路徑一致（防止 symlink 繞過）
+	if filepath.Clean(absPath) != absPath {
+		return nil, fmt.Errorf("suspicious source file path detected: %s", sourceFile)
+	}
+
+	sourceData, err := safefile.ReadFile(absPath) // 使用驗證後的絕對路徑
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %w", err)
 	}

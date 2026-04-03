@@ -483,11 +483,21 @@ func (m *Mover) generateUniqueName(path string) string {
 	base := filepath.Base(path)
 	name := base[:len(base)-len(fileExt)]
 
+	// 使用 O_CREATE|O_EXCL 原子操作避免 TOCTOU 競爭條件
 	for i := 1; i <= generateUniqueNameMaxAttempts; i++ {
 		candidate := fmt.Sprintf("%s_%d%s", name, i, fileExt)
 		candidatePath := filepath.Join(dir, candidate)
-		if _, err := os.Stat(candidatePath); os.IsNotExist(err) {
+		// 嘗試以獨佔模式建立檔案，若已存在則 O_EXCL 會回傳錯誤
+		f, err := os.OpenFile(candidatePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
+		if err == nil {
+			f.Close()           // 成功建立，關閉佔位檔案
+			os.Remove(candidatePath) // 移除佔位檔案，讓後續的移動/複製操作使用此路徑
 			return candidatePath
+		}
+		// 若為「檔案已存在」錯誤則繼續嘗試下一個名稱
+		if !os.IsExist(err) {
+			// 其他錯誤（如權限不足），跳過此候選名稱
+			continue
 		}
 	}
 
