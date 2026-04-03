@@ -279,8 +279,8 @@ class ActressNameFilter:
             return (has_kanji, -len(name))
         
         # 排序並返回最佳候選
-        sorted_names = sorted(valid_names, key=score_name, reverse=True)
-        best_name = sorted_names[0]
-        
+        sorted_names = sorted(valid_names, key=score_name, reverse=True)  # 依評分排序
+        best_name = sorted_names[0]  # 取最高分的名字
+
         logger.info(f"🎯 從 {len(actresses)} 個候選中選出最佳: '{best_name}'")
         return best_name
