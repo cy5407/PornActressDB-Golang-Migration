@@ -1058,4 +1058,29 @@ class UnifiedActressClassifierGUI:
             # 轉換結果格式
             search_results = {}
             for code, detail in self.last_search_results.items():
-  
+                if isinstance(detail, dict):
+                    actresses = detail.get("actresses", [])
+                    search_results[code] = SearchResultItem(
+                        code=code,
+                        actresses=actresses,
+                        source=detail.get("final_source", detail.get("source", "")),
+                        status="success" if actresses else "not_found",
+                        studio=detail.get("studio", ""),
+                        tried_sources=detail.get("tried_sources", []),
+                    )
+
+            if search_results:
+                SearchResultDialog(self.root, search_results, "🔍 搜尋結果預覽")
+            else:
+                messagebox.showinfo("無結果", "沒有搜尋結果可顯示", parent=self.root)
+
+        except ImportError as e:
+            logger.error(f"無法匯入搜尋結果對話框: {e}")
+            messagebox.showerror(
+                "錯誤", f"無法顯示搜尋結果預覽:\n{e}", parent=self.root
+            )
+        except Exception as e:
+            logger.error(f"顯示搜尋結果預覽失敗: {e}")
+            messagebox.showerror(
+                "錯誤", f"顯示搜尋結果預覽失敗:\n{e}", parent=self.root
+            )
