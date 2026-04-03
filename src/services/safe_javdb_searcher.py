@@ -12,6 +12,15 @@ from secrets import randbelow
 from typing import Any
 from urllib.parse import quote, urljoin
 
+# 優先使用 curl_cffi 模擬瀏覽器 TLS 指紋繞過 Cloudflare
+try:
+    from curl_cffi import requests as cffi_requests
+
+    HAS_CURL_CFFI = True
+except ImportError:  # pragma: no cover
+    cffi_requests = None
+    HAS_CURL_CFFI = False
+
 import httpx
 from bs4 import BeautifulSoup
 
@@ -42,7 +51,7 @@ def _random_delay(minimum: float, maximum: float) -> float:
 class SafeJAVDBSearcher:
     """安全的 JAVDB 搜尋器類別"""
 
-    def __init__(self, cache_dir: str = None):
+    def __init__(self, cache_dir: str = None, warmup_enabled: bool = True):
         self.cache_dir = (
             Path(cache_dir)
             if cache_dir
@@ -62,7 +71,11 @@ class SafeJAVDBSearcher:
         self.daily_limit = 80  # 降低每日限制更安全
         self.min_delay = 3.0  # 增加最小延遲
         self.max_delay = 7.0  # 增加最大延遲
-        self.max_retry_wait_seconds = 60.0  # 超過 1 分鐘即放棄重試
+        self.max_retry_wait_seconds = 300.0  # 允許較長冷卻以通過 Cloudflare
+        self.consecutive_errors = 0
+        self._session_type = "unknown"
+        self._impersonate = None
+        self._warmup_enabled = warmup_enabled
 
         # 檢查當日統計
         self._check_daily_reset()
@@ -72,6 +85,8 @@ class SafeJAVDBSearcher:
 
         # 初始化會話
         self.create_session()
+        if self._warmup_enabled:
+            self._warmup()
 
         logger.info(f"🛡️ JAVDB 安全搜尋器已初始化 - 每日限制: {self.daily_limit}")
 
@@ -135,7 +150,7 @@ class SafeJAVDBSearcher:
             logger.error(f"儲存統計失敗: {e}")
 
     def create_session(self):
-        """建立模擬真實瀏覽器的 session"""
+        """建立模擬真實瀏覽器的 session（優先使用 curl_cffi）"""
         previous_session = getattr(self, "session", None)
         if previous_session is not None and hasattr(previous_session, "close"):
             try:
@@ -143,25 +158,18 @@ class SafeJAVDBSearcher:
             except Exception as e:
                 logger.warning(f"⚠️ 關閉舊 JAVDB session 失敗: {e}")
 
-        user_agents = [
-            # Chrome on Windows
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            # Chrome on macOS
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            # Safari on macOS
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-            # Firefox on Windows
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
-            # Edge on Windows
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
+        browser_fingerprints = [
+            "chrome124",
+            "chrome120",
+            "chrome119",
+            "edge101",
+            "safari17_0",
         ]
 
         headers = {
-            "User-Agent": secure_choice(user_agents),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "zh-TW,zh;q=0.9,ja;q=0.8,en-US;q=0.7,en;q=0.6",
-            # 暫時移除 br 壓縮以避免解碼問題
-            "Accept-Encoding": "gzip, deflate",
+            "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
             "Sec-Fetch-Dest": "document",
@@ -170,27 +178,63 @@ class SafeJAVDBSearcher:
             "Sec-Fetch-User": "?1",
             "Cache-Control": "max-age=0",
         }
-        # 隨機添加一些可選標頭
-        if randbelow(2) == 1:
-            headers["DNT"] = "1"
 
-        if randbelow(2) == 1:
-            headers["Referer"] = "https://www.google.com/"
+        if HAS_CURL_CFFI:
+            self._impersonate = secure_choice(browser_fingerprints)
+            self.session = cffi_requests.Session(
+                impersonate=self._impersonate,
+                headers=headers,
+                timeout=30.0,
+            )
+            self._session_type = "curl_cffi"
+            logger.info(f"🛡️ 使用 curl_cffi 建立 session - 指紋: {self._impersonate}")
+        else:
+            user_agents = [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+            ]
+            headers["User-Agent"] = secure_choice(user_agents)
 
-        self.session = httpx.Client(
-            headers=headers,
-            follow_redirects=True,
-            timeout=30.0,
-            limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
-            # 確保正確處理壓縮回應
-            default_encoding="utf-8",
-        )
+            if randbelow(2) == 1:
+                headers["DNT"] = "1"
+            if randbelow(2) == 1:
+                headers["Referer"] = "https://www.google.com/"
+
+            self.session = httpx.Client(
+                headers=headers,
+                follow_redirects=True,
+                timeout=30.0,
+                limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
+                default_encoding="utf-8",
+            )
+            self._session_type = "httpx"
+            self._impersonate = None
+            logger.warning(
+                "⚠️ curl_cffi 不可用，使用 httpx fallback（TLS 指紋可能被 Cloudflare 偵測）"
+            )
 
         self.request_count = 0
-        logger.debug(f"🔄 已建立新的會話 - User-Agent: {headers['User-Agent'][:50]}...")
+        logger.debug("🔄 已建立新的 JAVDB session (%s)", self._session_type)
 
-    def safe_request(self, url: str, retry_count: int = 0) -> httpx.Response | None:
-        """安全的 HTTP 請求方法"""
+    def _warmup(self):
+        """訪問 JAVDB 首頁取得 Cloudflare cookie。"""
+        try:
+            logger.info("🔥 JAVDB 首頁暖機中...")
+            time.sleep(_random_delay(1.0, 2.0))
+            response = self.session.get("https://javdb.com")
+            if getattr(response, "status_code", None) == 200:
+                logger.info("✅ JAVDB 首頁暖機成功，已取得 session cookie")
+            else:
+                logger.warning(
+                    "⚠️ JAVDB 首頁回應 %s，暖機可能失敗",
+                    getattr(response, "status_code", "unknown"),
+                )
+        except Exception as e:
+            logger.warning(f"⚠️ JAVDB 首頁暖機失敗: {e}")
+
+    def safe_request(self, url: str, retry_count: int = 0) -> Any | None:
+        """安全的 HTTP 請求方法（支援 curl_cffi 和 httpx 雙引擎）"""
         with self._lock:
             # 檢查每日限制
             self._check_daily_reset()
@@ -204,9 +248,19 @@ class SafeJAVDBSearcher:
                 self.create_session()
 
             try:
-                # 智能隨機延遲
-                base_delay = _random_delay(self.min_delay, self.max_delay)
-                # 如果是重試，增加額外延遲
+                if self.consecutive_errors >= 5:
+                    cooldown = 300
+                    logger.warning(
+                        f"🧊 連續 {self.consecutive_errors} 次失敗，冷卻 {cooldown} 秒後重建 session"
+                    )
+                    time.sleep(cooldown)
+                    self.create_session()
+                    self.consecutive_errors = 0
+
+                adaptive_multiplier = 2 ** min(self.consecutive_errors, 5)
+                base_delay = (
+                    _random_delay(self.min_delay, self.max_delay) * adaptive_multiplier
+                )
                 if retry_count > 0:
                     base_delay += retry_count * 2.0
 
@@ -219,58 +273,55 @@ class SafeJAVDBSearcher:
                 self.stats["today_count"] += 1
                 self.stats["total_requests"] += 1
 
-                # 處理不同的 HTTP 狀態碼
-                if response.status_code == 429:  # Too Many Requests
-                    if retry_count < 3:
-                        wait_time = 60 + _random_delay(30, 90)  # 1-2.5分鐘
-                        if wait_time > self.max_retry_wait_seconds:
-                            logger.warning(
-                                "⚠️ 429 重試等待時間 %.1f 秒超過上限 %.0f 秒，直接放棄",
-                                wait_time,
-                                self.max_retry_wait_seconds,
-                            )
-                            return None
-                        logger.warning(
-                            f"⚠️ 收到 429 錯誤，等待 {wait_time:.1f} 秒後重試..."
-                        )
-                        time.sleep(wait_time)
-                        return self.safe_request(url, retry_count + 1)
-                    else:
-                        logger.error("❌ 重試次數過多，放棄請求")
-                        return None
+                status = response.status_code
 
-                elif response.status_code == 403:  # Forbidden
-                    logger.warning("⚠️ 收到 403 錯誤，可能被暫時封鎖")
+                if status == 200:
+                    self.consecutive_errors = 0
+                    logger.debug("✅ JAVDB 請求成功: %s", status)
+                    return response
+
+                if status == 403:
+                    self.consecutive_errors += 1
+                    logger.warning(
+                        f"⚠️ 收到 403，連續錯誤 {self.consecutive_errors} 次"
+                    )
                     if retry_count < 2:
-                        # 重新建立 session 並等待更長時間
                         self.create_session()
-                        wait_time = 120 + _random_delay(60, 180)  # 2-5分鐘
-                        if wait_time > self.max_retry_wait_seconds:
-                            logger.warning(
-                                "⚠️ 403 重試等待時間 %.1f 秒超過上限 %.0f 秒，直接放棄",
-                                wait_time,
-                                self.max_retry_wait_seconds,
+                        wait_time = 30 + _random_delay(15, 45)
+                        if wait_time <= self.max_retry_wait_seconds:
+                            logger.info(
+                                f"🔄 更換瀏覽器指紋，等待 {wait_time:.1f} 秒後重試..."
                             )
-                            return None
-                        logger.info(f"⏳ 等待 {wait_time:.1f} 秒後重試...")
-                        time.sleep(wait_time)
-                        return self.safe_request(url, retry_count + 1)
+                            time.sleep(wait_time)
+                            return self.safe_request(url, retry_count + 1)
+                    logger.error("❌ 403 重試失敗，JAVDB 可能需要更強的反爬蟲策略")
                     return None
 
-                elif response.status_code != 200:
-                    logger.warning(f"⚠️ JAVDB 請求失敗: {response.status_code}")
+                if status == 429:
+                    self.consecutive_errors += 1
+                    if retry_count < 3:
+                        wait_time = 20 + _random_delay(10, 30)
+                        if wait_time <= self.max_retry_wait_seconds:
+                            logger.warning(
+                                f"⚠️ 收到 429，等待 {wait_time:.1f} 秒後重試..."
+                            )
+                            time.sleep(wait_time)
+                            return self.safe_request(url, retry_count + 1)
+                    logger.error("❌ 429 重試次數過多，放棄請求")
                     return None
 
-                logger.debug(f"✅ JAVDB 請求成功: {response.status_code}")
-                return response
+                logger.warning(f"⚠️ JAVDB 請求失敗: {status}")
+                return None
 
             except httpx.TimeoutException:
+                self.consecutive_errors += 1
                 logger.warning("⏰ JAVDB 請求超時")
                 if retry_count < 2:
                     return self.safe_request(url, retry_count + 1)
                 return None
 
             except httpx.ConnectError:
+                self.consecutive_errors += 1
                 logger.warning("🔌 JAVDB 連線失敗")
                 if retry_count < 2:
                     time.sleep(10 + retry_count * 5)
@@ -278,6 +329,7 @@ class SafeJAVDBSearcher:
                 return None
 
             except Exception as e:
+                self.consecutive_errors += 1
                 logger.error(f"❌ JAVDB 請求過程中出錯: {e}")
                 if retry_count < 1:
                     time.sleep(5)
@@ -535,6 +587,9 @@ class SafeJAVDBSearcher:
             "cache_entries": len(self.cache),
             "session_requests": self.request_count,
             "session_limit": self.max_requests_per_session,
+            "session_type": self._session_type,
+            "impersonate": self._impersonate,
+            "consecutive_errors": self.consecutive_errors,
             "last_date": self.stats.get("last_date"),
         }
 
