@@ -14,12 +14,14 @@ if str(SRC_DIR) not in sys.path:
 from src.services import classifier_core as classifier_core_module
 from src.scrapers.enhanced import encoding_handler as encoding_handler_module
 from src.scrapers.enhanced.encoding_handler import RateLimitedRequester
+from src.services.safe_javdb_searcher import SafeJAVDBSearcher
 from src.services.web_searcher import WebSearcher
 from src.scrapers.sources.shiroutowiki_scraper import ShiroutoWikiScraper
 from src.scrapers.async_scraper import AsyncWebScraper, ScrapingConfig
 from src.scrapers.base_scraper import BaseScraper, ErrorType, ScrapingException
 from src.scrapers.cache_manager import get_global_cache_manager
 from src.scrapers.rate_limiter import RateLimiter
+from src.utils.actress_name_filter import ActressNameFilter
 
 
 class _DummyConfig:
@@ -31,6 +33,11 @@ class _DummyFactory:
     @staticmethod
     def from_config(_config):
         return object()
+
+
+class _TextResponse:
+    def __init__(self, text: str):
+        self.text = text
 
 
 def test_classifier_core_falls_back_to_json_db(monkeypatch):
@@ -68,6 +75,33 @@ def test_classifier_core_researches_when_last_search_date_is_invalid():
         )
         is True
     )
+
+
+def test_classifier_core_build_video_info_preserves_search_error_status():
+    class _DummyStudioIdentifier:
+        def identify_studio(self, _code):
+            return "S1"
+
+    core = classifier_core_module.UnifiedClassifierCore.__new__(
+        classifier_core_module.UnifiedClassifierCore
+    )
+    core.studio_identifier = _DummyStudioIdentifier()
+
+    info = core._build_video_info(
+        "SNOS-053",
+        Path("SNOS-053.mp4"),
+        {
+            "source": "JAVDB (安全增強版)",
+            "actresses": [],
+            "search_status": "search_error",
+            "search_error_reason": "JAVDB 搜尋頁疑似返回年齡驗證或異常落地頁",
+        },
+        "JAVDB",
+        "2026-04-04T01:30:00",
+    )
+
+    assert info["search_status"] == "search_error"
+    assert "年齡驗證" in info["search_error_reason"]
 
 
 def test_search_japanese_sites_only_delegates_to_unified_method():
@@ -160,6 +194,67 @@ def test_search_shiroutowiki_only_expands_candidates_and_preserves_alias_metadat
     assert result["search_alias_used"] is True
     assert result["searched_code"] == "MIDV-00567"
     assert searcher.search_cache["shiroutowiki::MIDV-00567"]["source"] == "shiroutowiki"
+
+
+def test_actress_name_filter_allows_single_latin_name_when_requested():
+    assert ActressNameFilter.is_valid_actress_name("Soa") is False
+    assert ActressNameFilter.is_valid_actress_name(
+        "Soa", allow_single_latin_name=True
+    )
+
+
+def test_safe_javdb_detail_page_extracts_single_latin_actress_name():
+    html = """
+    <html><body>
+      <h2 class="title">SNOS-053 Demo</h2>
+      <div class="panel-block">
+        <strong>演員:</strong>
+        <span class="value">
+          <a href="/actors/abc">Soa</a><strong class="symbol female">♀</strong>
+          <a href="/actors/def">吉村卓</a><strong class="symbol male">♂</strong>
+        </span>
+      </div>
+      <div class="panel-block"><strong>片商:</strong><span class="value"><a href="/makers/7R">S1 NO.1 STYLE</a></span></div>
+      <div class="panel-block"><strong>日期:</strong><span class="value">2025-12-24</span></div>
+    </body></html>
+    """
+
+    searcher = SafeJAVDBSearcher.__new__(SafeJAVDBSearcher)
+    searcher._lock = threading.RLock()
+    searcher.consecutive_suspected_pages = 0
+    searcher.suspected_page_halt_threshold = 3
+
+    result = searcher._parse_detail_page(
+        _TextResponse(html), "SNOS-053", "https://javdb.com/v/demo"
+    )
+
+    assert result["actresses"] == ["Soa"]
+    assert result["studio"] == "S1 NO.1 STYLE"
+
+
+def test_safe_javdb_search_marks_age_gate_page_as_search_error():
+    age_gate_html = """
+    <html><body>
+      <p>Please note that javdb.com contain sexually explicit content.</p>
+      <p>Are you at least 18 years old?</p>
+    </body></html>
+    """
+
+    searcher = SafeJAVDBSearcher.__new__(SafeJAVDBSearcher)
+    searcher.cache = {}
+    searcher.stats = {"successful_searches": 0}
+    searcher._lock = threading.RLock()
+    searcher.consecutive_suspected_pages = 0
+    searcher.suspected_page_halt_threshold = 3
+    searcher.save_cache = lambda: None
+    searcher.save_stats = lambda: None
+    searcher.safe_request = lambda _url: _TextResponse(age_gate_html)
+
+    result = searcher.search_javdb("ABCD-123")
+
+    assert result["search_status"] == "search_error"
+    assert "年齡驗證" in result["search_error_reason"]
+    assert searcher.consecutive_suspected_pages == 1
 
 
 class _RateLimitOnlyScraper(BaseScraper):

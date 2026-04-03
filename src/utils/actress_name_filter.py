@@ -142,7 +142,9 @@ class ActressNameFilter:
     ]
 
     @staticmethod
-    def is_valid_actress_name(name: str) -> bool:
+    def is_valid_actress_name(
+        name: str, allow_single_latin_name: bool = False
+    ) -> bool:
         """
         判斷是否為有效的女優名字
         
@@ -206,6 +208,9 @@ class ActressNameFilter:
         
         # 檢查是否包含日文或中文字元
         if not re.search(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]', name):
+            if allow_single_latin_name and re.fullmatch(r"[A-Za-z]{2,12}", name):
+                logger.debug(f"✅ 允許單一英文藝名: '{name}'")
+                return True
             # 如果沒有日文/中文，檢查是否為西方名字格式
             if not re.match(r'^[A-Za-z\s]+$', name) or ' ' not in name:
                 logger.debug(f"❌ 不符合名字格式: '{name}'")

@@ -118,7 +118,11 @@ class UnifiedClassifierCore:
             "file_path": str(file_path),
             "studio": studio,
             "search_method": source,
-            "search_status": "searched_found" if actresses else "searched_not_found",
+            "search_status": (
+                result.get("search_status")
+                if result and result.get("search_status")
+                else ("searched_found" if actresses else "searched_not_found")
+            ),
             "last_search_date": current_time,
         }
 
@@ -133,6 +137,8 @@ class UnifiedClassifierCore:
                 "series",
                 "rating",
                 "categories",
+                "search_error_reason",
+                "search_url",
             ]:
                 value = result.get(field)
                 if value is not None:
@@ -172,6 +178,10 @@ class UnifiedClassifierCore:
                 actress_preview += f"...等{len(actresses)}位"
             progress_callback(
                 f"💾 {log_prefix}已寫入 {code} | 女優: {actress_preview} | 片商: {stored_studio} | 來源: {stored_source}\n"
+            )
+        elif result and result.get("search_status") == "search_error":
+            progress_callback(
+                f"💾 {log_prefix}已寫入 {code} | 搜尋異常: {result.get('search_error_reason', '未知原因')} | 片商: {stored_studio} | 來源: {stored_source}\n"
             )
         else:
             progress_callback(
@@ -517,6 +527,7 @@ class UnifiedClassifierCore:
                 code: str, result: dict | None, _error: Exception | None
             ):
                 nonlocal success_count, failed_count
+                search_status = result.get("search_status") if result else None
                 if result and result.get("actresses"):
                     success_count += 1
                     if progress_callback:
@@ -533,6 +544,20 @@ class UnifiedClassifierCore:
                     return
 
                 failed_count += 1
+
+                if search_status == "search_error":
+                    if progress_callback:
+                        progress_callback(
+                            f"⚠️ {code}: JAVDB 頁面異常，已標記為暫時失敗\n"
+                        )
+                    self._persist_code_result(
+                        code=code,
+                        file_paths=all_codes_to_search.get(code, []),
+                        result=result,
+                        fallback_method="JAVDB",
+                        progress_callback=progress_callback,
+                    )
+                    return
 
                 # 零女優番號先不落盤失敗，交給第二輪複寫最終結果
                 if code in zero_actress_code_map:
@@ -582,6 +607,7 @@ class UnifiedClassifierCore:
                     code: str, result: dict | None, _error: Exception | None
                 ):
                     nonlocal second_round_success
+                    search_status = result.get("search_status") if result else None
                     if result and result.get("actresses"):
                         second_round_success += 1
                         if progress_callback:
@@ -595,6 +621,19 @@ class UnifiedClassifierCore:
                                 **result,
                                 "source": f"{result.get('source', 'JAVDB')} (二次搜尋)",
                             },
+                            fallback_method="JAVDB (二次搜尋)",
+                            progress_callback=progress_callback,
+                            log_prefix="二次搜尋 ",
+                        )
+                    elif search_status == "search_error":
+                        if progress_callback:
+                            progress_callback(
+                                f"⚠️ 二次搜尋異常 {code}: JAVDB 頁面仍不正常\n"
+                            )
+                        self._persist_code_result(
+                            code=code,
+                            file_paths=second_round_codes.get(code, []),
+                            result=result,
                             fallback_method="JAVDB (二次搜尋)",
                             progress_callback=progress_callback,
                             log_prefix="二次搜尋 ",

@@ -190,7 +190,10 @@ class WebSearcher:
                 for candidate in candidates:
                     logger.debug(f"🔍 第三層搜尋 - JAVDB: {candidate}")
                     javdb_result = self.javdb_searcher.search_javdb(candidate)
-                    if javdb_result and javdb_result.get("actresses"):
+                    if javdb_result and (
+                        javdb_result.get("actresses")
+                        or javdb_result.get("search_status") == "search_error"
+                    ):
                         # 🔧 標準化片商名稱
                         raw_studio = javdb_result.get("studio")
                         normalized_studio = (
@@ -212,28 +215,45 @@ class WebSearcher:
                             "series": javdb_result.get("series"),
                             "rating": javdb_result.get("rating"),
                             "categories": javdb_result.get("categories", []),
+                            "search_status": javdb_result.get("search_status"),
+                            "search_error_reason": javdb_result.get(
+                                "search_error_reason"
+                            ),
+                            "search_url": javdb_result.get("search_url"),
                         }
                         result = self._attach_alias_metadata(result, code, candidate)
-                        self.search_cache[code] = result
+                        if result.get("actresses"):
+                            self.search_cache[code] = result
 
-                        # 豐富的日誌輸出
-                        log_parts = [f"番號 {code} 透過 {result['source']} 找到:"]
-                        log_parts.append(f"女優: {', '.join(result['actresses'])}")
-                        log_parts.append(f"片商: {result.get('studio', '未知')}")
+                        if result.get("actresses"):
+                            # 豐富的日誌輸出
+                            log_parts = [
+                                f"番號 {code} 透過 {result['source']} 找到:"
+                            ]
+                            log_parts.append(
+                                f"女優: {', '.join(result['actresses'])}"
+                            )
+                            log_parts.append(f"片商: {result.get('studio', '未知')}")
 
-                        if result.get("rating"):
-                            log_parts.append(f"評分: {result['rating']}")
-                        if result.get("categories"):
-                            categories_str = ", ".join(
-                                result["categories"][:3]
-                            )  # 只顯示前3個類別
-                            if len(result["categories"]) > 3:
-                                categories_str += (
-                                    f" 等{len(result['categories'])}個類別"
-                                )
-                            log_parts.append(f"類別: {categories_str}")
+                            if result.get("rating"):
+                                log_parts.append(f"評分: {result['rating']}")
+                            if result.get("categories"):
+                                categories_str = ", ".join(
+                                    result["categories"][:3]
+                                )  # 只顯示前3個類別
+                                if len(result["categories"]) > 3:
+                                    categories_str += (
+                                        f" 等{len(result['categories'])}個類別"
+                                    )
+                                log_parts.append(f"類別: {categories_str}")
 
-                        logger.info(" | ".join(log_parts))
+                            logger.info(" | ".join(log_parts))
+                        else:
+                            logger.warning(
+                                "⚠️ JAVDB 搜尋 %s 發生暫時性異常: %s",
+                                code,
+                                result.get("search_error_reason", "未知原因"),
+                            )
                         return result
 
             logger.warning(f"番號 {code} 未在所有搜尋源中找到女優資訊。")
@@ -681,6 +701,10 @@ class WebSearcher:
                         if progress_callback:
                             if result and result.get("actresses"):
                                 progress_callback(f"✅ {item}: 找到資料\n")
+                            elif result and result.get("search_status") == "search_error":
+                                progress_callback(
+                                    f"⚠️ {item}: 搜尋頁面異常 - {result.get('search_error_reason', '未知原因')}\n"
+                                )
                             else:
                                 progress_callback(f"❌ {item}: 未找到結果\n")
                     except Exception as e:
@@ -886,7 +910,10 @@ class WebSearcher:
         try:
             logger.debug(f"📊 JAVDB 搜尋: {code}")
             javdb_result = self.javdb_searcher.search_javdb(code)
-            if javdb_result and javdb_result.get("actresses"):
+            if javdb_result and (
+                javdb_result.get("actresses")
+                or javdb_result.get("search_status") == "search_error"
+            ):
                 # 🔧 標準化片商名稱
                 raw_studio = javdb_result.get("studio")
                 normalized_studio = (
@@ -908,8 +935,12 @@ class WebSearcher:
                     "series": javdb_result.get("series"),
                     "rating": javdb_result.get("rating"),
                     "categories": javdb_result.get("categories", []),
+                    "search_status": javdb_result.get("search_status"),
+                    "search_error_reason": javdb_result.get("search_error_reason"),
+                    "search_url": javdb_result.get("search_url"),
                 }
-                self.search_cache[code] = result
+                if result.get("actresses"):
+                    self.search_cache[code] = result
                 return result
 
             logger.debug(f"📊 JAVDB 未找到: {code}")
