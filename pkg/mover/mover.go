@@ -138,10 +138,16 @@ func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult 
 	}
 
 	// 檢查目標是否存在
-	if _, err := os.Stat(dst); err == nil {
+	// gosec TOCTOU 說明 (CWE-362)：os.Stat(dst) 與後續操作之間存在競爭窗口，
+	// 另一個程序可能在此期間修改 dst。
+	// Skip 分支僅提前返回，不對 dst 執行任何寫入，因此即使發生競爭也不會造成資料損毀，
+	// 此 TOCTOU 風險在 Skip 語義下屬於可接受範圍。
+	// Overwrite 分支已使用 replaceFileSafely 透過暫存檔原子替換來緩解風險。
+	if _, err := os.Stat(dst); err == nil { //nolint:gosec // TOCTOU: Skip 分支無寫入操作，風險已接受；Overwrite 分支已用原子替換緩解
 		// 目標已存在，根據策略處理
 		switch strategy {
 		case Skip:
+			// TOCTOU 競爭窗口已接受：Skip 策略不對目標執行任何寫入，競爭不會造成資料損毀
 			result.Skipped = true
 			result.Success = true
 			return result
@@ -269,8 +275,25 @@ func (m *Mover) MoveDir(src, dst string, strategy ConflictStrategy) MergeResult 
 
 	// 如果所有檔案都移動成功，刪除來源目錄
 	if result.FilesMoved == result.FilesTotal && !m.DryRun {
-		if err := os.RemoveAll(src); err == nil {
-			result.DeletedSrc = true
+		// 安全驗證：使用 Lstat 確認 src 不是 symlink，
+		// 防止攻擊者將 src 替換為指向系統目錄的符號連結，
+		// 避免 os.RemoveAll 遞迴刪除系統關鍵路徑 (CWE-703)
+		if lstatInfo, lstatErr := os.Lstat(src); lstatErr == nil { // lstatInfo: 來源目錄的 lstat 資訊
+			if lstatInfo.Mode()&os.ModeSymlink != 0 { // 是 symlink 則拒絕刪除
+				// src 已被替換為 symlink，拒絕刪除以防止路徑穿越攻擊
+				fmt.Fprintf(os.Stderr, "[WARNING] MoveDir: 來源目錄 %q 偵測為符號連結，拒絕執行 RemoveAll 以防止路徑穿越攻擊\n", src)
+			} else {
+				// src 是真實目錄，安全地執行刪除
+				if err := os.RemoveAll(src); err != nil { // err: 刪除來源目錄的錯誤
+					// 記錄刪除失敗原因，但不影響整體 Success 狀態（檔案已全部移動成功）
+					fmt.Fprintf(os.Stderr, "[WARNING] MoveDir: 刪除來源目錄 %q 失敗: %v\n", src, err)
+				} else {
+					result.DeletedSrc = true
+				}
+			}
+		} else {
+			// Lstat 失敗表示 src 已不存在或無法存取，記錄警告
+			fmt.Fprintf(os.Stderr, "[WARNING] MoveDir: 無法讀取來源目錄狀態 %q: %v，跳過刪除\n", src, lstatErr)
 		}
 	}
 
