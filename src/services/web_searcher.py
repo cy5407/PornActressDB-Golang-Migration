@@ -998,24 +998,20 @@ class WebSearcher:
         codes: list[str],
         stop_event: threading.Event,
         progress_callback=None,
-        enable_javdb: bool = True,
-        javdb_delay: float = 0.0,
         result_callback=None,
     ) -> dict[str, dict]:
         """
-        批次級聯搜尋
+        批次智慧搜尋
 
         策略：
         1. 先用 AV-WIKI 批次併發搜尋所有番號
         2. 收集失敗的番號
-        3. 對失敗番號逐一嘗試 JAVDB（可選）
+        3. 回傳整理後的結果
 
         Args:
             codes: 番號列表
             stop_event: 停止事件
             progress_callback: 進度回調函式
-            enable_javdb: 是否啟用 JAVDB 作為最後的備援來源
-            javdb_delay: JAVDB 搜尋延遲（秒）
 
         Returns:
             Dict[番號, 搜尋結果（含 tried_sources 欄位）]
@@ -1039,7 +1035,7 @@ class WebSearcher:
             )
             progress_callback(f"{'=' * 60}\n")
 
-        progress.set_phase(1, "AV-WIKI 批次搜尋", 3 if enable_javdb else 2)
+        progress.set_phase(1, "AV-WIKI 批次搜尋", 2)
 
         def phase1_callback(msg):
             if progress_callback:
@@ -1077,65 +1073,12 @@ class WebSearcher:
         if stop_event.is_set():
             return results
 
-        if stop_event.is_set():
-            return results
+        progress.set_phase(2, "整理 AV-WIKI 搜尋結果")
 
-        # 第二階段：JAVDB 逐筆搜尋失敗的番號
-        if failed_codes and enable_javdb:
-            if progress_callback:
-                progress_callback(f"\n{'=' * 60}\n")
-                progress_callback(
-                    f"📊 第三階段：JAVDB 備援搜尋 ({len(failed_codes)} 個番號)\n"
-                )
-                progress_callback(
-                    "⚠️ 注意：JAVDB 有速率限制，已啟用內建安全延遲（約 3-7 秒/次）\n"
-                )
-                progress_callback(f"{'=' * 60}\n")
-
-            progress.set_phase(3, "JAVDB 備援搜尋")
-
-            for i, code in enumerate(failed_codes):
-                if stop_event.is_set():
-                    break
-
-                # 更新進度
-                progress.current = len(codes) - len(failed_codes) + i + 1
-                progress.current_code = code
-                progress.current_source = "JAVDB"
-
-                if progress_callback:
-                    progress_callback(progress.format_progress() + "\n")
-
-                # 搜尋 JAVDB
-                result = self.search_javdb_only(code, stop_event)
-
-                if result and result.get("actresses"):
-                    results[code] = {
-                        **result,
-                        "tried_sources": results[code].get("tried_sources", [])
-                        + ["JAVDB"],
-                        "final_source": "JAVDB",
-                    }
-                    if result_callback:
-                        result_callback(code, results[code], None)
-                    progress.update(
-                        code, is_success=True, source="JAVDB", increment=False
-                    )
-                else:
-                    results[code]["tried_sources"].append("JAVDB")
-                    if result_callback:
-                        result_callback(code, results[code], None)
-                    progress.update(code, is_success=False, increment=False)
-
-                # 額外延遲（選用）：SafeJAVDBSearcher 已內建延遲，此處僅在明確指定時再加
-                if javdb_delay > 0 and i < len(failed_codes) - 1:
-                    time.sleep(javdb_delay)
-        else:
-            # 標記剩餘失敗
-            for code in failed_codes:
-                if result_callback:
-                    result_callback(code, results[code], None)
-                progress.update(code, is_success=False, increment=False)
+        for code in failed_codes:
+            if result_callback:
+                result_callback(code, results[code], None)
+            progress.update(code, is_success=False, increment=False)
 
         # 輸出摘要
         if progress_callback:
@@ -1147,17 +1090,17 @@ class WebSearcher:
         self, code: str, stop_event: threading.Event, sources: list[str] = None
     ) -> dict:
         """
-        對單一番號執行級聯搜尋
+        對單一番號執行 AV-WIKI 搜尋
 
         Args:
             code: 影片番號
             stop_event: 停止事件
-            sources: 搜尋來源順序，預設 ['avwiki', 'javdb']
+            sources: 搜尋來源順序，預設 ['avwiki']
 
         Returns:
             搜尋結果（含 tried_sources 欄位）
         """
-        sources = sources or ["avwiki", "javdb"]
+        sources = sources or ["avwiki"]
         tried = []
 
         # 檢查快取
@@ -1178,9 +1121,6 @@ class WebSearcher:
             try:
                 if source == "avwiki":
                     result = self._search_av_wiki(code, stop_event)
-                elif source == "javdb":
-                    time.sleep(2.0)  # JAVDB 速率限制
-                    result = self.search_javdb_only(code, stop_event)
 
                 if result and result.get("actresses"):
                     result["tried_sources"] = tried

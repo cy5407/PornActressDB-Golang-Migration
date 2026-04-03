@@ -2,6 +2,7 @@
 # 核心 HTTP 和網路相關
 aiohttp>=3.8.0         # 非同步 HTTP 客戶端
 httpx>=0.25.0          # 同步/非同步 HTTP 客戶端
+curl_cffi>=0.7.0      # 模擬瀏覽器 TLS 指紋，繞過 Cloudflare 反爬蟲
 requests>=2.31.0       # 傳統 HTTP 客戶端
 
 # HTML 解析和編碼處理

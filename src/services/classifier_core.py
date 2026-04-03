@@ -638,26 +638,20 @@ class UnifiedClassifierCore:
         folder_path: str,
         stop_event: threading.Event,
         progress_callback=None,
-        enable_cascade: bool = True,
     ):
-        """使用級聯搜尋策略（AV-WIKI → JAVDB）
-
-        此方法會先使用 AV-WIKI 批次搜尋，對於未找到的番號再
-        使用 JAVDB 進行補充搜尋，最大化搜尋成功率。
+        """使用 AV-WIKI 批次搜尋策略
 
         Args:
             folder_path: 資料夾路徑
             stop_event: 停止事件
             progress_callback: 進度回調函式
-            enable_cascade: 是否啟用級聯搜尋（True: 完整級聯, False: 僅 AV-WIKI）
 
         Returns:
             dict: 包含搜尋統計的結果字典
         """
         try:
             if progress_callback:
-                mode_text = "級聯搜尋" if enable_cascade else "AV-WIKI 搜尋"
-                progress_callback(f"🔄 開始掃描資料夾 ({mode_text}模式)...\n")
+                progress_callback("🔄 開始掃描資料夾 (AV-WIKI 批次搜尋模式)...\n")
 
             video_files = self.file_scanner.scan_directory(folder_path)
             if not video_files:
@@ -736,14 +730,12 @@ class UnifiedClassifierCore:
                 processed_codes.add(code)
                 actresses = result.get("actresses", []) if result else []
                 final_source = (
-                    result.get("final_source")
-                    if result
-                    else ("cascade" if enable_cascade else "AV-WIKI")
+                    result.get("final_source") if result else "AV-WIKI"
                 )
                 source_name = (
                     result.get("source")
                     if result and result.get("source")
-                    else final_source or ("cascade" if enable_cascade else "AV-WIKI")
+                    else final_source or "AV-WIKI"
                 )
 
                 if actresses:
@@ -762,24 +754,17 @@ class UnifiedClassifierCore:
                         code=code,
                         file_paths=all_codes_to_search.get(code, []),
                         result=None,
-                        fallback_method="cascade" if enable_cascade else "AV-WIKI",
+                        fallback_method="AV-WIKI",
                         progress_callback=progress_callback,
                     )
 
-            # 使用級聯搜尋
             if progress_callback:
-                if enable_cascade:
-                    progress_callback(
-                        "🚀 啟用級聯搜尋策略：AV-WIKI → JAVDB\n\n"
-                    )
-                else:
-                    progress_callback("🔍 使用 AV-WIKI 單一搜尋模式\n\n")
+                progress_callback("🚀 使用 AV-WIKI 批次搜尋策略\n\n")
 
             search_results = self.web_searcher.batch_cascade_search(
                 list(all_codes_to_search.keys()),
                 stop_event,
                 progress_callback,
-                enable_javdb=enable_cascade,  # 級聯搜尋時啟用 JAVDB 備援
                 result_callback=on_cascade_result,
             )
 
@@ -823,7 +808,7 @@ class UnifiedClassifierCore:
                 "source_stats": source_stats,
             }
         except Exception as e:
-            self.logger.error(f"級聯搜尋過程中發生錯誤: {e}", exc_info=True)
+            self.logger.error(f"AV-WIKI 批次搜尋過程中發生錯誤: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
     def interactive_move_files(self, folder_path_str: str, progress_callback=None):
