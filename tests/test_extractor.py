@@ -45,6 +45,15 @@ class TestUnifiedCodeExtractor:
         assert extractor.extract_code("SSIS-123[720p].mkv") == "SSIS-123"
         assert extractor.extract_code("IPX-999.H265.mp4") == "IPX-999"
 
+    def test_extract_with_special_tech_suffixes(self, extractor):
+        """測試尾端完整技術標籤不應併入番號"""
+        assert extractor.extract_code("SONE-240-60FPS.mp4") == "SONE-240"
+        assert extractor.extract_code("SONE-24060FPS.mp4") == "SONE-240"
+        assert extractor.extract_code("SONE-240-2160P.mp4") == "SONE-240"
+        assert extractor.extract_code("MIFD-0702160p.mp4") == "MIFD-070"
+        assert extractor.extract_code("FWAY-03160FPS.mp4") == "FWAY-031"
+        assert extractor.extract_code("SIRO-1234.mp4") == "SIRO-1234"
+
     def test_extract_with_brackets(self, extractor):
         """測試帶括號的檔名"""
         assert extractor.extract_code("[字幕組]STARS-707.mp4") == "STARS-707"

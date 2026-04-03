@@ -13,6 +13,9 @@ class UnifiedCodeExtractor:
     """統一程式碼提取器"""
 
     def __init__(self):
+        self.tech_suffix_pattern = re.compile(
+            r"(?i)(?:[-_ ]?(?:30FPS|60FPS|120FPS|2160P|1080P|720P))+$"
+        )
         self.supported_formats = [
             ".mp4",
             ".avi",
@@ -65,6 +68,9 @@ class UnifiedCodeExtractor:
 
         # 移除括號內容 [H265], (1080p), {字幕組} 等
         cleaned_name = re.sub(r"\[.*?\]|\(.*?\)|\{.*?\}", "", cleaned_name)
+
+        # 移除尾端完整技術標籤，避免把 60FPS / 2160P 併入番號數字
+        cleaned_name = self.tech_suffix_pattern.sub("", cleaned_name)
 
         # 移除常見的品質和編碼標記
         cleaned_name = re.sub(

@@ -21,6 +21,7 @@ type CodeExtractor struct {
 	qualityRe    *regexp.Regexp
 	h265Re       *regexp.Regexp
 	resolutionRe *regexp.Regexp
+	techSuffixRe *regexp.Regexp
 	versionRe    *regexp.Regexp
 	siteRe       *regexp.Regexp
 	spaceRe      *regexp.Regexp
@@ -50,6 +51,7 @@ func NewCodeExtractor() *CodeExtractor {
 		qualityRe:    regexp.MustCompile(`(?i)[-_]?[CHch]\d*$`),
 		h265Re:       regexp.MustCompile(`(?i)\.H265$`),
 		resolutionRe: regexp.MustCompile(`(?i)[-_]?(1080p|720p|4K|HDR|HEVC|AVC|X264|X265)`),
+		techSuffixRe: regexp.MustCompile(`(?i)(?:[-_ ]?(?:30FPS|60FPS|120FPS|2160P|1080P|720P))+$`),
 		versionRe:    regexp.MustCompile(`(?i)[-_ ]?c\d*$`),
 		siteRe:       regexp.MustCompile(`(?i)^(hhd800\.com@|xxx\.com-)`),
 		spaceRe:      regexp.MustCompile(`\s+`),
@@ -124,6 +126,9 @@ func (e *CodeExtractor) ExtractCode(filename string) string {
 func (e *CodeExtractor) cleanFilename(name string) string {
 	// Remove brackets content [H265], (1080p), {字幕組}
 	name = e.bracketRe.ReplaceAllString(name, "")
+
+	// 移除尾端完整技術標籤，避免把 60FPS / 2160P 併入番號
+	name = e.techSuffixRe.ReplaceAllString(name, "")
 
 	// Remove quality/encoding markers
 	name = e.qualityRe.ReplaceAllString(name, "")
