@@ -80,6 +80,7 @@ func printUsage() {
 範例:
   classifier.exe scan -dir "D:\Videos"
   classifier.exe move -src "A.mp4" -dst "B/A.mp4"
+  classifier.exe move -kind dir -src "A" -dst "B/A"
   classifier.exe move -batch moves.json
   classifier.exe history list
   classifier.exe history rollback abc123
@@ -218,12 +219,7 @@ func scanCmd(args []string) {
 		printSuccess("掃描完成，找到 %d 個番號", len(results))
 	}
 
-	output, err := json.MarshalIndent(results, "", "  ")
-	if err != nil {
-		printError(fmt.Sprintf("JSON 編碼失敗: %v", err))
-		return
-	}
-	fmt.Println(string(output))
+	outputJSON(results)
 }
 
 // === Move 命令 ===
@@ -233,6 +229,7 @@ func moveCmd(args []string) {
 	src := fs.String("src", "", "來源路徑")
 	dst := fs.String("dst", "", "目標路徑")
 	batch := fs.String("batch", "", "批次移動 JSON 檔案")
+	kind := fs.String("kind", "file", "移動類型: file, dir")
 	strategy := fs.String("strategy", "skip", "衝突策略: skip, overwrite, rename")
 	dryRun := fs.Bool("dry-run", false, "模擬執行模式")
 	logDir := fs.String("log-dir", "logs", "操作日誌目錄")
@@ -285,6 +282,17 @@ func moveCmd(args []string) {
 	if *src == "" || *dst == "" {
 		printError("必須指定 -src 和 -dst，或使用 -batch")
 		fs.Usage()
+		os.Exit(1)
+	}
+
+	if *kind == "dir" {
+		result := m.MoveDir(*src, *dst, conflictStrategy)
+		outputJSON(result)
+		return
+	}
+
+	if *kind != "file" {
+		printError(fmt.Sprintf("未知的移動類型: %s", *kind), "有效值: file, dir")
 		os.Exit(1)
 	}
 

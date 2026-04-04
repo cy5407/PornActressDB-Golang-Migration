@@ -366,6 +366,47 @@ class GoBridge:
             skipped=data.get("skipped", False),
             renamed=data.get("renamed"),
         )
+
+    def move_dir(
+        self,
+        source: str,
+        destination: str,
+        strategy: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> dict:
+        """移動整個目錄。"""
+        strategy = strategy or self.default_strategy
+
+        args = [
+            "move",
+            "-kind", "dir",
+            "-src", source,
+            "-dst", destination,
+            "-strategy", strategy,
+            "-log-dir", self.log_dir,
+        ]
+
+        if dry_run:
+            args.append("-dry-run")
+
+        result = self._run_command(args, check=False)
+        data = self._parse_json(result.stdout)
+
+        return {
+            "source": data.get("source_dir", source),
+            "destination": data.get("dest_dir", destination),
+            "success": data.get("success", False),
+            "files_moved": data.get("files_moved", 0),
+            "files_total": data.get("files_total", 0),
+            "deleted_source": data.get("deleted_src", False),
+            "errors": data.get("errors", []),
+            "error": "; ".join(
+                err.get("error", "")
+                for err in data.get("errors", [])
+                if err.get("error")
+            ) or None,
+            "skipped": False,
+        }
     
     def batch_move(
         self,
@@ -420,12 +461,11 @@ class GoBridge:
             
             if dry_run:
                 args.append("-dry-run")
-            
+
             result = self._run_command(args, check=False, timeout=300)
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
                 raise GoBridgeError(error_msg)
-
             data = self._parse_json(result.stdout)
             return self._build_batch_move_result(data, default_total_items=len(items))
             
@@ -448,7 +488,7 @@ class GoBridge:
             list[OperationLog]: 操作日誌列表
         """
         args = ["history", "list", "-log-dir", self.log_dir, "-json"]
-        
+
         try:
             result = self._run_command(args, check=False)
             if result.returncode != 0:
@@ -479,7 +519,8 @@ class GoBridge:
         args = ["history", "show", "-log-dir", self.log_dir, "-json", operation_id]
         
         try:
-            data = self._run_json(args)
+            result = self._run_command(args)
+            data = self._parse_json(result.stdout)
             return self._build_operation_log(data, default_operation_id=operation_id)
              
         except GoBridgeError:
@@ -499,12 +540,11 @@ class GoBridge:
             GoBridgeError: 回滾失敗時
         """
         args = ["history", "rollback", "-log-dir", self.log_dir, "-json", operation_id]
-        
+
         result = self._run_command(args, check=False)
         if result.returncode != 0:
             error_msg = result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
             raise GoBridgeError(error_msg)
-
         data = self._parse_json(result.stdout)
         return self._build_batch_move_result(data)
     

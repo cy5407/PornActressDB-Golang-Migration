@@ -113,6 +113,7 @@ coverage.html
 # Go build cache
 .cache/
 .go/
+.gocache/
 
 # 備份目錄
 backups/

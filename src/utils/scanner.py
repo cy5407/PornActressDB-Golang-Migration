@@ -142,25 +142,27 @@ class UnifiedFileScanner:
     
     def scan_with_codes(self, path: str, recursive: bool = True) -> list[dict]:
         """
-        掃描目錄並同時提取番號（Go 模式專用）
+        掃描目錄並同時提取番號（Go-only）
         
         Args:
             path: 目錄路徑
-            recursive: 是否遞迴（僅 Python 模式有效）
+            recursive: 是否遞迴掃描子目錄
         
         Returns:
             [{"path": str, "code": str}, ...]
         """
-        if self.use_go and self.go_bridge:
-            try:
-                results = self.go_bridge.scan_directory(path, workers=self.go_workers)
-                return [{"path": r.path, "code": r.code} for r in results]
-            except Exception as e:
-                logger.error(f"Go 掃描失敗: {e}")
-        
-        # 回退到 Python（不提取番號）
-        files = self._scan_with_python(path, recursive)
-        return [{"path": str(f), "code": ""} for f in files]
+        if not self.use_go or not self.go_bridge:
+            raise RuntimeError("scan_with_codes 需要 Go CLI，目前不可用")
+
+        try:
+            results = self.go_bridge.scan_directory(
+                path,
+                workers=self.go_workers,
+                recursive=recursive,
+            )
+            return [{"path": r.path, "code": r.code} for r in results]
+        except Exception as e:
+            raise RuntimeError(f"Go 掃描失敗: {e}") from e
     
     @classmethod
     def from_config(cls, config) -> "UnifiedFileScanner":

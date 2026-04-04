@@ -35,6 +35,25 @@
 | 4 | 拆解 `go_bridge.py` 成 runner + domain api | 934 行 → 5 個薄檔 |
 | 5 | `pkg/mover/mover.go` 補齊 context cancel | Go 端補強，非刪 Python |
 
+## 本輪進度（2026-04-04）
+
+- [x] `move` CLI 新增 `-kind dir`，正式暴露 `Mover.MoveDir()` 能力
+- [x] `FileMover.move_dir()` 改為 Go 主路徑，Python 只留 fallback
+- [x] 刪除 `_move_with_go()` 內重複建目錄責任，改由 Go mover 單一負責
+- [x] `scanCmd()` 改用共用 JSON 輸出路徑，收斂 CLI 輸出契約
+- [x] `scan_with_codes()` 改為 Go-only，停止 Python fallback 產生空 `code`
+- [x] `go_bridge.py` 移除 scan/move/history 路徑的混合輸出 JSON 修補依賴
+- [ ] `go_bridge.py` 拆分為 runner + domain api
+- [ ] `move` CLI 支援 `batch-stdin`
+- [ ] `BatchMove` 補齊 context cancel
+- [ ] `cmd/scanner/main.go` 抽出 `pkg/app/*` service 層
+
+## 下一步建議
+
+1. 開始拆 `src/services/go_bridge.py`，先切出 `go_runtime.py` 與 `go_runner.py`
+2. 為 `move` CLI 加入 `-batch-stdin`，拿掉 Python 暫存 JSON 檔依賴
+3. 在 `pkg/mover/mover.go` 的 `BatchMove` 迴圈補上 `ctx.Done()` 檢查與 partial result 契約
+
 ---
 
 ## 本輪進度

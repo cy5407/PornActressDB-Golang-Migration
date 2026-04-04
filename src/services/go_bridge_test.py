@@ -383,6 +383,31 @@ class TestGoBridgeHistory(unittest.TestCase):
             bridge.rollback("abc123")
 
     @patch('subprocess.run')
+    def test_move_dir_success(self, mock_run):
+        """測試目錄移動走 CLI 的 dir 契約"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "source_dir": "src",
+                "dest_dir": "dst",
+                "files_moved": 2,
+                "files_total": 2,
+                "success": True,
+                "deleted_src": True,
+            }),
+            stderr="",
+        )
+
+        bridge = GoBridge()
+        result = bridge.move_dir("src", "dst")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["files_moved"], 2)
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("-kind", call_args)
+        self.assertIn("dir", call_args)
+
+    @patch('subprocess.run')
     def test_get_operation_normalizes_legacy_move_batch_type(self, mock_run):
         """測試舊 move_batch 日誌會被正規化為 batch_move"""
         mock_run.return_value = MagicMock(
