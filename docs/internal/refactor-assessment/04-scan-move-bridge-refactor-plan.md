@@ -37,6 +37,13 @@
 
 ---
 
+## 本輪進度
+
+- [x] 已完成：刪除 `src/utils/file_mover.py` `_move_with_go()` 內的 Python 端預先建目錄，改由 Go `pkg/mover.MoveFile()` 單一負責建立目標目錄。
+- [ ] 下一步：在 `cmd/scanner/main.go` 暴露 `MoveDir`（建議 `move -kind dir`），再讓 `file_mover.move_dir()` 優先走 Go 主路徑。
+
+---
+
 ## 階段 1：清責任邊界（不動功能，先拆層）
 
 **原則：零功能改動，只搬位置。**

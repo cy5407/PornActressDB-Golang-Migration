@@ -192,10 +192,6 @@ class FileMover:
     ) -> dict:
         """使用 Go CLI 執行移動"""
         try:
-            # 如果需要建立目錄，先用 Python 建立（Go CLI 不支援此功能）
-            if create_dirs:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-            
             go_result = self.go_bridge.move_file(
                 source=str(source),
                 destination=str(destination),
