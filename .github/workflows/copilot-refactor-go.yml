@@ -1,4 +1,4 @@
-name: Copilot Go Extractor Refactor
+name: Copilot Python to Go Migration Refactor
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   refactor-extractor:
-    name: Refactor pkg/extractor with Copilot CLI
+    name: Advance Python-to-Go migration with Copilot CLI
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -36,15 +36,15 @@ jobs:
       - name: Install GitHub Copilot CLI
         run: npm install -g @github/copilot
 
-      - name: Baseline extractor tests
-        run: go test ./pkg/extractor -v
+      - name: Baseline Go package tests
+        run: go test ./pkg/... -v
 
-      - name: Run Copilot CLI refactor
+      - name: Run Copilot CLI migration refactor
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         shell: bash
         run: |
-          prompt="$(cat .github/prompts/refactor-pkg-extractor.md)"
+          prompt="$(cat .github/prompts/refactor-python-to-go-migration.md)"
 
           copilot -p "$prompt" \
             --autopilot \
@@ -57,7 +57,7 @@ jobs:
             --deny-tool='shell(rm)' \
             --no-ask-user
 
-      - name: Guard refactor scope
+      - name: Guard migration scope
         id: scope
         shell: bash
         run: |
@@ -68,9 +68,9 @@ jobs:
             exit 0
           fi
 
-          printf '%s\n' "${changed_files[@]}" > changed-files.txt
+          printf '%s\n' "${changed_files[@]}" > "$RUNNER_TEMP/changed-files.txt"
 
-          out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v '^pkg/extractor/' || true)"
+          out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v -E '^(pkg/|cmd/scanner/|src/services/go_api/|src/services/go_bridge\.py|src/services/go_runner\.py|src/models/go_accelerated_db\.py|src/models/go_accelerated_studio\.py|src/utils/scanner\.py|src/utils/file_mover\.py|tests/)' || true)"
           if [ -n "$out_of_scope" ]; then
             echo "Out-of-scope changes detected:" >&2
             printf '%s\n' "$out_of_scope" >&2
@@ -79,22 +79,22 @@ jobs:
 
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
-      - name: Verify extractor tests after refactor
+      - name: Verify migration tests after refactor
         if: steps.scope.outputs.has_changes == 'true'
         run: |
-          go test ./pkg/extractor -v
           go test ./pkg/... -v
+          python -m pytest tests/ -v --tb=short -k "go_bridge or scanner or mover or accelerated"
 
       - name: Add no-change summary
         if: steps.scope.outputs.has_changes != 'true'
         shell: bash
         run: |
           {
-            echo "## Copilot extractor refactor"
+            echo "## Copilot Python-to-Go migration refactor"
             echo
-            echo "- Scope: \`pkg/extractor/**\`"
+            echo "- Scope: \`pkg/**\`, \`cmd/scanner/**\`, bridge wrappers, and migration-related tests"
             echo "- Result: no safe changes were proposed"
-            echo "- Baseline test: \`go test ./pkg/extractor -v\`"
+            echo "- Baseline test: \`go test ./pkg/... -v\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Add change summary
@@ -102,22 +102,22 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Copilot extractor refactor"
+            echo "## Copilot Python-to-Go migration refactor"
             echo
-            echo "- Scope: \`pkg/extractor/**\`"
+            echo "- Scope: `pkg/**`, `cmd/scanner/**`, bridge wrappers, and migration-related tests"
             echo "- Result: scoped changes passed validation"
             echo
             echo "### Changed files"
-            git diff --name-only -- pkg/extractor | sed 's#^#- `#; s#$#`#'
+            git diff --name-only | sed 's#^#- `#; s#$#`#'
             echo
             echo "### Diff stat"
             echo '```text'
-            git diff --stat -- pkg/extractor
+            git diff --stat
             echo '```'
             echo
             echo "### Validation"
-            echo "- \`go test ./pkg/extractor -v\`"
             echo "- \`go test ./pkg/... -v\`"
+            echo "- \`python -m pytest tests/ -v --tb=short -k \"go_bridge or scanner or mover or accelerated\"\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create or update draft pull request
@@ -126,27 +126,36 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-          branch: copilot/refactor-extractor
+          branch: copilot/python-to-go-migration
           delete-branch: false
           draft: true
           add-paths: |
-            pkg/extractor
-          commit-message: "refactor: tighten pkg/extractor internals"
-          title: "refactor: Copilot cleanup for pkg/extractor"
+            pkg
+            cmd/scanner
+            src/services/go_api
+            src/services/go_bridge.py
+            src/services/go_runner.py
+            src/models/go_accelerated_db.py
+            src/models/go_accelerated_studio.py
+            src/utils/scanner.py
+            src/utils/file_mover.py
+            tests
+          commit-message: "refactor: advance python-to-go migration"
+          title: "refactor: Copilot Python-to-Go migration step"
           body: |
             ## Summary
-            - AI-assisted internal refactor for `pkg/extractor`
-            - Scope is intentionally limited to `pkg/extractor/**`
+            - AI-assisted Python-to-Go migration step
+            - Scope is intentionally limited to Go packages, CLI, bridge wrappers, and related tests
             - Generated by GitHub Actions + Copilot CLI
 
             ## Validation
-            - `go test ./pkg/extractor -v`
             - `go test ./pkg/... -v`
-            - workflow fails if files outside `pkg/extractor/**` are modified
+            - `python -m pytest tests/ -v --tb=short -k "go_bridge or scanner or mover or accelerated"`
+            - workflow fails if files outside the migration scope are modified
 
             ## Review notes
             - This PR stays in draft on purpose.
-            - Please verify behavior and regex extraction compatibility before merge.
+            - Please verify Python fallback and Go bridge compatibility before merge.
 
       - name: Add pull request summary
         if: steps.create_pr.outputs.pull-request-url != ''
