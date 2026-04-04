@@ -17,7 +17,7 @@ argument-hint: "[feature-name]"
 
 ## 核心概念
 
-### 架構設計
+### 架構設計（Phase 2 重構後）
 
 ```
 ┌─────────────────┐
@@ -26,19 +26,70 @@ argument-hint: "[feature-name]"
 └────────┬────────┘
          │
          ▼
+┌─────────────────────────────────────────┐
+│  GoBridge  (go_bridge.py)               │
+│  ← 純 facade，只做 re-export            │
+│    scan_directory / move_file / ...     │
+└────────┬────────────────────────────────┘
+         │ 委派（delegate）
+         ▼
+┌─────────────────────────────────────────┐
+│  go_api/  （領域 API 層）               │
+│  ├── scan.py      scan_directory()      │
+│  ├── move.py      move_file()           │
+│  │                batch_move()          │
+│  │                rollback()            │
+│  ├── db.py        db_get_video()        │
+│  │                db_update_video() 等  │
+│  └── identify.py  identify_studio()     │
+└────────┬────────────────────────────────┘
+         │ 使用
+         ▼
 ┌─────────────────┐      subprocess      ┌──────────────────┐
-│   GoBridge      │ ──────────────────▶  │  classifier.exe  │
-│ (go_bridge.py)  │ ◀────────────────── │  (Go CLI)        │
+│ GoCommandRunner │ ──────────────────▶  │  classifier.exe  │
+│ (go_runner.py)  │ ◀────────────────── │  (Go CLI)        │
 └─────────────────┘      JSON I/O        └──────────────────┘
-         │                                        │
-         │                                        ▼
-         │                                ┌──────────────────┐
-         │                                │  pkg/extractor/  │
-         │                                │  pkg/mover/      │
-         │                                │  pkg/database/   │
-         └────────────────────────────────│  pkg/studio/     │
-                 共用資料檔案                └──────────────────┘
-                 (data/json_db/data.json)
+                                                  │
+                                                  ▼
+                                         ┌─────────────────────┐
+                                         │  pkg/app/           │ ← 服務層
+                                         │  pkg/contracts/     │ ← CLI JSON DTO
+                                         │  pkg/extractor/     │
+                                         │  pkg/mover/         │ ← 拆分為 6 檔
+                                         │  pkg/database/      │
+                                         │  pkg/studio/        │
+                                         └─────────────────────┘
+                                                  │
+                                         共用資料檔案
+                                         (data/json_db/data.json)
+```
+
+#### Go 側套件結構
+
+```
+cmd/scanner/          # CLI 主程式（已拆分）
+├── main.go           # 命令路由（scan/move/history/db/identify/cache）
+├── db_cmd.go         # db 子命令
+├── identify_cmd.go   # identify 子命令
+└── cache_cmd.go      # cache 子命令
+
+pkg/mover/            # 移動器（已拆分為 6 個專注檔案）
+├── types.go          # 型別定義
+├── file_move.go      # 單檔移動邏輯
+├── dir_move.go       # 目錄移動邏輯
+├── batch.go          # 批次移動（含 context cancel）
+├── rollback.go       # 回滾邏輯
+└── history.go        # 操作歷史
+
+pkg/contracts/        # CLI JSON DTO（新增）
+├── scan.go
+├── move.go
+└── history.go
+
+pkg/app/              # 服務層（新增）
+├── scan_service.go
+├── move_service.go
+└── history_service.go
 ```
 
 ### 關鍵原則
@@ -155,15 +206,33 @@ go test ./pkg/validator -v
 
 #### Step 3: 整合到 CLI
 
-檔案：`cmd/scanner/main.go`
+> **⚠️ 注意**：`cmd/scanner/main.go` 只負責命令路由。新命令依類型放到對應的 cmd 文件，或直接在 `main.go` 的 `switch` 中新增 case。
+
+檔案：`cmd/scanner/main.go`（僅新增 switch case）
 ```go
+switch command {
+case "validate":
+    validateCmd(os.Args[2:])  // 新增此行
+case "scan":
+    scanCmd(os.Args[2:])
+// ... 其他既有命令
+}
+```
+
+新建 `cmd/scanner/validate_cmd.go`（獨立成檔，保持 main.go 簡潔）：
+```go
+package main
+
 import (
-    "your-project/pkg/validator"
+    "encoding/json"
+    "fmt"
+    "os"
+    "actress-classifier/pkg/validator"
 )
 
-func handleValidate(args []string) {
+func validateCmd(args []string) {
     if len(args) < 1 {
-        fmt.Fprintln(os.Stderr, "Usage: classifier validate <file>")
+        printError("缺少檔案路徑", "用法: classifier validate <file>")
         os.Exit(1)
     }
 
@@ -173,23 +242,7 @@ func handleValidate(args []string) {
         os.Exit(1)
     }
 
-    // 輸出 JSON
-    enc := json.NewEncoder(os.Stdout)
-    enc.Encode(result)
-}
-
-func main() {
-    if len(os.Args) < 2 {
-        printUsage()
-        os.Exit(1)
-    }
-
-    command := os.Args[1]
-    switch command {
-    case "validate":
-        handleValidate(os.Args[2:])
-    // ... 其他命令
-    }
+    json.NewEncoder(os.Stdout).Encode(result)
 }
 ```
 
@@ -203,28 +256,83 @@ go build -o classifier.exe ./cmd/scanner
 classifier.exe validate "test.mp4"
 ```
 
-#### Step 5: 整合到 Python
+#### Step 5: 整合到 Python（Phase 2 正確做法）
 
-檔案：`src/services/go_bridge.py`
+> **⚠️ 重要**：Phase 2 後 `go_bridge.py` 是純 facade，**不應**在裡面加新方法的業務邏輯。
+> 正確做法是在 `go_api/` 新增對應的領域函式，然後在 `go_bridge.py` re-export。
+
+**Step 5a** - 在 `src/services/go_api/` 建立或擴充對應模組：
+
+新建 `src/services/go_api/validate.py`：
 ```python
-class GoBridge:
-    def validate_file(self, file_path: str) -> Dict[str, Any]:
-        """驗證檔案"""
-        result = self._run_go_command([
-            "validate",
-            file_path
-        ])
-        return json.loads(result.stdout)
+"""Go CLI 驗證 API。"""
+
+from dataclasses import dataclass
+from typing import Optional
+
+try:
+    from ..go_runner import GoCommandRunner
+except ImportError:
+    from services.go_runner import GoCommandRunner
+
+
+@dataclass
+class ValidationResult:
+    """驗證結果。"""
+    path: str
+    valid: bool
+    error: Optional[str] = None
+
+
+def validate_file(
+    file_path: str,
+    *,
+    runner: GoCommandRunner | None = None,
+) -> ValidationResult:
+    """驗證檔案是否有效。"""
+    if runner is None:
+        from ..go_bridge import get_bridge
+        runner = get_bridge()._runner
+
+    data = runner.run_json(["validate", file_path])
+    return ValidationResult(
+        path=data["path"],
+        valid=data["valid"],
+        error=data.get("error"),
+    )
+```
+
+**Step 5b** - 在 `src/services/go_api/__init__.py` 匯出：
+```python
+from .validate import ValidationResult, validate_file
+```
+
+**Step 5c** - 在 `src/services/go_bridge.py` re-export（保持 facade 一致性）：
+```python
+# go_bridge.py 頂部新增
+from . import go_api as api
+validate_file = api.validate_file          # 新增這行
+ValidationResult = api.ValidationResult   # 新增這行
+
+# GoBridge 類別中新增轉發方法（可選，供習慣 OOP 寫法的呼叫端使用）
+def validate_file(self, file_path: str) -> ValidationResult:
+    """驗證檔案"""
+    return api.validate_file(file_path, runner=self._runner)
 ```
 
 #### Step 6: 測試 Python 整合
 
 ```python
-from services.go_bridge import GoBridge
+# 直接呼叫領域 API（推薦）
+from services.go_api.validate import validate_file
+result = validate_file("test.mp4")
+print(f"Valid: {result.valid}")
 
+# 或透過 GoBridge facade
+from services.go_bridge import GoBridge
 bridge = GoBridge()
 result = bridge.validate_file("test.mp4")
-print(f"Valid: {result['valid']}")
+print(f"Valid: {result.valid}")
 ```
 
 ### 流程 2: 修改番號提取邏輯
@@ -375,30 +483,29 @@ def _validate_worker(self):
 
 ### Python 資料模型
 
-檔案：`src/models/go_types.py`（建議建立）
-```python
-from dataclasses import dataclass
-from typing import List, Optional
+> **Phase 2 後的正確位置**：dataclass 定義在各自的 `src/services/go_api/*.py` 模組中，不要建立 `src/models/go_types.py`。
 
-@dataclass
-class ScanResult:
-    path: str
-    code: str
-    size: int
-
-@dataclass
-class ScanResponse:
-    files: List[ScanResult]
-    total: int
-    duration_ms: int
-
-@dataclass
-class MoveItem:
-    source: str
-    destination: str
-    success: bool
-    error: Optional[str] = None
 ```
+src/services/go_api/
+├── scan.py      → ScanResult
+├── move.py      → MoveResult, BatchMoveResult, OperationLog
+├── db.py        → （回傳 dict，直接對應 JSON schema）
+└── identify.py  → （回傳 dict）
+```
+
+**現有資料模型範例**（已定義，直接使用）：
+```python
+# scan.py 中已定義
+from services.go_api.scan import ScanResult
+# ScanResult(path: str, code: str)
+
+# move.py 中已定義
+from services.go_api.move import MoveResult, BatchMoveResult, OperationLog
+# MoveResult(source, destination, success, error, skipped, renamed)
+# BatchMoveResult(operation_id, total_items, success_count, ...)
+```
+
+新增功能的資料模型應放在對應的 `go_api/` 模組中，並在 `go_api/__init__.py` 匯出。
 
 ## 常見問題與解決方法
 
@@ -473,10 +580,20 @@ func init() {
 ## 範例程式碼
 
 檔案位置：
-- `src/services/go_bridge.py` - Python 橋接層
-- `cmd/scanner/main.go` - Go CLI 主程式
+- `src/services/go_bridge.py` - Python facade（137 行，pure re-export）
+- `src/services/go_runner.py` - subprocess 執行器（GoCommandRunner）
+- `src/services/go_api/scan.py` - 掃描領域 API
+- `src/services/go_api/move.py` - 移動領域 API（含歷史/回滾）
+- `src/services/go_api/db.py` - 資料庫領域 API
+- `src/services/go_api/identify.py` - 片商識別領域 API
+- `cmd/scanner/main.go` - Go CLI 命令路由
+- `cmd/scanner/db_cmd.go` - db 子命令實作
+- `cmd/scanner/identify_cmd.go` - identify 子命令實作
+- `cmd/scanner/cache_cmd.go` - cache 子命令實作
 - `pkg/extractor/extractor.go` - 番號提取器
-- `pkg/mover/mover.go` - 檔案移動器
+- `pkg/mover/` - 檔案移動器（拆分為 types/file_move/dir_move/batch/rollback/history）
+- `pkg/contracts/` - CLI JSON DTO 定義
+- `pkg/app/` - Go 服務層
 
 ## 開發前檢查清單
 

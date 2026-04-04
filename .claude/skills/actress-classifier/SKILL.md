@@ -7,7 +7,7 @@ description: 女優分類系統開發指引 - 用於理解專案架構、程式�
 
 ## 專案概述
 
-這是一個 Python + Tkinter GUI 的影片女優分類系統 (v5.4.3)。
+這是一個 Python + Tkinter GUI 的影片女優分類系統 (v6.0.0)。
 主要功能：從影片檔名提取番號，搜尋女優資訊，自動分類到對應資料夾。
 
 ## 語言規範
@@ -51,12 +51,21 @@ src/
 │   └── extractor.py                     # 番號提取器
 ├── services/                            # 業務邏輯
 │   ├── classifier_core.py               # 核心分類邏輯
-│   └── web_searcher.py                  # 網路搜尋協調器
+│   ├── web_searcher.py                  # 網路搜尋協調器
+│   ├── go_bridge.py                     # Go CLI facade（re-export go_api/*）
+│   ├── go_runner.py                     # subprocess 執行器（GoCommandRunner）
+│   └── go_api/                          # Go CLI 領域 API（Phase 2 重構）
+│       ├── scan.py                      # scan_directory()
+│       ├── move.py                      # move_file() / batch_move() / rollback()
+│       ├── db.py                        # db_get_video() / db_update_video() 等
+│       └── identify.py                  # identify_studio() / list_studios() 等
 ├── scrapers/                            # 爬蟲
 │   └── sources/
 │       ├── avwiki_scraper.py            # AV-WIKI（主要來源）
-│       ├── chibaf_scraper.py            # chiba-f（備援）
 │       └── javdb_scraper.py             # JAVDB（補充）
+├── utils/                               # 工具層（薄包裝，Go 優先）
+│   ├── scanner.py                       # 薄包裝層（委派 go_api/scan.py）
+│   └── file_mover.py                    # 薄包裝層（委派 go_api/move.py）
 └── ui/                                  # 介面
     ├── main_gui.py                      # 主 GUI
     └── search_result_dialog.py          # 搜尋結果對話框
@@ -142,7 +151,7 @@ self.root.after(0, lambda: self.update_ui())
 
 ### 4. 級聯搜尋策略
 
-搜尋順序：AV-WIKI → chiba-f → JAVDB
+搜尋順序：AV-WIKI → JAVDB
 
 ```python
 result = self.web_searcher.batch_cascade_search(

@@ -131,12 +131,17 @@ src/
 │   ├── studio_classifier.py  # StudioClassificationCore - 片商分類
 │   ├── safe_searcher.py      # SafeSearcher - 安全 HTTP 請求
 │   ├── safe_javdb_searcher.py # SafeJAVDBSearcher - JAVDB 專用
-│   └── go_bridge.py          # GoBridge - Go CLI 橋接層 ⚡
+│   ├── go_bridge.py          # GoBridge - Go CLI 橋接層 ⚡ (facade)
+│   ├── go_runner.py          # GoCommandRunner - subprocess 執行器
+│   └── go_api/               # Go CLI 領域 API ⚡ NEW
+│       ├── scan.py           # scan_directory()
+│       ├── move.py           # move_file() / batch_move() / rollback()
+│       ├── db.py             # db_get_video() / db_update_video() 等
+│       └── identify.py       # identify_studio() / list_studios() 等
 │
 ├── scrapers/                  # 爬蟲層
 │   ├── sources/
 │   │   ├── avwiki_scraper.py    # AVWikiScraper - AV-WIKI 爬蟲
-│   │   ├── chibaf_scraper.py    # ChibafScraper - chiba-f.net 爬蟲
 │   │   └── javdb_scraper.py     # JAVDBScraper - JAVDB 爬蟲
 │   ├── cache_manager.py       # CacheManager - 快取管理
 │   └── unified_scraper.py     # 統一爬蟲介面
@@ -154,16 +159,24 @@ src/
 ### Go 模組結構
 
 ```
-cmd/scanner/main.go           # CLI 主程式
-├── scan 命令                # 掃描目錄提取番號
-├── move 命令                # 移動檔案 (單檔/批次)
-├── history 命令             # 操作歷史管理
-├── identify 命令            # 片商識別
-├── db 命令                  # 資料庫操作
-└── cache 命令               # 快取管理 ⚡ NEW
+cmd/scanner/                  # CLI 主程式（拆分為多檔）
+├── main.go                 # 命令路由進入點
+├── cache_cmd.go            # cache 命令
+├── db_cmd.go               # db 命令
+└── identify_cmd.go         # identify 命令
 
 pkg/
-├── cache/                  # 快取管理套件 ⚡ NEW
+├── app/                    # 服務層 ⚡ NEW
+│   ├── scan_service.go     # 掃描服務
+│   ├── move_service.go     # 移動服務
+│   └── history_service.go  # 歷史服務
+│
+├── contracts/              # 介面定義 ⚡ NEW
+│   ├── scan.go
+│   ├── move.go
+│   └── history.go
+│
+├── cache/                  # 快取管理套件
 │   ├── cache.go           # CacheManager 實作
 │   ├── types.go           # 型別定義
 │   └── cache_test.go      # 單元測試 (9 個)
@@ -178,8 +191,14 @@ pkg/
 │   ├── extractor.go        # CodeExtractor 實作
 │   └── extractor_test.go   # 單元測試
 │
-├── mover/                   # 檔案移動套件
-│   ├── mover.go            # Mover 實作 (含歷史記錄)
+├── mover/                   # 檔案移動套件（拆分為多檔）
+│   ├── mover.go            # Mover 核心
+│   ├── batch.go            # 批次移動
+│   ├── file_move.go        # 單檔移動
+│   ├── dir_move.go         # 目錄移動
+│   ├── history.go          # 操作歷史
+│   ├── rollback.go         # 回滾邏輯
+│   ├── types.go            # 型別定義
 │   └── mover_test.go       # 單元測試
 │
 └── studio/                  # 片商識別套件
@@ -218,7 +237,7 @@ python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --wr
 目前影片資料欄位規範以 `src/models/json_types.py` 為準，重點如下：
 
 - `search_status`: `imported`、`searched_found`、`searched_not_found`、`search_error`
-- `search_method`: `legacy-import`、`AV-WIKI`、`chiba-f.net`、`JAVDB`、`cascade`
+- `search_method`: `legacy-import`、`AV-WIKI`、`chiba-f.net`（歷史資料保留）、`JAVDB`、`cascade`
 - 影片資料應包含 `original_filename`、`file_path`
 - `id == code` 視為重複欄位，可由正規化腳本移除
 - `search_error_reason`、`original_actress_count` 屬於合法診斷欄位，可保留
@@ -365,10 +384,9 @@ db.compact()  # 強制合併
 
 ### 搜尋引擎架構
 
-**級聯搜尋順序** (失敗時自動降級):
+**搜尋順序** (AV-WIKI 失敗時降級到 JAVDB):
 1. **AV-WIKI** (主要來源)
-2. **chiba-f.net** (備用來源)
-3. **JAVDB** (最終來源)
+2. **JAVDB** (最終來源)
 
 **WebSearcher 核心特性**:
 - SafeSearcher: 速率限制、重試機制、快取

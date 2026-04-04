@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 def _cleanup_temp_file(path: str | None, context: str) -> None:
     try:
-        from src.services.go_bridge import _cleanup_temp_file as cleanup_temp_file
+        from ..go_bridge import _cleanup_temp_file as cleanup_temp_file
     except ImportError:
         from services.go_bridge import _cleanup_temp_file as cleanup_temp_file
 
@@ -17,7 +17,7 @@ def _cleanup_temp_file(path: str | None, context: str) -> None:
 
 def _get_bridge():
     try:
-        from src.services.go_bridge import get_bridge
+        from ..go_bridge import get_bridge
     except ImportError:
         from services.go_bridge import get_bridge
 
