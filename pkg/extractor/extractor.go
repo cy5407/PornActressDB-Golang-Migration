@@ -69,7 +69,6 @@ func NewCodeExtractor() *CodeExtractor {
 	// Code patterns (in priority order)
 	e.codePatterns = []codePattern{
 		{regexp.MustCompile(`([A-Z]{2,6}-\d{3,5})`), "標準格式"},
-		{regexp.MustCompile(`([A-Z]{2,6}-\d{3,5})[A-Z]*`), "標準格式帶後綴"},
 		{regexp.MustCompile(`([A-Z]{2,6}\d{3,5})`), "無橫槓格式"},
 		{regexp.MustCompile(`([A-Z]{2,6}[._]\d{3,5})`), "特殊分隔符格式"},
 		{regexp.MustCompile(`(\d{6}[-_]\d{3})`), "數字格式"},
