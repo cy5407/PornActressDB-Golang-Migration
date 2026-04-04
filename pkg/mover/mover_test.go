@@ -301,6 +301,57 @@ func TestBatchMove_PartialFailure(t *testing.T) {
 	}
 }
 
+func TestBatchMove_CancelledContextReturnsPartialResult(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcDir := filepath.Join(tempDir, "source")
+	dstDir := filepath.Join(tempDir, "dest")
+	createTestFile(t, filepath.Join(srcDir, "file1.txt"), "Content 1")
+	createTestFile(t, filepath.Join(srcDir, "file2.txt"), "Content 2")
+
+	items := []MoveItem{
+		{Source: filepath.Join(srcDir, "file1.txt"), Destination: filepath.Join(dstDir, "file1.txt")},
+		{Source: filepath.Join(srcDir, "file2.txt"), Destination: filepath.Join(dstDir, "file2.txt")},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	m := NewMover(tempDir)
+	result := m.BatchMove(ctx, items)
+
+	if result.Status != "cancelled" {
+		t.Fatalf("狀態應該是 cancelled，得到 %s", result.Status)
+	}
+	if result.OperationID == "" {
+		t.Fatal("取消時仍應產生 operation ID")
+	}
+	if result.Duration == "" {
+		t.Fatal("取消時仍應填入 duration")
+	}
+	if result.Summary != "批次移動已取消" {
+		t.Fatalf("Summary 不正確，得到 %s", result.Summary)
+	}
+	if len(result.Results) != 0 {
+		t.Fatalf("取消前未處理任何項目時，結果應為空，得到 %d", len(result.Results))
+	}
+
+	logs, err := m.ListOperations()
+	if err != nil {
+		t.Fatalf("列出日誌失敗: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("應該有 1 筆日誌，得到 %d", len(logs))
+	}
+	if logs[0].Status != "cancelled" {
+		t.Fatalf("日誌狀態應該是 cancelled，得到 %s", logs[0].Status)
+	}
+	if logs[0].SuccessCount != 0 || logs[0].FailedCount != 0 || logs[0].SkippedCount != 0 {
+		t.Fatalf("取消前未處理任何項目時，計數應全部為 0，得到 success=%d failed=%d skipped=%d", logs[0].SuccessCount, logs[0].FailedCount, logs[0].SkippedCount)
+	}
+}
+
 // === 操作日誌測試 ===
 
 func TestOperationLog_SaveAndList(t *testing.T) {

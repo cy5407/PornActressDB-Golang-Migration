@@ -6,7 +6,7 @@ import tempfile
 from typing import Optional
 
 try:
-    from src.services.go_runner import GoBridgeError
+    from ..go_runner import GoBridgeError
 except ImportError:
     from services.go_runner import GoBridgeError
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def _cleanup_temp_file(path: str | None, context: str) -> None:
     """延遲匯入清理 helper，避免循環依賴。"""
     try:
-        from src.services.go_bridge import _cleanup_temp_file as cleanup_temp_file
+        from ..go_bridge import _cleanup_temp_file as cleanup_temp_file
     except ImportError:
         from services.go_bridge import _cleanup_temp_file as cleanup_temp_file
 
@@ -26,7 +26,7 @@ def _cleanup_temp_file(path: str | None, context: str) -> None:
 def _get_bridge():
     """延遲匯入 bridge，避免循環依賴。"""
     try:
-        from src.services.go_bridge import get_bridge
+        from ..go_bridge import get_bridge
     except ImportError:
         from services.go_bridge import get_bridge
 
