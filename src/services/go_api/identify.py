@@ -3,6 +3,11 @@
 import logging
 import tempfile
 
+try:
+    from ..go_runner import GoCommandRunner
+except ImportError:
+    from services.go_runner import GoCommandRunner
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,24 +29,31 @@ def _get_bridge():
     return get_bridge()
 
 
-def identify_studio(code: str, check_major: bool = False) -> dict:
+def _get_runner(runner: GoCommandRunner | None) -> GoCommandRunner:
+    """取得 runner，若無則從 bridge 取得。"""
+    if runner is not None:
+        return runner
+    return _get_bridge()._runner
+
+
+def identify_studio(code: str, check_major: bool = False, *, runner: GoCommandRunner | None = None) -> dict:
     """識別番號所屬片商。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     try:
         cmd = ["identify", code]
         if check_major:
             cmd.insert(1, "-major")
 
-        result = bridge._run_command(cmd)
-        return bridge._parse_json(result.stdout)
+        result = _runner.run(cmd)
+        return _runner.parse_json(result.stdout)
     except Exception as e:
         logger.error(f"❌ 識別片商失敗: {e}")
         return {"code": code, "studio": "UNKNOWN"}
 
 
-def identify_studios_batch(codes: list[str], check_major: bool = False) -> list[dict]:
+def identify_studios_batch(codes: list[str], check_major: bool = False, *, runner: GoCommandRunner | None = None) -> list[dict]:
     """批次識別番號所屬片商。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     try:
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, encoding="utf-8"
@@ -54,8 +66,8 @@ def identify_studios_batch(codes: list[str], check_major: bool = False) -> list[
             if check_major:
                 cmd.insert(1, "-major")
 
-            result = bridge._run_command(cmd)
-            return bridge._parse_json(result.stdout)
+            result = _runner.run(cmd)
+            return _runner.parse_json(result.stdout)
         finally:
             _cleanup_temp_file(temp_file, "identify_studios_batch")
     except Exception as e:
@@ -63,12 +75,12 @@ def identify_studios_batch(codes: list[str], check_major: bool = False) -> list[
         return []
 
 
-def list_studios() -> list[str]:
+def list_studios(*, runner: GoCommandRunner | None = None) -> list[str]:
     """列出所有片商。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     try:
-        result = bridge._run_command(["identify", "-list", "-json"])
-        data = bridge._parse_json(result.stdout)
+        result = _runner.run(["identify", "-list", "-json"])
+        data = _runner.parse_json(result.stdout)
         if not isinstance(data, list):
             return []
         return [
@@ -81,12 +93,12 @@ def list_studios() -> list[str]:
         return []
 
 
-def get_studio_prefixes(studio_name: str) -> list[str]:
+def get_studio_prefixes(studio_name: str, *, runner: GoCommandRunner | None = None) -> list[str]:
     """取得指定片商的所有前綴。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     try:
-        result = bridge._run_command(["identify", "-prefixes", "-json", studio_name])
-        data = bridge._parse_json(result.stdout)
+        result = _runner.run(["identify", "-prefixes", "-json", studio_name])
+        data = _runner.parse_json(result.stdout)
         if not isinstance(data, dict):
             return []
         prefixes = data.get("prefixes", [])

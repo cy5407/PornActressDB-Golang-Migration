@@ -6,9 +6,9 @@ import tempfile
 from typing import Optional
 
 try:
-    from ..go_runner import GoBridgeError
+    from ..go_runner import GoBridgeError, GoCommandRunner
 except ImportError:
-    from services.go_runner import GoBridgeError
+    from services.go_runner import GoBridgeError, GoCommandRunner
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +33,23 @@ def _get_bridge():
     return get_bridge()
 
 
-def db_get_video(code: str, data_dir: str = "data/json_db") -> Optional[dict]:
+def _get_runner(runner: GoCommandRunner | None) -> GoCommandRunner:
+    """取得 runner，若無則從 bridge 取得。"""
+    if runner is not None:
+        return runner
+    return _get_bridge()._runner
+
+
+def db_get_video(code: str, data_dir: str = "data/json_db", *, runner: GoCommandRunner | None = None) -> Optional[dict]:
     """取得影片資訊。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     cmd = ["db", "get"]
     if data_dir != "data/json_db":
         cmd.extend(["-data-dir", data_dir])
     cmd.append(code)
 
     try:
-        result = bridge._run_command(cmd)
+        result = _runner.run(cmd)
     except GoBridgeError as e:
         logger.error(f"❌ Go CLI 執行失敗 (影片 {code}): {e}")
         raise
@@ -52,7 +59,7 @@ def db_get_video(code: str, data_dir: str = "data/json_db") -> Optional[dict]:
         return None
 
     try:
-        data = bridge._parse_json(output)
+        data = _runner.parse_json(output)
     except GoBridgeError as e:
         logger.warning(f"⚠️ JSON 解析失敗 (影片 {code}): {e}")
         raise
@@ -60,9 +67,9 @@ def db_get_video(code: str, data_dir: str = "data/json_db") -> Optional[dict]:
     return data if isinstance(data, dict) else None
 
 
-def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> bool:
+def db_update_video(code: str, video: dict, data_dir: str = "data/json_db", *, runner: GoCommandRunner | None = None) -> bool:
     """更新影片資訊。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     temp_file = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -78,8 +85,8 @@ def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> b
             cmd.append("-json")
             cmd.extend([code, temp_file])
 
-            result = bridge._run_command(cmd)
-            data = bridge._parse_json(result.stdout)
+            result = _runner.run(cmd)
+            data = _runner.parse_json(result.stdout)
             if not isinstance(data, dict) or not data.get("success"):
                 raise GoBridgeError(f"db update 回傳非預期結果: {result.stdout[:200]}")
             logger.info(f"✅ 影片 {code} 更新成功")
@@ -94,9 +101,9 @@ def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> b
         return False
 
 
-def db_delete_video(code: str, data_dir: str = "data/json_db") -> bool:
+def db_delete_video(code: str, data_dir: str = "data/json_db", *, runner: GoCommandRunner | None = None) -> bool:
     """刪除影片。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     try:
         cmd = ["db", "delete"]
         if data_dir != "data/json_db":
@@ -104,8 +111,8 @@ def db_delete_video(code: str, data_dir: str = "data/json_db") -> bool:
         cmd.append("-json")
         cmd.append(code)
 
-        result = bridge._run_command(cmd)
-        data = bridge._parse_json(result.stdout)
+        result = _runner.run(cmd)
+        data = _runner.parse_json(result.stdout)
         if not isinstance(data, dict) or not data.get("success"):
             raise GoBridgeError(f"db delete 回傳非預期結果: {result.stdout[:200]}")
         logger.info(f"✅ 影片 {code} 刪除成功")
@@ -118,16 +125,16 @@ def db_delete_video(code: str, data_dir: str = "data/json_db") -> bool:
         return False
 
 
-def db_list_videos(data_dir: str = "data/json_db") -> list[str]:
+def db_list_videos(data_dir: str = "data/json_db", *, runner: GoCommandRunner | None = None) -> list[str]:
     """列出所有影片番號。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     try:
         cmd = ["db", "list"]
         if data_dir != "data/json_db":
             cmd.extend(["-data-dir", data_dir])
 
-        result = bridge._run_command(cmd)
-        data = bridge._parse_json(result.stdout)
+        result = _runner.run(cmd)
+        data = _runner.parse_json(result.stdout)
         return data if isinstance(data, list) else []
     except GoBridgeError as e:
         error_msg = str(e)
@@ -141,16 +148,16 @@ def db_list_videos(data_dir: str = "data/json_db") -> list[str]:
         return []
 
 
-def db_get_stats(data_dir: str = "data/json_db") -> dict:
+def db_get_stats(data_dir: str = "data/json_db", *, runner: GoCommandRunner | None = None) -> dict:
     """取得資料庫統計資訊。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     try:
         cmd = ["db", "stats"]
         if data_dir != "data/json_db":
             cmd.extend(["-data-dir", data_dir])
 
-        result = bridge._run_command(cmd)
-        data = bridge._parse_json(result.stdout)
+        result = _runner.run(cmd)
+        data = _runner.parse_json(result.stdout)
         return data if isinstance(data, dict) else {}
     except GoBridgeError as e:
         error_msg = str(e)
@@ -164,17 +171,17 @@ def db_get_stats(data_dir: str = "data/json_db") -> dict:
         return {}
 
 
-def db_compact_journal(data_dir: str = "data/json_db") -> bool:
+def db_compact_journal(data_dir: str = "data/json_db", *, runner: GoCommandRunner | None = None) -> bool:
     """合併 journal 到主資料庫。"""
-    bridge = _get_bridge()
+    _runner = _get_runner(runner)
     try:
         cmd = ["db", "compact"]
         if data_dir != "data/json_db":
             cmd.extend(["-data-dir", data_dir])
         cmd.append("-json")
 
-        result = bridge._run_command(cmd)
-        data = bridge._parse_json(result.stdout)
+        result = _runner.run(cmd)
+        data = _runner.parse_json(result.stdout)
         if not isinstance(data, dict) or not data.get("success"):
             raise GoBridgeError(f"db compact 回傳非預期結果: {result.stdout[:200]}")
         logger.info("✅ Journal 合併成功")
