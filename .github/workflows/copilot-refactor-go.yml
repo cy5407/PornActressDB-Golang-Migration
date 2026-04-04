@@ -33,6 +33,20 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies (tkinter)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
       - name: Install GitHub Copilot CLI
         run: npm install -g @github/copilot
 
@@ -81,6 +95,8 @@ jobs:
 
       - name: Verify migration tests after refactor
         if: steps.scope.outputs.has_changes == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           go test ./pkg/... -v
           python -m pytest tests/ -v --tb=short -k "go_bridge or scanner or mover or accelerated"
