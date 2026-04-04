@@ -49,18 +49,7 @@ jobs:
           copilot -p "$prompt" \
             --autopilot \
             --max-autopilot-continues 3 \
-            --no-ask-user \
-            --allow-tool='write(pkg/extractor/**)' \
-            --allow-tool='shell(git:*)' \
-            --allow-tool='shell(go)' \
-            --deny-tool='shell(git commit)' \
-            --deny-tool='shell(git push)' \
-            --deny-tool='shell(git checkout)' \
-            --deny-tool='shell(git switch)' \
-            --deny-tool='shell(git reset)' \
-            --deny-tool='shell(git clean)' \
-            --deny-tool='shell(gh)' \
-            --deny-tool='shell(rm)'
+            --no-ask-user
 
       - name: Guard refactor scope
         id: scope
