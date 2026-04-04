@@ -139,7 +139,7 @@ jobs:
           draft: true
           add-paths: |
             pkg/extractor
-          commit-message: refactor: tighten pkg/extractor internals
+          commit-message: "refactor: tighten pkg/extractor internals"
           title: "refactor: Copilot cleanup for pkg/extractor"
           body: |
             ## Summary
