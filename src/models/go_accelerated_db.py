@@ -128,7 +128,8 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_bridge import GoBridgeError, db_get_video
+                from src.services.go_api.db import db_get_video
+                from src.services.go_runner import GoBridgeError
 
                 # db_get_video: 找到→回傳 dict, 不存在→回傳 None, CLI 故障→拋出 GoBridgeError
                 result = db_get_video(code, self.data_dir)
@@ -153,7 +154,7 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_bridge import db_update_video
+                from src.services.go_api.db import db_update_video
 
                 # 取得現有影片資料
                 existing = self.get_video_info(code)  # 現有影片資訊
@@ -184,7 +185,7 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_bridge import db_update_video
+                from src.services.go_api.db import db_update_video
 
                 # Go CLI 使用 update 命令新增（不存在時自動建立）
                 if db_update_video(video["code"], video, self.data_dir):
@@ -207,7 +208,7 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_bridge import db_delete_video
+                from src.services.go_api.db import db_delete_video
 
                 if db_delete_video(code, self.data_dir):
                     # Go 操作成功後重建 Python DB state，確保 dirty_videos/journal_size 等內部狀態一致
@@ -229,7 +230,7 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_bridge import db_get_stats
+                from src.services.go_api.db import db_get_stats
 
                 result = db_get_stats(self.data_dir)
                 if result:
@@ -255,7 +256,7 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_bridge import db_compact_journal
+                from src.services.go_api.db import db_compact_journal
 
                 if db_compact_journal(self.data_dir):
                     # 重新載入 Python 資料庫以同步狀態

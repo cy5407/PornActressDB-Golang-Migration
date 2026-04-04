@@ -129,7 +129,7 @@ func scanCmd(args []string) {
 		total := 0
 		absDir, absErr := filepath.Abs(*dir) // 取得絕對路徑用於比對
 		if absErr != nil {
-			printError("無法取得目錄絕對路徑: %v", absErr)
+			printError(fmt.Sprintf("無法取得目錄絕對路徑: %v", absErr))
 			return
 		}
 		if err := filepath.WalkDir(*dir, func(path string, d os.DirEntry, err error) error {
@@ -179,7 +179,7 @@ func scanCmd(args []string) {
 
 	absDir, absErr := filepath.Abs(*dir) // 取得絕對路徑用於比對
 	if absErr != nil {
-		printError("無法取得目錄絕對路徑: %v", absErr)
+		printError(fmt.Sprintf("無法取得目錄絕對路徑: %v", absErr))
 		return
 	}
 
@@ -413,6 +413,7 @@ func dbCmd(args []string) {
 	// 使用 flag.FlagSet 統一解析 -data-dir 參數
 	fs := flag.NewFlagSet("db "+subCmd, flag.ExitOnError)
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
+	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
 	parseFlagsOrExit(fs, args[1:])
 	remaining := fs.Args()
 
@@ -468,6 +469,16 @@ func dbCmd(args []string) {
 			os.Exit(1)
 		}
 
+		if *jsonOutput {
+			outputJSON(map[string]any{
+				"success":  true,
+				"action":   "update",
+				"code":     code,
+				"data_dir": *dataDir,
+			})
+			return
+		}
+
 		printSuccess("影片 %s 更新成功", code)
 
 	case "delete":
@@ -485,6 +496,16 @@ func dbCmd(args []string) {
 		if err := db.Save(); err != nil {
 			fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
 			os.Exit(1)
+		}
+
+		if *jsonOutput {
+			outputJSON(map[string]any{
+				"success":  true,
+				"action":   "delete",
+				"code":     code,
+				"data_dir": *dataDir,
+			})
+			return
 		}
 
 		printSuccess("影片 %s 刪除成功", code)
@@ -511,6 +532,15 @@ func dbCmd(args []string) {
 		if err := db.CompactJournal(); err != nil {
 			fmt.Fprintf(os.Stderr, "合併 journal 失敗: %v\n", err)
 			os.Exit(1)
+		}
+
+		if *jsonOutput {
+			outputJSON(map[string]any{
+				"success":  true,
+				"action":   "compact",
+				"data_dir": *dataDir,
+			})
+			return
 		}
 
 		printSuccess("Journal 合併成功")
@@ -554,6 +584,7 @@ func identifyCmd(args []string) {
 	showPrefixes := fs.Bool("prefixes", false, "顯示指定片商的所有前綴")
 	listStudios := fs.Bool("list", false, "列出所有片商")
 	checkMajor := fs.Bool("major", false, "檢查是否為大片商")
+	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
 	parseFlagsOrExit(fs, args)
 
 	// 初始化片商識別器
@@ -565,6 +596,17 @@ func identifyCmd(args []string) {
 	// 列出所有片商
 	if *listStudios {
 		studios := identifier.GetAllStudios()
+		if *jsonOutput {
+			results := make([]map[string]any, 0, len(studios))
+			for _, s := range studios {
+				results = append(results, map[string]any{
+					"studio":   s,
+					"is_major": identifier.IsMajorStudio(s),
+				})
+			}
+			outputJSON(results)
+			return
+		}
 		for _, s := range studios {
 			isMajor := ""
 			if identifier.IsMajorStudio(s) {
@@ -583,6 +625,13 @@ func identifyCmd(args []string) {
 		}
 		studioName := fs.Args()[0]
 		prefixes := identifier.GetPrefixes(studioName)
+		if *jsonOutput {
+			outputJSON(map[string]any{
+				"studio":   studioName,
+				"prefixes": prefixes,
+			})
+			return
+		}
 		if len(prefixes) == 0 {
 			fmt.Printf("片商 %s 沒有註冊的前綴\n", studioName)
 		} else {
@@ -650,10 +699,10 @@ func identifyCmd(args []string) {
 
 func cacheCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Println("cache 子命令:")
-		fmt.Println("  stats   顯示快取統計資訊")
-		fmt.Println("  prune   清理過期或超大的快取")
-		fmt.Println("  clear   清空所有快取")
+		fmt.Fprintln(os.Stderr, "cache 子命令:")
+		fmt.Fprintln(os.Stderr, "  stats   顯示快取統計資訊")
+		fmt.Fprintln(os.Stderr, "  prune   清理過期或超大的快取")
+		fmt.Fprintln(os.Stderr, "  clear   清空所有快取")
 		os.Exit(1)
 	}
 
@@ -711,9 +760,9 @@ func cachePruneCmd(args []string) {
 	}
 
 	if *dryRun {
-		fmt.Println("🔍 模擬執行結果:")
+		fmt.Fprintln(os.Stderr, "🔍 模擬執行結果:")
 	} else {
-		fmt.Println("🧹 清理完成:")
+		fmt.Fprintln(os.Stderr, "🧹 清理完成:")
 	}
 
 	outputJSON(result)
@@ -727,8 +776,8 @@ func cacheClearCmd(args []string) {
 	parseFlagsOrExit(fs, args)
 
 	if !*confirm && !*dryRun {
-		fmt.Println("⚠️ 清空所有快取需要 -confirm 參數")
-		fmt.Println("   使用 -dry-run 可以預覽將被刪除的檔案")
+		fmt.Fprintln(os.Stderr, "⚠️ 清空所有快取需要 -confirm 參數")
+		fmt.Fprintln(os.Stderr, "   使用 -dry-run 可以預覽將被刪除的檔案")
 		os.Exit(1)
 	}
 
@@ -740,9 +789,9 @@ func cacheClearCmd(args []string) {
 	}
 
 	if *dryRun {
-		fmt.Println("🔍 模擬執行結果:")
+		fmt.Fprintln(os.Stderr, "🔍 模擬執行結果:")
 	} else {
-		fmt.Println("🗑️ 已清空所有快取:")
+		fmt.Fprintln(os.Stderr, "🗑️ 已清空所有快取:")
 	}
 
 	outputJSON(result)

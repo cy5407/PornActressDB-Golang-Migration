@@ -116,7 +116,7 @@ class GoAcceleratedStudioIdentifier:
 
         if self.use_go:
             try:
-                from src.services.go_bridge import identify_studio as go_identify
+                from src.services.go_api.identify import identify_studio as go_identify
 
                 result = go_identify(code, check_major=False)
                 if result and "studio" in result:
@@ -147,7 +147,7 @@ class GoAcceleratedStudioIdentifier:
 
         if self.use_go:
             try:
-                from src.services.go_bridge import identify_studios_batch as go_batch
+                from src.services.go_api.identify import identify_studios_batch as go_batch
 
                 results = go_batch(codes, check_major=False)
                 if results:
@@ -181,7 +181,7 @@ class GoAcceleratedStudioIdentifier:
         # 優先使用番號判斷
         if video_code and self.use_go:
             try:
-                from src.services.go_bridge import identify_studio as go_identify
+                from src.services.go_api.identify import identify_studio as go_identify
 
                 result = go_identify(video_code, check_major=False)
                 if result and result.get("studio") and result["studio"] != "UNKNOWN":
@@ -205,7 +205,7 @@ class GoAcceleratedStudioIdentifier:
         """
         if self.use_go:
             try:
-                from src.services.go_bridge import identify_studio as go_identify
+                from src.services.go_api.identify import identify_studio as go_identify
 
                 result = go_identify(code, check_major=True)
                 if result and "is_major" in result:
