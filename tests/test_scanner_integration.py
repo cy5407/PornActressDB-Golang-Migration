@@ -132,20 +132,12 @@ def test_scan_with_codes():
         temp_path = Path(temp_dir)
         test_files = create_test_files(temp_path)
 
-        # Python 模式下的 scan_with_codes（不提取番號）
         scanner = UnifiedFileScanner(use_go=False)
-        results = scanner.scan_with_codes(temp_dir)
-
-        logger.info(f"✅ scan_with_codes 完成: {len(results)} 個檔案")
-
-        # 驗證結果格式
-        for result in results:
-            assert "path" in result, "結果應包含 path"
-            assert "code" in result, "結果應包含 code"
-
-        # Python 模式下 code 為空（因為不提取）
-        if not scanner.use_go:
-            logger.info("   Python 模式: code 欄位為空（預期行為）")
+        try:
+            scanner.scan_with_codes(temp_dir)
+            raise AssertionError("Python 模式應拒絕 scan_with_codes")
+        except RuntimeError as exc:
+            logger.info(f"✅ Python 模式正確拒絕 Go-only scan_with_codes: {exc}")
 
     logger.info("✅ scan_with_codes 測試通過")
 

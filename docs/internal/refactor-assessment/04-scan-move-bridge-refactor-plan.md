@@ -35,11 +35,58 @@
 | 4 | 拆解 `go_bridge.py` 成 runner + domain api | 934 行 → 5 個薄檔 |
 | 5 | `pkg/mover/mover.go` 補齊 context cancel | Go 端補強，非刪 Python |
 
+## 本輪進度（2026-04-04）
+
+- [x] `move` CLI 新增 `-kind dir`，正式暴露 `Mover.MoveDir()` 能力
+- [x] `FileMover.move_dir()` 改為 Go 主路徑，Python 只留 fallback
+- [x] 刪除 `_move_with_go()` 內重複建目錄責任，改由 Go mover 單一負責
+- [x] `scanCmd()` 改用共用 JSON 輸出路徑，收斂 CLI 輸出契約
+- [x] `scan_with_codes()` 改為 Go-only，停止 Python fallback 產生空 `code`
+- [x] `go_bridge.py` 移除 scan/move/history 路徑的混合輸出 JSON 修補依賴
+- [ ] `go_bridge.py` 拆分為 runner + domain api
+- [ ] `move` CLI 支援 `batch-stdin`
+- [ ] `BatchMove` 補齊 context cancel
+- [ ] `cmd/scanner/main.go` 抽出 `pkg/app/*` service 層
+
+## 下一步建議
+
+1. 開始拆 `src/services/go_bridge.py`，先切出 `go_runtime.py` 與 `go_runner.py`
+2. 為 `move` CLI 加入 `-batch-stdin`，拿掉 Python 暫存 JSON 檔依賴
+3. 在 `pkg/mover/mover.go` 的 `BatchMove` 迴圈補上 `ctx.Done()` 檢查與 partial result 契約
+
+---
+
+## 本輪進度
+
+- [x] 已完成：刪除 `src/utils/file_mover.py` `_move_with_go()` 內的 Python 端預先建目錄，改由 Go `pkg/mover.MoveFile()` 單一負責建立目標目錄。
+- [ ] 下一步：在 `cmd/scanner/main.go` 暴露 `MoveDir`（建議 `move -kind dir`），再讓 `file_mover.move_dir()` 優先走 Go 主路徑。
+
 ---
 
 ## 階段 1：清責任邊界（不動功能，先拆層）
 
 **原則：零功能改動，只搬位置。**
+
+### 目前進度（2026-04-04）
+
+- [x] `GoBridge.batch_move()`、`get_operation()`、`rollback()` 已改為直接解析純 JSON stdout，不再容忍混合輸出。
+- [x] `go_bridge` 單元測試已更新為純 JSON 契約，並新增混合 stdout 視為契約違反的測試。
+- [x] `list_operations()` 已移除舊版表格輸出 fallback，改為只接受 `history list -json` 的純 JSON 輸出。
+- [x] `cache prune` / `cache clear` 的狀態提示已移到 `stderr`，保留 `stdout` 給 JSON 結果。
+- [x] `cmd/scanner/main.go` 內兩個既有 `printError` 編譯錯誤已修正，`go test ./cmd/scanner/...` 可通過。
+- [x] `db update` / `db delete` / `db compact` 已新增 `-json` 成功輸出模式，Python bridge 也已切換為使用此契約。
+- [x] `go_bridge` 資料庫 helper 測試已覆蓋 `-json` 呼叫與成功回應解析。
+- [x] `identify -list` / `identify -prefixes` 已新增 `-json` 輸出模式，Python bridge 不再依賴字串切割解析。
+- [x] `cache` 無子命令時的說明文字已改走 `stderr`，避免與未來 machine-readable stdout 混用。
+- [x] 已新增 [`src/services/go_runner.py`](./../../src/services/go_runner.py) 作為 CLI 執行與 JSON 解析共用層，`GoBridge` 已開始用組合方式接它。
+- [x] `GoBridge.scan_directory()`、`move_file()`、`get_operation()` 等路徑已改用 runner 的 `run_json()` / `parse_json()`，bridge 本體責任開始變薄。
+- [x] 已新增 [`src/services/go_api/db.py`](./../../src/services/go_api/db.py) 與 [`src/services/go_api/identify.py`](./../../src/services/go_api/identify.py)，`db_*` / `identify_*` 家族已從 `go_bridge.py` 搬出。
+- [x] `go_accelerated_db.py` / `go_accelerated_studio.py` 已開始直接依賴新的 `go_api` 模組，而不是全部繞經 `go_bridge.py`。
+- [ ] CLI 其餘命令的人類訊息與 JSON 輸出路徑尚未全面盤點。
+
+### 下一步
+
+下一個最小步驟是繼續拆 `scan/move/history` 這條線，優先考慮建立 `go_api/move.py` 或等價模組，把 `batch_move` / `rollback` / `list_operations` 的組裝與轉換搬出 `GoBridge`，讓 class 本體更接近 runtime facade。
 
 ### 1-A：拆解 `go_bridge.py`（934 行 → 多個薄檔）
 

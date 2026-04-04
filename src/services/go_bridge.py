@@ -34,12 +34,17 @@ import json
 import logging
 import os
 import platform  # 用於跨平台執行權限檢查
-import subprocess  # nosec B404
+import subprocess  # 僅供型別註記使用
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+try:
+    from src.services.go_runner import GoBridgeError, GoCommandRunner, run_subprocess
+except ImportError:
+    from services.go_runner import GoBridgeError, GoCommandRunner, run_subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -102,23 +107,6 @@ class OperationLog:
     failed_count: int = 0
     skipped_count: int = 0
 
-
-class GoBridgeError(Exception):
-    """Go 橋接層錯誤"""
-    pass
-
-
-def _run_subprocess(cmd: list[str], timeout: int) -> subprocess.CompletedProcess:
-    """以受控參數列表執行本機 CLI，不經 shell。"""
-    return subprocess.run(  # nosec B603
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=timeout,
-    )
-
-
 class GoBridge:
     """
     Go CLI 橋接層
@@ -148,6 +136,7 @@ class GoBridge:
         self.default_workers = default_workers
         self.default_strategy = default_strategy
         self._available = None  # 延遲檢查
+        self._runner = GoCommandRunner(self.exe_path)
         
         logger.debug(f"GoBridge 初始化: exe_path={self.exe_path}")
     
@@ -203,20 +192,14 @@ class GoBridge:
     def _check_availability(self) -> bool:
         """實際檢查 Go CLI 是否可用"""
         try:
-            result = _run_subprocess([self.exe_path, "help"], timeout=5)
+            result = self._runner.run(["help"], timeout=5, check=False)
             available = result.returncode == 0
             if available:
                 logger.info("✅ Go CLI 可用")
             else:
                 logger.warning(f"⚠️ Go CLI 執行失敗: {result.stderr}")
             return available
-        except FileNotFoundError:
-            logger.warning(f"⚠️ 找不到執行檔: {self.exe_path}")
-            return False
-        except subprocess.TimeoutExpired:
-            logger.warning("⚠️ Go CLI 執行超時")
-            return False
-        except Exception as e:
+        except GoBridgeError as e:
             logger.warning(f"⚠️ Go CLI 檢查失敗: {e}")
             return False
     
@@ -240,45 +223,20 @@ class GoBridge:
         Raises:
             GoBridgeError: 執行失敗時
         """
-        cmd = [self.exe_path] + args
-        logger.debug(f"執行命令: {' '.join(cmd)}")
-        
-        try:
-            result = _run_subprocess(cmd, timeout=timeout)
-            
-            if check and result.returncode != 0:
-                error_msg = result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
-                raise GoBridgeError(error_msg)
-            
-            return result
-            
-        except subprocess.TimeoutExpired:
-            raise GoBridgeError(f"命令執行超時 ({timeout}s)")
-        except FileNotFoundError:
-            raise GoBridgeError(f"找不到執行檔: {self.exe_path}")
+        return self._runner.run(args, timeout=timeout, check=check)
     
     def _parse_json(self, output: str) -> dict | list:
         """解析 JSON 輸出"""
-        try:
-            return json.loads(output)
-        except json.JSONDecodeError as e:
-            raise GoBridgeError(f"JSON 解析失敗: {e}\n輸出: {output[:200]}")
+        return self._runner.parse_json(output)
 
-    def _parse_json_from_output(self, output: str) -> dict | list:
-        """從純 JSON 或混合輸出中擷取 JSON 內容。"""
-        text = output.strip()
-        if not text:
-            raise GoBridgeError("命令沒有輸出任何內容")
-
-        try:
-            return self._parse_json(text)
-        except GoBridgeError:
-            lines = text.splitlines()
-            for index, line in enumerate(lines):
-                stripped = line.lstrip()
-                if stripped.startswith("{") or stripped.startswith("["):
-                    return self._parse_json("\n".join(lines[index:]))
-            raise
+    def _run_json(
+        self,
+        args: list[str],
+        timeout: int = 60,
+        check: bool = True,
+    ) -> dict | list:
+        """執行命令並直接回傳解析後的 JSON。"""
+        return self._runner.run_json(args, timeout=timeout, check=check)
 
     def _build_batch_move_result(
         self,
@@ -354,9 +312,7 @@ class GoBridge:
         if not recursive:
             args.append("-recursive=false")
         
-        result = self._run_command(args)
-        
-        data = self._parse_json(result.stdout)
+        data = self._run_json(args)
         
         return [
             ScanResult(path=item["path"], code=item["code"])
@@ -400,8 +356,7 @@ class GoBridge:
         if dry_run:
             args.append("-dry-run")
         
-        result = self._run_command(args, check=False)
-        data = self._parse_json(result.stdout)
+        data = self._run_json(args, check=False)
         
         return MoveResult(
             source=data.get("source", source),
@@ -411,6 +366,47 @@ class GoBridge:
             skipped=data.get("skipped", False),
             renamed=data.get("renamed"),
         )
+
+    def move_dir(
+        self,
+        source: str,
+        destination: str,
+        strategy: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> dict:
+        """移動整個目錄。"""
+        strategy = strategy or self.default_strategy
+
+        args = [
+            "move",
+            "-kind", "dir",
+            "-src", source,
+            "-dst", destination,
+            "-strategy", strategy,
+            "-log-dir", self.log_dir,
+        ]
+
+        if dry_run:
+            args.append("-dry-run")
+
+        result = self._run_command(args, check=False)
+        data = self._parse_json(result.stdout)
+
+        return {
+            "source": data.get("source_dir", source),
+            "destination": data.get("dest_dir", destination),
+            "success": data.get("success", False),
+            "files_moved": data.get("files_moved", 0),
+            "files_total": data.get("files_total", 0),
+            "deleted_source": data.get("deleted_src", False),
+            "errors": data.get("errors", []),
+            "error": "; ".join(
+                err.get("error", "")
+                for err in data.get("errors", [])
+                if err.get("error")
+            ) or None,
+            "skipped": False,
+        }
     
     def batch_move(
         self,
@@ -465,13 +461,12 @@ class GoBridge:
             
             if dry_run:
                 args.append("-dry-run")
-            
+
             result = self._run_command(args, check=False, timeout=300)
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
                 raise GoBridgeError(error_msg)
-
-            data = self._parse_json_from_output(result.stdout)
+            data = self._parse_json(result.stdout)
             return self._build_batch_move_result(data, default_total_items=len(items))
             
         finally:
@@ -493,38 +488,16 @@ class GoBridge:
             list[OperationLog]: 操作日誌列表
         """
         args = ["history", "list", "-log-dir", self.log_dir, "-json"]
-        
+
         try:
             result = self._run_command(args, check=False)
             if result.returncode != 0:
                 raise GoBridgeError(
                     result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
                 )
-            
-            # 檢查是否為 "沒有操作記錄" 的訊息
-            if "沒有操作記錄" in result.stdout:
-                return []
-            
-            try:
-                data = self._parse_json_from_output(result.stdout)
-                logs = [self._build_operation_log(item) for item in data]
-            except GoBridgeError:
-                # 相容舊版表格輸出
-                lines = result.stdout.strip().split("\n")
-                logs = []
 
-                for line in lines[2:]:  # 跳過標題行
-                    parts = line.split()
-                    if len(parts) >= 4:
-                        logs.append(
-                            OperationLog(
-                                id=parts[0],
-                                timestamp=f"{parts[1]} {parts[2]}",
-                                type=self._normalize_operation_type(parts[3]),
-                                status=parts[4] if len(parts) > 4 else "",
-                                items=[],
-                            )
-                        )
+            data = self._parse_json(result.stdout)
+            logs = [self._build_operation_log(item) for item in data]
 
             if limit is not None:
                 return logs[:limit]
@@ -547,7 +520,7 @@ class GoBridge:
         
         try:
             result = self._run_command(args)
-            data = self._parse_json_from_output(result.stdout)
+            data = self._parse_json(result.stdout)
             return self._build_operation_log(data, default_operation_id=operation_id)
              
         except GoBridgeError:
@@ -567,13 +540,12 @@ class GoBridge:
             GoBridgeError: 回滾失敗時
         """
         args = ["history", "rollback", "-log-dir", self.log_dir, "-json", operation_id]
-        
+
         result = self._run_command(args, check=False)
         if result.returncode != 0:
             error_msg = result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
             raise GoBridgeError(error_msg)
-
-        data = self._parse_json_from_output(result.stdout)
+        data = self._parse_json(result.stdout)
         return self._build_batch_move_result(data)
     
     def rollback_last(self) -> BatchMoveResult:
@@ -619,316 +591,33 @@ def move_file_go(source: str, destination: str, strategy: str = "skip") -> dict:
     }
 
 
-# === 資料庫 API ===
-
-def db_get_video(code: str, data_dir: str = "data/json_db") -> Optional[dict]:
-    """
-    取得影片資訊
-
-    Args:
-        code: 影片番號
-        data_dir: 資料庫目錄
-
-    Returns:
-        影片資料 dict，或 None（影片不存在時）
-
-    Raises:
-        GoBridgeError: Go CLI 執行失敗時（與「資料不存在」不同，需由呼叫者決定是否 fallback）
-
-    注意：
-        「資料不存在」返回 None（Go CLI 回應 null 或空輸出）
-        「CLI 執行失敗」拋出 GoBridgeError，呼叫者應捕捉並 fallback 到 Python 實作
-    """
-    bridge = get_bridge()
-    # 先放 flags，再放 positional args（Go flag.FlagSet 遇到非 flag 參數就停止解析）
-    cmd = ["db", "get"]
-    if data_dir != "data/json_db":
-        cmd.extend(["-data-dir", data_dir])  # flag 必須在 positional arg 前面
-    cmd.append(code)  # positional arg 放最後
-
-    try:
-        result = bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
-    except GoBridgeError as e:
-        # Go CLI 執行失敗（如找不到執行檔、權限不足、逾時等）→ 記錄後重新拋出
-        logger.error(f"❌ Go CLI 執行失敗 (影片 {code}): {e}")  # Go CLI 執行失敗為 error
-        raise  # 讓呼叫者決定是否 fallback 到 Python
-
-    # 輸出為空或 null → 影片不存在（正常情況，不需要 fallback）
-    output = result.stdout.strip()
-    if not output or output == "null":
-        return None
-
-    try:
-        data = bridge._parse_json(output)  # JSON 解析失敗時拋出 GoBridgeError
-    except GoBridgeError as e:
-        # JSON 解析失敗（輸出格式異常）→ 記錄後重新拋出，讓呼叫者決定是否 fallback
-        logger.warning(f"⚠️ JSON 解析失敗 (影片 {code}): {e}")  # JSON 解析失敗為 warning
-        raise
-
-    # 確保返回值為 dict（防禦性處理）
-    return data if isinstance(data, dict) else None
-
-
-def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> bool:
-    """
-    更新影片資訊
-
-    Args:
-        code: 影片番號
-        video: 影片資料 dict
-        data_dir: 資料庫目錄
-
-    Returns:
-        成功返回 True，失敗返回 False
-    """
-    bridge = get_bridge()
-    temp_file = None
-    try:
-        # 寫入暫存 JSON 檔案
-        with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.json', delete=False, encoding='utf-8'
-        ) as f:
-            json.dump(video, f, ensure_ascii=False, indent=2)
-            temp_file = f.name
-
-        try:
-            # 先放 flags，再放 positional args（Go flag.FlagSet 遇到非 flag 參數就停止解析）
-            cmd = ["db", "update"]
-            if data_dir != "data/json_db":
-                cmd.extend(["-data-dir", data_dir])  # flag 必須在 positional args 前面
-            cmd.extend([code, temp_file])  # positional args 放最後
-
-            bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
-            logger.info(f"✅ 影片 {code} 更新成功")
-            return True
-        except GoBridgeError as e:
-            error_msg = str(e)
-            logger.error(f"❌ Go CLI 執行失敗，影片 {code} 更新失敗: {error_msg}")  # Go CLI 執行失敗為 error
-            return False
-        finally:
-            _cleanup_temp_file(temp_file, "db_update_video")
-    except Exception as e:
-        logger.error(f"❌ 更新影片失敗 {code}: {e}")  # 其他異常為 error
-        return False
-
-
-def db_delete_video(code: str, data_dir: str = "data/json_db") -> bool:
-    """
-    刪除影片
-
-    Args:
-        code: 影片番號
-        data_dir: 資料庫目錄
-
-    Returns:
-        成功返回 True，失敗返回 False
-    """
-    bridge = get_bridge()
-    try:
-        # 先放 flags，再放 positional args（Go flag.FlagSet 遇到非 flag 參數就停止解析）
-        cmd = ["db", "delete"]
-        if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])  # flag 必須在 positional arg 前面
-        cmd.append(code)  # positional arg 放最後
-
-        bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
-        logger.info(f"✅ 影片 {code} 刪除成功")
-        return True
-    except GoBridgeError as e:
-        logger.error(f"❌ Go CLI 執行失敗，影片 {code} 刪除失敗: {e}")  # Go CLI 執行失敗為 error
-        return False
-    except Exception as e:
-        logger.error(f"❌ 刪除影片失敗 {code}: {e}")  # 其他異常為 error
-        return False
-
-
-def db_list_videos(data_dir: str = "data/json_db") -> list[str]:
-    """
-    列出所有影片番號
-
-    Args:
-        data_dir: 資料庫目錄
-
-    Returns:
-        影片番號列表
-    """
-    bridge = get_bridge()
-    try:
-        # 先放 flags（db list 無 positional args，但統一放在命令後面保持一致）
-        cmd = ["db", "list"]
-        if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])  # flag 放在子命令後、任何 positional arg 前
-
-        result = bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
-        data = bridge._parse_json(result.stdout)  # JSON 解析失敗時拋出 GoBridgeError
-        return data if isinstance(data, list) else []
-    except GoBridgeError as e:
-        error_msg = str(e)
-        # 區分錯誤類型：parse 失敗 vs bridge 故障
-        if "JSON" in error_msg:
-            logger.warning(f"⚠️ JSON 解析失敗: {error_msg}")  # JSON 解析失敗為 warning
-        else:
-            logger.error(f"❌ Go CLI 執行失敗，列出影片失敗: {error_msg}")  # Go CLI 執行失敗為 error
-        return []
-    except Exception as e:
-        logger.error(f"❌ 列出影片失敗: {e}")  # 其他異常為 error
-        return []
-
-
-def db_get_stats(data_dir: str = "data/json_db") -> dict:
-    """
-    取得資料庫統計資訊
-
-    Args:
-        data_dir: 資料庫目錄
-
-    Returns:
-        統計資料 dict
-    """
-    bridge = get_bridge()
-    try:
-        # 先放 flags（db stats 無 positional args，但統一放在命令後面保持一致）
-        cmd = ["db", "stats"]
-        if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])  # flag 放在子命令後、任何 positional arg 前
-
-        result = bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
-        data = bridge._parse_json(result.stdout)  # JSON 解析失敗時拋出 GoBridgeError
-        return data if isinstance(data, dict) else {}
-    except GoBridgeError as e:
-        error_msg = str(e)
-        # 區分錯誤類型：parse 失敗 vs bridge 故障
-        if "JSON" in error_msg:
-            logger.warning(f"⚠️ JSON 解析失敗: {error_msg}")  # JSON 解析失敗為 warning
-        else:
-            logger.error(f"❌ Go CLI 執行失敗，取得統計失敗: {error_msg}")  # Go CLI 執行失敗為 error
-        return {}
-    except Exception as e:
-        logger.error(f"❌ 取得統計失敗: {e}")  # 其他異常為 error
-        return {}
-
-
-def db_compact_journal(data_dir: str = "data/json_db") -> bool:
-    """
-    合併 journal 到主資料庫
-
-    Args:
-        data_dir: 資料庫目錄
-
-    Returns:
-        成功返回 True，失敗返回 False
-    """
-    bridge = get_bridge()
-    try:
-        # 先放 flags（db compact 無 positional args，但統一放在命令後面保持一致）
-        cmd = ["db", "compact"]
-        if data_dir != "data/json_db":
-            cmd.extend(["-data-dir", data_dir])  # flag 放在子命令後、任何 positional arg 前
-
-        bridge._run_command(cmd)  # Go CLI 執行失敗時拋出 GoBridgeError
-        logger.info("✅ Journal 合併成功")
-        return True
-    except GoBridgeError as e:
-        logger.error(f"❌ Go CLI 執行失敗，合併 journal 失敗: {e}")  # Go CLI 執行失敗為 error
-        return False
-    except Exception as e:
-        logger.error(f"❌ 合併 journal 失敗: {e}")  # 其他異常為 error
-        return False
-
-# === 片商識別功能 ===
-
-def identify_studio(code: str, check_major: bool = False) -> dict:
-    """
-    識別番號所屬片商
-
-    Args:
-        code: 番號
-        check_major: 是否檢查是否為大片商
-
-    Returns:
-        包含 studio 和 (可選) is_major 的 dict
-    """
-    bridge = get_bridge()
-    try:
-        cmd = ["identify", code]
-        if check_major:
-            cmd.insert(1, "-major")
-
-        result = bridge._run_command(cmd)
-        return bridge._parse_json(result.stdout)
-    except Exception as e:
-        logger.error(f"❌ 識別片商失敗: {e}")
-        return {"code": code, "studio": "UNKNOWN"}
-
-
-def identify_studios_batch(codes: list[str], check_major: bool = False) -> list[dict]:
-    """
-    批次識別番號所屬片商
-
-    Args:
-        codes: 番號列表
-        check_major: 是否檢查是否為大片商
-
-    Returns:
-        識別結果列表
-    """
-    bridge = get_bridge()
-    try:
-        # 建立臨時檔案
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
-            f.write('\n'.join(codes))
-            temp_file = f.name
-
-        try:
-            cmd = ["identify", "-batch", temp_file]
-            if check_major:
-                cmd.insert(1, "-major")
-
-            result = bridge._run_command(cmd)
-            return bridge._parse_json(result.stdout)
-        finally:
-            _cleanup_temp_file(temp_file, "identify_studios_batch")
-    except Exception as e:
-        logger.error(f"❌ 批次識別片商失敗: {e}")
-        return []
-
-
-def list_studios() -> list[str]:
-    """
-    列出所有片商
-
-    Returns:
-        片商名稱列表（大片商會標註）
-    """
-    bridge = get_bridge()
-    try:
-        result = bridge._run_command(["identify", "-list"])
-        # 返回原始輸出（每行一個片商）
-        return [line.strip() for line in result.stdout.strip().split('\n')]
-    except Exception as e:
-        logger.error(f"❌ 列出片商失敗: {e}")
-        return []
-
-
-def get_studio_prefixes(studio_name: str) -> list[str]:
-    """
-    取得指定片商的所有前綴
-
-    Args:
-        studio_name: 片商名稱
-
-    Returns:
-        前綴列表
-    """
-    bridge = get_bridge()
-    try:
-        result = bridge._run_command(["identify", "-prefixes", studio_name])
-        # 解析輸出: "片商 S1 的前綴: SSIS, SSNI, ..."
-        output = result.stdout.strip()
-        if ":" in output:
-            prefixes_str = output.split(":", 1)[1].strip()
-            return [p.strip() for p in prefixes_str.split(",")]
-        return []
-    except Exception as e:
-        logger.error(f"❌ 取得片商前綴失敗: {e}")
-        return []
+try:
+    from src.services.go_api.db import (
+        db_compact_journal,
+        db_delete_video,
+        db_get_stats,
+        db_get_video,
+        db_list_videos,
+        db_update_video,
+    )
+    from src.services.go_api.identify import (
+        get_studio_prefixes,
+        identify_studio,
+        identify_studios_batch,
+        list_studios,
+    )
+except ImportError:
+    from services.go_api.db import (
+        db_compact_journal,
+        db_delete_video,
+        db_get_stats,
+        db_get_video,
+        db_list_videos,
+        db_update_video,
+    )
+    from services.go_api.identify import (
+        get_studio_prefixes,
+        identify_studio,
+        identify_studios_batch,
+        list_studios,
+    )

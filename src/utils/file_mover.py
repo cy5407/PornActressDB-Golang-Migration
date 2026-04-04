@@ -192,10 +192,6 @@ class FileMover:
     ) -> dict:
         """使用 Go CLI 執行移動"""
         try:
-            # 如果需要建立目錄，先用 Python 建立（Go CLI 不支援此功能）
-            if create_dirs:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-            
             go_result = self.go_bridge.move_file(
                 source=str(source),
                 destination=str(destination),
@@ -285,26 +281,23 @@ class FileMover:
                     destination = self._get_unique_path(destination)
                     result["destination"] = str(destination)
             
-            # 建立父目錄
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            
             # 使用 Go 或 Python 移動
             if self.use_go and self.go_bridge:
                 try:
-                    go_result = self.go_bridge.move_file(
+                    go_result = self.go_bridge.move_dir(
                         source=str(source),
                         destination=str(destination),
                         strategy=self.conflict_strategy,
-                        log_operation=self.enable_log,
                     )
-                    result["success"] = go_result.success
-                    if go_result.error:
-                        result["error"] = go_result.error
+                    result.update(go_result)
                 except Exception as e:
+                    logger.warning(f"⚠️ Go 目錄移動失敗，回退到 Python: {e}")
                     # 回退到 Python
+                    destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(source), str(destination))
                     result["success"] = True
             else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(source), str(destination))
                 result["success"] = True
                 

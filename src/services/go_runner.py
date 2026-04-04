@@ -1,0 +1,70 @@
+"""Go CLI 執行與 JSON 解析共用 helper。"""
+
+import json
+import logging
+import subprocess  # nosec B404
+
+logger = logging.getLogger(__name__)
+
+
+class GoBridgeError(Exception):
+    """Go 橋接層錯誤。"""
+
+
+def run_subprocess(cmd: list[str], timeout: int) -> subprocess.CompletedProcess:
+    """以受控參數列表執行本機 CLI，不經 shell。"""
+    return subprocess.run(  # nosec B603
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=timeout,
+    )
+
+
+class GoCommandRunner:
+    """封裝 Go CLI 的 subprocess 執行與 JSON 解析。"""
+
+    def __init__(self, exe_path: str):
+        self.exe_path = exe_path
+
+    def run(
+        self,
+        args: list[str],
+        timeout: int = 60,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess:
+        """執行 Go CLI 命令。"""
+        cmd = [self.exe_path] + args
+        logger.debug(f"執行命令: {' '.join(cmd)}")
+
+        try:
+            result = run_subprocess(cmd, timeout=timeout)
+
+            if check and result.returncode != 0:
+                error_msg = result.stderr.strip() or f"命令失敗，返回碼: {result.returncode}"
+                raise GoBridgeError(error_msg)
+
+            return result
+
+        except subprocess.TimeoutExpired:
+            raise GoBridgeError(f"命令執行超時 ({timeout}s)")
+        except FileNotFoundError:
+            raise GoBridgeError(f"找不到執行檔: {self.exe_path}")
+
+    def parse_json(self, output: str) -> dict | list:
+        """解析 JSON 輸出。"""
+        try:
+            return json.loads(output)
+        except json.JSONDecodeError as e:
+            raise GoBridgeError(f"JSON 解析失敗: {e}\n輸出: {output[:200]}")
+
+    def run_json(
+        self,
+        args: list[str],
+        timeout: int = 60,
+        check: bool = True,
+    ) -> dict | list:
+        """執行命令並直接回傳解析後的 JSON。"""
+        result = self.run(args, timeout=timeout, check=check)
+        return self.parse_json(result.stdout)

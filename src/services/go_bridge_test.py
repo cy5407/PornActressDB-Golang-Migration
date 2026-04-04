@@ -3,6 +3,7 @@ Go 橋接層單元測試
 """
 
 import json
+import io
 import os
 import shutil
 import tempfile
@@ -23,6 +24,11 @@ from services.go_bridge import (
     get_bridge,
     scan_directory_go,
     move_file_go,
+    db_update_video,
+    db_delete_video,
+    db_compact_journal,
+    list_studios,
+    get_studio_prefixes,
 )
 
 
@@ -267,11 +273,25 @@ class TestGoBridgeBatchMove(unittest.TestCase):
         self.assertEqual(result.failed_count, 1)
 
     @patch('services.go_bridge.os.unlink', side_effect=PermissionError("locked"))
+    @patch('services.go_bridge.tempfile.NamedTemporaryFile')
     @patch('subprocess.run')
     def test_batch_move_cleanup_failure_does_not_override_result(
-        self, mock_run, mock_unlink
+        self, mock_run, mock_tempfile, mock_unlink
     ):
         """測試暫存檔清理失敗不會覆蓋批次移動結果"""
+        class FakeNamedTemporaryFile(io.StringIO):
+            def __init__(self, name: str):
+                super().__init__()
+                self.name = name
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                self.close()
+                return False
+
+        mock_tempfile.return_value = FakeNamedTemporaryFile("batch-move-test.json")
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout=json.dumps({
@@ -302,7 +322,7 @@ class TestGoBridgeHistory(unittest.TestCase):
         """測試空操作歷史"""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="沒有操作記錄",
+            stdout="[]",
             stderr="",
         )
         
@@ -310,13 +330,27 @@ class TestGoBridgeHistory(unittest.TestCase):
         logs = bridge.list_operations()
         
         self.assertEqual(len(logs), 0)
+
+    @patch('subprocess.run')
+    def test_list_operations_rejects_legacy_table_stdout(self, mock_run):
+        """測試舊表格輸出不再被 bridge 吞掉，而是回傳空列表"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="ID 時間 類型 狀態\n----\nabc123 2026-03-10 13:00:00 batch_move completed",
+            stderr="",
+        )
+
+        bridge = GoBridge()
+        logs = bridge.list_operations()
+
+        self.assertEqual(logs, [])
     
     @patch('subprocess.run')
     def test_rollback(self, mock_run):
         """測試回滾"""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout='✅ 回滾完成: 成功 1, 失敗 0\n' + json.dumps({
+            stdout=json.dumps({
                 "total_items": 1,
                 "success_count": 1,
                 "failed_count": 0,
@@ -334,6 +368,44 @@ class TestGoBridgeHistory(unittest.TestCase):
         
         self.assertIsInstance(result, BatchMoveResult)
         self.assertEqual(result.success_count, 1)
+
+    @patch('subprocess.run')
+    def test_rollback_rejects_mixed_stdout(self, mock_run):
+        """測試回滾輸出若混入文字會視為契約違反"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='✅ 回滾完成: 成功 1, 失敗 0\n{"success_count": 1}',
+            stderr="",
+        )
+
+        bridge = GoBridge()
+        with self.assertRaises(GoBridgeError):
+            bridge.rollback("abc123")
+
+    @patch('subprocess.run')
+    def test_move_dir_success(self, mock_run):
+        """測試目錄移動走 CLI 的 dir 契約"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "source_dir": "src",
+                "dest_dir": "dst",
+                "files_moved": 2,
+                "files_total": 2,
+                "success": True,
+                "deleted_src": True,
+            }),
+            stderr="",
+        )
+
+        bridge = GoBridge()
+        result = bridge.move_dir("src", "dst")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["files_moved"], 2)
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("-kind", call_args)
+        self.assertIn("dir", call_args)
 
     @patch('subprocess.run')
     def test_get_operation_normalizes_legacy_move_batch_type(self, mock_run):
@@ -404,6 +476,101 @@ class TestConvenienceFunctions(unittest.TestCase):
 
 class TestGoBridgeDatabaseAndStudioHelpers(unittest.TestCase):
     """測試會建立暫存檔的便捷 helper"""
+
+    @patch('subprocess.run')
+    def test_db_update_video_uses_json_contract(self, mock_run):
+        """測試 db update 走 JSON 成功契約"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "success": True,
+                "action": "update",
+                "code": "SSIS-001",
+                "data_dir": "data/json_db",
+            }),
+            stderr="",
+        )
+
+        result = db_update_video("SSIS-001", {"code": "SSIS-001"})
+
+        self.assertTrue(result)
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("-json", call_args)
+
+    @patch('subprocess.run')
+    def test_db_delete_video_uses_json_contract(self, mock_run):
+        """測試 db delete 走 JSON 成功契約"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "success": True,
+                "action": "delete",
+                "code": "SSIS-001",
+                "data_dir": "data/json_db",
+            }),
+            stderr="",
+        )
+
+        result = db_delete_video("SSIS-001")
+
+        self.assertTrue(result)
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("-json", call_args)
+
+    @patch('subprocess.run')
+    def test_db_compact_journal_uses_json_contract(self, mock_run):
+        """測試 db compact 走 JSON 成功契約"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "success": True,
+                "action": "compact",
+                "data_dir": "data/json_db",
+            }),
+            stderr="",
+        )
+
+        result = db_compact_journal()
+
+        self.assertTrue(result)
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("-json", call_args)
+
+    @patch('subprocess.run')
+    def test_list_studios_uses_json_contract(self, mock_run):
+        """測試列出片商改走 JSON 契約"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps([
+                {"studio": "S1", "is_major": True},
+                {"studio": "MOODYZ", "is_major": True},
+            ]),
+            stderr="",
+        )
+
+        result = list_studios()
+
+        self.assertEqual(result, ["S1", "MOODYZ"])
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("-json", call_args)
+
+    @patch('subprocess.run')
+    def test_get_studio_prefixes_uses_json_contract(self, mock_run):
+        """測試片商前綴查詢改走 JSON 契約"""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({
+                "studio": "S1",
+                "prefixes": ["SSIS", "SONE"],
+            }),
+            stderr="",
+        )
+
+        result = get_studio_prefixes("S1")
+
+        self.assertEqual(result, ["SSIS", "SONE"])
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("-json", call_args)
 
     @patch('services.go_bridge.os.unlink', side_effect=PermissionError("locked"))
     @patch('subprocess.run')
