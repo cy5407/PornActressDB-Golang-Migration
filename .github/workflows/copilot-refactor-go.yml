@@ -2,9 +2,6 @@ name: Copilot Go Extractor Refactor
 
 on:
   workflow_dispatch:
-  schedule:
-    # Asia/Taipei Monday 09:00
-    - cron: '0 1 * * 1'
 
 permissions:
   contents: write
