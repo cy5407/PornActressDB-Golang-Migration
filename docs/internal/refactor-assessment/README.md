@@ -34,6 +34,7 @@
 2. [02-search-and-scrapers.md](./02-search-and-scrapers.md)
 3. [03-classification-core.md](./03-classification-core.md)
 4. [04-scan-move-and-bridge.md](./04-scan-move-and-bridge.md)
+   深入版：[04-scan-move-and-bridge-deep-dive.md](./04-scan-move-and-bridge-deep-dive.md)
 5. [05-gui-and-interaction.md](./05-gui-and-interaction.md)
 6. [06-tests-and-tooling.md](./06-tests-and-tooling.md)
 
@@ -84,4 +85,3 @@
 - 最後只留下 Tkinter GUI、偏好設定、少量流程控制
 
 這條路線可以在不重做桌面應用的前提下，顯著壓低 Python 佔比。
-
