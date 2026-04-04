@@ -22,6 +22,7 @@ pip-delete-this-directory.txt
 # 臨時檔案
 *.temp
 *.tmp
+.tmp-test/
 debug_*
 temp_*
 *_backup_*
