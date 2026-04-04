@@ -358,14 +358,13 @@ from pathlib import Path
 path = Path("C:/Users/test/file.mp4")  # ✅ 自動轉換
 ```
 
-### 級聯搜尋邏輯
+### 搜尋邏輯
 
 #### 檢查順序
 ```python
-# 正確的級聯順序
+# 正確的搜尋順序（chiba-f 已移除）
 # 1. AV-WIKI (主要)
-# 2. chiba-f (備援)
-# 3. JAVDB (最終)
+# 2. JAVDB (最終)
 ```
 
 #### 檢查重點

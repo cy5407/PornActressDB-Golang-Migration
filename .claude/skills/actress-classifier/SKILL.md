@@ -55,7 +55,6 @@ src/
 ├── scrapers/                            # 爬蟲
 │   └── sources/
 │       ├── avwiki_scraper.py            # AV-WIKI（主要來源）
-│       ├── chibaf_scraper.py            # chiba-f（備援）
 │       └── javdb_scraper.py             # JAVDB（補充）
 └── ui/                                  # 介面
     ├── main_gui.py                      # 主 GUI
@@ -142,7 +141,7 @@ self.root.after(0, lambda: self.update_ui())
 
 ### 4. 級聯搜尋策略
 
-搜尋順序：AV-WIKI → chiba-f → JAVDB
+搜尋順序：AV-WIKI → JAVDB
 
 ```python
 result = self.web_searcher.batch_cascade_search(

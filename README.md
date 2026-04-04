@@ -12,7 +12,7 @@
 ## 主要功能
 
 - 掃描資料夾中的影片檔案並提取番號
-- 透過 `AV-WIKI`、`chiba-f.net`、`JAVDB` 搜尋女優資訊
+- 透過 `AV-WIKI`、`JAVDB` 搜尋女優資訊
 - 依女優自動分類影片
 - 支援多人共演時的互動式分類
 - 依片商整理女優資料夾
@@ -114,8 +114,7 @@ python run.py
 系統目前會依序使用以下來源搜尋：
 
 1. `AV-WIKI`
-2. `chiba-f.net`
-3. `JAVDB`
+2. `JAVDB`
 
 ### GUI 常見功能
 
@@ -211,7 +210,7 @@ videos[番號]
 
 - `legacy-import`
 - `AV-WIKI`
-- `chiba-f.net`
+- `chiba-f.net`（歷史資料保留，新搜尋不再產生）
 - `JAVDB`
 - `cascade`
 
@@ -251,11 +250,19 @@ python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --wr
 ├── config.ini.example
 ├── requirements.txt
 ├── cmd\
-│   └── scanner\              # Go CLI 入口
+│   └── scanner\              # Go CLI 入口（main.go + *_cmd.go）
 ├── pkg\                      # Go 套件
+│   ├── app\                  # 服務層（scan/move/history service）
+│   ├── contracts\            # 介面定義（scan/move/history）
+│   ├── cache\                # 快取管理
+│   ├── database\             # JSON 資料庫
+│   ├── extractor\            # 番號提取
+│   ├── mover\                # 檔案移動（含批次/回滾）
+│   └── studio\               # 片商識別
 ├── src\
 │   ├── models\               # 設定與資料模型
 │   ├── services\             # 分類與搜尋核心
+│   │   └── go_api\           # Go CLI 領域 API（scan/move/db/identify）
 │   ├── scrapers\             # 搜尋來源
 │   ├── ui\                   # GUI 介面
 │   └── utils\                # 工具模組
@@ -309,7 +316,7 @@ This project uses a **Python + Go hybrid architecture**:
 ## Main Features
 
 - Scan video files in folders and extract video codes
-- Search for actress information via `AV-WIKI`, `chiba-f.net`, and `JAVDB`
+- Search for actress information via `AV-WIKI` and `JAVDB`
 - Automatically classify videos by actress
 - Supports interactive classification for multi-actress videos
 - Organize actress folders by studio
@@ -411,8 +418,7 @@ After launching, the main interface can be used to:
 The system currently searches the following sources in order:
 
 1. `AV-WIKI`
-2. `chiba-f.net`
-3. `JAVDB`
+2. `JAVDB`
 
 ### Common GUI Features
 
@@ -518,7 +524,7 @@ The `search_method` field currently uses the following values:
 
 - `legacy-import`
 - `AV-WIKI`
-- `chiba-f.net`
+- `chiba-f.net` (retained for historical data; no longer produced by new searches)
 - `JAVDB`
 - `cascade`
 
@@ -558,11 +564,19 @@ python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --wr
 ├── config.ini.example
 ├── requirements.txt
 ├── cmd\
-│   └── scanner\              # Go CLI entry point
+│   └── scanner\              # Go CLI entry point (main.go + *_cmd.go)
 ├── pkg\                      # Go packages
+│   ├── app\                  # Service layer (scan/move/history service)
+│   ├── contracts\            # Interface definitions (scan/move/history)
+│   ├── cache\                # Cache management
+│   ├── database\             # JSON database
+│   ├── extractor\            # Code extraction
+│   ├── mover\                # File mover (batch/rollback)
+│   └── studio\               # Studio identification
 ├── src\
 │   ├── models\               # Configuration and data models
 │   ├── services\             # Classification and search core
+│   │   └── go_api\           # Go CLI domain API (scan/move/db/identify)
 │   ├── scrapers\             # Search sources
 │   ├── ui\                   # GUI interface
 │   └── utils\                # Utility modules

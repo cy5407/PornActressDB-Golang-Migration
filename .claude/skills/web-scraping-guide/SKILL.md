@@ -15,15 +15,15 @@ argument-hint: "[scraper-name]"
 4. **設定速率限制**（避免被封鎖）
 5. **修復爬蟲失敗**（網站改版）
 
-## 級聯搜尋順序
+## 搜尋順序
 
 ```
 AV-WIKI (主要)
     ↓ 失敗
-chiba-f.net (備援)
-    ↓ 失敗
 JAVDB (最終)
 ```
+
+> chiba-f.net 已於 2026-03-22 移除。
 
 ## 爬蟲架構
 
@@ -31,7 +31,6 @@ JAVDB (最終)
 src/scrapers/
 ├── sources/
 │   ├── avwiki_scraper.py     # AV-WIKI 爬蟲
-│   ├── chibaf_scraper.py     # chiba-f 爬蟲
 │   └── javdb_scraper.py      # JAVDB 爬蟲
 ├── cache_manager.py          # 快取管理
 └── unified_scraper.py        # 統一介面
@@ -100,12 +99,7 @@ class WebSearcher:
         if result:
             return result
         
-        # 3. chiba-f
-        result = await self.chibaf.search(code)
-        if result:
-            return result
-        
-        # 4. JAVDB (最終)
+        # 3. JAVDB (最終)
         return await self.javdb.search(code)
 ```
 

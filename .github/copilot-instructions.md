@@ -128,7 +128,7 @@ tests/               # Python 測試
    - ⚠️ 警告訊息
    - 📊 統計資料
 4. **錯誤處理**：所有外部呼叫（網路、檔案）必須使用 try-except
-5. **級聯搜尋順序**：AV-WIKI → chiba-f → JAVDB
+5. **搜尋順序**：AV-WIKI → JAVDB（chiba-f 已移除）
 
 ### Go 編碼標準
 1. **錯誤處理**：所有 `error` 必須檢查，使用 `fmt.Errorf` 包裝錯誤鏈
