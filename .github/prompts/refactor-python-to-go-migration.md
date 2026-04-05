@@ -10,8 +10,8 @@ Do not attempt multiple tasks in one run.
 - [x] DONE: `src/services/go_api/identify.py` — add `runner` keyword injection to all public functions
 - [x] DONE: `tests/test_go_api_runner_injection.py` — 33 tests covering db.py + identify.py
 - [x] DONE: `tests/test_go_api_move_scan_injection.py` — add runner injection tests for `go_api/move.py` and `go_api/scan.py` (mirror the pattern in test_go_api_runner_injection.py)
-- [ ] TODO: `src/services/go_api/move.py` — add `runner` keyword injection to all public functions (mirror db.py pattern)
-- [ ] TODO: `src/services/go_api/scan.py` — add `runner` keyword injection to all public functions
+- [ ] TODO: `src/services/go_api/move.py` — add `runner` keyword injection to all public functions (mirror db.py pattern). **Verify**: run `grep -n "def.*runner" src/services/go_api/move.py` — must show runner param in every public function before marking DONE.
+- [ ] TODO: `src/services/go_api/scan.py` — add `runner` keyword injection to all public functions. **Verify**: run `grep -n "def.*runner" src/services/go_api/scan.py` — must show runner param in every public function before marking DONE.
 
 ## Phase 2 — Replace Python reimplementations with Go delegation
 - [ ] TODO: `src/models/extractor.py` — `UnifiedCodeExtractor.extract_code()` currently does Python regex; delegate to `go_api/scan.py` identify logic (with Python fallback if Go unavailable)
@@ -58,6 +58,10 @@ Do not attempt multiple tasks in one run.
 
 # Completion
 - Stop once one task from the task list is complete and all tests pass.
-- Update the task list by marking the completed task as `[x] DONE`.
+- **CRITICAL: Before marking any task `[x] DONE`, you MUST verify the target source file was actually modified:**
+  - Run `git diff HEAD -- <target_file>` and confirm it shows real code changes.
+  - If the diff is empty, the task is NOT done — do the actual work first.
+  - Never mark a task DONE based on assumptions or reading alone.
+- Update the task list by marking the completed task as `[x] DONE` only after verification.
 - Do not modify files outside the allowed scope.
 - Do not leave partial edits behind if validation fails.
