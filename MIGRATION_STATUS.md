@@ -31,7 +31,7 @@
 
 ## 🔄 Current Status
 
-**Next task:** Phase 4B — Task 4B-1: `src/models/incremental_json_database.py` — delegate `get_video`/`update_video` to `go_api/db.py`
+**Next task:** Phase 5 — Task 5-1: `pkg/database/jsondb.go` + `cmd/scanner/db_cmd.go` — add `GetAllVideos()` and `db list --full` flag
 
 ---
 
@@ -45,7 +45,8 @@
 - [x] Task 4A-4: `src/scrapers/cache_manager.py` — delegate `get()`/`set()`/`delete()` to Go
 
 ### Phase 4B — IncrementalJSONDB Go delegation
-- [ ] Task 4B-1: `src/models/incremental_json_database.py` — delegate `get_video`/`update_video` to `go_api/db.py`
+
+- [x] Task 4B-1: `src/models/incremental_json_database.py` — delegate `get_video`/`update_video` to `go_api/db.py`
 
 ---
 
@@ -54,4 +55,4 @@
 - Phase 3 / go_accelerated_db.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved 5 Go API function imports + `GoBridgeError` to module level (replacing repeated inline imports in 6 methods); simplified `_check_go_availability` to skip bridge storage. All 191 tests pass.
 - Phase 3 / go_accelerated_studio.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved `identify_studio` + `identify_studios_batch` Go API imports to module level (replacing 4 inline imports across 4 methods); added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`. All 191 tests pass.
 - Phase 4A / Task 4A-1 (2026-04-05): Added `CachePayload` struct to `pkg/cache/types.go`; added `hashKey`, `cacheFilePath`, `Set`, `Get`, `Delete`, `Exists` to `pkg/cache/cache.go` (with `crypto/sha256` import); added 4 new tests (`TestCacheGetSetDelete`, `TestCacheExpiry`, `TestCacheGetMissing`, `TestCacheIndexUpdatedOnSet`). All 13 cache tests + full Go pkg suite pass.
-- Phase 4A / Task 4A-4 (2026-04-05): Added `_GO_CACHE_API_OK` module-level import guard for `go_api/cache`; added `_check_go_available()` static method and `self._GO_CACHE_AVAILABLE` instance attr in `__init__`; renamed `set/get/delete` → `_set_python/_get_python/_delete_python`; added new `set/get/delete` dispatchers + `_set_go/_get_go/_delete_go` Go-path helpers (compression flag prepended as first byte for round-trip). All 213 tests pass.
+- Phase 4B / Task 4B-1 (2026-04-05): Added module-level Go API import guard (`_GO_DB_API_IMPORT_OK`) for `db_get_video`/`db_update_video`; added `_GO_DB_AVAILABLE` class attribute + `_check_go_db_available()` static method; renamed `update_video` → `_update_video_python` (journal path), added new `update_video` dispatcher that merges updates and delegates to Go; renamed `get_video_info` → `_get_video_info_python`, added new `get_video_info` dispatcher; created `tests/test_incremental_db_go_delegation.py` with 11 tests. All 224 tests pass.
