@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -484,4 +485,122 @@ func (cm *CacheManager) AutoCleanup(ctx context.Context, config PruneConfig) (*C
 	}
 
 	return result, nil
+}
+
+// hashKey 以 SHA256 雜湊 key（與 Python _generate_cache_key 相容）
+func hashKey(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+// cacheFilePath 回傳快取檔案路徑（前兩字元作為子目錄，.json 副檔名）
+func (cm *CacheManager) cacheFilePath(cacheKey string) string {
+	subDir := cacheKey[:2]
+	return filepath.Join(cm.cacheDir, subDir, cacheKey+".json")
+}
+
+// Set 寫入快取值。ttlHours <= 0 視為立即過期（讀取時永遠不返回）。
+func (cm *CacheManager) Set(key string, value []byte, ttlHours int) error {
+	cacheKey := hashKey(key)
+	filePath := cm.cacheFilePath(cacheKey)
+
+	if err := os.MkdirAll(filepath.Dir(filePath), 0750); err != nil {
+		return fmt.Errorf("建立快取子目錄失敗: %w", err)
+	}
+
+	payload := CachePayload{
+		Version:    1,
+		CreatedAt:  float64(time.Now().Unix()),
+		TTLSeconds: ttlHours * 3600,
+		Compressed: false,
+		Data:       value,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("序列化快取載荷失敗: %w", err)
+	}
+	if err := safefile.WriteFile(filePath, data, 0600); err != nil {
+		return fmt.Errorf("寫入快取檔案失敗: %w", err)
+	}
+
+	// 更新索引
+	index, _ := cm.loadIndex()
+	if index == nil {
+		index = &CacheIndex{
+			Metadata: IndexMetadata{Version: "1.0", CreatedAt: payload.CreatedAt},
+			Entries:  make(map[string]IndexEntry),
+		}
+	}
+	index.Entries[cacheKey] = IndexEntry{
+		FilePath:     filePath,
+		CreatedAt:    payload.CreatedAt,
+		TTLSeconds:   payload.TTLSeconds,
+		LastAccessed: payload.CreatedAt,
+		AccessCount:  0,
+		Compressed:   false,
+		SizeBytes:    len(data),
+	}
+	return cm.saveIndex(index)
+}
+
+// Get 讀取快取值。found=false 表示 key 不存在或已過期。
+func (cm *CacheManager) Get(key string) (value []byte, found bool, err error) {
+	cacheKey := hashKey(key)
+	filePath := cm.cacheFilePath(cacheKey)
+
+	data, readErr := safefile.ReadFile(filePath)
+	if readErr != nil {
+		return nil, false, nil // 不存在
+	}
+
+	var payload CachePayload
+	if unmarshalErr := json.Unmarshal(data, &payload); unmarshalErr != nil {
+		return nil, false, nil // 損毀，視為不存在
+	}
+
+	// ttlSeconds <= 0 視為立即過期
+	if payload.TTLSeconds <= 0 {
+		return nil, false, nil
+	}
+	age := float64(time.Now().Unix()) - payload.CreatedAt
+	if age > float64(payload.TTLSeconds) {
+		return nil, false, nil // 已過期
+	}
+
+	// 更新存取統計（best-effort，忽略錯誤）
+	index, _ := cm.loadIndex()
+	if index != nil {
+		if entry, ok := index.Entries[cacheKey]; ok {
+			entry.LastAccessed = float64(time.Now().Unix())
+			entry.AccessCount++
+			index.Entries[cacheKey] = entry
+			_ = cm.saveIndex(index)
+		}
+	}
+
+	return payload.Data, true, nil
+}
+
+// Delete 刪除快取條目及其索引記錄。
+func (cm *CacheManager) Delete(key string) error {
+	cacheKey := hashKey(key)
+	filePath := cm.cacheFilePath(cacheKey)
+
+	if !cm.validateCachePath(filePath) {
+		return fmt.Errorf("路徑安全驗證失敗: %s", filePath)
+	}
+	_ = os.Remove(filePath)
+
+	index, _ := cm.loadIndex()
+	if index != nil {
+		delete(index.Entries, cacheKey)
+		return cm.saveIndex(index)
+	}
+	return nil
+}
+
+// Exists 檢查快取 key 是否存在且未過期。
+func (cm *CacheManager) Exists(key string) bool {
+	_, found, _ := cm.Get(key)
+	return found
 }

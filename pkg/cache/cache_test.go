@@ -374,3 +374,90 @@ func TestMinKeepEntries(t *testing.T) {
 		t.Errorf("RemainingFiles = %d, want 3", result.RemainingFiles)
 	}
 }
+
+func TestCacheGetSetDelete(t *testing.T) {
+	dir := t.TempDir()
+	cm := NewCacheManager(dir)
+
+	// Set
+	err := cm.Set("test-key", []byte(`{"actress":"蒼井空"}`), 24)
+	if err != nil {
+		t.Fatalf("Set 失敗: %v", err)
+	}
+
+	// Get
+	data, found, err := cm.Get("test-key")
+	if err != nil {
+		t.Fatalf("Get 傳回錯誤: %v", err)
+	}
+	if !found {
+		t.Fatal("Get: 應找到已設定的 key")
+	}
+	if string(data) != `{"actress":"蒼井空"}` {
+		t.Fatalf("Get 回傳值不符: %s", data)
+	}
+
+	// Exists
+	if !cm.Exists("test-key") {
+		t.Fatal("Exists: 應存在")
+	}
+
+	// Delete
+	err = cm.Delete("test-key")
+	if err != nil {
+		t.Fatalf("Delete 失敗: %v", err)
+	}
+	_, found, _ = cm.Get("test-key")
+	if found {
+		t.Fatal("Delete 後 key 應消失")
+	}
+	if cm.Exists("test-key") {
+		t.Fatal("Delete 後 Exists 應回傳 false")
+	}
+}
+
+func TestCacheExpiry(t *testing.T) {
+	dir := t.TempDir()
+	cm := NewCacheManager(dir)
+
+	// ttlHours=0 => TTLSeconds=0 => 立即過期
+	err := cm.Set("expiring", []byte(`"value"`), 0)
+	if err != nil {
+		t.Fatalf("Set 失敗: %v", err)
+	}
+	_, found, _ := cm.Get("expiring")
+	if found {
+		t.Fatal("ttlHours=0 的條目不應被返回（立即過期）")
+	}
+}
+
+func TestCacheGetMissing(t *testing.T) {
+	dir := t.TempDir()
+	cm := NewCacheManager(dir)
+
+	_, found, err := cm.Get("nonexistent")
+	if err != nil {
+		t.Fatalf("Get 不存在的 key 不應返回錯誤: %v", err)
+	}
+	if found {
+		t.Fatal("不存在的 key 不應 found=true")
+	}
+}
+
+func TestCacheIndexUpdatedOnSet(t *testing.T) {
+	dir := t.TempDir()
+	cm := NewCacheManager(dir)
+
+	err := cm.Set("idx-key", []byte(`123`), 1)
+	if err != nil {
+		t.Fatalf("Set 失敗: %v", err)
+	}
+
+	stats, err := cm.GetStats()
+	if err != nil {
+		t.Fatalf("GetStats 失敗: %v", err)
+	}
+	if stats.TotalFiles != 1 {
+		t.Errorf("索引應有 1 筆，得 %d", stats.TotalFiles)
+	}
+}

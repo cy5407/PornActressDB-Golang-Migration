@@ -65,3 +65,12 @@ func DefaultPruneConfig() PruneConfig {
 		DryRun:         false,
 	}
 }
+
+// CachePayload 快取讀寫載荷格式（與 Python cache_manager.py 磁碟格式相容）
+type CachePayload struct {
+	Version    int     `json:"version"`
+	CreatedAt  float64 `json:"created_at"`
+	TTLSeconds int     `json:"ttl_seconds"`
+	Compressed bool    `json:"compressed"`
+	Data       []byte  `json:"data"`
+}
