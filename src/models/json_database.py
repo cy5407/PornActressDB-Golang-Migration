@@ -989,7 +989,36 @@ class JSONDBManager:
         self, filter_dict: dict[str, Any] | None = None
     ) -> list[VideoDict]:
         """
-        取得所有影片清單（支援過濾）
+        取得所有影片清單（優先委派至 Go CLI，不可用時 fallback 到 Python）。
+
+        Args:
+            filter_dict: 過濾條件 (例如: {'studio': 'ABC'})
+                        支援的鍵: 'studio', 'release_date_after', 'release_date_before'
+
+        Returns:
+            影片清單
+        """
+        if self._GO_DB_AVAILABLE:
+            try:
+                videos = _go_db_get_all_videos(data_dir=str(self.data_dir))
+                # 確保每個影片有 code 欄位（與 Python 實作一致）
+                for v in videos:
+                    if "code" not in v and "id" in v:
+                        v["code"] = v["id"]
+                if filter_dict:
+                    videos = self._apply_video_filters(videos, filter_dict)
+                logger.debug(f"✅ 取得 {len(videos)} 個影片 (Go)")
+                return videos
+            except Exception as e:
+                logger.warning(f"⚠️ Go 委派 get_all_videos 失敗，切換 Python: {e}")
+
+        return self._get_all_videos_python(filter_dict)
+
+    def _get_all_videos_python(
+        self, filter_dict: dict[str, Any] | None = None
+    ) -> list[VideoDict]:
+        """
+        取得所有影片清單 (Python 實作)
 
         Args:
             filter_dict: 過濾條件 (例如: {'studio': 'ABC'})
