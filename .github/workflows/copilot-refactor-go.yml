@@ -136,10 +136,8 @@ jobs:
             tests .github/prompts 2>/dev/null || true
 
           changed_list="$(git diff --cached --name-only | sed 's/^/- /' | head -20)"
-
-          git commit -m "refactor: advance python-to-go migration
-
-${changed_list}"
+          commit_msg="$(printf 'refactor: advance python-to-go migration\n\n%s' "$changed_list")"
+          git commit -m "$commit_msg"
 
           git push origin copilot/migration-work
 
