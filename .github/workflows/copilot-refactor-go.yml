@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: copilot-refactor-extractor
@@ -23,7 +22,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           fetch-depth: 0
+
+      - name: Switch to work branch (create from main if needed)
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --heads origin copilot/migration-work | grep -q "copilot/migration-work"; then
+            git checkout copilot/migration-work
+            # rebase onto latest main to pick up user changes
+            git rebase origin/main || {
+              echo "⚠️ Rebase conflict detected, resetting work branch to main"
+              git rebase --abort
+              git reset --hard origin/main
+            }
+          else
+            echo "🆕 Creating new work branch from main"
+            git checkout -b copilot/migration-work
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -85,8 +104,6 @@ jobs:
             exit 0
           fi
 
-          printf '%s\n' "${changed_files[@]}" > "$RUNNER_TEMP/changed-files.txt"
-
           out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v -E '^(pkg/|cmd/scanner/|src/services/go_api/|src/services/go_bridge(_test)?\.py|src/services/go_runner\.py|src/models/go_accelerated[_a-z]*\.py|src/models/(extractor|studio)\.py|src/utils/(scanner|file_mover)\.py|tests/|\.github/prompts/)' || true)"
           if [ -n "$out_of_scope" ]; then
             echo "Out-of-scope changes detected:" >&2
@@ -104,6 +121,28 @@ jobs:
           go test ./pkg/... -v
           python -m pytest tests/ -v --tb=short
 
+      - name: Commit and push to work branch
+        if: steps.scope.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          # stage only allowed paths
+          git add \
+            pkg cmd/scanner \
+            src/services/go_api \
+            src/services/go_bridge.py src/services/go_runner.py \
+            src/models/go_accelerated_db.py src/models/go_accelerated_studio.py \
+            src/models/extractor.py src/models/studio.py \
+            src/utils/scanner.py src/utils/file_mover.py \
+            tests .github/prompts 2>/dev/null || true
+
+          changed_list="$(git diff --cached --name-only | sed 's/^/- /' | head -20)"
+
+          git commit -m "refactor: advance python-to-go migration
+
+${changed_list}"
+
+          git push origin copilot/migration-work
+
       - name: Add no-change summary
         if: steps.scope.outputs.has_changes != 'true'
         shell: bash
@@ -111,9 +150,8 @@ jobs:
           {
             echo "## Copilot Python-to-Go migration refactor"
             echo
-            echo "- Scope: \`pkg/**\`, \`cmd/scanner/**\`, bridge wrappers, and migration-related tests"
+            echo "- Branch: \`copilot/migration-work\`"
             echo "- Result: no safe changes were proposed"
-            echo "- Baseline test: \`go test ./pkg/... -v\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Add change summary
@@ -123,68 +161,14 @@ jobs:
           {
             echo "## Copilot Python-to-Go migration refactor"
             echo
-            echo "- Scope: `pkg/**`, `cmd/scanner/**`, bridge wrappers, and migration-related tests"
-            echo "- Result: scoped changes passed validation"
+            echo "- Branch: \`copilot/migration-work\`"
+            echo "- Result: changes committed directly to work branch"
             echo
             echo "### Changed files"
-            git diff --name-only | sed 's#^#- `#; s#$#`#'
+            git diff HEAD~1 --name-only 2>/dev/null | sed 's#^#- `#; s#$#`#' || echo "- (see branch)"
             echo
             echo "### Diff stat"
             echo '```text'
-            git diff --stat
+            git diff HEAD~1 --stat 2>/dev/null || echo "(see branch)"
             echo '```'
-            echo
-            echo "### Validation"
-            echo "- \`go test ./pkg/... -v\`"
-            echo "- \`python -m pytest tests/ -v --tb=short -k \"go_bridge or scanner or mover or accelerated\"\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Create or update draft pull request
-        id: create_pr
-        if: steps.scope.outputs.has_changes == 'true'
-        uses: peter-evans/create-pull-request@v8
-        with:
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-          branch: copilot/python-to-go-migration
-          delete-branch: false
-          draft: true
-          add-paths: |
-            pkg
-            cmd/scanner
-            src/services/go_api
-            src/services/go_bridge.py
-            src/services/go_runner.py
-            src/models/go_accelerated_db.py
-            src/models/go_accelerated_studio.py
-            src/models/extractor.py
-            src/models/studio.py
-            src/utils/scanner.py
-            src/utils/file_mover.py
-            tests
-            .github/prompts
-          commit-message: "refactor: advance python-to-go migration"
-          title: "refactor: Copilot Python-to-Go migration step"
-          body: |
-            ## Summary
-            - AI-assisted Python-to-Go migration step
-            - Scope is intentionally limited to Go packages, CLI, bridge wrappers, and related tests
-            - Generated by GitHub Actions + Copilot CLI
-
-            ## Validation
-            - `go test ./pkg/... -v`
-            - `python -m pytest tests/ -v --tb=short -k "go_bridge or scanner or mover or accelerated"`
-            - workflow fails if files outside the migration scope are modified
-
-            ## Review notes
-            - This PR stays in draft on purpose.
-            - Please verify Python fallback and Go bridge compatibility before merge.
-
-      - name: Add pull request summary
-        if: steps.create_pr.outputs.pull-request-url != ''
-        shell: bash
-        run: |
-          {
-            echo
-            echo "### Pull request"
-            echo "- [Draft PR](${{ steps.create_pr.outputs.pull-request-url }})"
           } >> "$GITHUB_STEP_SUMMARY"
