@@ -179,6 +179,33 @@ def db_get_stats(
         return {}
 
 
+def db_get_all_videos(
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> list[dict]:
+    """取得所有影片完整資料。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "list", "--full"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        return data if isinstance(data, list) else []
+    except GoBridgeError as e:
+        error_msg = str(e)
+        if "JSON" in error_msg:
+            logger.warning(f"⚠️ JSON 解析失敗: {error_msg}")
+        else:
+            logger.error(f"❌ Go CLI 執行失敗，取得所有影片失敗: {error_msg}")
+        return []
+    except Exception as e:
+        logger.error(f"❌ 取得所有影片失敗: {e}")
+        return []
+
+
 def db_compact_journal(
     data_dir: str = "data/json_db",
     *,

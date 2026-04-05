@@ -31,11 +31,12 @@
 
 ## 🔄 Current Status
 
-**Next task:** Phase 5 — Task 5-2: `src/services/go_api/db.py` — add `db_get_all_videos()` function
+**Next task:** Phase 5 — Task 5-3: `src/models/json_database.py` — delegate `get_video_info`, `add_or_update_video`, `delete_video` to `go_api/db.py`
 
 ### Phase 5 — JSONDBManager Go 完整委派
 
 - [x] Task 5-1: `pkg/database/jsondb.go` + `cmd/scanner/db_cmd.go` — added `GetAllVideos()` method; extended `db list` with `--full` flag
+- [x] Task 5-2: `src/services/go_api/db.py` — added `db_get_all_videos()` function; 4 tests in `tests/test_go_api_db_all_videos.py`
 
 
 
@@ -57,4 +58,4 @@
 - Phase 3 / go_accelerated_db.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved 5 Go API function imports + `GoBridgeError` to module level (replacing repeated inline imports in 6 methods); simplified `_check_go_availability` to skip bridge storage. All 191 tests pass.
 - Phase 3 / go_accelerated_studio.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved `identify_studio` + `identify_studios_batch` Go API imports to module level (replacing 4 inline imports across 4 methods); added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`. All 191 tests pass.
 - Phase 4A / Task 4A-1 (2026-04-05): Added `CachePayload` struct to `pkg/cache/types.go`; added `hashKey`, `cacheFilePath`, `Set`, `Get`, `Delete`, `Exists` to `pkg/cache/cache.go` (with `crypto/sha256` import); added 4 new tests (`TestCacheGetSetDelete`, `TestCacheExpiry`, `TestCacheGetMissing`, `TestCacheIndexUpdatedOnSet`). All 13 cache tests + full Go pkg suite pass.
-- Phase 5 / Task 5-1 (2026-04-05): Added `GetAllVideos() ([]*VideoData, error)` to `pkg/database/jsondb.go` (iterates `db.root.Videos` under RLock after journal merge at Load time); added `--full` flag to `db list` sub-command in `cmd/scanner/db_cmd.go` (calls `GetAllVideos()` and outputs full JSON array when set, otherwise calls existing `ListVideos()`). All Go pkg tests pass.
+- Phase 5 / Task 5-2 (2026-04-05): Added `db_get_all_videos(data_dir, *, runner)` to `src/services/go_api/db.py` — calls `["db", "list", "--full"]`, mirrors `db_list_videos` pattern; created `tests/test_go_api_db_all_videos.py` with 4 tests. All 228 tests pass.
