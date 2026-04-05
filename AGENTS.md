@@ -4,7 +4,10 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## 語言偏好
 
-**所有回應必須使用繁體中文 (zh-TW)**
+**所有回應一律使用繁體中文 (zh-TW)。**
+
+- 預設回應語言為繁體中文，不使用簡體中文。
+- 除非使用者明確指定其他語言，否則所有說明、回覆、註解與文件內容皆以繁體中文撰寫。
 
 術語對照：create=建立, object=物件, code=程式碼, library=函式庫, package=套件, class=類別, function=函式
 

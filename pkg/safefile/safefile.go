@@ -49,7 +49,21 @@ func ReadFile(path string) ([]byte, error) {
 	}
 	defer root.Close()
 
-	return root.ReadFile(name)
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+
+	data, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+
+	return data, nil
 }
 
 func WriteFile(path string, data []byte, perm os.FileMode) error {
@@ -64,7 +78,24 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 	defer root.Close()
 
-	return root.WriteFile(name, data, perm)
+	file, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+
+	written, writeErr := file.Write(data)
+	closeErr := file.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if written != len(data) {
+		return io.ErrShortWrite
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+
+	return nil
 }
 
 func OpenRead(path string) (*os.File, error) {
@@ -103,19 +134,38 @@ func MkdirAll(path string, perm os.FileMode) error {
 		return nil
 	}
 
-	parent := filepath.Dir(cleanPath)
-	name := filepath.Base(cleanPath)
-	if parent == "" {
-		parent = "."
+	rootPath, parts := splitRootPath(cleanPath)
+	if len(parts) == 0 {
+		return nil
 	}
 
-	root, err := os.OpenRoot(parent)
+	root, err := os.OpenRoot(rootPath)
 	if err != nil {
 		return err
 	}
-	defer root.Close()
 
-	return root.MkdirAll(name, perm)
+	for i, part := range parts {
+		if err := root.Mkdir(part, perm); err != nil && !os.IsExist(err) {
+			_ = root.Close()
+			return err
+		}
+		if i == len(parts)-1 {
+			return root.Close()
+		}
+
+		nextRoot, err := root.OpenRoot(part)
+		if err != nil {
+			_ = root.Close()
+			return err
+		}
+		if err := root.Close(); err != nil {
+			_ = nextRoot.Close()
+			return err
+		}
+		root = nextRoot
+	}
+
+	return nil
 }
 
 func ReadAll(path string) ([]byte, error) {
@@ -126,4 +176,30 @@ func ReadAll(path string) ([]byte, error) {
 	defer f.Close()
 
 	return io.ReadAll(f)
+}
+
+func splitRootPath(path string) (string, []string) {
+	volume := filepath.VolumeName(path)
+	remainder := strings.TrimPrefix(path, volume)
+
+	rootPath := "."
+	if strings.HasPrefix(remainder, string(filepath.Separator)) {
+		rootPath = volume + string(filepath.Separator)
+		remainder = strings.TrimPrefix(remainder, string(filepath.Separator))
+	}
+
+	if remainder == "" || remainder == "." {
+		return rootPath, nil
+	}
+
+	parts := strings.Split(remainder, string(filepath.Separator))
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		filtered = append(filtered, part)
+	}
+
+	return rootPath, filtered
 }
