@@ -22,18 +22,22 @@
 - [x] `src/models/extractor.py` — `extract_code()` delegates to Go (`_extract_code_via_go()`) with Python fallback
 - [x] `src/models/studio.py` — `identify_studio()` delegates to Go (`_identify_studio_via_go()`) with Python fallback
 
+### Phase 3 — Thin wrapper cleanup
+
+- [x] `src/models/go_accelerated_db.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; simplified `_check_go_availability`
+
 ---
 
 ## 🔄 Current Status
 
-**Next task:** Phase 3 — `src/models/go_accelerated_db.py` thin wrapper cleanup
+**Next task:** Phase 3 — `src/models/go_accelerated_studio.py` thin wrapper cleanup
 
 ---
 
 ## ⏳ Pending Tasks
 
 ### Phase 3 — Thin wrapper cleanup
-- [ ] `src/models/go_accelerated_db.py` — remove redundant methods already covered by `go_api/db.py`
+- [x] `src/models/go_accelerated_db.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; simplified `_check_go_availability`
 - [ ] `src/models/go_accelerated_studio.py` — remove redundant methods already covered by `go_api/identify.py`
 
 ### Phase 4A — CacheManager Go core
@@ -49,4 +53,4 @@
 
 ## 📝 Notes
 
-_(AI may append run notes here)_
+- Phase 3 / go_accelerated_db.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved 5 Go API function imports + `GoBridgeError` to module level (replacing repeated inline imports in 6 methods); simplified `_check_go_availability` to skip bridge storage. All 191 tests pass.
