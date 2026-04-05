@@ -87,7 +87,7 @@ jobs:
 
           printf '%s\n' "${changed_files[@]}" > "$RUNNER_TEMP/changed-files.txt"
 
-          out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v -E '^(pkg/|cmd/scanner/|src/services/go_api/|src/services/go_bridge(_test)?\.py|src/services/go_runner\.py|src/models/go_accelerated[_a-z]*\.py|src/utils/(scanner|file_mover)\.py|tests/)' || true)"
+          out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v -E '^(pkg/|cmd/scanner/|src/services/go_api/|src/services/go_bridge(_test)?\.py|src/services/go_runner\.py|src/models/go_accelerated[_a-z]*\.py|src/models/(extractor|studio)\.py|src/utils/(scanner|file_mover)\.py|tests/|\.github/prompts/)' || true)"
           if [ -n "$out_of_scope" ]; then
             echo "Out-of-scope changes detected:" >&2
             printf '%s\n' "$out_of_scope" >&2
@@ -102,7 +102,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           go test ./pkg/... -v
-          python -m pytest tests/ -v --tb=short -k "go_bridge or scanner or mover or accelerated"
+          python -m pytest tests/ -v --tb=short
 
       - name: Add no-change summary
         if: steps.scope.outputs.has_changes != 'true'
@@ -156,9 +156,12 @@ jobs:
             src/services/go_runner.py
             src/models/go_accelerated_db.py
             src/models/go_accelerated_studio.py
+            src/models/extractor.py
+            src/models/studio.py
             src/utils/scanner.py
             src/utils/file_mover.py
             tests
+            .github/prompts
           commit-message: "refactor: advance python-to-go migration"
           title: "refactor: Copilot Python-to-Go migration step"
           body: |
