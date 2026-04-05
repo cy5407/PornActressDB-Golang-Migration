@@ -22,6 +22,7 @@ func dbCmd(args []string) {
 	fs := flag.NewFlagSet("db "+subCmd, flag.ExitOnError)
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
 	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
+	fullOutput := fs.Bool("full", false, "輸出完整影片資料（僅 list 子命令）")
 	parseFlagsOrExit(fs, args[1:])
 	remaining := fs.Args()
 
@@ -92,12 +93,21 @@ func dbCmd(args []string) {
 		}
 		printSuccess("影片 %s 刪除成功", code)
 	case "list":
-		codes, err := db.ListVideos()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "列出影片失敗: %v\n", err)
-			os.Exit(1)
+		if *fullOutput {
+			videos, err := db.GetAllVideos()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "列出影片失敗: %v\n", err)
+				os.Exit(1)
+			}
+			outputJSON(videos)
+		} else {
+			codes, err := db.ListVideos()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "列出影片失敗: %v\n", err)
+				os.Exit(1)
+			}
+			outputJSON(codes)
 		}
-		outputJSON(codes)
 	case "stats":
 		stats, err := db.GetStats()
 		if err != nil {

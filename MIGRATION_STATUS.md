@@ -31,11 +31,13 @@
 
 ## 🔄 Current Status
 
-**Next task:** Phase 5 — Task 5-1: `pkg/database/jsondb.go` + `cmd/scanner/db_cmd.go` — add `GetAllVideos()` and `db list --full` flag
+**Next task:** Phase 5 — Task 5-2: `src/services/go_api/db.py` — add `db_get_all_videos()` function
 
----
+### Phase 5 — JSONDBManager Go 完整委派
 
-## ⏳ Pending Tasks
+- [x] Task 5-1: `pkg/database/jsondb.go` + `cmd/scanner/db_cmd.go` — added `GetAllVideos()` method; extended `db list` with `--full` flag
+
+
 
 ### Phase 4A — CacheManager Go core
 
@@ -55,4 +57,4 @@
 - Phase 3 / go_accelerated_db.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved 5 Go API function imports + `GoBridgeError` to module level (replacing repeated inline imports in 6 methods); simplified `_check_go_availability` to skip bridge storage. All 191 tests pass.
 - Phase 3 / go_accelerated_studio.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved `identify_studio` + `identify_studios_batch` Go API imports to module level (replacing 4 inline imports across 4 methods); added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`. All 191 tests pass.
 - Phase 4A / Task 4A-1 (2026-04-05): Added `CachePayload` struct to `pkg/cache/types.go`; added `hashKey`, `cacheFilePath`, `Set`, `Get`, `Delete`, `Exists` to `pkg/cache/cache.go` (with `crypto/sha256` import); added 4 new tests (`TestCacheGetSetDelete`, `TestCacheExpiry`, `TestCacheGetMissing`, `TestCacheIndexUpdatedOnSet`). All 13 cache tests + full Go pkg suite pass.
-- Phase 4B / Task 4B-1 (2026-04-05): Added module-level Go API import guard (`_GO_DB_API_IMPORT_OK`) for `db_get_video`/`db_update_video`; added `_GO_DB_AVAILABLE` class attribute + `_check_go_db_available()` static method; renamed `update_video` → `_update_video_python` (journal path), added new `update_video` dispatcher that merges updates and delegates to Go; renamed `get_video_info` → `_get_video_info_python`, added new `get_video_info` dispatcher; created `tests/test_incremental_db_go_delegation.py` with 11 tests. All 224 tests pass.
+- Phase 5 / Task 5-1 (2026-04-05): Added `GetAllVideos() ([]*VideoData, error)` to `pkg/database/jsondb.go` (iterates `db.root.Videos` under RLock after journal merge at Load time); added `--full` flag to `db list` sub-command in `cmd/scanner/db_cmd.go` (calls `GetAllVideos()` and outputs full JSON array when set, otherwise calls existing `ListVideos()`). All Go pkg tests pass.
