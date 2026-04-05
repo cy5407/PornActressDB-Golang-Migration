@@ -106,6 +106,20 @@ class GoBridge:
     def rollback(self, operation_id: str) -> BatchMoveResult: return api.rollback(operation_id, runner=self._runner, log_dir=self.log_dir)
     def rollback_last(self) -> BatchMoveResult: return api.rollback_last(runner=self._runner, log_dir=self.log_dir)
 
+    # DB instance methods — pass self._runner so tests can inject a mock runner
+    def db_get_video(self, code: str, data_dir: str = "data/json_db") -> Optional[dict]: return api.db_get_video(code, data_dir, runner=self._runner)
+    def db_update_video(self, code: str, video: dict, data_dir: str = "data/json_db") -> bool: return api.db_update_video(code, video, data_dir, runner=self._runner)
+    def db_delete_video(self, code: str, data_dir: str = "data/json_db") -> bool: return api.db_delete_video(code, data_dir, runner=self._runner)
+    def db_list_videos(self, data_dir: str = "data/json_db") -> list[str]: return api.db_list_videos(data_dir, runner=self._runner)
+    def db_get_stats(self, data_dir: str = "data/json_db") -> dict: return api.db_get_stats(data_dir, runner=self._runner)
+    def db_compact_journal(self, data_dir: str = "data/json_db") -> bool: return api.db_compact_journal(data_dir, runner=self._runner)
+
+    # Identify instance methods — pass self._runner
+    def identify_studio(self, code: str, check_major: bool = False) -> dict: return api.identify_studio(code, check_major, runner=self._runner)
+    def identify_studios_batch(self, codes: list[str], check_major: bool = False) -> list[dict]: return api.identify_studios_batch(codes, check_major, runner=self._runner)
+    def list_studios(self) -> list[str]: return api.list_studios(runner=self._runner)
+    def get_studio_prefixes(self, studio_name: str) -> list[str]: return api.get_studio_prefixes(studio_name, runner=self._runner)
+
 
 _default_bridge: Optional[GoBridge] = None
 
