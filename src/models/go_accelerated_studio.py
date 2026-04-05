@@ -30,6 +30,16 @@ from typing import Optional
 
 from src.models.studio import StudioIdentifier
 
+# Go API 函式 — 在 Go CLI 可用時使用，不可用則 fallback 到 Python 實作
+try:
+    from src.services.go_api.identify import (
+        identify_studio as _go_identify_studio,
+        identify_studios_batch as _go_identify_studios_batch,
+    )
+    _GO_API_IMPORT_OK = True
+except ImportError:
+    _GO_API_IMPORT_OK = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +65,6 @@ class GoAcceleratedStudioIdentifier:
         """
         self.rules_file = rules_file
         self._use_go = use_go
-        self._go_bridge = None
         self._go_available = None
         self.fallback_count = 0
 
@@ -74,11 +83,14 @@ class GoAcceleratedStudioIdentifier:
         if self._go_available is not None:
             return self._go_available
 
+        if not _GO_API_IMPORT_OK:
+            self._go_available = False
+            return False
+
         try:
             from src.services.go_bridge import GoBridge
 
-            self._go_bridge = GoBridge()
-            self._go_available = self._go_bridge.is_available
+            self._go_available = GoBridge().is_available
 
             if self._go_available:
                 logger.info("🚀 Go CLI 可用，啟用片商識別加速模式")
@@ -116,9 +128,7 @@ class GoAcceleratedStudioIdentifier:
 
         if self.use_go:
             try:
-                from src.services.go_api.identify import identify_studio as go_identify
-
-                result = go_identify(code, check_major=False)
+                result = _go_identify_studio(code, check_major=False)
                 if result and "studio" in result:
                     studio = result["studio"]
                     if studio and studio != "":
@@ -147,9 +157,7 @@ class GoAcceleratedStudioIdentifier:
 
         if self.use_go:
             try:
-                from src.services.go_api.identify import identify_studios_batch as go_batch
-
-                results = go_batch(codes, check_major=False)
+                results = _go_identify_studios_batch(codes, check_major=False)
                 if results:
                     return {
                         r["code"]: r["studio"]
@@ -181,9 +189,7 @@ class GoAcceleratedStudioIdentifier:
         # 優先使用番號判斷
         if video_code and self.use_go:
             try:
-                from src.services.go_api.identify import identify_studio as go_identify
-
-                result = go_identify(video_code, check_major=False)
+                result = _go_identify_studio(video_code, check_major=False)
                 if result and result.get("studio") and result["studio"] != "UNKNOWN":
                     return result["studio"]
             except Exception as e:
@@ -205,9 +211,7 @@ class GoAcceleratedStudioIdentifier:
         """
         if self.use_go:
             try:
-                from src.services.go_api.identify import identify_studio as go_identify
-
-                result = go_identify(code, check_major=True)
+                result = _go_identify_studio(code, check_major=True)
                 if result and "is_major" in result:
                     return result["is_major"]
             except Exception as e:

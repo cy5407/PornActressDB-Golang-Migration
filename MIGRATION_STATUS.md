@@ -25,20 +25,17 @@
 ### Phase 3 — Thin wrapper cleanup
 
 - [x] `src/models/go_accelerated_db.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; simplified `_check_go_availability`
+- [x] `src/models/go_accelerated_studio.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`
 
 ---
 
 ## 🔄 Current Status
 
-**Next task:** Phase 3 — `src/models/go_accelerated_studio.py` thin wrapper cleanup
+**Next task:** Phase 4A — Task 4A-1: `pkg/cache/cache.go` — add `Get`/`Set`/`Delete`/`Exists` methods
 
 ---
 
 ## ⏳ Pending Tasks
-
-### Phase 3 — Thin wrapper cleanup
-- [x] `src/models/go_accelerated_db.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; simplified `_check_go_availability`
-- [ ] `src/models/go_accelerated_studio.py` — remove redundant methods already covered by `go_api/identify.py`
 
 ### Phase 4A — CacheManager Go core
 - [ ] Task 4A-1: `pkg/cache/cache.go` — add `Get`/`Set`/`Delete`/`Exists` methods
@@ -54,3 +51,4 @@
 ## 📝 Notes
 
 - Phase 3 / go_accelerated_db.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved 5 Go API function imports + `GoBridgeError` to module level (replacing repeated inline imports in 6 methods); simplified `_check_go_availability` to skip bridge storage. All 191 tests pass.
+- Phase 3 / go_accelerated_studio.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved `identify_studio` + `identify_studios_batch` Go API imports to module level (replacing 4 inline imports across 4 methods); added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`. All 191 tests pass.
