@@ -20,6 +20,7 @@ orjson>=3.9.0          # 高效能 JSON 序列化
 pytest>=7.0.0
 pytest-cov>=4.0.0
 pytest-mock>=3.10.0
+pytest-timeout>=2.1.0
 
 # 檔案鎖定和並行控制
 filelock>=3.13.0       # 檔案級鎖定，用於並行存取控制

@@ -2,7 +2,7 @@
 # Task 3: 補充測試環境配置
 #
 # 階段一：Go 建置環境
-FROM golang:1.24.5-bookworm AS go-builder
+FROM golang:1.25.0-bookworm AS go-builder
 
 WORKDIR /build
 
