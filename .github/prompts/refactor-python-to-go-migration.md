@@ -3,6 +3,12 @@ Safely advance the Python-to-Go migration in this repository.
 Pick the **first incomplete task** from the task list below and complete it.
 Do not attempt multiple tasks in one run.
 
+# Progress tracking (read this FIRST)
+**Before picking a task**, read `MIGRATION_STATUS.md` to see which tasks are already completed.
+Skip any task that already appears in the `## ✅ Completed Tasks` section of that file.
+Do NOT rely on the `[x] DONE` markers in this prompt file — they may be stale.
+The source of truth is `MIGRATION_STATUS.md`.
+
 # Task list (execute in order, skip already-done ones)
 
 ## Phase 1 — Runner injection for go_api layer (bridge decoupling)
@@ -52,7 +58,7 @@ Do not attempt multiple tasks in one run.
 - `src/utils/file_mover.py`
 - `src/scrapers/cache_manager.py`
 - `tests/**`
-- `.github/prompts/refactor-python-to-go-migration.md` ← task list (update `[ ]` → `[x] DONE` when task is complete)
+- `MIGRATION_STATUS.md` ← progress tracker (append completed task here when done)
 
 # Forbidden scope
 - Any file outside the allowed scope
@@ -77,10 +83,14 @@ Do not attempt multiple tasks in one run.
 
 # Completion
 - Stop once one task from the task list is complete and all tests pass.
-- **CRITICAL: Before marking any task `[x] DONE`, you MUST verify the target source file was actually modified:**
+- **CRITICAL: Before marking a task complete, you MUST verify the target source file was actually modified:**
   - Run `git diff HEAD -- <target_file>` and confirm it shows real code changes.
   - If the diff is empty, the task is NOT done — do the actual work first.
   - Never mark a task DONE based on assumptions or reading alone.
-- Update the task list by marking the completed task as `[x] DONE` only after verification.
+- When the task is verified complete:
+  1. Move it from `## ⏳ Pending Tasks` to `## ✅ Completed Tasks` in `MIGRATION_STATUS.md`.
+  2. Update the `## 🔄 Current Status` section in `MIGRATION_STATUS.md` to name the next task.
+  3. Optionally append a brief run note to the `## 📝 Notes` section.
+  4. **Do NOT modify `.github/prompts/refactor-python-to-go-migration.md`** — it is read-only.
 - Do not modify files outside the allowed scope.
 - Do not leave partial edits behind if validation fails.

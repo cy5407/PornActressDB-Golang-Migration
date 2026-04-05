@@ -104,7 +104,7 @@ jobs:
             exit 0
           fi
 
-          out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v -E '^(pkg/|cmd/scanner/|src/services/go_api/|src/services/go_bridge(_test)?\.py|src/services/go_runner\.py|src/models/go_accelerated[_a-z]*\.py|src/models/(extractor|studio|incremental_json_database)\.py|src/scrapers/cache_manager\.py|src/utils/(scanner|file_mover)\.py|tests/|\.github/prompts/)' || true)"
+          out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v -E '^(pkg/|cmd/scanner/|src/services/go_api/|src/services/go_bridge(_test)?\.py|src/services/go_runner\.py|src/models/go_accelerated[_a-z]*\.py|src/models/(extractor|studio|incremental_json_database)\.py|src/scrapers/cache_manager\.py|src/utils/(scanner|file_mover)\.py|tests/|MIGRATION_STATUS\.md)' || true)"
           if [ -n "$out_of_scope" ]; then
             echo "Out-of-scope changes detected:" >&2
             printf '%s\n' "$out_of_scope" >&2
@@ -135,7 +135,7 @@ jobs:
             src/models/incremental_json_database.py \
             src/scrapers/cache_manager.py \
             src/utils/scanner.py src/utils/file_mover.py \
-            tests .github/prompts 2>/dev/null || true
+            tests MIGRATION_STATUS.md 2>/dev/null || true
 
           changed_list="$(git diff --cached --name-only | sed 's/^/- /' | head -20)"
           commit_msg="$(printf 'refactor: advance python-to-go migration\n\n%s' "$changed_list")"
