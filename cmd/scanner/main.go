@@ -9,6 +9,7 @@ import (
 
 	"actress-classifier/pkg/app"
 	"actress-classifier/pkg/contracts"
+	"actress-classifier/pkg/extractor"
 	"actress-classifier/pkg/safefile"
 )
 
@@ -93,7 +94,16 @@ func scanCmd(args []string) {
 	workers := fs.Int("workers", 10, "並行工作數")
 	recursive := fs.Bool("recursive", true, "是否遞迴掃描子目錄")
 	showProgress := fs.Bool("progress", false, "顯示掃描進度條（輸出至 stderr）")
+	extractFile := fs.String("extract", "", "從單一檔案名稱提取番號")
 	parseFlagsOrExit(fs, args)
+
+	if *extractFile != "" {
+		e := extractor.NewCodeExtractor()
+		code := e.ExtractCode(*extractFile)
+		outputJSON(map[string]string{"filename": *extractFile, "code": code})
+		return
+	}
+
 	if *showProgress {
 		fmt.Fprintln(os.Stderr, "[WARNING] -progress 目前未接入 app service，將以一般模式掃描")
 	}

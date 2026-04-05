@@ -62,6 +62,13 @@ def _get_bridge():
     return get_bridge()
 
 
+def _get_runner(runner: GoCommandRunner | None) -> GoCommandRunner:
+    """取得 GoCommandRunner 實例，若未提供則使用全域橋接層的 runner。"""
+    if runner is not None:
+        return runner
+    return _get_bridge()._runner
+
+
 def _get_tempfile_module():
     try:
         from .. import go_bridge
@@ -82,7 +89,7 @@ def _get_context(
 
     bridge = _get_bridge()
     return (
-        runner or bridge._runner,
+        _get_runner(runner),
         log_dir or bridge.log_dir,
         default_strategy or bridge.default_strategy,
     )

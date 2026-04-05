@@ -117,6 +117,42 @@ class StudioIdentifier:
             return {}
 
     def identify_studio(self, code: str) -> str:
+        """識別番號所屬片商，優先使用 Go CLI，降級至 Python 實作。"""
+        go_result = self._identify_studio_via_go(code)
+        if go_result is not None:
+            return go_result
+        return self._identify_studio_python(code)
+
+    def _identify_studio_via_go(self, code: str) -> str | None:
+        """嘗試透過 Go CLI 識別片商；若 Go 不可用或使用自訂規則檔則回傳 None。"""
+        # 若使用自訂規則檔（非預設 studios.json），Go CLI 規則可能不一致，直接用 Python
+        if self.rules_file != Path("studios.json"):
+            return None
+
+        try:
+            from services.go_bridge import get_bridge
+
+            bridge = get_bridge()
+            if not bridge.is_available:
+                return None
+        except Exception:
+            return None
+
+        try:
+            from services.go_api.identify import identify_studio as go_identify
+
+            result = go_identify(code, runner=bridge._runner)
+            studio = result.get("studio", "UNKNOWN")
+            if studio and studio != "UNKNOWN":
+                return studio
+            # Go returned UNKNOWN — fall through to Python for richer local rules
+            return None
+        except Exception as e:
+            logger.debug(f"Go 片商識別失敗，降級至 Python: {e}")
+            return None
+
+    def _identify_studio_python(self, code: str) -> str:
+        """純 Python 片商識別（原有邏輯）。"""
         if not code:
             return "UNKNOWN"
         prefix_match = re.match(r"([A-Z]+)", code.upper())

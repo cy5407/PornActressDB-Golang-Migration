@@ -55,7 +55,33 @@ class UnifiedCodeExtractor:
         ]
 
     def extract_code(self, filename: str) -> str | None:
-        """從檔案名稱提取番號"""
+        """從檔案名稱提取番號，優先使用 Go CLI，降級至 Python 實作。"""
+        go_result = self._extract_code_via_go(filename)
+        if go_result is not None:
+            return go_result
+        return self._extract_code_python(filename)
+
+    def _extract_code_via_go(self, filename: str) -> str | None:
+        """嘗試透過 Go CLI 提取番號；若 Go 不可用則回傳 None。"""
+        try:
+            from services.go_bridge import get_bridge
+
+            bridge = get_bridge()
+            if not bridge.is_available:
+                return None
+        except Exception:
+            return None
+
+        try:
+            from services.go_api.scan import extract_code as go_extract_code
+
+            return go_extract_code(filename, runner=bridge._runner)
+        except Exception as e:
+            logger.debug(f"Go 番號提取失敗，降級至 Python: {e}")
+            return None
+
+    def _extract_code_python(self, filename: str) -> str | None:
+        """Python 原生番號提取實作（作為 fallback）。"""
         base_name = Path(filename).stem  # 取得不含副檔名的檔案名稱
 
         # 增強的 FC2/PPV 過濾邏輯
