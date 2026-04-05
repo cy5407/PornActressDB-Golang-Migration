@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '*/30 * * * *'
-      branches:
-        - refactor/go-migration-phase2
 
 permissions:
   contents: write
