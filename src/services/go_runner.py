@@ -2,9 +2,22 @@
 
 import json
 import logging
+import os
 import subprocess  # nosec B404
 
 logger = logging.getLogger(__name__)
+
+
+def _cleanup_temp_file(path: str | None, context: str) -> None:
+    """清理暫存檔，避免清理失敗覆蓋主流程結果。"""
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return
+    except Exception as e:
+        logger.warning(f"⚠️ 無法清理 {context} 暫存檔 {path}: {e}")
 
 
 class GoBridgeError(Exception):

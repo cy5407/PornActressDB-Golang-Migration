@@ -305,5 +305,56 @@ class TestGoBridgeInstanceMethods(unittest.TestCase):
         self.assertEqual(result, ["SONE"])
 
 
+class TestCleanupTempFile(unittest.TestCase):
+    """_cleanup_temp_file 函式行為測試 — 現位於 go_runner 模組。"""
+
+    def test_deletes_existing_file(self):
+        import tempfile as _tempfile
+        from services.go_runner import _cleanup_temp_file
+
+        with _tempfile.NamedTemporaryFile(delete=False) as f:
+            path = f.name
+
+        self.assertTrue(Path(path).exists())
+        _cleanup_temp_file(path, "test_context")
+        self.assertFalse(Path(path).exists())
+
+    def test_none_path_is_noop(self):
+        from services.go_runner import _cleanup_temp_file
+
+        # 不應拋出例外
+        _cleanup_temp_file(None, "test_context")
+
+    def test_empty_string_path_is_noop(self):
+        from services.go_runner import _cleanup_temp_file
+
+        # 空字串視為「無路徑」，不應拋出例外
+        _cleanup_temp_file("", "test_context")
+
+    def test_missing_file_is_silently_ignored(self):
+        from services.go_runner import _cleanup_temp_file
+
+        # 檔案不存在時應靜默忽略，不拋出例外
+        _cleanup_temp_file("/nonexistent/path/file.json", "test_context")
+
+    def test_go_bridge_reexports_same_function(self):
+        from services.go_runner import _cleanup_temp_file as runner_fn
+        from services.go_bridge import _cleanup_temp_file as bridge_fn
+
+        # go_bridge 重新匯出的應是同一個函式物件
+        self.assertIs(runner_fn, bridge_fn)
+
+    def test_go_api_modules_use_runner_function(self):
+        from services.go_runner import _cleanup_temp_file as runner_fn
+        import services.go_api.db as db_mod
+        import services.go_api.identify as identify_mod
+        import services.go_api.move as move_mod
+
+        # 每個 go_api 子模組都應直接引用 go_runner 的函式，無重複定義
+        self.assertIs(db_mod._cleanup_temp_file, runner_fn)
+        self.assertIs(identify_mod._cleanup_temp_file, runner_fn)
+        self.assertIs(move_mod._cleanup_temp_file, runner_fn)
+
+
 if __name__ == "__main__":
     unittest.main()
