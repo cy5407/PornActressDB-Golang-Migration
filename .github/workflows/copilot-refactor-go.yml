@@ -35,7 +35,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -124,12 +124,12 @@ jobs:
           {
             echo "## Copilot Python-to-Go migration refactor"
             echo
-            echo "- Scope: `pkg/**`, `cmd/scanner/**`, bridge wrappers, and migration-related tests"
+            echo "- Scope: \`pkg/**\`, \`cmd/scanner/**\`, bridge wrappers, and migration-related tests"
             echo "- Result: scoped changes passed validation"
-            echo "- Target branch: `${{ github.ref_name }}`"
+            echo "- Target branch: \`${{ github.ref_name }}\`"
             echo
             echo "### Changed files"
-            git diff --name-only | sed 's#^#- `#; s#$#`#'
+            git diff --name-only | sed 's#^#- \`#; s#$#\`#'
             echo
             echo "### Diff stat"
             echo '```text'
