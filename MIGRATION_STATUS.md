@@ -31,7 +31,7 @@
 
 ## 🔄 Current Status
 
-**Next task:** Phase 4A — Task 4A-3: `src/services/go_api/cache.py` — create thin wrapper (new file)
+**Next task:** Phase 4A — Task 4A-4: `src/scrapers/cache_manager.py` — delegate `get()`/`set()`/`delete()` to Go
 
 ---
 
@@ -41,7 +41,7 @@
 
 - [x] Task 4A-1: `pkg/cache/cache.go` — added `Get`/`Set`/`Delete`/`Exists` methods + `CachePayload` struct in `types.go`; 4 new tests added to `cache_test.go`
 - [x] Task 4A-2: `cmd/scanner/cache_cmd.go` — added `get`/`set`/`delete` sub-commands with JSON output and base64 value encoding
-- [ ] Task 4A-3: `src/services/go_api/cache.py` — create thin wrapper (new file)
+- [x] Task 4A-3: `src/services/go_api/cache.py` — created thin wrapper with `cache_get`/`cache_set`/`cache_delete` + runner injection; 22 tests in `tests/test_go_api_cache.py`
 - [ ] Task 4A-4: `src/scrapers/cache_manager.py` — delegate `get()`/`set()`/`delete()` to Go
 
 ### Phase 4B — IncrementalJSONDB Go delegation
@@ -54,4 +54,4 @@
 - Phase 3 / go_accelerated_db.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved 5 Go API function imports + `GoBridgeError` to module level (replacing repeated inline imports in 6 methods); simplified `_check_go_availability` to skip bridge storage. All 191 tests pass.
 - Phase 3 / go_accelerated_studio.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved `identify_studio` + `identify_studios_batch` Go API imports to module level (replacing 4 inline imports across 4 methods); added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`. All 191 tests pass.
 - Phase 4A / Task 4A-1 (2026-04-05): Added `CachePayload` struct to `pkg/cache/types.go`; added `hashKey`, `cacheFilePath`, `Set`, `Get`, `Delete`, `Exists` to `pkg/cache/cache.go` (with `crypto/sha256` import); added 4 new tests (`TestCacheGetSetDelete`, `TestCacheExpiry`, `TestCacheGetMissing`, `TestCacheIndexUpdatedOnSet`). All 13 cache tests + full Go pkg suite pass.
-- Phase 4A / Task 4A-2 (2026-04-05): Added `get`, `set`, `delete` sub-commands to `cmd/scanner/cache_cmd.go`; `get` returns base64-encoded value; `set` accepts base64 value + `--ttl-hours` flag; all output JSON `{"success":true,...}` or `{"success":false,"error":"..."}`. All Go tests pass.
+- Phase 4A / Task 4A-3 (2026-04-05): Created `src/services/go_api/cache.py` with `cache_get`/`cache_set`/`cache_delete` following runner-injection pattern from `go_api/db.py`; base64 encode/decode for binary values; all functions return None/False on failure instead of raising. Created `tests/test_go_api_cache.py` with 22 mock-runner tests. All 213 tests pass.
