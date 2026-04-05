@@ -10,16 +10,16 @@ Do not attempt multiple tasks in one run.
 - [x] DONE: `src/services/go_api/identify.py` — add `runner` keyword injection to all public functions
 - [x] DONE: `tests/test_go_api_runner_injection.py` — 33 tests covering db.py + identify.py
 - [x] DONE: `tests/test_go_api_move_scan_injection.py` — add runner injection tests for `go_api/move.py` and `go_api/scan.py` (mirror the pattern in test_go_api_runner_injection.py)
-- [ ] TODO: `src/services/go_api/move.py` — add `runner` keyword injection to all public functions (mirror db.py pattern). **Verify**: run `grep -n "def.*runner" src/services/go_api/move.py` — must show runner param in every public function before marking DONE.
-- [ ] TODO: `src/services/go_api/scan.py` — add `runner` keyword injection to all public functions. **Verify**: run `grep -n "def.*runner" src/services/go_api/scan.py` — must show runner param in every public function before marking DONE.
+- [x] DONE: `src/services/go_api/move.py` — added `_get_runner()` helper; runner injection in all public functions
+- [x] DONE: `src/services/go_api/scan.py` — added `_get_runner()` + `_get_context()` helpers; refactored `scan_directory()`
 
 ## Phase 2 — Replace Python reimplementations with Go delegation
-- [ ] TODO: `src/models/extractor.py` — `UnifiedCodeExtractor.extract_code()` currently does Python regex; delegate to `go_api/scan.py` identify logic (with Python fallback if Go unavailable)
-- [ ] TODO: `src/models/studio.py` — `StudioIdentifier.identify()` currently reads studios.json in Python; delegate to `go_api/identify.py` (with Python fallback)
+- [x] DONE: `src/models/extractor.py` — `extract_code()` delegates to `_extract_code_via_go()` with `_extract_code_python()` fallback; `cmd/scanner/main.go` extended with `-extract` flag
+- [x] DONE: `src/models/studio.py` — `identify_studio()` delegates to `_identify_studio_via_go()` with `_identify_studio_python()` fallback; skips Go when using custom rules_file
 
 ## Phase 3 — Thin wrapper cleanup
-- [ ] TODO: `src/models/go_accelerated_db.py` — audit for redundant methods already covered by `go_api/db.py`; remove duplication, keep public interface
-- [ ] TODO: `src/models/go_accelerated_studio.py` — audit for redundant methods already covered by `go_api/identify.py`; remove duplication, keep public interface
+- [ ] TODO: `src/models/go_accelerated_db.py` — audit for redundant methods already covered by `go_api/db.py`; remove duplication, keep public interface. **Before editing**: run `grep -n "def " src/models/go_accelerated_db.py` to list all methods, then `grep -rn "go_accelerated_db" src/ tests/` to find all call sites. Only remove methods with ZERO call sites outside the file itself. **Verify**: run `python -m pytest tests/ -v --tb=short` — all tests must pass. Run `git diff HEAD -- src/models/go_accelerated_db.py` — must show non-empty diff before marking DONE.
+- [ ] TODO: `src/models/go_accelerated_studio.py` — audit for redundant methods already covered by `go_api/identify.py`; remove duplication, keep public interface. **Before editing**: run `grep -n "def " src/models/go_accelerated_studio.py` and `grep -rn "go_accelerated_studio" src/ tests/` to find call sites. Only remove methods with ZERO external call sites. **Verify**: run `python -m pytest tests/ -v --tb=short` — all tests must pass. Run `git diff HEAD -- src/models/go_accelerated_studio.py` — must show non-empty diff before marking DONE.
 
 # Allowed scope
 - `pkg/**`
