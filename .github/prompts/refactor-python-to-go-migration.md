@@ -9,7 +9,7 @@ Do not attempt multiple tasks in one run.
 - [x] DONE: `src/services/go_api/db.py` — add `runner` keyword injection to all public functions
 - [x] DONE: `src/services/go_api/identify.py` — add `runner` keyword injection to all public functions
 - [x] DONE: `tests/test_go_api_runner_injection.py` — 33 tests covering db.py + identify.py
-- [ ] TODO: `tests/test_go_api_move_scan_injection.py` — add runner injection tests for `go_api/move.py` and `go_api/scan.py` (mirror the pattern in test_go_api_runner_injection.py)
+- [x] DONE: `tests/test_go_api_move_scan_injection.py` — add runner injection tests for `go_api/move.py` and `go_api/scan.py` (mirror the pattern in test_go_api_runner_injection.py)
 - [ ] TODO: `src/services/go_api/move.py` — add `runner` keyword injection to all public functions (mirror db.py pattern)
 - [ ] TODO: `src/services/go_api/scan.py` — add `runner` keyword injection to all public functions
 
@@ -34,11 +34,12 @@ Do not attempt multiple tasks in one run.
 - `src/utils/scanner.py`
 - `src/utils/file_mover.py`
 - `tests/**`
+- `.github/prompts/refactor-python-to-go-migration.md` ← task list (update `[ ]` → `[x] DONE` when task is complete)
 
 # Forbidden scope
 - Any file outside the allowed scope
 - `src/ui/**`, `src/scrapers/**`, `src/services/classifier_core.py`, `src/services/web_searcher.py`, `src/services/studio_classifier.py`
-- `.github/**`, `data/**`, `logs/**`
+- `.github/workflows/**`, `data/**`, `logs/**`
 - Commits, pushes, PR creation, branch changes, or network access
 
 # Safety rules
