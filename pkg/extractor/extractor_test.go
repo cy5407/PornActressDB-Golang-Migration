@@ -26,6 +26,8 @@ func TestExtractCode(t *testing.T) {
 		{"CAWD_123.mp4", "CAWD-123"},
 		{"CAWD.456.mp4", "CAWD-456"},
 		{"SONE-123CH.mp4", "SONE-123"},
+		{"STARS-707CH.mp4", "STARS-707"},
+		{"MIDV-123A.mp4", "MIDV-123"},
 		{"hhd800.com@MIAB-789.mp4", "MIAB-789"},
 		{"FC2-PPV-123456.mp4", ""},
 		{"FC2PPV-999999.mp4", ""},

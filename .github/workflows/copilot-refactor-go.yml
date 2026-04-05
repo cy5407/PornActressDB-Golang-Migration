@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 name: Copilot Go Extractor Refactor
 
 on:
@@ -162,3 +163,189 @@ jobs:
             echo "### Pull request"
             echo "- [Draft PR](${{ steps.create_pr.outputs.pull-request-url }})"
           } >> "$GITHUB_STEP_SUMMARY"
+=======
+name: Copilot Python to Go Migration Refactor
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: copilot-refactor-extractor
+  cancel-in-progress: false
+
+jobs:
+  refactor-extractor:
+    name: Advance Python-to-Go migration with Copilot CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies (tkinter)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Baseline Go package tests
+        run: go test ./pkg/... -v
+
+      - name: Run Copilot CLI migration refactor
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        shell: bash
+        run: |
+          prompt="$(cat .github/prompts/refactor-python-to-go-migration.md)"
+
+          copilot -p "$prompt" \
+            --autopilot \
+            --max-autopilot-continues 3 \
+            --allow-tool='shell' \
+            --allow-tool='write' \
+            --deny-tool='shell(git push)' \
+            --deny-tool='shell(git commit)' \
+            --deny-tool='shell(gh)' \
+            --deny-tool='shell(rm)' \
+            --no-ask-user
+
+      - name: Guard migration scope
+        id: scope
+        shell: bash
+        run: |
+          mapfile -t changed_files < <(git diff --name-only)
+
+          if [ "${#changed_files[@]}" -eq 0 ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s\n' "${changed_files[@]}" > "$RUNNER_TEMP/changed-files.txt"
+
+          out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v -E '^(pkg/|cmd/scanner/|src/services/go_api/|src/services/go_bridge\.py|src/services/go_runner\.py|src/models/go_accelerated_db\.py|src/models/go_accelerated_studio\.py|src/utils/scanner\.py|src/utils/file_mover\.py|tests/)' || true)"
+          if [ -n "$out_of_scope" ]; then
+            echo "Out-of-scope changes detected:" >&2
+            printf '%s\n' "$out_of_scope" >&2
+            exit 1
+          fi
+
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Verify migration tests after refactor
+        if: steps.scope.outputs.has_changes == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          go test ./pkg/... -v
+          python -m pytest tests/ -v --tb=short -k "go_bridge or scanner or mover or accelerated"
+
+      - name: Add no-change summary
+        if: steps.scope.outputs.has_changes != 'true'
+        shell: bash
+        run: |
+          {
+            echo "## Copilot Python-to-Go migration refactor"
+            echo
+            echo "- Scope: \`pkg/**\`, \`cmd/scanner/**\`, bridge wrappers, and migration-related tests"
+            echo "- Result: no safe changes were proposed"
+            echo "- Baseline test: \`go test ./pkg/... -v\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Add change summary
+        if: steps.scope.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          {
+            echo "## Copilot Python-to-Go migration refactor"
+            echo
+            echo "- Scope: `pkg/**`, `cmd/scanner/**`, bridge wrappers, and migration-related tests"
+            echo "- Result: scoped changes passed validation"
+            echo
+            echo "### Changed files"
+            git diff --name-only | sed 's#^#- `#; s#$#`#'
+            echo
+            echo "### Diff stat"
+            echo '```text'
+            git diff --stat
+            echo '```'
+            echo
+            echo "### Validation"
+            echo "- \`go test ./pkg/... -v\`"
+            echo "- \`python -m pytest tests/ -v --tb=short -k \"go_bridge or scanner or mover or accelerated\"\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or update draft pull request
+        id: create_pr
+        if: steps.scope.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          branch: copilot/python-to-go-migration
+          delete-branch: false
+          draft: true
+          add-paths: |
+            pkg
+            cmd/scanner
+            src/services/go_api
+            src/services/go_bridge.py
+            src/services/go_runner.py
+            src/models/go_accelerated_db.py
+            src/models/go_accelerated_studio.py
+            src/utils/scanner.py
+            src/utils/file_mover.py
+            tests
+          commit-message: "refactor: advance python-to-go migration"
+          title: "refactor: Copilot Python-to-Go migration step"
+          body: |
+            ## Summary
+            - AI-assisted Python-to-Go migration step
+            - Scope is intentionally limited to Go packages, CLI, bridge wrappers, and related tests
+            - Generated by GitHub Actions + Copilot CLI
+
+            ## Validation
+            - `go test ./pkg/... -v`
+            - `python -m pytest tests/ -v --tb=short -k "go_bridge or scanner or mover or accelerated"`
+            - workflow fails if files outside the migration scope are modified
+
+            ## Review notes
+            - This PR stays in draft on purpose.
+            - Please verify Python fallback and Go bridge compatibility before merge.
+
+      - name: Add pull request summary
+        if: steps.create_pr.outputs.pull-request-url != ''
+        shell: bash
+        run: |
+          {
+            echo
+            echo "### Pull request"
+            echo "- [Draft PR](${{ steps.create_pr.outputs.pull-request-url }})"
+          } >> "$GITHUB_STEP_SUMMARY"
+>>>>>>> Stashed changes
