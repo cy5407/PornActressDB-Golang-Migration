@@ -17,7 +17,8 @@
     "MIAE",
     "MIAD",
     "MIFD",
-    "MIBB"
+    "MIBB",
+    "MIDA"
   ],
   "PREMIUM": [
     "IPX",
@@ -68,7 +69,8 @@
     "ABS",
     "BGN",
     "CHN",
-    "ABF"
+    "ABF",
+    "FPRE"
   ],
   "SOD": [
     "SDJS",
@@ -88,5 +90,11 @@
     "SACE",
     "SDMUA",
     "HJMO"
+  ],
+  "V&R": [
+    "VEC",
+    "VICD",
+    "VAGU",
+    "VSPDS"
   ]
 }
