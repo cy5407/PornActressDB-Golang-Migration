@@ -4,20 +4,11 @@ import logging
 import tempfile
 
 try:
-    from ..go_runner import GoCommandRunner
+    from ..go_runner import GoCommandRunner, _cleanup_temp_file
 except ImportError:
-    from services.go_runner import GoCommandRunner
+    from services.go_runner import GoCommandRunner, _cleanup_temp_file
 
 logger = logging.getLogger(__name__)
-
-
-def _cleanup_temp_file(path: str | None, context: str) -> None:
-    try:
-        from ..go_bridge import _cleanup_temp_file as cleanup_temp_file
-    except ImportError:
-        from services.go_bridge import _cleanup_temp_file as cleanup_temp_file
-
-    cleanup_temp_file(path, context)
 
 
 def _get_runner(runner: GoCommandRunner | None) -> GoCommandRunner:

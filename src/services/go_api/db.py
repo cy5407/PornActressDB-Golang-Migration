@@ -6,21 +6,11 @@ import tempfile
 from typing import Optional
 
 try:
-    from ..go_runner import GoBridgeError, GoCommandRunner
+    from ..go_runner import GoBridgeError, GoCommandRunner, _cleanup_temp_file
 except ImportError:
-    from services.go_runner import GoBridgeError, GoCommandRunner
+    from services.go_runner import GoBridgeError, GoCommandRunner, _cleanup_temp_file
 
 logger = logging.getLogger(__name__)
-
-
-def _cleanup_temp_file(path: str | None, context: str) -> None:
-    """延遲匯入清理 helper，避免循環依賴。"""
-    try:
-        from ..go_bridge import _cleanup_temp_file as cleanup_temp_file
-    except ImportError:
-        from services.go_bridge import _cleanup_temp_file as cleanup_temp_file
-
-    cleanup_temp_file(path, context)
 
 
 def _get_runner(runner: GoCommandRunner | None) -> GoCommandRunner:

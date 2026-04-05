@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 try:
-    from ..go_runner import GoBridgeError, GoCommandRunner
+    from ..go_runner import GoBridgeError, GoCommandRunner, _cleanup_temp_file
 except ImportError:
-    from services.go_runner import GoBridgeError, GoCommandRunner
+    from services.go_runner import GoBridgeError, GoCommandRunner, _cleanup_temp_file
 
 
 @dataclass
@@ -51,15 +51,6 @@ class OperationLog:
     success_count: int = 0
     failed_count: int = 0
     skipped_count: int = 0
-
-
-def _cleanup_temp_file(path: str | None, context: str) -> None:
-    try:
-        from ..go_bridge import _cleanup_temp_file as cleanup_temp_file
-    except ImportError:
-        from services.go_bridge import _cleanup_temp_file as cleanup_temp_file
-
-    cleanup_temp_file(path, context)
 
 
 def _get_bridge():
