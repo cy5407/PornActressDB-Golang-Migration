@@ -77,7 +77,8 @@ jobs:
         id: scope
         shell: bash
         run: |
-          mapfile -t changed_files < <(git diff --name-only)
+          # 同時偵測「修改的追蹤檔案」和「新增的未追蹤檔案」
+          mapfile -t changed_files < <({ git diff --name-only; git ls-files --others --exclude-standard; })
 
           if [ "${#changed_files[@]}" -eq 0 ]; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
