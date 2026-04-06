@@ -196,3 +196,10 @@
 - **錯誤處理 / fallback 行為**：現有流程遇到例外時多半會先 `logger.error(..., exc_info=True)`，再回傳 `{"status": "error", "message": str(e)}`；UI 端則透過 `_show_result_error` 顯示，或在 Go CLI 不可用時直接跳警告。新的 Wails 實作要保留「可恢復則降級、不可恢復才中止」的模式，例如：Go CLI 不可用時給明確 fallback 提示、搜尋失敗時仍需寫入可用的部分結果、背景任務被 stop 時要先輸出中止訊息再結束。
 - **進度事件映射**：`web_searcher.batch_search` 目前會輸出 `處理批次 N/M`、`✅ 找到資料`、`⚠️ 搜尋頁面異常 - reason`、`❌ 未找到結果`、`💥 處理失敗 - e`；`process_and_search_cascade` 另外會輸出階段標題、AV-WIKI / 別名 fallback、來源統計與摘要。Wails 前端的 `progress` / `status` / `error` / `task:done` 事件要保留這些層次，並至少區分：批次開始、單筆成功、單筆暫時性異常、單筆失敗、階段切換、摘要完成。
 - **Python subprocess 超時與錯誤細節**：`go_runner.py` 目前以 `subprocess.run(..., capture_output=True, text=True, encoding="utf-8", timeout=timeout)` 執行，超時會丟 `GoBridgeError("命令執行超時")`；`returncode != 0` 時會先看 stderr，若包含 `not found / no such / does not exist / 找不到` 則視為 not found，否則視為執行失敗；JSON 解析失敗則回傳含前 200 字輸出的 `GoBridgeJSONError`。若 Wails 仍保留 Python 爬蟲 subprocess，請把 timeout / stderr / JSON parse error 這三種失敗明確帶回前端，避免只顯示泛用「執行失敗」。
+
+### 進一步補充：Wails 專案骨架與型別/事件契約
+- **專案路徑**：`wails-app/` 目前在 repo 中尚未建立；Tasks.md 應先把這個目錄視為新專案根目錄，底下至少要有 `wails-app/backend/app.go`、`wails-app/backend/services/`、`wails-app/frontend/src/`、`wails-app/frontend/src/components/`、`wails-app/frontend/src/lib/`、`wails-app/frontend/src/stores/`，避免後續實作時文件路徑漂移。
+- **TypeScript 型別**：前端不能只靠 `any`。至少要補 `frontend/src/lib/types.ts` 或等價型別檔，定義 `ScanResult`、`MoveResult`、`MergeResult`、`BatchResult`、`OperationLog`、`MoveItem`、`VideoData`/`Preferences`、以及 Wails 事件 payload（例如 `ProgressEvent`、`StatusEvent`、`TaskDoneEvent`、`ErrorEvent`）。
+- **Wails 事件名稱**：建議在文件中明確固定事件契約，避免前後端各寫各的。至少要列出 `scan:progress`、`task:progress` 或共用 `progress`、`status`、`error`、`task:done`、`task:clear`、`task:callback` 這幾類事件，並說清楚 payload 格式（例如 `{message, current, total, level, taskId}`）。
+- **binding / service 分工**：`backend/app.go` 應只負責 binding 入口與事件轉發，實作邏輯放到 `backend/services/*.go`，避免把掃描、搬移、歷史、偏好與 subprocess 全塞進單一檔案；前端 `App.tsx` 也只應組裝版面，主要狀態與事件處理由 store / hooks / components 分層承接。
+- **缺漏檢查清單**：若後續建立 `wails-app/`，先確認生成的預設檔案是否包含 bindings、types、events、store、測試與打包設定；否則容易只完成畫面而漏掉 Go binding 與事件資料格式，導致 UI 看得到但無法可靠串接。
