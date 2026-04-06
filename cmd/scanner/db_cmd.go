@@ -15,7 +15,7 @@ import (
 
 func dbCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios|actress-get|actress-update|actress-delete|actress-list> [選項]")
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios|actress-get|actress-update|actress-delete|actress-list|backup-create|backup-restore|backup-list|backup-cleanup> [選項]")
 		os.Exit(1)
 	}
 
@@ -32,6 +32,9 @@ func dbCmd(args []string) {
 	fullOutput := fs.Bool("full", false, "輸出完整影片資料（僅 list 子命令）")
 	actressStats := fs.Bool("actress", false, "顯示女優統計")
 	studioStats := fs.Bool("studio", false, "顯示片商統計")
+	backupPath := fs.String("backup-path", "", "備份檔案路徑（用於 backup-restore）")
+	backupDays := fs.Int("days", 30, "備份保留天數（用於 backup-cleanup）")
+	backupMaxCount := fs.Int("max-count", 50, "最大備份數量（用於 backup-cleanup）")
 	parseFlagsOrExit(fs, args[1:])
 	remaining := fs.Args()
 
@@ -239,6 +242,44 @@ func dbCmd(args []string) {
 			os.Exit(1)
 		}
 		outputJSON(ids)
+
+	case "backup-create":
+		path, err := db.BackupCreate()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "建立備份失敗: %v\n", err)
+			os.Exit(1)
+		}
+		outputJSON(map[string]any{"path": path, "success": true})
+
+	case "backup-restore":
+		if strings.TrimSpace(*backupPath) == "" {
+			fmt.Fprintln(os.Stderr, "用法: classifier.exe db backup-restore -backup-path <備份路徑> [-data-dir <目錄>]")
+			os.Exit(1)
+		}
+		if err := db.BackupRestore(*backupPath); err != nil {
+			fmt.Fprintf(os.Stderr, "還原備份失敗: %v\n", err)
+			os.Exit(1)
+		}
+		outputJSON(map[string]any{"success": true})
+
+	case "backup-list":
+		backups, err := db.BackupList()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "列出備份失敗: %v\n", err)
+			os.Exit(1)
+		}
+		if backups == nil {
+			backups = []string{}
+		}
+		outputJSON(map[string]any{"backups": backups, "count": len(backups)})
+
+	case "backup-cleanup":
+		deletedCount, err := db.BackupCleanup(*backupDays, *backupMaxCount)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "清理備份失敗: %v\n", err)
+			os.Exit(1)
+		}
+		outputJSON(map[string]any{"deleted": deletedCount, "success": true})
 
 	default:
 		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)

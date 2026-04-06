@@ -973,6 +973,128 @@ func (db *JSONDatabase) GetActressStats() ([]map[string]any, error) {
 	return results, nil
 }
 
+// BackupCreate 建立備份，回傳備份檔案路徑
+func (db *JSONDatabase) BackupCreate() (string, error) {
+	backupDir := filepath.Join(db.dataDir, "backup")
+	if err := safefile.MkdirAll(backupDir, 0700); err != nil {
+		return "", fmt.Errorf("無法建立備份目錄: %w", err)
+	}
+
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	backupPath := filepath.Join(backupDir, "backup_"+timestamp+".json")
+
+	content, err := safefile.ReadFile(db.dataFile)
+	if err != nil {
+		return "", fmt.Errorf("無法讀取資料檔案: %w", err)
+	}
+
+	if err := safefile.WriteFile(backupPath, content, 0600); err != nil {
+		return "", fmt.Errorf("無法寫入備份檔案: %w", err)
+	}
+
+	return backupPath, nil
+}
+
+// BackupRestore 從備份還原資料庫
+func (db *JSONDatabase) BackupRestore(backupPath string) error {
+	content, err := safefile.ReadFile(backupPath)
+	if err != nil {
+		return fmt.Errorf("備份檔案不存在或無法讀取: %w", err)
+	}
+
+	// 驗證 JSON 格式
+	var temp any
+	if err := json.Unmarshal(content, &temp); err != nil {
+		return fmt.Errorf("備份檔案 JSON 格式無效: %w", err)
+	}
+
+	// 在寫鎖下覆寫 data.json
+	db.mu.Lock()
+	err = safefile.WriteFile(db.dataFile, content, 0600)
+	if err != nil {
+		db.mu.Unlock()
+		return fmt.Errorf("寫入資料庫失敗: %w", err)
+	}
+	db.loaded = false
+	db.mu.Unlock()
+
+	// 重新載入（Load 自行取鎖）
+	return db.Load(context.Background())
+}
+
+// BackupList 列出備份檔案路徑（按名稱排序）
+func (db *JSONDatabase) BackupList() ([]string, error) {
+	backupDir := filepath.Join(db.dataDir, "backup")
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("無法讀取備份目錄: %w", err)
+	}
+
+	var paths []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), "backup_") && strings.HasSuffix(e.Name(), ".json") {
+			paths = append(paths, filepath.Join(backupDir, e.Name()))
+		}
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// BackupCleanup 清理過期與超量備份，回傳刪除數量
+func (db *JSONDatabase) BackupCleanup(days int, maxCount int) (int, error) {
+	backupDir := filepath.Join(db.dataDir, "backup")
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("無法讀取備份目錄: %w", err)
+	}
+
+	cutoff := time.Now().AddDate(0, 0, -days)
+	deleted := 0
+
+	// 按日期刪除過期備份
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "backup_") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		// 從檔名解析日期：backup_YYYY-MM-DD_HH-MM-SS.json
+		stem := strings.TrimSuffix(strings.TrimPrefix(name, "backup_"), ".json")
+		parts := strings.SplitN(stem, "_", 2)
+		if len(parts) == 0 {
+			continue
+		}
+		t, parseErr := time.Parse("2006-01-02", parts[0])
+		if parseErr != nil {
+			continue
+		}
+		if t.Before(cutoff) {
+			if removeErr := os.Remove(filepath.Join(backupDir, name)); removeErr == nil {
+				deleted++
+			}
+		}
+	}
+
+	// 重新讀取剩餘備份，若超過 maxCount 則刪除最舊的
+	remaining, err := db.BackupList()
+	if err != nil {
+		return deleted, nil
+	}
+	for len(remaining) > maxCount {
+		if removeErr := os.Remove(remaining[0]); removeErr == nil {
+			deleted++
+		}
+		remaining = remaining[1:]
+	}
+
+	return deleted, nil
+}
+
 // GetStudioStats 取得片商統計資訊（影片數排序）
 func (db *JSONDatabase) GetStudioStats() ([]map[string]any, error) {
 	db.mu.RLock()

@@ -51,6 +51,10 @@ logger = logging.getLogger(__name__)
 # Go API 函式 — 在 Go CLI 可用時使用，不可用則 fallback 到 Python 實作
 try:
     from src.services.go_api.db import (
+        db_backup_cleanup as _go_db_backup_cleanup,
+        db_backup_create as _go_db_backup_create,
+        db_backup_list as _go_db_backup_list,
+        db_backup_restore as _go_db_backup_restore,
         db_delete_actress as _go_db_delete_actress,
         db_delete_video as _go_db_delete_video,
         db_get_actress as _go_db_get_actress,
@@ -584,6 +588,11 @@ class JSONDBManager:
         Raises:
             BackupError: 若備份失敗
         """
+        if self._GO_DB_AVAILABLE:
+            result = _go_db_backup_create(data_dir=str(self.data_dir))
+            if result:
+                return result
+
         try:
             from datetime import datetime
 
@@ -620,6 +629,13 @@ class JSONDBManager:
         Raises:
             BackupError: 若還原失敗
         """
+        if self._GO_DB_AVAILABLE:
+            result = _go_db_backup_restore(backup_path=backup_path, data_dir=str(self.data_dir))
+            if result:
+                # 重新載入記憶體
+                self._load_data_internal()
+                return True
+
         try:
             backup_file = Path(backup_path)
 
@@ -655,6 +671,11 @@ class JSONDBManager:
         Returns:
             備份檔案路徑清單 (按時間排序)
         """
+        if self._GO_DB_AVAILABLE:
+            result = _go_db_backup_list(data_dir=str(self.data_dir))
+            if result is not None:
+                return result
+
         try:
             backup_files = sorted(self.backup_dir.glob(self.BACKUP_PATTERN))
             return [str(f) for f in backup_files]
@@ -679,6 +700,12 @@ class JSONDBManager:
             days = self.DEFAULT_BACKUP_DAYS
         if max_count is None:
             max_count = self.DEFAULT_BACKUP_MAX_COUNT
+
+        if self._GO_DB_AVAILABLE:
+            deleted = _go_db_backup_cleanup(
+                data_dir=str(self.data_dir), days=days, max_count=max_count
+            )
+            return deleted
 
         try:
             from datetime import timedelta

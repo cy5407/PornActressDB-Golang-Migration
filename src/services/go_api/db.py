@@ -379,6 +379,111 @@ def db_list_actresses(
         return []
 
 
+def db_backup_create(
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> str | None:
+    """建立備份，回傳備份路徑。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "backup-create"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        if not isinstance(data, dict) or not data.get("success"):
+            raise GoBridgeError(f"backup-create 回傳非預期結果: {result.stdout[:200]}")
+        path = data.get("path")
+        logger.info(f"✅ 備份建立成功: {path}")
+        return str(path) if path else None
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 執行失敗，建立備份失敗: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"❌ 建立備份失敗: {e}")
+        return None
+
+
+def db_backup_restore(
+    backup_path: str,
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> bool:
+    """從備份還原，成功回傳 True。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "backup-restore", "-backup-path", backup_path]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        if not isinstance(data, dict) or not data.get("success"):
+            raise GoBridgeError(f"backup-restore 回傳非預期結果: {result.stdout[:200]}")
+        logger.info(f"✅ 備份還原成功: {backup_path}")
+        return True
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 執行失敗，還原備份失敗: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ 還原備份失敗: {e}")
+        return False
+
+
+def db_backup_list(
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> list[str]:
+    """列出所有備份路徑。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "backup-list"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        if not isinstance(data, dict):
+            return []
+        backups = data.get("backups", [])
+        return list(backups) if isinstance(backups, list) else []
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 執行失敗，列出備份失敗: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"❌ 列出備份失敗: {e}")
+        return []
+
+
+def db_backup_cleanup(
+    data_dir: str = "data/json_db",
+    days: int = 30,
+    max_count: int = 50,
+    *,
+    runner: GoCommandRunner | None = None,
+) -> int:
+    """清理備份，回傳刪除數量。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "backup-cleanup", "-days", str(days), "-max-count", str(max_count)]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        if not isinstance(data, dict) or not data.get("success"):
+            raise GoBridgeError(f"backup-cleanup 回傳非預期結果: {result.stdout[:200]}")
+        deleted = data.get("deleted", 0)
+        logger.info(f"✅ 備份清理完成，刪除 {deleted} 個備份")
+        return int(deleted)
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 執行失敗，清理備份失敗: {e}")
+        return 0
+    except Exception as e:
+        logger.error(f"❌ 清理備份失敗: {e}")
+        return 0
+
+
 def db_get_actress_stats(
     data_dir: str = "data/json_db",
     *,
