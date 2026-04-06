@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write    # 允許觸發自身 workflow（自鏈式執行）
 
 concurrency:
   group: copilot-refactor-extractor
@@ -16,7 +17,7 @@ jobs:
   refactor-extractor:
     name: Advance Python-to-Go migration with Copilot CLI
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -83,7 +84,7 @@ jobs:
 
           copilot -p "$prompt" \
             --autopilot \
-            --max-autopilot-continues 5 \
+            --max-autopilot-continues 20 \
             --allow-tool='shell' \
             --allow-tool='write' \
             --deny-tool='shell(git push)' \
@@ -182,3 +183,21 @@ jobs:
             git diff HEAD~1 --stat 2>/dev/null || echo "(see branch)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 🔁 Auto-trigger next run if tasks remain
+        if: steps.scope.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        shell: bash
+        run: |
+          # 計算 prompt 中剩餘的 TODO 任務數，決定是否自動觸發下一次執行
+          remaining=$(grep -c "^\- \[ \] TODO:" .github/prompts/refactor-python-to-go-migration.md 2>/dev/null || echo "0")
+          echo "Remaining TODO tasks in prompt: $remaining"
+
+          if [ "$remaining" -gt 0 ]; then
+            echo "Tasks still pending — triggering next workflow run automatically"
+            gh workflow run copilot-refactor-go.yml --ref main
+            echo "Next run triggered (remaining: $remaining tasks)"
+          else
+            echo "All tasks completed! No further runs needed."
+          fi

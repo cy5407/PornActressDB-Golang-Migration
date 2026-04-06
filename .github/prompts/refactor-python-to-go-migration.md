@@ -1,7 +1,8 @@
 # Goal
 Safely advance the Python-to-Go migration in this repository.
 Pick the **first incomplete task** from the task list below and complete it.
-Do not attempt multiple tasks in one run.
+You may complete **up to 3 tasks in one run** if they are in the same Phase and all tests pass after each task.
+Stop immediately if any task's tests fail — do not proceed to the next task.
 
 # Progress tracking (read this FIRST)
 **Before picking a task**, read `MIGRATION_STATUS.md` to see which tasks are already completed.
