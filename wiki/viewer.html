@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>女優分類系統 Wiki</title>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 <style>
   :root {
     --bg: #0d1117;
@@ -216,17 +216,8 @@ async function loadPage(item) {
       cache[item.file] = md;
     }
 
-    // 配置 marked
-    marked.setOptions({
-      highlight: (code, lang) => {
-        if (lang && hljs.getLanguage(lang)) {
-          return hljs.highlight(code, { language: lang }).value;
-        }
-        return hljs.highlightAuto(code).value;
-      },
-      breaks: true,
-      gfm: true,
-    });
+    // 配置 marked（v9+ 使用 use()，不再支援 setOptions highlight）
+    marked.use({ breaks: true, gfm: true });
 
     content.innerHTML = marked.parse(md);
 
@@ -243,10 +234,12 @@ async function loadPage(item) {
       }
     });
 
-    // 程式碼高亮
-    content.querySelectorAll('pre code').forEach(el => {
-      hljs.highlightElement(el);
-    });
+    // 程式碼高亮（hljs 後處理）
+    if (typeof hljs !== 'undefined') {
+      content.querySelectorAll('pre code').forEach(el => {
+        hljs.highlightElement(el);
+      });
+    }
 
     window.scrollTo(0, 0);
   } catch (err) {
