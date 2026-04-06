@@ -5,6 +5,32 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-07] refactor | Phase 10 Go guards 全移除（247 tests pass）
+
+**涉及檔案**：
+- `src/models/json_database.py` — 移除 `_GO_DB_AVAILABLE` flag + 13 個 guard 分支
+- `src/models/incremental_json_database.py` — 移除 `_GO_DB_AVAILABLE` 類別屬性 + 4 個 guard
+- `src/scrapers/cache_manager.py` — 移除 `_GO_CACHE_AVAILABLE` flag + set/get/delete early-return guard
+
+**結果**：
+- 三個模組全部改為直接委派 Go，無 availability check 包裹
+- try/except import 改為直接 import（Go api 必須可用）
+- `test_incremental_db_go_delegation.py` / `test_json_db_go_delegation.py` 更新對應測試
+- 247 tests passed, 0 failed
+
+---
+
+## [2026-04-07] feat | extractor siteRe 通用化（支援任意 *.com@ 前綴）
+
+**涉及檔案**：
+- `pkg/extractor/extractor.go` — siteRe 從 `hhd800.com@|xxx.com-` 改為通用 `(?i)^([a-z0-9.-]+\.com[@-])`
+- `pkg/extractor/extractor_test.go` — 補 `489155.com@MIMK-273`、`abc123.com@STARS-001` 等測試
+- `tests/test_extractor.py` — 補 Python 側委派測試
+
+**原因**：用戶發現 `489155.com@MIMK-273` 資料夾前綴未被剝除，舊 siteRe 只硬編碼兩個特定網域。
+
+---
+
 ## [2026-04-07] docs | Phase 9D 文件收尾完成
 
 **涉及檔案**：

@@ -50,9 +50,22 @@
 
 ---
 
+### Phase 10 — Go availability guards 全移除
+
+- [x] Task 10-1: `src/models/json_database.py` — 移除 `_GO_DB_AVAILABLE` flag、`_check_go_db_available()` 方法、13 個方法的 `if self._GO_DB_AVAILABLE:` guard；改為直接委派 Go
+- [x] Task 10-2: `src/models/incremental_json_database.py` — 移除 `_GO_DB_AVAILABLE` 類別屬性、`_check_go_db_available()` 靜態方法、4 個方法的 guard
+- [x] Task 10-3: `src/scrapers/cache_manager.py` — 移除 `_GO_CACHE_AVAILABLE` flag、`_check_go_available()` 靜態方法、set/get/delete early-return guard
+
+### Phase 11 — 測試補強 & CI 整合
+
+- [x] Task 11-1: `tests/test_extractor.py` — 補 `489155.com@` site prefix 委派測試、通用 siteRe 測試
+- [x] Task 11-2: `.github/workflows/integration-test.yml` — 加入 e2e 整合測試步驟（`go build → pytest tests/integration/`）
+
+---
+
 ## 🔄 Current Status
 
-**✅ Phase 6 完成。** 所有 Python fallback 已移除。226 個測試全數通過。
+**✅ Phase 10 完成。** 全數 Go availability guards 移除，247 個測試全數通過。
 
 ### 刪減統計（Phase 6）
 

@@ -129,25 +129,27 @@ db_new_func = api.db_new_func  # ← 補上
 | Phase 9B | GoBridgeError 語意細化（ExecError/NotFoundError/JSONError） | ✅ 完成 |
 | Phase 9C | IncrementalJSONDB add_video/delete_video 委派 Go | ✅ 完成 |
 | Phase 9D | 文件收尾（wiki / 計畫 / 完成記錄） | ✅ 完成 |
+| Phase 10 | **Go availability guards 全移除**（json_db / incremental / cache） | ✅ 完成（247 tests，直接委派） |
+| Phase 11 | extractor siteRe 通用化 + CI e2e 整合 | ✅ 完成 |
 
-### Phase 6+ 後的 Fallback 策略
+### Phase 10+ 後的委派策略
 
-Phase 6 完成後，Python fallback 已全數移除。Phase 7/8 新增委派方法沿用相同原則：
+Phase 10 完成後，`_GO_DB_AVAILABLE` guard 已全數移除。所有方法直接委派 Go，不再有可用性檢查。
 
 ```python
-# 寫入/刪除操作：Go 不可用 → RuntimeError（不接受降級）
-def create_backup(self):
-    if self._GO_DB_AVAILABLE:
-        result = db_backup_create(data_dir=str(self.data_dir))
-        if result:
-            return result
-    raise RuntimeError("Go CLI 不可用，無法建立備份")
+# Phase 10 之後：直接委派，不再有 guard
+def add_or_update_video(self, code, data):
+    result = db_update_video(code, data, data_dir=str(self.data_dir))
+    if not result:
+        raise RuntimeError(f"Go CLI 無法更新影片 {code}")
+    return result
 
-# 唯一合法的記憶體讀取 fallback
-def get_actress_info(self, actress_id):
-    if self._GO_DB_AVAILABLE:
-        ...go call...
-    return self.data.get("actresses", {}).get(actress_id)  # ← 唯一例外
+# 唯一合法的記憶體讀取 fallback（保留）
+def get_all_videos(self):
+    try:
+        return db_get_all_videos(data_dir=str(self.data_dir))
+    except Exception:
+        return dict(self.data.get("videos", {}))  # ← 記憶體 cache
 ```
 
 **判斷標準**：
