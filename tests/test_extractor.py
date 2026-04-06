@@ -111,21 +111,6 @@ class TestUnifiedCodeExtractor:
         assert extractor.extract_code("random_video.mp4") is None
         assert extractor.extract_code("just_text.mp4") is None
 
-    def test_should_skip_various_formats(self, extractor):
-        """測試各種應該跳過的格式"""
-        assert extractor._should_skip_file("FC2-PPV-1234567")
-        assert extractor._should_skip_file("FC2PPV-1234567")
-        assert extractor._should_skip_file("PPV-1234567")
-        assert extractor._should_skip_file("FC2_1234567")
-        assert not extractor._should_skip_file("STARS-707")
-
-    def test_supported_formats(self, extractor):
-        """測試支援的檔案格式"""
-        assert ".mp4" in extractor.supported_formats
-        assert ".mkv" in extractor.supported_formats
-        assert ".avi" in extractor.supported_formats
-        assert ".webm" in extractor.supported_formats
-
     def test_extract_from_path(self, extractor):
         """測試從完整路徑提取"""
         path = "/path/to/video/STARS-707.mp4"

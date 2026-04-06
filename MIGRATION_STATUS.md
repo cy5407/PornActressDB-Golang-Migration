@@ -27,11 +27,15 @@
 - [x] `src/models/go_accelerated_db.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; simplified `_check_go_availability`
 - [x] `src/models/go_accelerated_studio.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`
 
+### Phase 6A — 薄適配層 Python fallback 移除（低風險）
+
+- [x] Task 6A-1: `src/models/extractor.py` — deleted `_extract_code_python()`, `_validate_code()`, `_should_skip_file()`, `__init__`, and all Python-only attributes; `extract_code()` now calls `_extract_code_via_go()` directly; updated `tests/test_extractor.py` to remove tests of deleted methods
+
 ---
 
 ## 🔄 Current Status
 
-**Phase 5 完成。** 所有 JSONDBManager Go 委派任務均已完成。
+**Phase 6A 進行中。** Task 6A-1 完成（extractor.py Python fallback 已移除）。下一個任務：Task 6A-2（studio.py）。
 
 ### Phase 5 — JSONDBManager Go 完整委派
 
@@ -61,4 +65,4 @@
 - Phase 3 / go_accelerated_studio.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved `identify_studio` + `identify_studios_batch` Go API imports to module level (replacing 4 inline imports across 4 methods); added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`. All 191 tests pass.
 - Phase 4A / Task 4A-1 (2026-04-05): Added `CachePayload` struct to `pkg/cache/types.go`; added `hashKey`, `cacheFilePath`, `Set`, `Get`, `Delete`, `Exists` to `pkg/cache/cache.go` (with `crypto/sha256` import); added 4 new tests (`TestCacheGetSetDelete`, `TestCacheExpiry`, `TestCacheGetMissing`, `TestCacheIndexUpdatedOnSet`). All 13 cache tests + full Go pkg suite pass.
 - Phase 5 / Task 5-2 (2026-04-05): Added `db_get_all_videos(data_dir, *, runner)` to `src/services/go_api/db.py` — calls `["db", "list", "--full"]`, mirrors `db_list_videos` pattern; created `tests/test_go_api_db_all_videos.py` with 4 tests. All 228 tests pass.
-- Phase 5 / Task 5-4 (2026-04-05): Renamed `get_all_videos` → `_get_all_videos_python`; added new `get_all_videos` that delegates to `_go_db_get_all_videos(data_dir=...)` with Python fallback on exception; created `tests/test_json_db_go_delegation.py` with 15 tests in 4 classes (`TestGetVideoInfoDelegation`, `TestAddOrUpdateVideoDelegation`, `TestDeleteVideoDelegation`, `TestGetAllVideosDelegation`). All 243 tests pass.
+- Phase 6A / Task 6A-1 (2026-04-06): Deleted `_extract_code_python()`, `_validate_code()`, `_should_skip_file()`, `__init__`, and all Python-only attributes (`tech_suffix_pattern`, `skip_prefixes`, `code_patterns`, `supported_formats`) from `src/models/extractor.py` (~130 lines removed). Removed `re`/`Path` imports. `extract_code()` now calls `_extract_code_via_go()` directly (returns `None` if Go unavailable). Updated `tests/test_extractor.py` to remove 2 tests of deleted methods (`test_should_skip_various_formats`, `test_supported_formats`). All 243 tests pass.
