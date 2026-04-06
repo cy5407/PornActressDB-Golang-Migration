@@ -10,7 +10,7 @@ from pathlib import Path
 from src.scrapers.cache_manager import CacheConfig, CacheManager
 
 
-def test_disk_cache_uses_json_payload(tmp_path):
+def test_disk_cache_uses_json_payload(tmp_path, monkeypatch):
     """磁碟快取應使用 JSON 載荷而非 pickle。"""
     manager = CacheManager(
         CacheConfig(
@@ -19,6 +19,8 @@ def test_disk_cache_uses_json_payload(tmp_path):
             enable_compression=False,
         )
     )
+    # 強制走 Python 路徑，確保測試 Python 安全實作而非 Go 儲存路徑
+    monkeypatch.setattr(manager, "_GO_CACHE_AVAILABLE", False)
 
     value = {"name": "測試", "actresses": ["A", "B"], "count": 2}
 
@@ -33,7 +35,7 @@ def test_disk_cache_uses_json_payload(tmp_path):
     assert manager.get("video:test") == value
 
 
-def test_legacy_pickle_cache_is_ignored_and_removed(tmp_path):
+def test_legacy_pickle_cache_is_ignored_and_removed(tmp_path, monkeypatch):
     """舊版 pickle 快取檔應被忽略並刪除，避免反序列化不受信任資料。"""
     manager = CacheManager(
         CacheConfig(
@@ -42,6 +44,8 @@ def test_legacy_pickle_cache_is_ignored_and_removed(tmp_path):
             enable_compression=False,
         )
     )
+    # 強制走 Python 路徑，確保測試 Python 安全實作
+    monkeypatch.setattr(manager, "_GO_CACHE_AVAILABLE", False)
 
     cache_key = manager._generate_cache_key("legacy:test")
     cache_path = manager._get_file_path(cache_key)
@@ -65,7 +69,7 @@ def test_legacy_pickle_cache_is_ignored_and_removed(tmp_path):
     assert cache_key not in manager._load_index()["entries"]
 
 
-def test_compressed_json_cache_roundtrip(tmp_path):
+def test_compressed_json_cache_roundtrip(tmp_path, monkeypatch):
     """壓縮後的 JSON 快取仍應可正確讀回。"""
     manager = CacheManager(
         CacheConfig(
@@ -74,6 +78,8 @@ def test_compressed_json_cache_roundtrip(tmp_path):
             enable_compression=True,
         )
     )
+    # 強制走 Python 路徑，確保測試 Python 安全實作
+    monkeypatch.setattr(manager, "_GO_CACHE_AVAILABLE", False)
 
     value = {"text": "x" * 5000}
 
