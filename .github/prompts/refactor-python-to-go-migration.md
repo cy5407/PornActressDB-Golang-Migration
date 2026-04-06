@@ -24,8 +24,8 @@ The source of truth is `MIGRATION_STATUS.md`.
 - [x] DONE: `src/models/studio.py` — `identify_studio()` delegates to `_identify_studio_via_go()` with `_identify_studio_python()` fallback; skips Go when using custom rules_file
 
 ## Phase 3 — Thin wrapper cleanup
-- [ ] TODO: `src/models/go_accelerated_db.py` — audit for redundant methods already covered by `go_api/db.py`; remove duplication, keep public interface. **Before editing**: run `grep -n "def " src/models/go_accelerated_db.py` to list all methods, then `grep -rn "go_accelerated_db" src/ tests/` to find all call sites. Only remove methods with ZERO call sites outside the file itself. **Verify**: run `python -m pytest tests/ -v --tb=short` — all tests must pass. Run `git diff HEAD -- src/models/go_accelerated_db.py` — must show non-empty diff before marking DONE.
-- [ ] TODO: `src/models/go_accelerated_studio.py` — audit for redundant methods already covered by `go_api/identify.py`; remove duplication, keep public interface. **Before editing**: run `grep -n "def " src/models/go_accelerated_studio.py` and `grep -rn "go_accelerated_studio" src/ tests/` to find call sites. Only remove methods with ZERO external call sites. **Verify**: run `python -m pytest tests/ -v --tb=short` — all tests must pass. Run `git diff HEAD -- src/models/go_accelerated_studio.py` — must show non-empty diff before marking DONE.
+- [x] DONE: `src/models/go_accelerated_db.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; simplified `_check_go_availability`
+- [x] DONE: `src/models/go_accelerated_studio.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`
 
 ## Phase 4A — CacheManager Go core
 > Detailed plan: `docs/superpowers/plans/2026-04-05-phase4-cache-and-incremental-db-go-migration.md`
@@ -54,7 +54,33 @@ The source of truth is `MIGRATION_STATUS.md`.
 
 - [ ] TODO: **Task 5-4** — `src/models/json_database.py` + `tests/test_json_db_go_delegation.py` — (a) rename `get_all_videos` → `_get_all_videos_python`, add new `get_all_videos(filter_dict=None)` that tries `db_get_all_videos(data_dir=str(self.data_dir))`, ensures each video has `code` field, applies `self._apply_video_filters` if `filter_dict` is set, falls back to `_get_all_videos_python(filter_dict)` on exception; (b) create `tests/test_json_db_go_delegation.py` with 15 tests as specified in `docs/superpowers/plans/2026-04-05-phase5-json-database-go-delegation.md` Task 4 Step 1 (4 classes: `TestGetVideoInfoDelegation`, `TestAddOrUpdateVideoDelegation`, `TestDeleteVideoDelegation`, `TestGetAllVideosDelegation`, 3-4 tests each). **Before coding**: read `src/models/json_database.py` lines 885-934 for original `get_all_videos` body. **Verify**: `python -m pytest tests/test_json_db_go_delegation.py -v` — 15 tests pass; `python -m pytest tests/ -q` — no regressions. `git diff HEAD -- src/models/json_database.py` must be non-empty.
 
-# Allowed scope
+## Phase 6A — 薄適配層 Python fallback 移除（低風險）
+
+> **Phase 6 policy**: Go CLI has been stable through Phase 1-5 (243 tests passing). Phase 6 **removes** Python fallback implementations. Do NOT add new Python fallbacks in this phase.
+
+- [ ] TODO: **Task 6A-1** — `src/models/extractor.py` — delete the `_extract_code_python()` method and all attributes only used by it (`tech_suffix_pattern`, `skip_prefixes`, `code_patterns`, `supported_formats`); also delete `_validate_code()`, `_should_skip_file()`; simplify `extract_code()` to call `_extract_code_via_go()` and return `None` if Go is unavailable (no Python path). **Before editing**: run `grep -n "def \|self\." src/models/extractor.py | head -40` and `grep -rn "UnifiedCodeExtractor\|extractor\.py" src/ tests/ | head -20`. **Verify**: `python -m pytest tests/test_extractor.py tests/test_code_review_regressions.py -v --tb=short` — all tests must pass. `git diff HEAD -- src/models/extractor.py` must show deletions. Estimated removal: ~120 lines.
+
+- [ ] TODO: **Task 6A-2** — `src/models/studio.py` — delete the `_identify_studio_python()` method and all Python-only helper methods/data (regex patterns, studio lists used only by Python path); simplify `identify_studio()` to call `_identify_studio_via_go()` and return `"UNKNOWN"` if Go unavailable. **Before editing**: run `grep -n "def " src/models/studio.py` and `grep -rn "StudioIdentifier\|studio\.py" src/ tests/ | head -20`. **Verify**: `python -m pytest tests/test_studio.py tests/test_studio_integration.py -v --tb=short` — all tests must pass. `git diff HEAD -- src/models/studio.py` must show deletions.
+
+- [ ] TODO: **Task 6A-3** — `src/utils/scanner.py` — delete the Python `rglob` fallback block inside `scan_directory()` (the `logger.warning("使用 Python 降級掃描...")` branch and the lines after it); when `self.go_bridge` is unavailable, raise `RuntimeError("Go CLI 不可用，無法掃描目錄")` instead. **Before editing**: run `grep -n "def \|rglob\|warning" src/utils/scanner.py`. **Verify**: `python -m pytest tests/test_scanner_integration.py -v --tb=short` — all tests must pass. `git diff HEAD -- src/utils/scanner.py` must show deletions.
+
+- [ ] TODO: **Task 6A-4** — `src/utils/file_mover.py` — delete all `shutil.move` fallback blocks in `move_file()`, `move_dir()`, and `batch_move()`; when `self.go_bridge` is unavailable, return `{"success": False, "error": "Go CLI 不可用，無法搬移檔案", ...}` with appropriate keys instead of using shutil. **Before editing**: run `grep -n "def \|shutil\|warning" src/utils/file_mover.py`. **Verify**: `python -m pytest tests/ -v --tb=short` — all tests must pass. `git diff HEAD -- src/utils/file_mover.py` must show deletions.
+
+## Phase 6B — 快取層 Python fallback 移除
+
+- [ ] TODO: **Task 6B-1** — `src/scrapers/cache_manager.py` — delete `_get_python()`, `_set_python()`, `_delete_python()` methods and all file I/O logic in them; when Go is unavailable, `get()` returns `None`, `set()` / `delete()` are no-ops (return silently). **Before editing**: run `grep -n "def " src/scrapers/cache_manager.py` and `grep -rn "cache_manager\|CacheManager" src/ tests/ | head -20`. **Verify**: `python -m pytest tests/test_cache_manager_security.py tests/test_go_api_cache.py -v --tb=short` — all must pass. `git diff HEAD -- src/scrapers/cache_manager.py` must show deletions.
+
+## Phase 6C — 冗餘包裝類別整檔刪除
+
+- [ ] TODO: **Task 6C-1** — `src/models/go_accelerated_db.py` + `tests/test_go_accelerated_db.py` — **Step 1**: run `grep -rn "GoAcceleratedDB\|go_accelerated_db" src/ tests/ scripts/ tools/ *.py` (NOT inside the file itself) to confirm there are zero production callers outside of test files. **Step 2**: if zero production callers confirmed, delete `src/models/go_accelerated_db.py` entirely; rewrite `tests/test_go_accelerated_db.py` to test `go_api/db.py` functions directly (mock runner). **Verify**: `python -m pytest tests/ -v --tb=short` — all tests must pass. `git status` must show `src/models/go_accelerated_db.py` as deleted.
+
+- [ ] TODO: **Task 6C-2** — `src/models/go_accelerated_studio.py` + `tests/test_studio_integration.py` — same process as 6C-1: confirm zero production callers outside tests, then delete `src/models/go_accelerated_studio.py`; update `tests/test_studio_integration.py` to test `go_api/identify.py` directly. **Verify**: `python -m pytest tests/ -v --tb=short` — all tests must pass.
+
+## Phase 6D — 核心資料庫模組大幅瘦身
+
+- [ ] TODO: **Task 6D-1** — `src/models/incremental_json_database.py` — delete `_get_video_python()`, `_update_video_python()`, and all Python journal read/write helper methods that are only reachable from those paths; the public `get_video()` and `update_video()` methods should call Go and raise `RuntimeError` if Go is unavailable (remove the fallback branch). Keep `compact_if_needed()`, `compact()`, `get_stats()`, and `get_all_videos()`. **Before editing**: run `grep -n "def " src/models/incremental_json_database.py`. **Verify**: `python -m pytest tests/test_incremental_db.py tests/test_incremental_db_go_delegation.py -v --tb=short` — all tests must pass. `git diff HEAD -- src/models/incremental_json_database.py` must show substantial deletions (>100 lines).
+
+- [ ] TODO: **Task 6D-2** — `src/models/json_database.py` — delete `_get_video_info_python()`, `_add_or_update_video_python()`, `_delete_video_python()`, `_get_all_videos_python()` and all helper methods only reachable from those paths; the public `get_video_info()`, `add_or_update_video()`, `delete_video()`, `get_all_videos()` should call Go and raise `RuntimeError` on Go failure. **Before editing**: run `grep -n "def _.*python\|def get_video\|def add_or\|def delete_video\|def get_all" src/models/json_database.py | head -30`. **Verify**: `python -m pytest tests/test_json_database.py tests/test_json_db_go_delegation.py -v --tb=short` — all tests must pass. `git diff HEAD -- src/models/json_database.py` must show substantial deletions (>400 lines).
 - `pkg/**`
 - `cmd/scanner/**`
 - `src/services/go_api/**`
@@ -80,10 +106,9 @@ The source of truth is `MIGRATION_STATUS.md`.
 - Commits, pushes, PR creation, branch changes, or network access
 
 # Safety rules
-- Prefer moving behavior from Python wrappers into existing Go services or CLI-facing APIs.
+- **Phase 6 context**: Go CLI is proven stable (243 tests passing). Phase 6 tasks REMOVE Python fallback code — do NOT re-add fallbacks.
+- For Phase 1-5 tasks (already done): always add Python fallback when delegating to Go.
 - Keep GUI behavior, JSON output contracts, and public Python call sites compatible.
-- Always add Python fallback when delegating to Go (check `GoBridge().is_available`).
-- Preserve Python fallback behavior unless the Go path is already the established primary path.
 - Prefer one cohesive migration step only.
 - If no clearly safe migration step is available, make no changes.
 

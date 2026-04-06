@@ -96,8 +96,8 @@ jobs:
         id: scope
         shell: bash
         run: |
-          # 同時偵測「修改的追蹤檔案」和「新增的未追蹤檔案」
-          mapfile -t changed_files < <({ git diff --name-only; git ls-files --others --exclude-standard; })
+          # 同時偵測「修改的追蹤檔案」、「新增的未追蹤檔案」、「已刪除的追蹤檔案」
+          mapfile -t changed_files < <({ git diff --name-only; git diff --cached --name-only; git ls-files --others --exclude-standard; } | sort -u)
 
           if [ "${#changed_files[@]}" -eq 0 ]; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -125,7 +125,13 @@ jobs:
         if: steps.scope.outputs.has_changes == 'true'
         shell: bash
         run: |
-          # stage only allowed paths
+          # Stage modifications and deletions for allowed paths
+          git add -u \
+            src/models/ src/utils/ src/scrapers/cache_manager.py \
+            src/services/go_api/ src/services/go_bridge.py src/services/go_runner.py \
+            2>/dev/null || true
+
+          # Stage new files in allowed paths
           git add \
             pkg cmd/scanner \
             src/services/go_api \
