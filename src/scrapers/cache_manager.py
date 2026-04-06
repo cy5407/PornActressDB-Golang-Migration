@@ -568,95 +568,25 @@ class CacheManager:
                 'remaining_files': 剩餘檔案數
             }
         """
-        result = {"deleted_files": 0, "freed_bytes": 0, "remaining_files": 0}
-
-        # Go 委派（速度更快，避免 Python index 鎖競爭）
-        if self._GO_CACHE_AVAILABLE:
-            try:
-                from src.services.go_api.cache import cache_prune
-                go_result = cache_prune(
-                    cache_dir=str(self.cache_dir),
-                    ttl_days=ttl_days,
-                    max_size_mb=9999,
-                    min_keep=min_keep_entries,
-                )
-                if go_result:
-                    logger.info(f"🧹 Go 快取清理完成: {go_result}")
-                    return {
-                        "deleted_files": go_result.get("deleted_count", 0),
-                        "freed_bytes": int(go_result.get("freed_bytes", 0)),
-                        "remaining_files": go_result.get("remaining_count", 0),
-                    }
-            except Exception as e:
-                logger.warning(f"⚠️ Go 快取清理失敗，降級 Python: {e}")
-
         try:
-            ttl_seconds = ttl_days * 24 * 3600
-            current_time = time.time()
-
-            # 載入索引
-            index_data = self._load_index()
-            entries = index_data.get("entries", {})
-
-            # 檢查是否需要保留最小條目數
-            if len(entries) <= min_keep_entries:
-                result["remaining_files"] = len(entries)
-                logger.info(
-                    f"🧹 快取條目數 ({len(entries)}) 小於最小保留數 ({min_keep_entries})，跳過清理"
-                )
-                return result
-
-            # 收集過期條目
-            expired_entries = []
-            for cache_key, entry_data in entries.items():
-                created_at = entry_data.get("created_at", 0)
-                if current_time - created_at > ttl_seconds:
-                    expired_entries.append((cache_key, entry_data))
-
-            # 確保不會刪除太多，保留最小條目數
-            max_deletable = len(entries) - min_keep_entries
-            if len(expired_entries) > max_deletable:
-                # 按建立時間排序，刪除最舊的
-                expired_entries.sort(key=lambda x: x[1].get("created_at", 0))
-                expired_entries = expired_entries[:max_deletable]
-
-            # 執行刪除
-            for cache_key, entry_data in expired_entries:
-                file_path = entry_data.get("file_path")
-                size_bytes = entry_data.get("size_bytes", 0)
-
-                try:
-                    # 刪除檔案
-                    if file_path:
-                        file_path_obj = Path(file_path)
-                        if file_path_obj.exists():
-                            file_path_obj.unlink()
-
-                    # 從索引移除
-                    if cache_key in entries:
-                        del entries[cache_key]
-
-                    result["deleted_files"] += 1
-                    result["freed_bytes"] += size_bytes
-
-                except Exception as e:
-                    logger.warning(f"刪除快取條目 {cache_key} 失敗: {e}")
-
-            # 儲存更新後的索引
-            self._save_index(index_data)
-
-            result["remaining_files"] = len(entries)
-
-            if result["deleted_files"] > 0:
-                freed_mb = result["freed_bytes"] / (1024 * 1024)
-                logger.info(
-                    f"🧹 快取清理完成: 刪除 {result['deleted_files']} 個過期檔案，釋放 {freed_mb:.2f} MB"
-                )
-
+            from src.services.go_api.cache import cache_prune
+            go_result = cache_prune(
+                cache_dir=str(self.cache_dir),
+                ttl_days=ttl_days,
+                max_size_mb=9999,
+                min_keep=min_keep_entries,
+            )
+            if go_result:
+                logger.info(f"🧹 Go 快取清理完成: {go_result}")
+                return {
+                    "deleted_files": go_result.get("deleted_count", 0),
+                    "freed_bytes": int(go_result.get("freed_bytes", 0)),
+                    "remaining_files": go_result.get("remaining_count", 0),
+                }
+            raise RuntimeError("Go cache_prune 回傳空結果")
         except Exception as e:
-            logger.error(f"清理過期快取失敗: {e}")
-
-        return result
+            logger.warning(f"⚠️ Go 快取清理失敗: {e}")
+            raise RuntimeError(f"Go CLI 不可用，無法清理過期快取 (cleanup_expired): {e}") from e
 
     def cleanup_by_size(
         self, max_size_mb: int = 500, min_keep_entries: int = 100
@@ -671,111 +601,26 @@ class CacheManager:
         Returns:
             清理結果統計
         """
-        result = {
-            "deleted_files": 0,
-            "freed_bytes": 0,
-            "remaining_files": 0,
-            "current_size_mb": 0.0,
-        }
-
-        # Go 委派
-        if self._GO_CACHE_AVAILABLE:
-            try:
-                from src.services.go_api.cache import cache_prune
-                go_result = cache_prune(
-                    cache_dir=str(self.cache_dir),
-                    ttl_days=9999,
-                    max_size_mb=max_size_mb,
-                    min_keep=min_keep_entries,
-                )
-                if go_result:
-                    logger.info(f"🧹 Go 大小清理完成: {go_result}")
-                    return {
-                        "deleted_files": go_result.get("deleted_count", 0),
-                        "freed_bytes": int(go_result.get("freed_bytes", 0)),
-                        "remaining_files": go_result.get("remaining_count", 0),
-                        "current_size_mb": go_result.get("current_size_mb", 0.0),
-                    }
-            except Exception as e:
-                logger.warning(f"⚠️ Go 大小清理失敗，降級 Python: {e}")
-
         try:
-            max_size_bytes = max_size_mb * 1024 * 1024
-
-            # 載入索引
-            index_data = self._load_index()
-            entries = index_data.get("entries", {})
-
-            # 計算當前總大小
-            total_size = sum(e.get("size_bytes", 0) for e in entries.values())
-            result["current_size_mb"] = total_size / (1024 * 1024)
-
-            # 檢查是否需要清理
-            if total_size <= max_size_bytes:
-                result["remaining_files"] = len(entries)
-                logger.info(
-                    f"🧹 當前快取大小 ({result['current_size_mb']:.2f} MB) 未超過限制 ({max_size_mb} MB)，跳過清理"
-                )
-                return result
-
-            # 需要釋放的空間
-            bytes_to_free = total_size - max_size_bytes
-
-            # 按最後存取時間排序（LRU）
-            sorted_entries = sorted(
-                entries.items(),
-                key=lambda x: x[1].get("last_accessed", x[1].get("created_at", 0)),
+            from src.services.go_api.cache import cache_prune
+            go_result = cache_prune(
+                cache_dir=str(self.cache_dir),
+                ttl_days=9999,
+                max_size_mb=max_size_mb,
+                min_keep=min_keep_entries,
             )
-
-            # 計算可刪除的最大數量
-            max_deletable = len(entries) - min_keep_entries
-
-            # 刪除直到釋放足夠空間
-            freed_bytes = 0
-            deleted_count = 0
-
-            for cache_key, entry_data in sorted_entries:
-                if freed_bytes >= bytes_to_free or deleted_count >= max_deletable:
-                    break
-
-                file_path = entry_data.get("file_path")
-                size_bytes = entry_data.get("size_bytes", 0)
-
-                try:
-                    # 刪除檔案
-                    if file_path:
-                        file_path_obj = Path(file_path)
-                        if file_path_obj.exists():
-                            file_path_obj.unlink()
-
-                    # 從索引移除
-                    if cache_key in entries:
-                        del entries[cache_key]
-
-                    freed_bytes += size_bytes
-                    deleted_count += 1
-
-                except Exception as e:
-                    logger.warning(f"刪除快取條目 {cache_key} 失敗: {e}")
-
-            # 儲存更新後的索引
-            self._save_index(index_data)
-
-            result["deleted_files"] = deleted_count
-            result["freed_bytes"] = freed_bytes
-            result["remaining_files"] = len(entries)
-            result["current_size_mb"] = (total_size - freed_bytes) / (1024 * 1024)
-
-            if deleted_count > 0:
-                freed_mb = freed_bytes / (1024 * 1024)
-                logger.info(
-                    f"🧹 大小清理完成: 刪除 {deleted_count} 個檔案，釋放 {freed_mb:.2f} MB"
-                )
-
+            if go_result:
+                logger.info(f"🧹 Go 大小清理完成: {go_result}")
+                return {
+                    "deleted_files": go_result.get("deleted_count", 0),
+                    "freed_bytes": int(go_result.get("freed_bytes", 0)),
+                    "remaining_files": go_result.get("remaining_count", 0),
+                    "current_size_mb": go_result.get("current_size_mb", 0.0),
+                }
+            raise RuntimeError("Go cache_prune 回傳空結果")
         except Exception as e:
-            logger.error(f"根據大小清理快取失敗: {e}")
-
-        return result
+            logger.warning(f"⚠️ Go 大小清理失敗: {e}")
+            raise RuntimeError(f"Go CLI 不可用，無法根據大小清理快取 (cleanup_by_size): {e}") from e
 
     def get_cache_stats(self) -> dict[str, Any]:
         """
@@ -792,67 +637,16 @@ class CacheManager:
                 'average_access_count': 平均存取次數
             }
         """
-        # Go 委派
-        if self._GO_CACHE_AVAILABLE:
-            try:
-                from src.services.go_api.cache import cache_get_stats
-                go_result = cache_get_stats(cache_dir=str(self.cache_dir))
-                if go_result:
-                    go_result["memory_cache_entries"] = len(self.memory_cache)
-                    return go_result
-            except Exception as e:
-                logger.warning(f"⚠️ Go 快取統計失敗，降級 Python: {e}")
-
         try:
-            index_data = self._load_index()
-            entries = index_data.get("entries", {})
-
-            if not entries:
-                return {
-                    "total_files": 0,
-                    "total_size_mb": 0.0,
-                    "oldest_entry": None,
-                    "newest_entry": None,
-                    "index_entries": 0,
-                    "memory_cache_entries": len(self.memory_cache),
-                    "average_access_count": 0.0,
-                }
-
-            # 計算統計
-            total_size = sum(e.get("size_bytes", 0) for e in entries.values())
-            created_times = [e.get("created_at", 0) for e in entries.values()]
-            access_counts = [e.get("access_count", 0) for e in entries.values()]
-
-            oldest_time = min(created_times) if created_times else None
-            newest_time = max(created_times) if created_times else None
-            avg_access = sum(access_counts) / len(access_counts) if access_counts else 0
-
-            return {
-                "total_files": len(entries),
-                "total_size_mb": total_size / (1024 * 1024),
-                "oldest_entry": datetime.fromtimestamp(oldest_time).isoformat()
-                if oldest_time
-                else None,
-                "newest_entry": datetime.fromtimestamp(newest_time).isoformat()
-                if newest_time
-                else None,
-                "index_entries": len(entries),
-                "memory_cache_entries": len(self.memory_cache),
-                "average_access_count": avg_access,
-            }
-
+            from src.services.go_api.cache import cache_get_stats
+            go_result = cache_get_stats(cache_dir=str(self.cache_dir))
+            if go_result:
+                go_result["memory_cache_entries"] = len(self.memory_cache)
+                return go_result
+            raise RuntimeError("Go cache_get_stats 回傳空結果")
         except Exception as e:
-            logger.error(f"獲取快取統計失敗: {e}")
-            return {
-                "total_files": 0,
-                "total_size_mb": 0.0,
-                "oldest_entry": None,
-                "newest_entry": None,
-                "index_entries": 0,
-                "memory_cache_entries": 0,
-                "average_access_count": 0.0,
-                "error": str(e),
-            }
+            logger.warning(f"⚠️ Go 快取統計失敗: {e}")
+            raise RuntimeError(f"Go CLI 不可用，無法取得快取統計 (get_cache_stats): {e}") from e
 
     def clear_all(self, confirm: bool = False) -> bool:
         """
@@ -868,28 +662,18 @@ class CacheManager:
             logger.warning("清除所有快取需要 confirm=True 參數")
             return False
 
-        # Go 委派
-        if self._GO_CACHE_AVAILABLE:
-            try:
-                from src.services.go_api.cache import cache_clear
-                result = cache_clear(cache_dir=str(self.cache_dir), dry_run=False)
-                if result:
-                    # 同步清空記憶體快取
-                    with self.memory_lock:
-                        self.memory_cache.clear()
-                    logger.info("🗑️ 已清除所有快取（Go）")
-                    return True
-            except Exception as e:
-                logger.warning(f"⚠️ Go 清空快取失敗，降級 Python: {e}")
-
         try:
-            # 使用現有的 clear_cache 方法
-            self.clear_cache()
-            logger.info("🗑️ 已清除所有快取（含確認）")
-            return True
+            from src.services.go_api.cache import cache_clear
+            result = cache_clear(cache_dir=str(self.cache_dir), dry_run=False)
+            if result:
+                with self.memory_lock:
+                    self.memory_cache.clear()
+                logger.info("🗑️ 已清除所有快取（Go）")
+                return True
+            raise RuntimeError("Go cache_clear 回傳空結果")
         except Exception as e:
-            logger.error(f"清除所有快取失敗: {e}")
-            return False
+            logger.warning(f"⚠️ Go 清空快取失敗: {e}")
+            raise RuntimeError(f"Go CLI 不可用，無法清除所有快取 (clear_all): {e}") from e
 
     def auto_cleanup(
         self, ttl_days: int = 7, max_size_mb: int = 500, min_keep_entries: int = 100
@@ -905,64 +689,31 @@ class CacheManager:
         Returns:
             清理結果統計
         """
-        result = {
-            "expired_cleanup": {},
-            "size_cleanup": {},
-            "total_deleted": 0,
-            "total_freed_mb": 0.0,
-        }
-
-        # Go 委派（一次性清理，比先後呼叫 cleanup_expired + cleanup_by_size 更有效率）
-        if self._GO_CACHE_AVAILABLE:
-            try:
-                from src.services.go_api.cache import cache_prune
-                go_result = cache_prune(
-                    cache_dir=str(self.cache_dir),
-                    ttl_days=ttl_days,
-                    max_size_mb=max_size_mb,
-                    min_keep=min_keep_entries,
-                )
-                if go_result:
-                    result["expired_cleanup"] = go_result
-                    result["size_cleanup"] = {}
-                    result["total_deleted"] = go_result.get("deleted_count", 0)
-                    result["total_freed_mb"] = go_result.get("freed_bytes", 0) / (1024 * 1024)
-                    if result["total_deleted"] > 0:
-                        logger.info(
-                            f"🧹 Go 自動清理完成: 共刪除 {result['total_deleted']} 個檔案，"
-                            f"釋放 {result['total_freed_mb']:.2f} MB"
-                        )
-                    return result
-            except Exception as e:
-                logger.warning(f"⚠️ Go 自動清理失敗，降級 Python: {e}")
-
         try:
-            # 先清理過期
-            expired_result = self.cleanup_expired(ttl_days, min_keep_entries)
-            result["expired_cleanup"] = expired_result
-
-            # 再檢查大小
-            size_result = self.cleanup_by_size(max_size_mb, min_keep_entries)
-            result["size_cleanup"] = size_result
-
-            # 總計
-            result["total_deleted"] = expired_result.get(
-                "deleted_files", 0
-            ) + size_result.get("deleted_files", 0)
-            result["total_freed_mb"] = (
-                expired_result.get("freed_bytes", 0) + size_result.get("freed_bytes", 0)
-            ) / (1024 * 1024)
-
-            if result["total_deleted"] > 0:
-                logger.info(
-                    f"🧹 自動清理完成: 共刪除 {result['total_deleted']} 個檔案，釋放 {result['total_freed_mb']:.2f} MB"
-                )
-
+            from src.services.go_api.cache import cache_prune
+            go_result = cache_prune(
+                cache_dir=str(self.cache_dir),
+                ttl_days=ttl_days,
+                max_size_mb=max_size_mb,
+                min_keep=min_keep_entries,
+            )
+            if go_result:
+                result = {
+                    "expired_cleanup": go_result,
+                    "size_cleanup": {},
+                    "total_deleted": go_result.get("deleted_count", 0),
+                    "total_freed_mb": go_result.get("freed_bytes", 0) / (1024 * 1024),
+                }
+                if result["total_deleted"] > 0:
+                    logger.info(
+                        f"🧹 Go 自動清理完成: 共刪除 {result['total_deleted']} 個檔案，"
+                        f"釋放 {result['total_freed_mb']:.2f} MB"
+                    )
+                return result
+            raise RuntimeError("Go cache_prune 回傳空結果")
         except Exception as e:
-            logger.error(f"自動清理失敗: {e}")
-            result["error"] = str(e)
-
-        return result
+            logger.warning(f"⚠️ Go 自動清理失敗: {e}")
+            raise RuntimeError(f"Go CLI 不可用，無法執行自動清理 (auto_cleanup): {e}") from e
 
     # ============================================================
     # 非同步介面

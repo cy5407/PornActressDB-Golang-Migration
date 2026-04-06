@@ -592,27 +592,8 @@ class JSONDBManager:
             result = _go_db_backup_create(data_dir=str(self.data_dir))
             if result:
                 return result
-
-        try:
-            from datetime import datetime
-
-            timestamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S")
-            backup_filename = f"backup_{timestamp}.json"
-            backup_path = self.backup_dir / backup_filename
-
-            # 複製資料
-            with open(self.data_file, encoding="utf-8") as src:
-                content = src.read()
-
-            with open(backup_path, "w", encoding="utf-8") as dst:
-                dst.write(content)
-
-            logger.info(f"✅ 備份建立成功: {backup_path}")
-            return str(backup_path)
-
-        except Exception as e:
-            logger.error(f"❌ 備份失敗: {e}")
-            raise BackupError(f"備份失敗: {e}") from e
+            raise RuntimeError("Go backup-create 回傳空結果")
+        raise RuntimeError("Go CLI 不可用，無法建立備份")
 
     def restore_from_backup(self, backup_path: str) -> bool:
         """
@@ -635,34 +616,8 @@ class JSONDBManager:
                 # 重新載入記憶體
                 self._load_data_internal()
                 return True
-
-        try:
-            backup_file = Path(backup_path)
-
-            if not backup_file.exists():
-                raise BackupError(f"備份檔案不存在: {backup_path}")
-
-            # 載入備份資料
-            with open(backup_file, encoding="utf-8") as f:
-                backup_data = json_load(f)
-
-            # 驗證備份資料
-            self._validate_json_format(backup_data)
-            self._validate_referential_integrity(backup_data)
-
-            # 寫入
-            self._save_all_data(backup_data)
-            self.data = backup_data
-
-            logger.info(f"✅ 備份還原成功: {backup_path}")
-            return True
-
-        except ValueError as e:
-            logger.error(f"❌ 備份檔案損壞: {e}")
-            raise BackupError(f"備份檔案損壞: {e}") from e
-        except Exception as e:
-            logger.error(f"❌ 還原失敗: {e}")
-            raise BackupError(f"還原失敗: {e}") from e
+            raise RuntimeError("Go backup-restore 回傳失敗")
+        raise RuntimeError("Go CLI 不可用，無法還原備份")
 
     def get_backup_list(self) -> list[str]:
         """
@@ -675,13 +630,8 @@ class JSONDBManager:
             result = _go_db_backup_list(data_dir=str(self.data_dir))
             if result is not None:
                 return result
-
-        try:
-            backup_files = sorted(self.backup_dir.glob(self.BACKUP_PATTERN))
-            return [str(f) for f in backup_files]
-        except Exception as e:
-            logger.error(f"❌ 無法列出備份: {e}")
-            return []
+            raise RuntimeError("Go backup-list 回傳空結果")
+        raise RuntimeError("Go CLI 不可用，無法列出備份")
 
     def cleanup_old_backups(self, days: int = None, max_count: int = None) -> int:
         """
@@ -706,36 +656,7 @@ class JSONDBManager:
                 data_dir=str(self.data_dir), days=days, max_count=max_count
             )
             return deleted
-
-        try:
-            from datetime import timedelta
-
-            deleted_count = 0
-            cutoff_date = datetime.now(UTC) - timedelta(days=days)
-
-            # 按時間刪除
-            backup_files = list(self.backup_dir.glob(self.BACKUP_PATTERN))
-            for backup_file in backup_files:
-                if self._is_backup_expired(backup_file, cutoff_date):
-                    backup_file.unlink()
-                    deleted_count += 1
-                    logger.info(f"刪除舊備份: {backup_file}")
-
-            # 按數量刪除
-            backup_files = sorted(self.backup_dir.glob(self.BACKUP_PATTERN))
-            while len(backup_files) > max_count:
-                oldest = backup_files[0]
-                oldest.unlink()
-                deleted_count += 1
-                logger.info(f"刪除超限備份: {oldest}")
-                backup_files = sorted(self.backup_dir.glob(self.BACKUP_PATTERN))
-
-            logger.info(f"✅ 備份清理完成，刪除 {deleted_count} 個備份")
-            return deleted_count
-
-        except Exception as e:
-            logger.error(f"❌ 備份清理失敗: {e}")
-            return 0
+        raise RuntimeError("Go CLI 不可用，無法清理備份")
 
     @staticmethod
     def _is_backup_expired(backup_file: Path, cutoff_date: datetime) -> bool:
