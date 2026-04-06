@@ -96,6 +96,9 @@ jobs:
         id: scope
         shell: bash
         run: |
+          # 清除 Go build artifacts（Linux 不帶 .exe），避免誤判為 out-of-scope
+          rm -f classifier classifier.exe
+
           # 同時偵測「修改的追蹤檔案」、「新增的未追蹤檔案」、「已刪除的追蹤檔案」
           mapfile -t changed_files < <({ git diff --name-only; git diff --cached --name-only; git ls-files --others --exclude-standard; } | sort -u)
 
@@ -104,7 +107,7 @@ jobs:
             exit 0
           fi
 
-          out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v -E '^(pkg/|cmd/scanner/|src/services/go_api/|src/services/go_bridge(_test)?\.py|src/services/go_runner\.py|src/models/go_accelerated[_a-z]*\.py|src/models/(extractor|studio|incremental_json_database|json_database)\.py|src/scrapers/cache_manager\.py|src/utils/(scanner|file_mover)\.py|tests/|MIGRATION_STATUS\.md)' || true)"
+          out_of_scope="$(printf '%s\n' "${changed_files[@]}" | grep -v -E '^(pkg/|cmd/scanner/|classifier(\.exe)?$|src/services/go_api/|src/services/go_bridge(_test)?\.py|src/services/go_runner\.py|src/models/go_accelerated[_a-z]*\.py|src/models/(extractor|studio|incremental_json_database|json_database)\.py|src/scrapers/cache_manager\.py|src/utils/(scanner|file_mover)\.py|tests/|MIGRATION_STATUS\.md)' || true)"
           if [ -n "$out_of_scope" ]; then
             echo "Out-of-scope changes detected:" >&2
             printf '%s\n' "$out_of_scope" >&2
