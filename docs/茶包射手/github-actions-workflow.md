@@ -300,3 +300,56 @@ assert manager.get("video:test") == value  # 用 Go CLI 查詢驗證
 | `pull_request` | ✅ | PR 的 head 分支 |
 | `schedule` | ❌ | 永遠是 default branch（main） |
 | `workflow_dispatch` | ❌（使用 inputs） | 觸發時選擇的分支 |
+
+---
+
+## Issue 12：JAVDB 搜尋 False Positive（WTB-045 錯誤匹配成 AWTB-005）
+
+### 狀況
+搜尋番號 `WTB-045` 時，JAVDB 搜尋結果頁回傳多筆相似結果（AWTB-005、KTB-045 等），程式錯誤地取用第一筆 `AWTB-005` 並將其資料存入資料庫。
+
+### 原因
+`safe_javdb_searcher.py` 的 `search_javdb()` 方法中有一段 fallback 邏輯：
+
+```python
+# 如果沒有找到完全匹配的，使用第一個結果  ← 問題所在
+if not best_match_url:
+    best_match_url = video_links[0].get("href")
+```
+
+當搜尋結果中沒有任何連結的文字精確包含 `WTB-045` 時，fallback 直接取第一筆（AWTB-005），完全繞過精確比對。
+
+### 排查結果
+- `_normalize_code_for_match()` 比對邏輯本身正確：`WTB045` 不會匹配 `AWTB005`
+- 但 `best_match_url` 為空時，fallback 使第一筆錯誤結果進入詳情頁流程
+- 詳情頁解析時直接以 `video_id` 當作 `code` 欄位（沒有驗證頁面實際番號），導致資料庫寫入錯誤女優資訊
+
+### 解法
+**修改 `src/services/safe_javdb_searcher.py`**：
+
+1. **移除 fallback**：無精確匹配時直接回傳 `None`（視為未找到）
+
+```python
+# 修改後
+if not best_match_url:
+    logger.debug(f"🔍 JAVDB 未找到番號 {video_id} 的精確匹配結果，視為未找到")
+    return None
+```
+
+2. **詳情頁二次驗證**：`_parse_detail_page()` 從頁面標題提取番號，與搜尋目標比對
+
+```python
+title_code_match = re.match(r"^([A-Z0-9]+-\d+)", info["title"], re.IGNORECASE)
+if title_code_match:
+    page_code = title_code_match.group(1).upper()
+    if page_code != video_id.upper():
+        logger.warning(f"⚠️ JAVDB 詳情頁番號不符: 搜尋 {video_id}，頁面顯示 {page_code}，視為未找到")
+        return None
+```
+
+3. **新增測試**：`tests/test_safe_javdb_searcher.py` 覆蓋 false positive 場景
+   - `test_search_javdb_no_fallback_on_mismatch`：無精確匹配時回傳 None，且不發出詳情頁請求
+   - `test_search_javdb_detail_page_code_mismatch_returns_none`：詳情頁番號不符時回傳 None
+
+> ℹ️ **WTB-045** 本身確實不存在於 JAVDB（本身就是無效番號）；**WTB-031** 同樣無效。這是程式應正常回報「未找到」的情況，而非誤匹配其他番號。
+
