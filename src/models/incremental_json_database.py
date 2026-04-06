@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Any
 
 import orjson
-from filelock import FileLock
 
 # Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
 UTC = timezone.utc
@@ -39,71 +38,28 @@ from src.models.json_types import (
 logger = logging.getLogger(__name__)
 
 from src.services.go_api.db import (
+    db_compact_journal as _go_db_compact_journal,
     db_delete_video as _go_db_delete_video,
     db_get_video as _go_db_get_video,
     db_update_video as _go_db_update_video,
 )
 from src.services.go_runner import GoBridgeError as _GoBridgeError
 
-# Journal 操作類型
-JOURNAL_OP_ADD = "ADD"
-JOURNAL_OP_UPDATE = "UPDATE"
-JOURNAL_OP_DELETE = "DELETE"
-
-# 合併閾值設定
+# 合併閾值設定（與 Go pkg/database/types.go 中的常數保持一致）
 JOURNAL_SIZE_THRESHOLD = 1000  # 當 journal 超過 1000 條記錄時觸發合併
 JOURNAL_AGE_THRESHOLD = 3600  # 當 journal 超過 1 小時時觸發合併（秒）
-
-
-class JournalEntry:
-    """Journal 記錄項"""
-
-    def __init__(
-        self,
-        operation: str,
-        entity_type: str,  # 'video', 'actress', 'link'
-        entity_id: str,
-        data: dict[str, Any] | None = None,
-        timestamp: str | None = None,
-    ):
-        self.operation = operation
-        self.entity_type = entity_type
-        self.entity_id = entity_id
-        self.data = data
-        self.timestamp = timestamp or datetime.now(UTC).isoformat()
-
-    def to_dict(self) -> dict[str, Any]:
-        """轉換為字典"""
-        return {
-            "op": self.operation,
-            "type": self.entity_type,
-            "id": self.entity_id,
-            "data": self.data,
-            "ts": self.timestamp,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "JournalEntry":
-        """從字典建立"""
-        return cls(
-            operation=d["op"],
-            entity_type=d["type"],
-            entity_id=d["id"],
-            data=d.get("data"),
-            timestamp=d.get("ts"),
-        )
 
 
 class IncrementalJSONDB:
     """
     增量 JSON 資料庫管理器
 
-    提供 40x 寫入加速的增量儲存機制。
+    提供增量儲存機制，讀/寫/compact 均委派 Go CLI。
 
     工作原理：
-    1. 讀取時：合併主檔案 + journal 檔案
-    2. 寫入時：僅 append 到 journal（快速）
-    3. 定期：將 journal 合併回主檔案
+    1. 讀取：從 base_db（data.json）讀取，或透過 Go CLI
+    2. 寫入：委派 Go CLI（Go 同步寫入 journal 與 data.json）
+    3. 合併：委派 Go CLI `db compact`
 
     範例：
         db = IncrementalJSONDB('data/json_db')
@@ -128,10 +84,6 @@ class IncrementalJSONDB:
         self.journal_file = self.data_dir / "data.journal"
         self.index_file = self.data_dir / "data.index"
 
-        # 鎖定檔案
-        self.journal_lock_file = self.data_dir / "data.journal.lock"
-        self.journal_lock = FileLock(self.journal_lock_file, timeout=10)
-
         # 使用標準 JSONDBManager 管理主檔案
         self.base_db = JSONDBManager(str(self.data_dir))
 
@@ -144,89 +96,41 @@ class IncrementalJSONDB:
         self.journal_size = 0
         self.journal_created_at: datetime | None = None
 
-        # 初始化 journal
+        # 初始化 journal 狀態（從 index 讀取，不重播 journal）
         self._init_journal()
 
         logger.info(f"✅ IncrementalJSONDB 初始化完成: {self.data_dir}")
         logger.info(f"📝 Journal 記錄數: {self.journal_size}")
 
     def _init_journal(self):
-        """初始化 journal 檔案和索引"""
-        if self.journal_file.exists():
-            # 載入現有 journal
-            self._load_journal_stats()
-            # 重播 journal 到記憶體
-            self._replay_journal()
-        else:
-            # 建立新 journal
+        """初始化 journal 狀態：從 index 讀取統計，不重播 journal（Go 已管理）"""
+        if not self.journal_file.exists():
             self.journal_file.touch()
             self.journal_size = 0
             self.journal_created_at = datetime.now(UTC)
             self._save_index()
+            return
 
-    def _replay_journal(self):
-        """重播 journal 到記憶體"""
-        try:
-            count = 0
-            with open(self.journal_file, "rb") as f:
-                for line in f:
-                    if line.strip():
-                        try:
-                            entry_dict = orjson.loads(line)
-                            entry = JournalEntry.from_dict(entry_dict)
-                            self._apply_entry_to_memory(entry)
-                            count += 1
-                        except Exception as e:
-                            logger.warning(
-                                f"⚠️ 重播 journal 記錄失敗: {line}, 錯誤: {e}"
-                            )
-
-            if count > 0:
-                logger.info(f"🔄 已重播 {count} 條 journal 記錄到記憶體")
-        except Exception as e:
-            logger.error(f"❌ 重播 journal 失敗: {e}")
-
-    def _apply_entry_to_memory(self, entry: JournalEntry):
-        """將單條 journal 記錄套用到記憶體"""
-        if entry.entity_type == "video":
-            if entry.operation == JOURNAL_OP_ADD:
-                if entry.data:
-                    self.base_db.data["videos"][entry.entity_id] = entry.data
-            elif entry.operation == JOURNAL_OP_UPDATE:
-                video = self.base_db.get_video_info(entry.entity_id)
-                if video and entry.data:
-                    video.update(entry.data)
-                    self.base_db.data["videos"][entry.entity_id] = video
-            elif entry.operation == JOURNAL_OP_DELETE and entry.entity_id in self.base_db.data["videos"]:
-                del self.base_db.data["videos"][entry.entity_id]
-
-    def _load_journal_stats(self):
-        """載入 journal 統計資訊"""
-        try:
-            with open(self.journal_file, "rb") as f:
-                lines = f.readlines()
-                self.journal_size = len(lines)
-
-                # 取得第一條記錄的時間戳
-                if lines:
-                    first_entry = orjson.loads(lines[0])
-                    self.journal_created_at = datetime.fromisoformat(
-                        first_entry.get("ts", "")
-                    )
-                else:
-                    self.journal_created_at = datetime.now(UTC)
-
-            # 載入 dirty index
-            if self.index_file.exists():
+        # 從 index 檔案讀取 journal 統計（由 Go CLI 維護）
+        if self.index_file.exists():
+            try:
                 with open(self.index_file, "rb") as f:
                     index_data = orjson.loads(f.read())
+                    self.journal_size = index_data.get("journal_size", 0)
                     self.dirty_videos = set(index_data.get("videos", []))
                     self.dirty_actresses = set(index_data.get("actresses", []))
                     self.dirty_links = set(index_data.get("links", []))
-        except Exception as e:
-            logger.warning(f"⚠️ 載入 journal 統計失敗: {e}")
-            self.journal_size = 0
-            self.journal_created_at = datetime.now(UTC)
+                    created_at_str = index_data.get("created_at")
+                    if created_at_str:
+                        self.journal_created_at = datetime.fromisoformat(created_at_str)
+                    else:
+                        self.journal_created_at = datetime.now(UTC)
+                return
+            except Exception as e:
+                logger.warning(f"⚠️ 讀取 journal index 失敗，重設狀態: {e}")
+
+        self.journal_size = 0
+        self.journal_created_at = datetime.now(UTC)
 
     def _save_index(self):
         """儲存 dirty index"""
@@ -245,38 +149,6 @@ class IncrementalJSONDB:
                 f.write(orjson.dumps(index_data, option=orjson.OPT_INDENT_2))
         except Exception as e:
             logger.warning(f"⚠️ 儲存索引失敗: {e}")
-
-    def _append_journal(self, entry: JournalEntry):
-        """
-        將記錄追加到 journal（快速操作）
-
-        Args:
-            entry: Journal 記錄項
-        """
-        try:
-            with self.journal_lock:
-                # 寫入 journal（JSON Lines 格式）
-                with open(self.journal_file, "ab") as f:
-                    f.write(orjson.dumps(entry.to_dict()))
-                    f.write(b"\n")
-
-                # 更新 dirty tracking
-                if entry.entity_type == "video":
-                    self.dirty_videos.add(entry.entity_id)
-                elif entry.entity_type == "actress":
-                    self.dirty_actresses.add(entry.entity_id)
-                elif entry.entity_type == "link":
-                    self.dirty_links.add(entry.entity_id)
-
-                # 更新統計
-                self.journal_size += 1
-
-                # 儲存索引
-                self._save_index()
-
-        except Exception as e:
-            logger.error(f"❌ 寫入 journal 失敗: {e}")
-            raise JSONDatabaseError(f"Journal 寫入失敗: {e}") from e
 
     def update_video(self, code: str, updates: dict[str, Any]):
         """
@@ -451,55 +323,36 @@ class IncrementalJSONDB:
 
     def compact(self):
         """
-        合併 journal 到主檔案（重型操作）
+        合併 journal 到主檔案（委派給 Go CLI `db compact`）
 
         這個操作會：
-        1. 讀取所有 journal 記錄
-        2. 套用到主資料庫
-        3. 清空 journal
-        4. 重設 dirty tracking
+        1. 委派 Go CLI 合併 journal 到主資料庫並清空 journal
+        2. 重新載入 base_db 確保記憶體狀態與磁碟同步
+        3. 重設 dirty tracking
         """
-        logger.info(f"🔄 開始合併 {self.journal_size} 條 journal 記錄...")
+        logger.info(f"🔄 開始合併 journal（委派 Go CLI）...")
 
         try:
-            with self.journal_lock:
-                # 讀取所有 journal 記錄
-                entries: list[JournalEntry] = []
-                if self.journal_file.exists():
-                    with open(self.journal_file, "rb") as f:
-                        for line in f:
-                            if line.strip():
-                                entry_dict = orjson.loads(line)
-                                entries.append(JournalEntry.from_dict(entry_dict))
+            if not _go_db_compact_journal(str(self.data_dir)):
+                raise JSONDatabaseError("Go compact journal 回傳失敗")
 
-                # 套用到主資料庫
-                for entry in entries:
-                    try:
-                        self._apply_entry_to_memory(entry)
-                    except Exception as e:
-                        logger.error(
-                            f"❌ 套用 journal 記錄失敗: {entry.to_dict()}, 錯誤: {e}"
-                        )
+            # Go CLI 已更新 data.json 並清空 journal，重新載入 base_db 同步記憶體
+            self.base_db = JSONDBManager(str(self.data_dir))
 
-                # 儲存主資料庫
-                self.base_db._save_all_data(self.base_db.data)
+            # 重設統計
+            self.journal_size = 0
+            self.journal_created_at = datetime.now(UTC)
+            self.dirty_videos.clear()
+            self.dirty_actresses.clear()
+            self.dirty_links.clear()
 
-                # 清空 journal
-                self.journal_file.unlink(missing_ok=True)
-                self.journal_file.touch()
+            # 更新索引
+            self._save_index()
 
-                # 重設統計
-                self.journal_size = 0
-                self.journal_created_at = datetime.now(UTC)
-                self.dirty_videos.clear()
-                self.dirty_actresses.clear()
-                self.dirty_links.clear()
+            logger.info("✅ Journal 合併完成（Go CLI）")
 
-                # 更新索引
-                self._save_index()
-
-                logger.info(f"✅ Journal 合併完成，已套用 {len(entries)} 條記錄")
-
+        except JSONDatabaseError:
+            raise
         except Exception as e:
             logger.error(f"❌ Journal 合併失敗: {e}")
             raise JSONDatabaseError(f"合併失敗: {e}") from e
