@@ -62,7 +62,15 @@
 
 ---
 
-## [2026-04-06] fix | Go Bridge Linux binary 偵測失敗（Issue 20）
+## [2026-04-06] fix | Guard step 刪除 binary 導致 Test step 失敗（Issue 21）
+
+**涉及檔案**：`.github/workflows/copilot-refactor-go.yml`
+
+**根因**：Guard step `rm -f classifier classifier.exe` 刪除 binary 後，Test step 無法找到 Go CLI，`is_available = False`，Phase 6A-1 移除 Python fallback 後所有 extract_code 測試失敗。
+
+**修正**：Test step 前加 `go build -o classifier.exe ./cmd/scanner` 重新建置。
+
+**踩坑**：Issue 21（見 pitfalls/github-actions-issues.md）
 
 **涉及檔案**：
 - `src/services/go_bridge.py` — `_find_exe()` 跨平台修正

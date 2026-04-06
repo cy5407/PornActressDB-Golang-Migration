@@ -328,6 +328,45 @@ ralph-loop
 
 ---
 
+## Issue 21：Guard step 刪除 classifier.exe 後 Test step 找不到 Go binary
+
+**症狀**：Phase 6A-1 移除 Python fallback 後，CI Test step 中所有 `extract_code` 測試回傳 `None`（15 個失敗），但 FC2/PPV 和無效檔名測試通過。Issue 20 的 `go_bridge.py` 修正未能解決此問題。
+
+**根本原因**：
+
+```
+Build step:  go build -o classifier.exe   → binary 存在
+              ↓
+Agent step:  agent 可用 classifier.exe    → extract_code 正確
+              ↓
+Guard step:  rm -f classifier classifier.exe  ← 刪除 binary！
+              ↓
+Test step:   pytest tests/
+              GoBridge._find_exe() 找不到 binary
+              is_available = False
+              _extract_code_via_go() → None
+              Python fallback 已被 Phase 6A-1 移除
+              ↓
+              all extract_code() → None（15 個測試失敗）
+```
+
+**為什麼 Guard 要刪除 binary？** 防止 `git ls-files --others --exclude-standard` 偵測到 `classifier`（Linux 無副檔名）而誤判為 out-of-scope 新建檔案。
+
+**修正**：在 Test step 前重新 build binary
+
+```yaml
+- name: Verify migration tests after refactor
+  run: |
+    # Guard step 已刪除 classifier.exe，此處重新 build
+    go build -o classifier.exe ./cmd/scanner
+    go test ./pkg/... -v
+    python -m pytest tests/ -v --tb=short
+```
+
+**教訓**：「Guard step 的清理行為影響後續步驟」是容易忽略的副作用。刪除 binary 是必要的（防誤判），但後續步驟需要知道 binary 已消失。在 Test step 加一行 `go build` 即可解決。
+
+---
+
 ## 附錄：GitHub Actions 觸發類型差異
 
 | 觸發類型 | 支援 `branches` 過濾 | 執行分支 |
