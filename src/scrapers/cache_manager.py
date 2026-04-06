@@ -233,31 +233,34 @@ class CacheManager:
         return time.time() - created_at > ttl_seconds
 
     def set(self, key: str, value: Any, ttl_hours: int | None = None) -> bool:
-        """設置快取值。優先使用 Go 加速，不可用時 fallback 到 Python。"""
-        if self._GO_CACHE_AVAILABLE:
-            try:
-                return self._set_go(key, value, ttl_hours)
-            except Exception as e:
-                logger.warning(f"⚠️ Go 快取寫入失敗，使用 Python fallback: {e}")
-        return self._set_python(key, value, ttl_hours)
+        """設置快取值。Go 不可用時回傳 False（no-op）。"""
+        if not self._GO_CACHE_AVAILABLE:
+            return False
+        try:
+            return self._set_go(key, value, ttl_hours)
+        except Exception as e:
+            logger.warning(f"⚠️ Go 快取寫入失敗: {e}")
+            return False
 
     def get(self, key: str) -> Any | None:
-        """獲取快取值。優先使用 Go 加速，不可用時 fallback 到 Python。"""
-        if self._GO_CACHE_AVAILABLE:
-            try:
-                return self._get_go(key)
-            except Exception as e:
-                logger.warning(f"⚠️ Go 快取讀取失敗，使用 Python fallback: {e}")
-        return self._get_python(key)
+        """獲取快取值。Go 不可用時回傳 None（no-op）。"""
+        if not self._GO_CACHE_AVAILABLE:
+            return None
+        try:
+            return self._get_go(key)
+        except Exception as e:
+            logger.warning(f"⚠️ Go 快取讀取失敗: {e}")
+            return None
 
     def delete(self, key: str) -> bool:
-        """刪除快取條目。優先使用 Go 加速，不可用時 fallback 到 Python。"""
-        if self._GO_CACHE_AVAILABLE:
-            try:
-                return self._delete_go(key)
-            except Exception as e:
-                logger.warning(f"⚠️ Go 快取刪除失敗，使用 Python fallback: {e}")
-        return self._delete_python(key)
+        """刪除快取條目。Go 不可用時回傳 False（no-op）。"""
+        if not self._GO_CACHE_AVAILABLE:
+            return False
+        try:
+            return self._delete_go(key)
+        except Exception as e:
+            logger.warning(f"⚠️ Go 快取刪除失敗: {e}")
+            return False
 
     # ------------------------------------------------------------------
     # Go 加速路徑
@@ -368,186 +371,6 @@ class CacheManager:
             self.stats["deletes"] += 1
             logger.debug(f"🗑️ Go 快取已刪除: {key}")
         return ok
-
-    # ------------------------------------------------------------------
-    # Python 原生路徑（Go 不可用時的 fallback）
-    # ------------------------------------------------------------------
-
-    def _set_python(self, key: str, value: Any, ttl_hours: int | None = None) -> bool:
-        """設置快取值"""
-        ttl_seconds = (ttl_hours or self.config.default_ttl_hours) * 3600
-        cache_key = self._generate_cache_key(key)
-        current_time = time.time()
-
-        try:
-            # 序列化和壓縮
-            serialized_data, compressed = self._serialize_value(value)
-            size_bytes = len(serialized_data)
-
-            # 檢查檔案大小限制
-            max_size_bytes = self.config.max_file_size_mb * 1024 * 1024
-            if size_bytes > max_size_bytes:
-                logger.warning(
-                    f"快取值過大 ({size_bytes / 1024 / 1024:.1f}MB)，跳過快取"
-                )
-                return False
-
-            # 建立快取條目
-            entry = CacheEntry(
-                key=cache_key,
-                value=value,
-                created_at=current_time,
-                ttl_seconds=ttl_seconds,
-                last_accessed=current_time,
-                compressed=compressed,
-                size_bytes=size_bytes,
-            )
-
-            # 設置記憶體快取
-            if self.config.enable_memory_cache:
-                with self.memory_lock:
-                    self.memory_cache[cache_key] = entry
-                    self._cleanup_memory_cache()
-
-            # 設置磁碟快取
-            if self.config.enable_disk_cache:
-                file_path = self._get_file_path(cache_key)
-
-                # 寫入檔案
-                with open(file_path, "wb") as f:
-                    f.write(serialized_data)
-
-                # 更新 JSON 索引
-                index_data = self._load_index()
-                index_data["entries"][cache_key] = {
-                    "file_path": str(file_path),
-                    "created_at": current_time,
-                    "ttl_seconds": ttl_seconds,
-                    "last_accessed": current_time,
-                    "access_count": 0,
-                    "compressed": compressed,
-                    "size_bytes": size_bytes,
-                }
-                self._save_index(index_data)
-
-            self.stats["sets"] += 1
-            logger.debug(f"💾 已快取: {key} ({size_bytes} bytes)")
-            return True
-
-        except Exception as e:
-            logger.error(f"設置快取失敗: {e}")
-            return False
-
-    def _get_python(self, key: str) -> Any | None:
-        """獲取快取值"""
-        cache_key = self._generate_cache_key(key)
-        current_time = time.time()
-
-        # 嘗試記憶體快取
-        if self.config.enable_memory_cache:
-            with self.memory_lock:
-                if cache_key in self.memory_cache:
-                    entry = self.memory_cache[cache_key]
-
-                    # 檢查是否過期
-                    if not self._is_expired(entry.created_at, entry.ttl_seconds):
-                        entry.access_count += 1
-                        entry.last_accessed = current_time
-                        self.stats["memory_hits"] += 1
-                        logger.debug(f"📋 記憶體快取命中: {key}")
-                        return entry.value
-                    else:
-                        # 過期，從記憶體移除
-                        del self.memory_cache[cache_key]
-
-        # 嘗試磁碟快取
-        if self.config.enable_disk_cache:
-            try:
-                index_data = self._load_index()
-                entry_data = index_data.get("entries", {}).get(cache_key)
-
-                if entry_data:
-                    file_path = entry_data["file_path"]
-                    created_at = entry_data["created_at"]
-                    ttl_seconds = entry_data["ttl_seconds"]
-                    compressed = entry_data["compressed"]
-                    access_count = entry_data.get("access_count", 0)
-
-                    # 檢查是否過期
-                    if not self._is_expired(created_at, ttl_seconds):
-                        file_path_obj = Path(file_path)
-
-                        if file_path_obj.exists():
-                            # 讀取檔案
-                            with open(file_path_obj, "rb") as f:
-                                data = f.read()
-
-                            # 反序列化
-                            value = self._deserialize_value(data, compressed)
-
-                            if value is not None:
-                                # 更新訪問統計
-                                entry_data["access_count"] = access_count + 1
-                                entry_data["last_accessed"] = current_time
-                                index_data["entries"][cache_key] = entry_data
-                                self._save_index(index_data)
-
-                                # 載入到記憶體快取
-                                if self.config.enable_memory_cache:
-                                    with self.memory_lock:
-                                        entry = CacheEntry(
-                                            key=cache_key,
-                                            value=value,
-                                            created_at=created_at,
-                                            ttl_seconds=ttl_seconds,
-                                            access_count=access_count + 1,
-                                            last_accessed=current_time,
-                                            compressed=compressed,
-                                            size_bytes=len(data),
-                                        )
-                                        self.memory_cache[cache_key] = entry
-
-                                self.stats["disk_hits"] += 1
-                                logger.debug(f"💿 磁碟快取命中: {key}")
-                                return value
-                            self._delete_cache_entry(cache_key, file_path)
-                    else:
-                        # 過期，清理
-                        self._delete_cache_entry(cache_key, file_path)
-
-            except Exception as e:
-                logger.error(f"讀取磁碟快取失敗: {e}")
-
-        self.stats["misses"] += 1
-        logger.debug(f"❌ 快取未命中: {key}")
-        return None
-
-    def _delete_python(self, key: str) -> bool:
-        """刪除快取條目"""
-        cache_key = self._generate_cache_key(key)
-
-        try:
-            # 從記憶體移除
-            if self.config.enable_memory_cache:
-                with self.memory_lock:
-                    self.memory_cache.pop(cache_key, None)
-
-            # 從磁碟移除
-            if self.config.enable_disk_cache:
-                index_data = self._load_index()
-                entry_data = index_data.get("entries", {}).get(cache_key)
-
-                if entry_data:
-                    file_path = entry_data["file_path"]
-                    self._delete_cache_entry(cache_key, file_path)
-
-            self.stats["deletes"] += 1
-            logger.debug(f"🗑️ 已刪除快取: {key}")
-            return True
-
-        except Exception as e:
-            logger.error(f"刪除快取失敗: {e}")
-            return False
 
     def _delete_cache_entry(self, cache_key: str, file_path: str):
         """刪除快取條目（檔案和索引）"""
