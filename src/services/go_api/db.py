@@ -40,6 +40,10 @@ def db_get_video(
     try:
         result = r.run(cmd)
     except GoBridgeError as e:
+        # "video not found" 是正常情況（DB 無此番號），直接回傳 None，不噴 ERROR
+        if "video not found" in str(e).lower() or "not found" in str(e).lower():
+            logger.debug(f"📭 影片不在 DB 中（預期行為）: {code}")
+            return None
         logger.error(f"❌ Go CLI 執行失敗 (影片 {code}): {e}")
         raise
 
