@@ -25,7 +25,8 @@
 | [新增 Go CLI 子命令](patterns/add-go-cli-command.md) | Go CLI 子命令標準寫法（含 -json flag） |
 | [新增 GUI 按鈕](patterns/add-gui-button.md) | GUI 背景執行緒、GoBridge 取法、db_manager 路徑 |
 | [PyInstaller 打包](patterns/pyinstaller.md) | spec 設定、sys._MEIPASS 路徑、dist 同步 |
-| [片商映射表](patterns/studios-json.md) | studios.json 結構、更新後需同步的位置 |
+| [零女優二次搜尋](patterns/zero-actress-retry.md) | 零女優自動清快取 + 第二輪 JAVDB 搜尋流程 |
+| [命名規範](patterns/naming-conventions.md) | Python/Go/JSON/CLI API 動詞與跨語言對應規則 |
 
 ---
 
@@ -38,6 +39,7 @@
 | [Go CLI 未定義 -json](pitfalls/go-cli-json-flag-missing.md) | 新增子命令未宣告 -json flag 導致 ExitOnError | Issue 15 |
 | [JAVDB False Positive](pitfalls/javdb-false-positive.md) | 搜尋無精確匹配時 fallback 第一筆造成誤匹配 | Issue 12 |
 | [PyInstaller 路徑問題](pitfalls/pyinstaller-path.md) | studios.json 在打包環境下應從 sys._MEIPASS 讀取 | dist 測試 |
+| [GitHub Actions 故障](pitfalls/github-actions-issues.md) | schedule/scope guard/Go API/Node.js Issue 1-15 全紀錄 | CI/CD |
 
 ---
 
@@ -46,4 +48,6 @@
 - **新增 Go API 功能** → [patterns/add-go-api-function.md](patterns/add-go-api-function.md)
 - **新增 GUI 按鈕** → [patterns/add-gui-button.md](patterns/add-gui-button.md)
 - **Rebuild EXE** → [patterns/pyinstaller.md](patterns/pyinstaller.md)
+- **命名規範檢查** → [patterns/naming-conventions.md](patterns/naming-conventions.md)
+- **搜尋架構理解** → [architecture/search-engine.md](architecture/search-engine.md)
 - **完整茶包射手** → [docs/茶包射手/github-actions-workflow.md](../docs/茶包射手/github-actions-workflow.md)

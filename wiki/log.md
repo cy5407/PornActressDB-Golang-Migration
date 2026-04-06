@@ -42,3 +42,20 @@
 
 **涉及檔案**：`src/models/studio.py`
 **踩坑**：PyInstaller 打包後 studios.json 應從 sys._MEIPASS 讀取（見 pitfalls/pyinstaller-path.md）
+
+---
+
+## [2026-04-06] ingest | Wiki 知識庫全量餵入
+
+**觸發原因**：掃描 16 個既有資料來源，批次建立所有缺失的 wiki 頁面
+
+**新增頁面**：
+- `wiki/architecture/overview.md` ← README.md + AGENTS.md
+- `wiki/architecture/go-cli.md` ← cmd/scanner/main.go
+- `wiki/architecture/go-bridge.md` ← MIGRATION_STATUS.md + go_bridge.py
+- `wiki/architecture/database.md` ← incremental_json_database.py
+- `wiki/architecture/search-engine.md` ← avwiki_scraper.py + README
+- `wiki/patterns/naming-conventions.md` ← CODING_STANDARDS.md（完整版）
+- `wiki/patterns/pyinstaller.md` ← 女優分類系統_修復版.spec
+- `wiki/patterns/zero-actress-retry.md` ← QUICK_START_GUIDE.md
+- `wiki/pitfalls/github-actions-issues.md` ← docs/茶包射手/（Issue 1-15 摘要）
