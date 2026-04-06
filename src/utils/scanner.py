@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
-_FORMATS = {".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts", ".m2ts"}
 
 
 class UnifiedFileScanner:
@@ -20,21 +19,18 @@ class UnifiedFileScanner:
                 except ImportError: from services.go_bridge import GoBridge
                 bridge = GoBridge(exe_path=self.go_exe_path or None, default_workers=self.go_workers)
                 self._go_bridge = bridge if bridge.is_available else None
-                if not self._go_bridge: logger.warning("Go CLI 不可用，改走 Python 降級掃描")
-            except ImportError as e:
-                logger.warning(f"無法載入 Go 橋接層，改走 Python 降級掃描: {e}")
+            except ImportError:
+                pass
             self.use_go = bool(self._go_bridge)
         return self._go_bridge
 
     def scan_directory(self, path: str, recursive: bool = True) -> list[Path]:
-        if self.go_bridge:
-            try: return [Path(item.path) for item in self.go_bridge.scan_directory(path, workers=self.go_workers, recursive=recursive)]
-            except Exception as e: logger.warning(f"Go 掃描失敗，改走 Python 降級掃描: {e}")
-        logger.warning("使用 Python 降級掃描路徑，請以 Go CLI 為主")
-        root = Path(path)
-        if not root.is_dir(): return []
-        walker = root.rglob("*") if recursive else root.glob("*")
-        return [p for p in walker if p.is_file() and p.suffix.lower() in _FORMATS]
+        if not self.go_bridge:
+            raise RuntimeError("Go CLI 不可用，無法掃描目錄")
+        try:
+            return [Path(item.path) for item in self.go_bridge.scan_directory(path, workers=self.go_workers, recursive=recursive)]
+        except Exception as e:
+            raise RuntimeError(f"Go 掃描失敗: {e}") from e
 
     def scan_with_codes(self, path: str, recursive: bool = True) -> list[dict]:
         if not self.go_bridge: raise RuntimeError("scan_with_codes 需要 Go CLI，目前不可用")

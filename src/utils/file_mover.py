@@ -1,4 +1,4 @@
-import logging, shutil
+import logging
 from importlib import import_module
 from pathlib import Path; from typing import Optional
 logger = logging.getLogger(__name__)
@@ -21,42 +21,34 @@ class FileMover:
 
     def move_file(self, source: str | Path, destination: str | Path, create_dirs: bool = True) -> dict:
         src, dst = Path(source), Path(destination)
-        if self.go_bridge:
-            try:
-                r = self.go_bridge.move_file(str(src), str(dst), self.conflict_strategy)
-                self._last_operation_id = getattr(r, "operation_id", None) or self._last_operation_id
-                return {"success": r.success, "source": r.source, "destination": r.destination, "error": r.error, "skipped": r.skipped, "renamed": r.renamed}
-            except Exception as e: logger.warning(f"Go 檔案搬移失敗，改走 Python 降級搬移: {e}")
-        logger.warning("使用 Python 降級檔案搬移路徑，請以 Go CLI 為主")
-        out = {"success": False, "source": str(src), "destination": str(dst), "error": None, "skipped": False, "renamed": None}
+        if not self.go_bridge:
+            return {"success": False, "source": str(src), "destination": str(dst), "error": "Go CLI 不可用，無法搬移檔案", "skipped": False, "renamed": None}
         try:
-            if not src.exists(): out["error"] = f"來源檔案不存在: {src}"
-            else:
-                if create_dirs: dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src), str(dst)); out["success"] = True
-        except Exception as e: out["error"] = str(e)
-        return out
+            r = self.go_bridge.move_file(str(src), str(dst), self.conflict_strategy)
+            self._last_operation_id = getattr(r, "operation_id", None) or self._last_operation_id
+            return {"success": r.success, "source": r.source, "destination": r.destination, "error": r.error, "skipped": r.skipped, "renamed": r.renamed}
+        except Exception as e:
+            return {"success": False, "source": str(src), "destination": str(dst), "error": str(e), "skipped": False, "renamed": None}
 
     def move_dir(self, source: str | Path, destination: str | Path) -> dict:
         src, dst = Path(source), Path(destination)
-        if self.go_bridge:
-            try: return self.go_bridge.move_dir(str(src), str(dst), self.conflict_strategy)
-            except Exception as e: logger.warning(f"Go 目錄搬移失敗，改走 Python 降級搬移: {e}")
-        logger.warning("使用 Python 降級目錄搬移路徑，請以 Go CLI 為主")
-        out = {"success": False, "source": str(src), "destination": str(dst), "error": None, "skipped": False}
+        if not self.go_bridge:
+            return {"success": False, "source": str(src), "destination": str(dst), "error": "Go CLI 不可用，無法搬移目錄", "skipped": False}
         try:
-            if not src.exists(): out["error"] = f"來源目錄不存在: {src}"
-            else: dst.parent.mkdir(parents=True, exist_ok=True); shutil.move(str(src), str(dst)); out["success"] = True
-        except Exception as e: out["error"] = str(e)
-        return out
+            return self.go_bridge.move_dir(str(src), str(dst), self.conflict_strategy)
+        except Exception as e:
+            return {"success": False, "source": str(src), "destination": str(dst), "error": str(e), "skipped": False}
 
     def batch_move(self, moves: list[tuple[str | Path, str | Path]]) -> dict:
-        if self.go_bridge and len(moves) > 1:
+        if not self.go_bridge:
+            return {"total": len(moves), "success": 0, "failed": len(moves), "skipped": 0, "results": [{"success": False, "source": str(s), "destination": str(d), "error": "Go CLI 不可用，無法搬移檔案", "skipped": False, "renamed": None} for s, d in moves]}
+        if len(moves) > 1:
             try:
                 r = self.go_bridge.batch_move([{"source": str(src), "destination": str(dst)} for src, dst in moves], self.conflict_strategy)
                 self._last_operation_id = r.operation_id or self._last_operation_id
                 return {"total": r.total_items, "success": r.success_count, "failed": r.failed_count, "skipped": r.skipped_count, "operation_id": r.operation_id, "status": r.status, "summary": r.summary, "results": [{"success": i.success, "source": i.source, "destination": i.destination, "error": i.error, "skipped": i.skipped, "renamed": i.renamed} for i in r.results]}
-            except Exception as e: logger.warning(f"Go 批次搬移失敗，改走 Python 降級搬移: {e}")
+            except Exception as e:
+                return {"total": len(moves), "success": 0, "failed": len(moves), "skipped": 0, "error": str(e), "results": []}
         results = [self.move_file(src, dst) for src, dst in moves]
         return {"total": len(moves), "success": sum(1 for i in results if i["success"] and not i["skipped"]), "failed": sum(1 for i in results if not i["success"]), "skipped": sum(1 for i in results if i["skipped"]), "results": results}
 

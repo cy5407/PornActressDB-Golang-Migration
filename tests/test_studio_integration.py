@@ -19,37 +19,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def test_python_fallback_mode():
-    """測試 Python fallback 模式（強制禁用 Go）"""
-    logger.info("=" * 60)
-    logger.info("測試 1: Python fallback 模式")
-    logger.info("=" * 60)
-
-    from src.models.go_accelerated_studio import GoAcceleratedStudioIdentifier
-
-    # 強制禁用 Go
-    identifier = GoAcceleratedStudioIdentifier(use_go=False)
-
-    assert identifier.use_go is False, "應該禁用 Go"
-
-    # 測試識別
-    test_cases = [
-        ("SONE-001", "S1"),
-        ("SSIS-123", "S1"),
-        ("MIDV-456", "MOODYZ"),
-        ("IPX-789", "PREMIUM"),
-        ("FSDSS-100", "FALENO"),
-        ("UNKNOWN-999", "UNKNOWN"),
-    ]
-
-    for code, expected in test_cases:
-        result = identifier.identify_studio(code)
-        assert result == expected, f"{code} 應該是 {expected}，但得到 {result}"
-        logger.info(f"✅ {code} -> {result}")
-
-    logger.info("✅ Python fallback 模式測試通過")
-
-
 def test_go_availability():
     """測試 Go CLI 可用性檢查"""
     logger.info("=" * 60)
@@ -240,7 +209,6 @@ def run_all_tests():
     logger.info("=" * 60 + "\n")
 
     tests = [
-        ("Python fallback 模式", test_python_fallback_mode),
         ("Go CLI 可用性", test_go_availability),
         ("批次識別", test_batch_identification),
         ("名稱標準化", test_normalize_studio_name),

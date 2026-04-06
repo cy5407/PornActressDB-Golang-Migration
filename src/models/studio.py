@@ -3,7 +3,6 @@
 """
 
 import logging
-import re
 import sys
 from pathlib import Path
 
@@ -130,12 +129,28 @@ class StudioIdentifier:
             logger.error(f"讀取片商規則檔案失敗: {e}, 將使用空規則。")
             return {}
 
+    def _build_code_to_studio_map(self) -> dict[str, str]:
+        """建立番號前綴 → 片商名稱的對照表"""
+        mapping: dict[str, str] = {}
+        for studio, prefixes in self.studio_patterns.items():
+            for prefix in prefixes:
+                mapping[prefix.upper()] = studio
+        return mapping
+
     def identify_studio(self, code: str) -> str:
-        """識別番號所屬片商，優先使用 Go CLI，降級至 Python 實作。"""
+        """識別番號所屬片商。
+
+        優先委派給 Go CLI；自訂規則檔（非 studios.json）使用本機前綴對照表；
+        Go 不可用且為預設規則檔時回傳 UNKNOWN。
+        """
         go_result = self._identify_studio_via_go(code)
         if go_result is not None:
             return go_result
-        return self._identify_studio_python(code)
+        # 自訂規則檔：Go 不處理，從本機 code_to_studio 查詢前綴
+        if code and self.rules_file.name != "studios.json":
+            prefix = code.upper().split('-')[0]
+            return self.code_to_studio.get(prefix, "UNKNOWN")
+        return "UNKNOWN"
 
     def _identify_studio_via_go(self, code: str) -> str | None:
         """嘗試透過 Go CLI 識別片商；若 Go 不可用或使用自訂規則檔則回傳 None。"""
@@ -165,19 +180,4 @@ class StudioIdentifier:
             logger.debug(f"Go 片商識別失敗，降級至 Python: {e}")
             return None
 
-    def _identify_studio_python(self, code: str) -> str:
-        """純 Python 片商識別（原有邏輯）。"""
-        if not code:
-            return "UNKNOWN"
-        prefix_match = re.match(r"([A-Z]+)", code.upper())
-        if not prefix_match:
-            return "UNKNOWN"
-        prefix = prefix_match.group(1)
-        return self.code_to_studio.get(prefix, "UNKNOWN")
 
-    def _build_code_to_studio_map(self) -> dict[str, str]:
-        mapping = {}
-        for studio, prefixes in self.studio_patterns.items():
-            for prefix in prefixes:
-                mapping[prefix.upper()] = studio
-        return mapping

@@ -47,31 +47,20 @@ def create_test_files(temp_dir: Path, count: int = 10) -> list[Path]:
 
 
 def test_python_scanner():
-    """測試 Python 原生掃描模式"""
+    """測試 use_go=False 時 scan_directory 應拋出 RuntimeError"""
     logger.info("=" * 60)
-    logger.info("測試 1: Python 原生掃描")
+    logger.info("測試 1: 無 Go CLI 時拒絕掃描")
     logger.info("=" * 60)
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        test_files = create_test_files(temp_path)
+    scanner = UnifiedFileScanner(use_go=False)
 
-        scanner = UnifiedFileScanner(use_go=False)
+    try:
+        scanner.scan_directory("/some/path", recursive=True)
+        raise AssertionError("應拋出 RuntimeError")
+    except RuntimeError as exc:
+        logger.info(f"✅ 正確拋出 RuntimeError: {exc}")
 
-        # 測試遞迴掃描
-        start = time.perf_counter()
-        results = scanner.scan_directory(temp_dir, recursive=True)
-        elapsed = time.perf_counter() - start
-
-        logger.info(f"✅ 遞迴掃描完成: {len(results)} 個檔案 ({elapsed * 1000:.2f}ms)")
-        assert len(results) == len(test_files), f"預期 {len(test_files)} 個檔案，實際 {len(results)}"
-
-        # 測試非遞迴掃描
-        results_flat = scanner.scan_directory(temp_dir, recursive=False)
-        logger.info(f"✅ 非遞迴掃描完成: {len(results_flat)} 個檔案")
-        assert len(results_flat) == len(test_files) - 1, "非遞迴不應包含子目錄檔案"
-
-    logger.info("✅ Python 原生掃描測試通過")
+    logger.info("✅ 無 Go CLI 拒絕掃描測試通過")
 
 
 def test_go_scanner_availability():
@@ -95,31 +84,26 @@ def test_go_scanner_availability():
 
 
 def test_fallback_mechanism():
-    """測試 Fallback 機制"""
+    """測試 Go 不可用時 scan_directory 應拋出 RuntimeError"""
     logger.info("=" * 60)
-    logger.info("測試 3: Fallback 機制")
+    logger.info("測試 3: Go 不可用時拒絕掃描")
     logger.info("=" * 60)
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        test_files = create_test_files(temp_path)
+    # 提供不存在的 exe 路徑，確認 go_bridge 不可用
+    scanner = UnifiedFileScanner(
+        use_go=True,
+        go_exe_path="/nonexistent/path/classifier.exe"
+    )
 
-        # 強制使用 Go 模式，但提供錯誤的 exe 路徑
-        scanner = UnifiedFileScanner(
-            use_go=True,
-            go_exe_path="/nonexistent/path/classifier.exe"
-        )
+    assert scanner.go_bridge is None, "go_bridge 應為 None（exe 不存在）"
 
-        # 由於 Go 不可用，應該自動切換到 Python
-        results = scanner.scan_directory(temp_dir, recursive=True)
+    try:
+        scanner.scan_directory("/some/path", recursive=True)
+        raise AssertionError("應拋出 RuntimeError")
+    except RuntimeError as exc:
+        logger.info(f"✅ 正確拋出 RuntimeError: {exc}")
 
-        logger.info(f"✅ Fallback 掃描完成: {len(results)} 個檔案")
-        assert len(results) == len(test_files), "Fallback 應該能正常掃描"
-
-        # 驗證已切換到 Python 模式
-        assert scanner.use_go is False, "應該已切換到 Python 模式"
-
-    logger.info("✅ Fallback 機制測試通過")
+    logger.info("✅ Go 不可用拒絕掃描測試通過")
 
 
 def test_scan_with_codes():
@@ -173,10 +157,16 @@ def test_from_config():
 
 
 def test_performance_comparison():
-    """效能對比測試（僅在檔案數量較大時有意義）"""
+    """效能測試（Go CLI 可用時才有意義）"""
     logger.info("=" * 60)
-    logger.info("測試 6: 掃描效能測試")
+    logger.info("測試 6: 掃描效能測試（需 Go CLI）")
     logger.info("=" * 60)
+
+    scanner = UnifiedFileScanner(use_go=True)
+
+    if not scanner.go_bridge:
+        logger.info("⚠️ Go CLI 不可用，跳過效能測試")
+        return
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
@@ -192,9 +182,6 @@ def test_performance_comparison():
             for i in range(20):
                 (sub_dir / f"SUB-{level}-{i:02d}.mkv").touch()
 
-        scanner = UnifiedFileScanner(use_go=False)
-
-        # 多次測試取平均
         times = []
         for _ in range(3):
             start = time.perf_counter()
@@ -219,9 +206,9 @@ def run_all_tests():
     logger.info("=" * 60 + "\n")
 
     tests = [
-        ("Python 原生掃描", test_python_scanner),
+        ("無 Go CLI 拒絕掃描", test_python_scanner),
         ("Go CLI 可用性", test_go_scanner_availability),
-        ("Fallback 機制", test_fallback_mechanism),
+        ("Go 不可用拒絕掃描", test_fallback_mechanism),
         ("scan_with_codes", test_scan_with_codes),
         ("from_config", test_from_config),
         ("效能測試", test_performance_comparison),
