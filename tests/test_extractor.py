@@ -61,9 +61,21 @@ class TestUnifiedCodeExtractor:
         assert extractor.extract_code("{Uncensored}IPX-999.mp4") == "IPX-999"
 
     def test_extract_with_website_prefix(self, extractor):
-        """測試帶網站前綴的檔名"""
+        """測試帶網站前綴的檔名（通用 *.com[@-] 模式）"""
         assert extractor.extract_code("hhd800.com@STARS-707.mp4") == "STARS-707"
         assert extractor.extract_code("xxx.com-SSIS-123.mkv") == "SSIS-123"
+        assert extractor.extract_code("489155.com@MIMK-273.mp4") == "MIMK-273"
+        assert extractor.extract_code("123abc.com@IPX-999.mp4") == "IPX-999"
+
+    def test_extract_site_prefix_489155_delegated(self, extractor):
+        """489155.com@ 前綴通用化：Python 層應委派並正確回傳番號（mock Go CLI，commit da535ca）"""
+        from unittest.mock import patch
+
+        with patch.object(extractor, "_extract_code_via_go", return_value="MIMK-273") as mock_go:
+            result = extractor.extract_code("489155.com@MIMK-273.mp4")
+
+        mock_go.assert_called_once_with("489155.com@MIMK-273.mp4")
+        assert result == "MIMK-273"
 
     def test_skip_fc2_files(self, extractor):
         """測試跳過 FC2 檔案"""

@@ -80,6 +80,17 @@ jobs:
               sys.exit(1)
           "
 
+      # ─── 執行 e2e 整合測試（真實呼叫 classifier.exe）───
+      - name: Run e2e integration tests (tests/integration/)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          CLASSIFIER_EXE: ${{ github.workspace }}/classifier.exe
+        run: |
+          python -m pytest tests/integration/ \
+            -v \
+            --tb=short \
+            --timeout=120
+
       # ─── 執行含 Go CLI 的整合測試 ───
       - name: Run integration tests (with Go CLI)
         env:
