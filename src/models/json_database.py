@@ -960,68 +960,28 @@ class JSONDBManager:
             LockError: 若無法獲得寫鎖定
             CorruptedDataError: 若寫入失敗
         """
-        try:
-            # 驗證輸入
-            if not isinstance(actress_info, dict):
-                raise ValidationError("女優資訊必須是字典")
+        if not isinstance(actress_info, dict):
+            raise ValidationError("女優資訊必須是字典")
+        if "id" not in actress_info:
+            raise ValidationError("女優 ID 必須存在")
 
-            if "id" not in actress_info:
-                raise ValidationError("女優 ID 必須存在")
+        actress_id = actress_info.get("id")
 
-            actress_id = actress_info.get("id")
-
-            # Go 委派
-            if self._GO_DB_AVAILABLE and actress_id:
-                try:
-                    success = _go_db_update_actress(actress_id, actress_info, data_dir=str(self.data_dir))
-                    if success:
-                        self.data["actresses"][actress_id] = actress_info
-                        self._cache_statistics()
-                        logger.info(f"✅ 女優已新增/更新（Go）: {actress_id}")
-                        return actress_id
-                except (ValidationError, DataIntegrityError):
-                    raise
-                except Exception as e:
-                    logger.warning(f"⚠️ Go 委派 add_or_update_actress 失敗，切換 Python: {e}")
-
-            # 獲取寫鎖定
-            self._acquire_write_lock()
-
+        if self._GO_DB_AVAILABLE and actress_id:
             try:
-                # 重新載入最新資料
-                self._load_data_internal()
+                success = _go_db_update_actress(actress_id, actress_info, data_dir=str(self.data_dir))
+                if success:
+                    self.data["actresses"][actress_id] = actress_info
+                    self._cache_statistics()
+                    logger.info(f"✅ 女優已新增/更新（Go）: {actress_id}")
+                    return actress_id
+            except (ValidationError, DataIntegrityError):
+                raise
+            except Exception as e:
+                logger.warning(f"⚠️ Go 委派 add_or_update_actress 失敗: {e}")
+                raise RuntimeError(f"Go add_or_update_actress 失敗: {actress_id}: {e}") from e
 
-                # 準備女優資料
-                actress_dict = get_empty_actress()
-                actress_dict.update(actress_info)
-                actress_dict["updated_at"] = datetime.now(UTC).strftime(
-                    ISO_DATETIME_FORMAT
-                )
-
-                # 新增或更新
-                self.data["actresses"][actress_id] = actress_dict
-
-                # 驗證完整性
-                self._validate_referential_integrity(self.data)
-
-                # 更新統計快取（快取失效策略）
-                self._cache_statistics()
-
-                # 保存
-                self._save_all_data(self.data)
-
-                logger.info(f"✅ 女優已新增/更新: {actress_id}")
-                return actress_id
-
-            finally:
-                self._release_locks()
-
-        except (ValidationError, DataIntegrityError, LockError) as e:
-            logger.error(f"❌ 新增/更新女優失敗: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 未預期的錯誤: {e}")
-            raise CorruptedDataError(f"新增/更新女優失敗: {e}") from e
+        raise RuntimeError(f"Go CLI 不可用，無法新增/更新女優: {actress_id}")
 
     def get_actress_info(self, actress_id: str) -> ActressDict | None:
         """
@@ -1048,30 +1008,7 @@ class JSONDBManager:
             except Exception as e:
                 logger.warning(f"⚠️ Go 委派 get_actress_info 失敗，從記憶體查詢: {e}")
 
-        try:
-            # 獲取讀鎖定
-            self._acquire_read_lock()
-
-            try:
-                actresses = self.data.get("actresses", {})
-                actress = actresses.get(actress_id)
-
-                if actress:
-                    logger.debug(f"✅ 查詢女優成功: {actress_id}")
-                    return actress
-                else:
-                    logger.debug(f"⚠️ 女優不存在: {actress_id}")
-                    return None
-
-            finally:
-                self._release_locks()
-
-        except LockError as e:
-            logger.error(f"❌ 無法獲取讀鎖定: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 查詢女優失敗: {e}")
-            raise
+        return self.data.get("actresses", {}).get(actress_id)
 
     def delete_actress(self, actress_id: str) -> bool:
         """
@@ -1108,51 +1045,7 @@ class JSONDBManager:
                 logger.warning(f"⚠️ Go 委派 delete_actress 失敗: {e}")
                 raise RuntimeError(f"Go delete_actress 失敗: {actress_id}: {e}") from e
 
-        try:
-            # 獲取寫鎖定
-            self._acquire_write_lock()
-
-            try:
-                # 重新載入最新資料
-                self._load_data_internal()
-
-                actresses = self.data.get("actresses", {})
-
-                # 檢查女優是否存在
-                if actress_id not in actresses:
-                    logger.warning(f"⚠️ 女優不存在: {actress_id}")
-                    return False
-
-                # 刪除女優
-                del actresses[actress_id]
-
-                # 刪除相關的影片-女優關聯
-                links = self.data.get("links", [])
-                self.data["links"] = [
-                    link for link in links if link.get("actress_id") != actress_id
-                ]
-
-                # 驗證完整性
-                self._validate_referential_integrity(self.data)
-
-                # 更新統計快取（快取失效策略）
-                self._cache_statistics()
-
-                # 保存
-                self._save_all_data(self.data)
-
-                logger.info(f"✅ 女優已刪除: {actress_id}")
-                return True
-
-            finally:
-                self._release_locks()
-
-        except (DataIntegrityError, LockError) as e:
-            logger.error(f"❌ 刪除女優失敗: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 未預期的錯誤: {e}")
-            raise CorruptedDataError(f"刪除女優失敗: {e}") from e
+        raise RuntimeError(f"Go CLI 不可用，無法刪除女優: {actress_id}")
 
     # ========================================================================
     # 輔助方法
@@ -1349,25 +1242,10 @@ class JSONDBManager:
         if self._GO_DB_AVAILABLE:
             from services.go_api.db import db_get_actress_stats
             result = db_get_actress_stats(data_dir=str(self.data_dir))
-            if result:
+            if result is not None:
                 return result
 
-        try:
-            # 獲取讀鎖定
-            self._acquire_read_lock()
-
-            try:
-                return self._compute_actress_statistics_internal()
-
-            finally:
-                self._release_locks()
-
-        except LockError as e:
-            logger.error(f"❌ 無法獲取讀鎖定: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 女優統計查詢失敗: {e}")
-            raise
+        raise RuntimeError("Go CLI 不可用，無法計算女優統計")
 
     def _compute_actress_statistics_internal(self) -> list[dict[str, Any]]:
         """
@@ -1451,25 +1329,10 @@ class JSONDBManager:
         if self._GO_DB_AVAILABLE:
             from services.go_api.db import db_get_studio_stats
             result = db_get_studio_stats(data_dir=str(self.data_dir))
-            if result:
+            if result is not None:
                 return result
 
-        try:
-            # 獲取讀鎖定
-            self._acquire_read_lock()
-
-            try:
-                return self._compute_studio_statistics_internal()
-
-            finally:
-                self._release_locks()
-
-        except LockError as e:
-            logger.error(f"❌ 無法獲取讀鎖定: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 片商統計查詢失敗: {e}")
-            raise
+        raise RuntimeError("Go CLI 不可用，無法計算片商統計")
 
     def _compute_studio_statistics_internal(self) -> list[dict[str, Any]]:
         """
