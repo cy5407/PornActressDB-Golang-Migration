@@ -18,6 +18,7 @@ OperationLog = api.OperationLog
 ScanResult = api.ScanResult
 db_compact_journal = api.db_compact_journal
 db_delete_video = api.db_delete_video
+db_fix_studios = api.db_fix_studios
 db_get_stats = api.db_get_stats
 db_get_video = api.db_get_video
 db_list_videos = api.db_list_videos
