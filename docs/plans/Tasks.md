@@ -176,3 +176,9 @@
 - 掃描可依 `workers` 與 `recursive` 參數切換行為。
 - 搬移模組可同時處理單檔、資料夾與 stdin 批次輸入。
 - 歷史視窗可獨立查詢單筆操作詳情後再執行回滾。
+
+### 進一步補充：從現有 Python 實作對齊 Wails 的行為細節
+- **狀態管理 / 事件對應**：`main_gui.py` 目前是以 `queue.Queue` + `SafeGUIUpdater` 讓背景執行緒把 `TEXT / ERROR / STATUS / CLEAR / CALLBACK` 訊息送回主執行緒；`ProgressThrottler` 會把高頻率訊息節流，並保留 `pending_message` 於下次 flush。Wails 遷移時，React store 至少要拆成「結果文字區」、「狀態列」、「進度條」、「按鈕啟用狀態」四個可觀察狀態，且事件要能區分一般文字、錯誤、清除、狀態更新與需要在 UI 執行緒完成的 callback 類型。
+- **錯誤處理 / fallback 行為**：現有流程遇到例外時多半會先 `logger.error(..., exc_info=True)`，再回傳 `{"status": "error", "message": str(e)}`；UI 端則透過 `_show_result_error` 顯示，或在 Go CLI 不可用時直接跳警告。新的 Wails 實作要保留「可恢復則降級、不可恢復才中止」的模式，例如：Go CLI 不可用時給明確 fallback 提示、搜尋失敗時仍需寫入可用的部分結果、背景任務被 stop 時要先輸出中止訊息再結束。
+- **進度事件映射**：`web_searcher.batch_search` 目前會輸出 `處理批次 N/M`、`✅ 找到資料`、`⚠️ 搜尋頁面異常 - reason`、`❌ 未找到結果`、`💥 處理失敗 - e`；`process_and_search_cascade` 另外會輸出階段標題、AV-WIKI / 別名 fallback、來源統計與摘要。Wails 前端的 `progress` / `status` / `error` / `task:done` 事件要保留這些層次，並至少區分：批次開始、單筆成功、單筆暫時性異常、單筆失敗、階段切換、摘要完成。
+- **Python subprocess 超時與錯誤細節**：`go_runner.py` 目前以 `subprocess.run(..., capture_output=True, text=True, encoding="utf-8", timeout=timeout)` 執行，超時會丟 `GoBridgeError("命令執行超時")`；`returncode != 0` 時會先看 stderr，若包含 `not found / no such / does not exist / 找不到` 則視為 not found，否則視為執行失敗；JSON 解析失敗則回傳含前 200 字輸出的 `GoBridgeJSONError`。若 Wails 仍保留 Python 爬蟲 subprocess，請把 timeout / stderr / JSON parse error 這三種失敗明確帶回前端，避免只顯示泛用「執行失敗」。
