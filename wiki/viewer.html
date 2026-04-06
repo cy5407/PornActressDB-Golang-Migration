@@ -116,8 +116,51 @@
 </div>
 
 <script>
-// Wiki 結構（動態從 /api/manifest 載入）
-let WIKI = { sections: [] };
+// Wiki 結構定義（由 wiki-maintenance skill 在新增頁面後自動更新）
+const WIKI = {
+  sections: [
+    {
+      title: "📖 索引",
+      items: [
+        { label: "女優分類系統 Wiki", icon: "🏠", file: "index.md", path: "index" },
+        { label: "Log", icon: "📋", file: "log.md", path: "log" },
+      ]
+    },
+    {
+      title: "🏛️ 架構",
+      items: [
+        { label: "資料庫架構", icon: "🗄️", file: "architecture/database.md", path: "architecture/database" },
+        { label: "GoBridge 委派架構", icon: "🌉", file: "architecture/go-bridge.md", path: "architecture/go-bridge" },
+        { label: "Go CLI 命令參考", icon: "⚙️", file: "architecture/go-cli.md", path: "architecture/go-cli" },
+        { label: "系統架構總覽", icon: "🗺️", file: "architecture/overview.md", path: "architecture/overview" },
+        { label: "搜尋引擎架構", icon: "🔍", file: "architecture/search-engine.md", path: "architecture/search-engine" },
+      ]
+    },
+    {
+      title: "📐 開發模式",
+      items: [
+        { label: "新增 Go API 函式 ← 必讀", icon: "➕", file: "patterns/add-go-api-function.md", path: "patterns/add-go-api-function" },
+        { label: "新增 Go CLI 子命令", icon: "🖥️", file: "patterns/add-go-cli-command.md", path: "patterns/add-go-cli-command" },
+        { label: "新增 GUI 按鈕", icon: "🖱️", file: "patterns/add-gui-button.md", path: "patterns/add-gui-button" },
+        { label: "命名規範", icon: "📝", file: "patterns/naming-conventions.md", path: "patterns/naming-conventions" },
+        { label: "PyInstaller 打包指南", icon: "📦", file: "patterns/pyinstaller.md", path: "patterns/pyinstaller" },
+        { label: "Python Fallback 移除策略（Phase 6）", icon: "🗑️", file: "patterns/remove-python-fallback.md", path: "patterns/remove-python-fallback" },
+        { label: "零女優二次搜尋模式", icon: "🔄", file: "patterns/zero-actress-retry.md", path: "patterns/zero-actress-retry" },
+      ]
+    },
+    {
+      title: "🪲 踩坑紀錄",
+      items: [
+        { label: "GitHub Actions 故障排除紀錄", icon: "❌", file: "pitfalls/github-actions-issues.md", path: "pitfalls/github-actions-issues" },
+        { label: "Issue 14：go_api 匯出遺漏 → AttributeError", icon: "❌", file: "pitfalls/go-api-export-missing.md", path: "pitfalls/go-api-export-missing" },
+        { label: "Issue 15：Go CLI 未定義 -json flag → ExitOnError 靜默退出", icon: "❌", file: "pitfalls/go-cli-json-flag-missing.md", path: "pitfalls/go-cli-json-flag-missing" },
+        { label: "Issue 13：GUI Bridge 取法錯誤 → Go CLI 不可用警告", icon: "❌", file: "pitfalls/gui-bridge-wrong-access.md", path: "pitfalls/gui-bridge-wrong-access" },
+        { label: "Issue 12：JAVDB False Positive", icon: "❌", file: "pitfalls/javdb-false-positive.md", path: "pitfalls/javdb-false-positive" },
+        { label: "PyInstaller 打包路徑問題", icon: "❌", file: "pitfalls/pyinstaller-path.md", path: "pitfalls/pyinstaller-path" },
+      ]
+    }
+  ]
+};
 
 // 快取
 const cache = {};
@@ -290,24 +333,11 @@ document.addEventListener('click', e => {
   }
 });
 
-// 初始化（從 server 動態取得 manifest）
-async function init() {
-  try {
-    const res = await fetch('/api/manifest');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    WIKI = await res.json();
-  } catch (e) {
-    document.getElementById('content').innerHTML =
-      `<div style="color:var(--red);padding:20px">❌ 無法載入 manifest：${e.message}<br>請用 <code>python wiki/serve.py</code> 啟動伺服器。</div>`;
-    return;
-  }
-  buildSidebar();
-  const firstItem = WIKI.sections[0]?.items[0];
-  if (firstItem) loadPage(firstItem);
-  buildSearchIndex();
-}
-
-init();
+// 初始化
+buildSidebar();
+const firstItem = WIKI.sections[0].items[0];
+loadPage(firstItem);
+buildSearchIndex();
 </script>
 </body>
 </html>

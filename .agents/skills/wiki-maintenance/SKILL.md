@@ -30,6 +30,7 @@ wiki/
 2. 若發生了可預防的 Bug → 在 `wiki/pitfalls/` 新增頁面
 3. 更新 `wiki/index.md` 的對應表格
 4. 在 `wiki/log.md` 末尾追加一筆記錄
+5. **同步 `wiki/viewer.html` 的 `WIKI` 物件**（見下方規則）
 
 log 格式：
 ```
@@ -38,6 +39,35 @@ log 格式：
 **涉及檔案**：...
 **踩坑**：...（如有）
 ```
+
+---
+
+### 同步 viewer.html WIKI 物件（必須執行）
+
+每次新增或刪除 `wiki/**/*.md` 後，必須同步更新 `wiki/viewer.html` 第 118 行起的 `const WIKI = { sections: [...] }` 物件。
+
+**規則：**
+- 標題（label）：從 md 檔的第一個 `# H1` 取得
+- icon：依下表選取；無對應則 patterns 用 `📄`、pitfalls 用 `❌`
+- 新增項目：插入到對應 section 的 `items` 陣列，**依字母排序**
+- 刪除項目：從 `items` 陣列移除對應行
+
+**Icon 參考表：**
+
+| 目錄 | 預設 | 常見對應 |
+|------|------|---------|
+| root | — | `index`→🏠 `log`→📋 |
+| architecture | 🗺️ | go-cli→⚙️ go-bridge→🌉 database→🗄️ search→🔍 |
+| patterns | 📄 | add-*→➕ gui→🖱️ naming→📝 pkg→📦 retry→🔄 remove→🗑️ |
+| pitfalls | ❌ | 全部 ❌ |
+
+**格式（每行一個 item）：**
+```js
+{ label: "頁面標題", icon: "🔤", file: "patterns/new-page.md", path: "patterns/new-page" },
+```
+
+> viewer.html 直接用瀏覽器開啟（`file://`），不需要 server。  
+> 保持 WIKI 物件同步即可確保側欄正確顯示。
 
 ---
 
