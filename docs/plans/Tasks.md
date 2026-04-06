@@ -201,5 +201,10 @@
 - **專案路徑**：`wails-app/` 目前在 repo 中尚未建立；Tasks.md 應先把這個目錄視為新專案根目錄，底下至少要有 `wails-app/backend/app.go`、`wails-app/backend/services/`、`wails-app/frontend/src/`、`wails-app/frontend/src/components/`、`wails-app/frontend/src/lib/`、`wails-app/frontend/src/stores/`，避免後續實作時文件路徑漂移。
 - **TypeScript 型別**：前端不能只靠 `any`。至少要補 `frontend/src/lib/types.ts` 或等價型別檔，定義 `ScanResult`、`MoveResult`、`MergeResult`、`BatchResult`、`OperationLog`、`MoveItem`、`VideoData`/`Preferences`、以及 Wails 事件 payload（例如 `ProgressEvent`、`StatusEvent`、`TaskDoneEvent`、`ErrorEvent`）。
 - **Wails 事件名稱**：建議在文件中明確固定事件契約，避免前後端各寫各的。至少要列出 `scan:progress`、`task:progress` 或共用 `progress`、`status`、`error`、`task:done`、`task:clear`、`task:callback` 這幾類事件，並說清楚 payload 格式（例如 `{message, current, total, level, taskId}`）。
+
+### 進一步補充：對話框共用元件、config.ini 與小視窗互動
+- **共用 Modal 規劃**：除各對話框專屬元件外，需另列一個共用 Modal 基底（例如 `Modal.tsx` / `DialogShell.tsx`）或統一採用 shadcn/ui Dialog 包裝，讓 `SearchResultDetailModal`、`RollbackConfirmModal`、偏好設定與其他彈窗共用標題列、關閉動作、遮罩、ESC 關閉與寬度策略，避免各對話框各做各的。
+- **config.ini 讀寫落點**：偏好設定模組不只要提到「讀/寫 config.ini」，還要明確寫出 Go 後端的讀寫責任，例如由 `backend/services/config.go`（或等價檔案）集中處理載入、驗證、預設值合併、儲存與錯誤回報，前端只透過 `GetPreferences` / `UpdatePreferences` 操作，不直接碰檔案系統。
+- **多視窗 / 小視窗互動**：需補上主視窗在小尺寸或多視窗情境下的互動檢討，例如側欄折疊、彈窗在窄寬度下改成全寬或底部抽屜、進度條與狀態列在縮窄時仍可讀、History / Preferences 互斥開啟策略，以及視窗狀態切換時避免焦點遺失或背景任務資訊被遮蔽。
 - **binding / service 分工**：`backend/app.go` 應只負責 binding 入口與事件轉發，實作邏輯放到 `backend/services/*.go`，避免把掃描、搬移、歷史、偏好與 subprocess 全塞進單一檔案；前端 `App.tsx` 也只應組裝版面，主要狀態與事件處理由 store / hooks / components 分層承接。
 - **缺漏檢查清單**：若後續建立 `wails-app/`，先確認生成的預設檔案是否包含 bindings、types、events、store、測試與打包設定；否則容易只完成畫面而漏掉 Go binding 與事件資料格式，導致 UI 看得到但無法可靠串接。
