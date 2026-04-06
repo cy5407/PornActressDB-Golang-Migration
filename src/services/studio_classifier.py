@@ -18,6 +18,56 @@ logger = logging.getLogger(__name__)
 class StudioClassificationCore:
     """片商分類核心類別"""
 
+    # 需排除的片商資料夾名稱（掃描與女優判斷共用）
+    _STUDIO_FOLDER_NAMES: frozenset = frozenset({
+        "E-BODY",
+        "FALENO",
+        "S1",
+        "SOD",
+        "PRESTIGE",
+        "MOODYZ",
+        "MADONNA",
+        "IdeaPocket",
+        "KAWAII",
+        "單體企劃女優",
+        "SOLO_ACTRESS",
+        "INDEPENDENT",
+        "OPPAI",
+        "FITCH",
+        "ATTACKERS",
+        "PREMIUM",
+        "DAS",
+        "WANZ FACTORY",
+        "kira☆kira",
+        "Moody's",
+        "kawaii*",
+        "S1 NO.1 STYLE",
+        "IDEAPOCKET",
+    })
+
+    # 大片商名稱集合（用於片商分類邏輯）
+    _MAJOR_STUDIOS: frozenset = frozenset({
+        "E-BODY",
+        "FALENO",
+        "S1",
+        "SOD",
+        "PRESTIGE",
+        "MOODYZ",
+        "MADONNA",
+        "IdeaPocket",
+        "kawaii",
+        "OPPAI",
+        "FITCH",
+        "ATTACKERS",
+        "PREMIUM",
+        "DAS",
+        "MOODYZ DIVA",
+        "FALENO star",
+        "FALENO TUBE",
+        "kira☆kira",
+        "WANZ FACTORY",
+    })
+
     def __init__(
         self, db_manager, code_extractor, studio_identifier, preference_manager,
         file_mover: Optional[FileMover] = None
@@ -41,7 +91,7 @@ class StudioClassificationCore:
             ".ts",
             ".m2ts",
         ]
-        self._major_studios = self._identify_major_studios()  # 初始化時建立大片商集合
+        self._major_studios = self._MAJOR_STUDIOS
 
     def classify_actresses_by_studio(
         self, root_path: str, progress_callback=None
@@ -119,33 +169,7 @@ class StudioClassificationCore:
                 if item.is_dir():
                     # 檢查是否已在片商資料夾內
                     parent_name = item.parent.name
-                    studio_folders = {
-                        "E-BODY",
-                        "FALENO",
-                        "S1",
-                        "SOD",
-                        "PRESTIGE",
-                        "MOODYZ",
-                        "MADONNA",
-                        "IdeaPocket",
-                        "KAWAII",
-                        "單體企劃女優",
-                        "SOLO_ACTRESS",
-                        "INDEPENDENT",
-                        "OPPAI",
-                        "FITCH",
-                        "ATTACKERS",
-                        "PREMIUM",
-                        "DAS",
-                        "WANZ FACTORY",
-                        "kira☆kira",
-                        "Moody's",
-                        "kawaii*",
-                        "S1 NO.1 STYLE",
-                        "IDEAPOCKET",
-                    }
-
-                    if parent_name.upper() in studio_folders:
+                    if parent_name.upper() in self._STUDIO_FOLDER_NAMES:
                         skipped_by_parent.append(item.name)
                         continue
 
@@ -184,33 +208,7 @@ class StudioClassificationCore:
         """
         folder_name = folder_path.name
         folder_name_upper = folder_name.upper()
-        # 排除明顯的片商資料夾名稱（使用統一的大片商名單）
-        studio_folders = {
-            "E-BODY",
-            "FALENO",
-            "S1",
-            "SOD",
-            "PRESTIGE",
-            "MOODYZ",
-            "MADONNA",
-            "IdeaPocket",
-            "KAWAII",
-            "單體企劃女優",
-            "SOLO_ACTRESS",
-            "INDEPENDENT",
-            "OPPAI",
-            "FITCH",
-            "ATTACKERS",
-            "PREMIUM",
-            "DAS",
-            "WANZ FACTORY",
-            "kira☆kira",
-            "Moody's",
-            "kawaii*",
-            "S1 NO.1 STYLE",
-            "IDEAPOCKET",
-        }
-
+        # 排除明顯的片商資料夾名稱（使用類別常數 _STUDIO_FOLDER_NAMES）
         # 排除通用/系統資料夾名稱
         excluded_folders = {
             "AV",
@@ -271,7 +269,7 @@ class StudioClassificationCore:
         }
 
         # 組合所有需要排除的資料夾
-        all_excluded = studio_folders | excluded_folders
+        all_excluded = self._STUDIO_FOLDER_NAMES | excluded_folders
 
         if folder_name_upper in all_excluded:
             self.logger.debug(f"排除片商/系統資料夾: {folder_name}")
@@ -279,7 +277,7 @@ class StudioClassificationCore:
 
         # 檢查是否已經在片商資料夾內（避免重複處理）
         parent_name = folder_path.parent.name.upper()
-        if parent_name in studio_folders:
+        if parent_name in self._STUDIO_FOLDER_NAMES:
             self.logger.debug(f"排除已在片商資料夾內: {folder_name}")
             return False
 
@@ -467,36 +465,6 @@ class StudioClassificationCore:
                     studio_stats[studio] += 1
         return dict(studio_stats)
 
-    def _identify_major_studios(self) -> set:
-        """
-        識別所有定義為「大片商」的片商名稱集合。
-        使用用戶指定的大片商名單。
-        注意：片商名稱需與資料庫中的實際名稱大小寫完全一致
-        """
-        # 用戶指定的大片商名單（需與資料庫中的實際名稱一致）
-        major_studios = {
-            "E-BODY",
-            "FALENO",
-            "S1",
-            "SOD",
-            "PRESTIGE",
-            "MOODYZ",
-            "MADONNA",
-            "IdeaPocket",
-            "kawaii",  # kawaii 是小寫
-            "OPPAI",
-            "FITCH",
-            "ATTACKERS",
-            "PREMIUM",
-            "DAS",
-            "MOODYZ DIVA",  # 新增
-            "FALENO star",
-            "FALENO TUBE",  # FALENO 相關
-            "kira☆kira",
-            "WANZ FACTORY",
-        }
-        return major_studios
-
     def _is_major_studio(self, studio: str) -> bool:
         """
         判斷指定片商是否屬於「大片商」集合
@@ -568,7 +536,6 @@ class StudioClassificationCore:
 
         # 取得單體企劃女優資料夾名稱
         solo_folder_name = self.preference_manager.get_solo_folder_name()
-        self.preference_manager.get_confidence_threshold()
 
         if progress_callback:
             progress_callback("🚚 開始按片商移動女優資料夾...\n")
