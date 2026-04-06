@@ -10,18 +10,26 @@ import (
 
 	"actress-classifier/pkg/database"
 	"actress-classifier/pkg/safefile"
+	"actress-classifier/pkg/studio"
 )
 
 func dbCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge> [選項]")
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios> [選項]")
 		os.Exit(1)
 	}
 
 	subCmd := args[0]
+
+	// fix-studios 有獨立的 flag 集合，提前處理
+	if subCmd == "fix-studios" {
+		dbFixStudiosCmd(args[1:])
+		return
+	}
 	fs := flag.NewFlagSet("db "+subCmd, flag.ExitOnError)
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
 	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
+	fullOutput := fs.Bool("full", false, "輸出完整影片資料（僅 list 子命令）")
 	parseFlagsOrExit(fs, args[1:])
 	remaining := fs.Args()
 
@@ -92,12 +100,21 @@ func dbCmd(args []string) {
 		}
 		printSuccess("影片 %s 刪除成功", code)
 	case "list":
-		codes, err := db.ListVideos()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "列出影片失敗: %v\n", err)
-			os.Exit(1)
+		if *fullOutput {
+			videos, err := db.GetAllVideos()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "列出影片失敗: %v\n", err)
+				os.Exit(1)
+			}
+			outputJSON(videos)
+		} else {
+			codes, err := db.ListVideos()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "列出影片失敗: %v\n", err)
+				os.Exit(1)
+			}
+			outputJSON(codes)
 		}
-		outputJSON(codes)
 	case "stats":
 		stats, err := db.GetStats()
 		if err != nil {
@@ -138,4 +155,97 @@ func dbCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)
 		os.Exit(1)
 	}
+}
+
+// dbFixStudiosCmd 批次修正資料庫內的片商欄位
+func dbFixStudiosCmd(args []string) {
+	fs := flag.NewFlagSet("db fix-studios", flag.ExitOnError)
+	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
+	studiosFile := fs.String("studios", "studios.json", "片商規則檔案路徑")
+	forceFlag := fs.Bool("force", false, "強制覆蓋已有片商資料（非 UNKNOWN）")
+	_ = fs.Bool("json", false, "輸出 JSON 格式（預設即為 JSON，保留相容性）")
+	parseFlagsOrExit(fs, args)
+
+	// 載入片商識別器
+	si, err := studio.NewStudioIdentifier(*studiosFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "載入片商規則失敗: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 載入資料庫
+	db := database.NewJSONDatabase(*dataDir)
+	if err := db.Load(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
+		os.Exit(1)
+	}
+
+	videos, err := db.GetAllVideos()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "取得影片清單失敗: %v\n", err)
+		os.Exit(1)
+	}
+
+	type changeEntry struct {
+		Code string `json:"code"`
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+
+	updated := 0
+	skipped := 0
+	alreadyCorrect := 0
+	var changes []changeEntry
+
+	for _, vd := range videos {
+		code := vd.GetCode()
+		if code == "" {
+			skipped++
+			continue
+		}
+
+		currentStudio := vd.Studio
+		needsUpdate := currentStudio == "" || currentStudio == "UNKNOWN"
+
+		if !needsUpdate && !*forceFlag {
+			alreadyCorrect++
+			continue
+		}
+
+		newStudio := si.IdentifyStudio(code)
+		if newStudio == "UNKNOWN" || newStudio == "" {
+			skipped++
+			continue
+		}
+
+		if currentStudio == newStudio {
+			alreadyCorrect++
+			continue
+		}
+
+		if err := db.UpdateVideoFields(code, map[string]any{"studio": newStudio}); err != nil {
+			fmt.Fprintf(os.Stderr, "更新 %s 失敗: %v\n", code, err)
+			continue
+		}
+
+		updated++
+		changes = append(changes, changeEntry{Code: code, From: currentStudio, To: newStudio})
+	}
+
+	if updated > 0 {
+		if err := db.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	result := map[string]any{
+		"success":         true,
+		"total":           len(videos),
+		"updated":         updated,
+		"skipped":         skipped,
+		"already_correct": alreadyCorrect,
+		"changes":         changes,
+	}
+	outputJSON(result)
 }

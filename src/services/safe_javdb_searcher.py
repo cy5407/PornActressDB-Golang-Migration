@@ -473,10 +473,10 @@ class SafeJAVDBSearcher:
                     best_match_url = href
                     logger.debug(f"🎯 找到匹配的影片連結: {href} (文字: {link_text})")
                     break
-            # 如果沒有找到完全匹配的，使用第一個結果
+            # 找不到精確匹配時，視為未找到（不 fallback 到第一筆以免錯誤匹配）
             if not best_match_url:
-                best_match_url = video_links[0].get("href")
-                logger.debug(f"🎲 使用第一個搜尋結果: {best_match_url}")
+                logger.debug(f"🔍 JAVDB 未找到番號 {video_id} 的精確匹配結果，視為未找到")
+                return None
 
             if not best_match_url:
                 logger.warning(f"⚠️ 無法獲取 {video_id} 的詳情頁面連結")
@@ -549,6 +549,15 @@ class SafeJAVDBSearcher:
             title_element = soup.select_one("h2.title")
             if title_element:
                 info["title"] = title_element.text.strip()
+                # 二次驗證：確認詳情頁的番號與搜尋番號一致（防止錯誤跳轉）
+                title_code_match = re.match(r"^([A-Z0-9]+-\d+)", info["title"], re.IGNORECASE)
+                if title_code_match:
+                    page_code = title_code_match.group(1).upper()
+                    if page_code != video_id.upper():
+                        logger.warning(
+                            f"⚠️ JAVDB 詳情頁番號不符: 搜尋 {video_id}，頁面顯示 {page_code}，視為未找到"
+                        )
+                        return None
             # 提取詳細資訊 - 適配新的 HTML 結構
             info_panels = soup.select(".panel-block")
 

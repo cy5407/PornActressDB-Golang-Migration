@@ -25,6 +25,15 @@ except ImportError:  # pragma: no cover
     from src.utils.json_utils import dump as json_dump
     from src.utils.json_utils import load as json_load
 
+# Go 快取 API — 在 Go CLI 可用時使用，不可用時 fallback 到 Python 實作
+try:
+    from src.services.go_api.cache import cache_delete as _go_cache_delete
+    from src.services.go_api.cache import cache_get as _go_cache_get
+    from src.services.go_api.cache import cache_set as _go_cache_set
+    _GO_CACHE_API_OK = True
+except ImportError:
+    _GO_CACHE_API_OK = False
+
 logger = logging.getLogger(__name__)
 
 CACHE_PAYLOAD_VERSION = 1
@@ -90,7 +99,21 @@ class CacheManager:
         # 啟動背景清理任務
         self._start_cleanup_task()
 
+        # Go 快取可用性（每個實例獨立判斷）
+        self._GO_CACHE_AVAILABLE = self._check_go_available()
+
         logger.info(f"💾 快取管理器已初始化 - 目錄: {self.cache_dir}")
+
+    @staticmethod
+    def _check_go_available() -> bool:
+        """檢查 Go CLI 快取是否可用。"""
+        if not _GO_CACHE_API_OK:
+            return False
+        try:
+            from src.services.go_bridge import GoBridge
+            return GoBridge().is_available
+        except Exception:
+            return False
 
     def _init_index(self):
         """初始化 JSON 索引檔案"""
@@ -210,6 +233,147 @@ class CacheManager:
         return time.time() - created_at > ttl_seconds
 
     def set(self, key: str, value: Any, ttl_hours: int | None = None) -> bool:
+        """設置快取值。優先使用 Go 加速，不可用時 fallback 到 Python。"""
+        if self._GO_CACHE_AVAILABLE:
+            try:
+                return self._set_go(key, value, ttl_hours)
+            except Exception as e:
+                logger.warning(f"⚠️ Go 快取寫入失敗，使用 Python fallback: {e}")
+        return self._set_python(key, value, ttl_hours)
+
+    def get(self, key: str) -> Any | None:
+        """獲取快取值。優先使用 Go 加速，不可用時 fallback 到 Python。"""
+        if self._GO_CACHE_AVAILABLE:
+            try:
+                return self._get_go(key)
+            except Exception as e:
+                logger.warning(f"⚠️ Go 快取讀取失敗，使用 Python fallback: {e}")
+        return self._get_python(key)
+
+    def delete(self, key: str) -> bool:
+        """刪除快取條目。優先使用 Go 加速，不可用時 fallback 到 Python。"""
+        if self._GO_CACHE_AVAILABLE:
+            try:
+                return self._delete_go(key)
+            except Exception as e:
+                logger.warning(f"⚠️ Go 快取刪除失敗，使用 Python fallback: {e}")
+        return self._delete_python(key)
+
+    # ------------------------------------------------------------------
+    # Go 加速路徑
+    # ------------------------------------------------------------------
+
+    def _set_go(self, key: str, value: Any, ttl_hours: int | None = None) -> bool:
+        """使用 Go CLI 寫入快取（含記憶體快取更新）。"""
+        ttl_effective = ttl_hours or self.config.default_ttl_hours
+        ttl_seconds = ttl_effective * 3600
+        cache_key = self._generate_cache_key(key)
+        current_time = time.time()
+
+        serialized, compressed = self._serialize_value(value)
+        if not serialized:
+            return False
+
+        # 第一位元組編碼壓縮旗標，以便讀回時還原
+        flag = b'\x01' if compressed else b'\x00'
+        payload = flag + serialized
+
+        max_size_bytes = self.config.max_file_size_mb * 1024 * 1024
+        if len(payload) > max_size_bytes:
+            logger.warning(f"快取值過大 ({len(payload) / 1024 / 1024:.1f}MB)，跳過快取")
+            return False
+
+        ok = _go_cache_set(key, payload, ttl_effective, cache_dir=str(self.cache_dir))
+        if not ok:
+            return False
+
+        if self.config.enable_memory_cache:
+            entry = CacheEntry(
+                key=cache_key,
+                value=value,
+                created_at=current_time,
+                ttl_seconds=ttl_seconds,
+                last_accessed=current_time,
+                compressed=compressed,
+                size_bytes=len(serialized),
+            )
+            with self.memory_lock:
+                self.memory_cache[cache_key] = entry
+                self._cleanup_memory_cache()
+
+        self.stats["sets"] += 1
+        logger.debug(f"💾 Go 快取已寫入: {key} ({len(serialized)} bytes)")
+        return True
+
+    def _get_go(self, key: str) -> Any | None:
+        """從 Go CLI 讀取快取（優先查記憶體，再查 Go 磁碟）。"""
+        cache_key = self._generate_cache_key(key)
+        current_time = time.time()
+
+        # 先查記憶體快取
+        if self.config.enable_memory_cache:
+            with self.memory_lock:
+                if cache_key in self.memory_cache:
+                    entry = self.memory_cache[cache_key]
+                    if not self._is_expired(entry.created_at, entry.ttl_seconds):
+                        entry.access_count += 1
+                        entry.last_accessed = current_time
+                        self.stats["memory_hits"] += 1
+                        logger.debug(f"📋 記憶體快取命中: {key}")
+                        return entry.value
+                    else:
+                        del self.memory_cache[cache_key]
+
+        # 查 Go 磁碟快取
+        payload = _go_cache_get(key, cache_dir=str(self.cache_dir))
+        if payload is None or len(payload) < 1:
+            self.stats["misses"] += 1
+            logger.debug(f"❌ Go 快取未命中: {key}")
+            return None
+
+        compressed = payload[0] == 1
+        value = self._deserialize_value(payload[1:], compressed)
+        if value is None:
+            self.stats["misses"] += 1
+            return None
+
+        if self.config.enable_memory_cache:
+            entry = CacheEntry(
+                key=cache_key,
+                value=value,
+                created_at=current_time,
+                ttl_seconds=self.config.default_ttl_hours * 3600,
+                access_count=1,
+                last_accessed=current_time,
+                compressed=compressed,
+                size_bytes=len(payload) - 1,
+            )
+            with self.memory_lock:
+                self.memory_cache[cache_key] = entry
+
+        self.stats["disk_hits"] += 1
+        logger.debug(f"🚀 Go 快取命中: {key}")
+        return value
+
+    def _delete_go(self, key: str) -> bool:
+        """使用 Go CLI 刪除快取（同時清除記憶體快取）。"""
+        cache_key = self._generate_cache_key(key)
+
+        if self.config.enable_memory_cache:
+            with self.memory_lock:
+                self.memory_cache.pop(cache_key, None)
+
+        ok = _go_cache_delete(key, cache_dir=str(self.cache_dir))
+        if ok:
+            self.stats["deletes"] += 1
+            logger.debug(f"🗑️ Go 快取已刪除: {key}")
+        return ok
+
+    # ------------------------------------------------------------------
+    # Python 原生路徑（Go 不可用時的 fallback）
+    # ------------------------------------------------------------------
+
+    def _set_python(self, key: str, value: Any, ttl_hours: int | None = None) -> bool:
         """設置快取值"""
         ttl_seconds = (ttl_hours or self.config.default_ttl_hours) * 3600
         cache_key = self._generate_cache_key(key)
@@ -274,7 +438,7 @@ class CacheManager:
             logger.error(f"設置快取失敗: {e}")
             return False
 
-    def get(self, key: str) -> Any | None:
+    def _get_python(self, key: str) -> Any | None:
         """獲取快取值"""
         cache_key = self._generate_cache_key(key)
         current_time = time.time()
@@ -358,7 +522,7 @@ class CacheManager:
         logger.debug(f"❌ 快取未命中: {key}")
         return None
 
-    def delete(self, key: str) -> bool:
+    def _delete_python(self, key: str) -> bool:
         """刪除快取條目"""
         cache_key = self._generate_cache_key(key)
 

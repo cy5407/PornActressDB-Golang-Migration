@@ -48,6 +48,19 @@ from src.models.json_types import (
 # 設定日誌
 logger = logging.getLogger(__name__)
 
+# Go API 函式 — 在 Go CLI 可用時使用，不可用則 fallback 到 Python 實作
+try:
+    from src.services.go_api.db import (
+        db_delete_video as _go_db_delete_video,
+        db_get_all_videos as _go_db_get_all_videos,
+        db_get_video as _go_db_get_video,
+        db_update_video as _go_db_update_video,
+    )
+    from src.services.go_runner import GoBridgeError as _GoBridgeError
+    _GO_DB_API_IMPORT_OK = True
+except ImportError:
+    _GO_DB_API_IMPORT_OK = False
+
 
 class JSONDBManager:
     """JSON 資料庫管理器類別
@@ -102,6 +115,9 @@ class JSONDBManager:
             # 載入資料到記憶體
             self._load_all_data()
 
+            # 初始化 Go 委派可用性旗標
+            self._GO_DB_AVAILABLE: bool = self._check_go_db_available()
+
             logger.info(f"✅ JSONDBManager 初始化成功: {self.data_file}")
 
         except Exception as e:
@@ -118,6 +134,16 @@ class JSONDBManager:
             logger.info(f"建立新的 JSON 資料庫檔案: {self.data_file}")
             initial_data = get_empty_json_database()
             self._save_all_data(initial_data)
+
+    def _check_go_db_available(self) -> bool:
+        """檢查 Go CLI 資料庫委派是否可用。"""
+        if not _GO_DB_API_IMPORT_OK:
+            return False
+        try:
+            from src.services.go_bridge import get_bridge
+            return get_bridge().is_available
+        except Exception:
+            return False
 
     def _load_all_data(self) -> None:
         """
@@ -773,7 +799,61 @@ class JSONDBManager:
         self, code: str | VideoDict, info: dict[str, Any] | None = None
     ) -> str:
         """
-        新增或更新影片
+        新增或更新影片（優先委派至 Go CLI，不可用時 fallback 到 Python）。
+
+        Args:
+            code: 影片番號，或直接傳入包含 `code` 的影片資訊字典
+            info: 影片資訊字典（當第一個參數為番號時必填）
+
+        Returns:
+            影片番號 (新建或已更新)
+        """
+        if self._GO_DB_AVAILABLE:
+            # 先建構 merged dict（與 Python 路徑相同邏輯）
+            try:
+                if isinstance(code, dict):
+                    if info is not None:
+                        raise ValidationError("傳入影片字典時不可同時提供 info")
+                    video_info = code.copy()
+                    video_code = video_info.get("code")
+                else:
+                    if not isinstance(info, dict):
+                        raise ValidationError("影片資訊必須是字典")
+                    video_code = code
+                    video_info = info.copy()
+
+                if not isinstance(video_code, str) or not video_code:
+                    raise ValidationError("影片番號必須存在")
+
+                merged_dict = get_empty_video()
+                merged_dict["code"] = video_code
+                merged_dict.update(video_info)
+                merged_dict["updated_at"] = datetime.now(UTC).strftime(
+                    ISO_DATETIME_FORMAT
+                )
+
+                success = _go_db_update_video(
+                    video_code, merged_dict, data_dir=str(self.data_dir)
+                )
+                if success:
+                    # 同步記憶體快取
+                    self.data["videos"][video_code] = merged_dict
+                    self._cache_statistics()
+                    logger.info(f"✅ 影片已新增/更新 (Go): {video_code}")
+                    return video_code
+                # Go 回傳失敗，fallback 到 Python
+            except (ValidationError, DataIntegrityError):
+                raise
+            except Exception as e:
+                logger.warning(f"⚠️ Go 委派 add_or_update_video 失敗，切換 Python: {e}")
+
+        return self._add_or_update_video_python(code, info)
+
+    def _add_or_update_video_python(
+        self, code: str | VideoDict, info: dict[str, Any] | None = None
+    ) -> str:
+        """
+        新增或更新影片 (Python 實作)
 
         若影片番號已存在則更新，否則建立新記錄。
 
@@ -846,7 +926,30 @@ class JSONDBManager:
 
     def get_video_info(self, code: str) -> VideoDict | None:
         """
-        查詢影片資訊
+        查詢影片資訊（優先委派至 Go CLI，不可用時 fallback 到 Python）。
+
+        Args:
+            code: 影片番號
+
+        Returns:
+            影片資訊，若不存在則返回 None
+        """
+        if self._GO_DB_AVAILABLE:
+            try:
+                result = _go_db_get_video(code, data_dir=str(self.data_dir))
+                if result is not None:
+                    logger.debug(f"✅ 查詢影片成功 (Go): {code}")
+                else:
+                    logger.debug(f"⚠️ 影片不存在 (Go): {code}")
+                return result
+            except Exception as e:
+                logger.warning(f"⚠️ Go 委派 get_video_info 失敗，切換 Python: {e}")
+
+        return self._get_video_info_python(code)
+
+    def _get_video_info_python(self, code: str) -> VideoDict | None:
+        """
+        查詢影片資訊 (Python 實作)
 
         Args:
             code: 影片番號
@@ -886,7 +989,36 @@ class JSONDBManager:
         self, filter_dict: dict[str, Any] | None = None
     ) -> list[VideoDict]:
         """
-        取得所有影片清單（支援過濾）
+        取得所有影片清單（優先委派至 Go CLI，不可用時 fallback 到 Python）。
+
+        Args:
+            filter_dict: 過濾條件 (例如: {'studio': 'ABC'})
+                        支援的鍵: 'studio', 'release_date_after', 'release_date_before'
+
+        Returns:
+            影片清單
+        """
+        if self._GO_DB_AVAILABLE:
+            try:
+                videos = _go_db_get_all_videos(data_dir=str(self.data_dir))
+                # 確保每個影片有 code 欄位（與 Python 實作一致）
+                for v in videos:
+                    if "code" not in v and "id" in v:
+                        v["code"] = v["id"]
+                if filter_dict:
+                    videos = self._apply_video_filters(videos, filter_dict)
+                logger.debug(f"✅ 取得 {len(videos)} 個影片 (Go)")
+                return videos
+            except Exception as e:
+                logger.warning(f"⚠️ Go 委派 get_all_videos 失敗，切換 Python: {e}")
+
+        return self._get_all_videos_python(filter_dict)
+
+    def _get_all_videos_python(
+        self, filter_dict: dict[str, Any] | None = None
+    ) -> list[VideoDict]:
+        """
+        取得所有影片清單 (Python 實作)
 
         Args:
             filter_dict: 過濾條件 (例如: {'studio': 'ABC'})
@@ -935,7 +1067,39 @@ class JSONDBManager:
 
     def delete_video(self, code: str) -> bool:
         """
-        刪除影片
+        刪除影片（優先委派至 Go CLI，不可用時 fallback 到 Python）。
+
+        同時刪除相關的影片-女優關聯記錄。
+
+        Args:
+            code: 影片番號
+
+        Returns:
+            成功則返回 True，若影片不存在則返回 False
+        """
+        if self._GO_DB_AVAILABLE:
+            try:
+                result = _go_db_delete_video(code, data_dir=str(self.data_dir))
+                if result:
+                    # 同步記憶體快取：移除影片和相關關聯
+                    self.data["videos"].pop(code, None)
+                    links = self.data.get("links", [])
+                    self.data["links"] = [
+                        link for link in links if link.get("video_code") != code
+                    ]
+                    self._cache_statistics()
+                    logger.info(f"✅ 影片已刪除 (Go): {code}")
+                else:
+                    logger.warning(f"⚠️ 影片不存在或刪除失敗 (Go): {code}")
+                return result
+            except Exception as e:
+                logger.warning(f"⚠️ Go 委派 delete_video 失敗，切換 Python: {e}")
+
+        return self._delete_video_python(code)
+
+    def _delete_video_python(self, code: str) -> bool:
+        """
+        刪除影片 (Python 實作)
 
         同時刪除相關的影片-女優關聯記錄。
 

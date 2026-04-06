@@ -32,6 +32,20 @@ from typing import Any
 from src.models.incremental_json_database import IncrementalJSONDB
 from src.models.json_types import VideoDict
 
+# Go API 函式 — 在 Go CLI 可用時使用，不可用則 fallback 到 Python 實作
+try:
+    from src.services.go_api.db import (
+        db_compact_journal,
+        db_delete_video,
+        db_get_stats,
+        db_get_video,
+        db_update_video,
+    )
+    from src.services.go_runner import GoBridgeError as _GoBridgeError
+    _GO_API_IMPORT_OK = True
+except ImportError:
+    _GO_API_IMPORT_OK = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +71,6 @@ class GoAcceleratedDB:
         """
         self.data_dir = data_dir
         self._use_go = use_go
-        self._go_bridge = None
         self._go_available = None
         self.fallback_count = 0
 
@@ -76,11 +89,14 @@ class GoAcceleratedDB:
         if self._go_available is not None:
             return self._go_available
 
+        if not _GO_API_IMPORT_OK:
+            self._go_available = False
+            return False
+
         try:
             from src.services.go_bridge import GoBridge
 
-            self._go_bridge = GoBridge()
-            self._go_available = self._go_bridge.is_available
+            self._go_available = GoBridge().is_available
 
             if self._go_available:
                 logger.info("🚀 Go CLI 可用，啟用加速模式")
@@ -128,14 +144,11 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_api.db import db_get_video
-                from src.services.go_runner import GoBridgeError
-
                 # db_get_video: 找到→回傳 dict, 不存在→回傳 None, CLI 故障→拋出 GoBridgeError
                 result = db_get_video(code, self.data_dir)
                 # None 表示「資料不存在」（Go CLI 正常執行但找不到），直接回傳，不需要 fallback
                 return result
-            except GoBridgeError as e:
+            except _GoBridgeError as e:
                 # Go CLI 執行失敗 → 記錄警告並 fallback 到 Python
                 logger.warning(f"⚠️ Go 查詢失敗，fallback 到 Python (影片 {code}): {e}")  # Go CLI 執行失敗為 warning
                 self.fallback_count += 1
@@ -154,8 +167,6 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_api.db import db_update_video
-
                 # 取得現有影片資料
                 existing = self.get_video_info(code)  # 現有影片資訊
                 if not existing:
@@ -185,8 +196,6 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_api.db import db_update_video
-
                 # Go CLI 使用 update 命令新增（不存在時自動建立）
                 if db_update_video(video["code"], video, self.data_dir):
                     # Go 操作成功後重建 Python DB state，確保 dirty_videos/journal_size 等內部狀態一致
@@ -208,8 +217,6 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_api.db import db_delete_video
-
                 if db_delete_video(code, self.data_dir):
                     # Go 操作成功後重建 Python DB state，確保 dirty_videos/journal_size 等內部狀態一致
                     self._python_db = IncrementalJSONDB(self.data_dir)
@@ -230,8 +237,6 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_api.db import db_get_stats
-
                 result = db_get_stats(self.data_dir)
                 if result:
                     # 增加額外的狀態資訊
@@ -256,8 +261,6 @@ class GoAcceleratedDB:
         """
         if self.use_go:
             try:
-                from src.services.go_api.db import db_compact_journal
-
                 if db_compact_journal(self.data_dir):
                     # 重新載入 Python 資料庫以同步狀態
                     self._python_db = IncrementalJSONDB(self.data_dir)

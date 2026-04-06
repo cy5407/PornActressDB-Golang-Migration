@@ -4,6 +4,7 @@
 
 import logging
 import re
+import sys
 from pathlib import Path
 
 try:
@@ -16,11 +17,23 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
+def _resolve_resource_path(relative_path: str) -> Path:
+    """解析資源檔路徑，相容 PyInstaller 打包環境與一般執行環境。"""
+    if hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / relative_path
+    return Path(relative_path)
+
+
 class StudioIdentifier:
     """片商識別器"""
 
     def __init__(self, rules_file: str = "studios.json"):
-        self.rules_file = Path(rules_file)
+        # 預設規則檔支援 PyInstaller 打包路徑；自訂路徑直接使用
+        self.rules_file = (
+            _resolve_resource_path(rules_file)
+            if rules_file == "studios.json"
+            else Path(rules_file)
+        )
         self.studio_patterns = self._load_rules()
         self.code_to_studio = self._build_code_to_studio_map()
 
@@ -94,7 +107,7 @@ class StudioIdentifier:
 
     def _load_rules(self) -> dict:
         if not self.rules_file.exists():
-            logger.warning(f"片商規則檔案 {self.rules_file} 不存在，將建立預設檔案。")
+            logger.warning(f"片商規則檔案 {self.rules_file} 不存在，將使用預設規則。")
             default_rules = {
                 "S1": ["SSIS", "SSNI", "STARS"],
                 "MOODYZ": ["MIRD", "MIDD", "MIDV"],
@@ -102,13 +115,14 @@ class StudioIdentifier:
                 "WANZ": ["WANZ"],
                 "FALENO": ["FSDSS"],
             }
-            try:
-                with self.rules_file.open("w", encoding="utf-8") as f:
-                    json_dump(default_rules, f, ensure_ascii=False, indent=4)
-                return default_rules
-            except OSError as e:
-                logger.error(f"無法建立預設片商規則檔案: {e}")
-                return {}
+            # 打包環境下不嘗試寫入（sys._MEIPASS 為唯讀）
+            if not hasattr(sys, "_MEIPASS"):
+                try:
+                    with self.rules_file.open("w", encoding="utf-8") as f:
+                        json_dump(default_rules, f, ensure_ascii=False, indent=4)
+                except OSError as e:
+                    logger.error(f"無法建立預設片商規則檔案: {e}")
+            return default_rules
         try:
             with self.rules_file.open("r", encoding="utf-8") as f:
                 return json_load(f)
@@ -126,7 +140,7 @@ class StudioIdentifier:
     def _identify_studio_via_go(self, code: str) -> str | None:
         """嘗試透過 Go CLI 識別片商；若 Go 不可用或使用自訂規則檔則回傳 None。"""
         # 若使用自訂規則檔（非預設 studios.json），Go CLI 規則可能不一致，直接用 Python
-        if self.rules_file != Path("studios.json"):
+        if self.rules_file.name != "studios.json":
             return None
 
         try:

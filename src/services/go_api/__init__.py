@@ -3,6 +3,7 @@
 from .db import (
     db_compact_journal,
     db_delete_video,
+    db_fix_studios,
     db_get_stats,
     db_get_video,
     db_list_videos,
@@ -36,6 +37,7 @@ __all__ = [
     "batch_move",
     "db_compact_journal",
     "db_delete_video",
+    "db_fix_studios",
     "db_get_stats",
     "db_get_video",
     "db_list_videos",

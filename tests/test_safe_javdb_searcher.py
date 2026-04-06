@@ -3,6 +3,8 @@
 """
 
 import httpx
+import pytest
+from unittest.mock import MagicMock
 
 from src.services import safe_javdb_searcher as searcher_module
 from src.services.safe_javdb_searcher import SafeJAVDBSearcher
@@ -128,3 +130,77 @@ def test_consecutive_errors_trigger_cooldown_and_reset(tmp_path, monkeypatch):
     assert create_session_calls == ["called"]
     assert searcher.consecutive_errors == 0
     assert sleep_calls == [300, 0.0]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 測試：搜尋結果番號不匹配時不應 fallback 使用第一筆
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _make_search_html_with_mismatched_code(video_code: str) -> str:
+    """產生一個搜尋結果頁面，其中只有與 video_code 不符的影片連結"""
+    return f"""
+    <html><body>
+    <div class="item">
+      <a href="/v/AWTB005">
+        <div class="video-title">AWTB-005 淫語中出しソープ Best Collection 5</div>
+      </a>
+    </div>
+    </body></html>
+    """
+
+
+def _make_detail_html_with_wrong_code(wrong_code: str) -> str:
+    """產生一個詳情頁面，標題含有錯誤番號"""
+    return f"""
+    <html><body>
+    <h2 class="title">{wrong_code} 淫語中出しソープ</h2>
+    <div class="panel-block">
+      <strong>演員:</strong>
+      <a href="/actors/1" class="value">田中花子 <strong class="symbol female">♀</strong></a>
+    </div>
+    </body></html>
+    """
+
+
+def test_search_javdb_no_fallback_on_mismatch(tmp_path, monkeypatch):
+    """搜尋結果無精確匹配番號時，應回傳 None，不得 fallback 使用第一筆結果。"""
+    searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path), warmup_enabled=False)
+    searcher.min_delay = 0.0
+    searcher.max_delay = 0.0
+
+    call_count = [0]
+
+    def fake_safe_request(url: str):
+        call_count[0] += 1
+        request = httpx.Request("GET", url)
+        if "/search" in url:
+            html = _make_search_html_with_mismatched_code("WTB-045")
+        else:
+            html = _make_detail_html_with_wrong_code("AWTB-005")
+        return httpx.Response(200, text=html, request=request)
+
+    monkeypatch.setattr(searcher, "safe_request", fake_safe_request)
+
+    result = searcher.search_javdb("WTB-045")
+
+    # 不應找到任何結果（不得 fallback）
+    assert result is None
+    # 只應發出一次搜尋請求，不應發出詳情頁請求
+    assert call_count[0] == 1, f"不應存取詳情頁，但執行了 {call_count[0]} 次請求"
+
+
+def test_search_javdb_detail_page_code_mismatch_returns_none(tmp_path, monkeypatch):
+    """就算詳情頁被訪問，若頁面番號與搜尋目標不符，應回傳 None。"""
+    searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path), warmup_enabled=False)
+    searcher.min_delay = 0.0
+    searcher.max_delay = 0.0
+
+    # 直接測試 _parse_detail_page 的二次驗證
+    wrong_html = _make_detail_html_with_wrong_code("AWTB-005")
+    request = httpx.Request("GET", "https://javdb.com/v/AWTB005")
+    fake_response = httpx.Response(200, text=wrong_html, request=request)
+
+    result = searcher._parse_detail_page(fake_response, "WTB-045", "https://javdb.com/v/AWTB005")
+
+    assert result is None, "詳情頁番號不符時應回傳 None"
+

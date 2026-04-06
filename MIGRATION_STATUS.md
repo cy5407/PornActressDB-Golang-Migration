@@ -22,31 +22,43 @@
 - [x] `src/models/extractor.py` — `extract_code()` delegates to Go (`_extract_code_via_go()`) with Python fallback
 - [x] `src/models/studio.py` — `identify_studio()` delegates to Go (`_identify_studio_via_go()`) with Python fallback
 
+### Phase 3 — Thin wrapper cleanup
+
+- [x] `src/models/go_accelerated_db.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; simplified `_check_go_availability`
+- [x] `src/models/go_accelerated_studio.py` — removed dead `_go_bridge` attr; moved Go API imports to module level; added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`
+
 ---
 
 ## 🔄 Current Status
 
-**Next task:** Phase 3 — `src/models/go_accelerated_db.py` thin wrapper cleanup
+**Phase 5 完成。** 所有 JSONDBManager Go 委派任務均已完成。
 
----
+### Phase 5 — JSONDBManager Go 完整委派
 
-## ⏳ Pending Tasks
+- [x] Task 5-1: `pkg/database/jsondb.go` + `cmd/scanner/db_cmd.go` — added `GetAllVideos()` method; extended `db list` with `--full` flag
+- [x] Task 5-2: `src/services/go_api/db.py` — added `db_get_all_videos()` function; 4 tests in `tests/test_go_api_db_all_videos.py`
+- [x] Task 5-3: `src/models/json_database.py` — added `_GO_DB_API_IMPORT_OK` guard + `_check_go_db_available()`; delegated `get_video_info`, `add_or_update_video`, `delete_video` to Go with Python fallback
+- [x] Task 5-4: `src/models/json_database.py` + `tests/test_json_db_go_delegation.py` — `get_all_videos` delegated to Go with Python fallback; 15 tests in 4 classes all pass
 
-### Phase 3 — Thin wrapper cleanup
-- [ ] `src/models/go_accelerated_db.py` — remove redundant methods already covered by `go_api/db.py`
-- [ ] `src/models/go_accelerated_studio.py` — remove redundant methods already covered by `go_api/identify.py`
+
 
 ### Phase 4A — CacheManager Go core
-- [ ] Task 4A-1: `pkg/cache/cache.go` — add `Get`/`Set`/`Delete`/`Exists` methods
-- [ ] Task 4A-2: `cmd/scanner/cache_cmd.go` — add `get`/`set`/`delete` sub-commands
-- [ ] Task 4A-3: `src/services/go_api/cache.py` — create thin wrapper (new file)
-- [ ] Task 4A-4: `src/scrapers/cache_manager.py` — delegate `get()`/`set()`/`delete()` to Go
+
+- [x] Task 4A-1: `pkg/cache/cache.go` — added `Get`/`Set`/`Delete`/`Exists` methods + `CachePayload` struct in `types.go`; 4 new tests added to `cache_test.go`
+- [x] Task 4A-2: `cmd/scanner/cache_cmd.go` — added `get`/`set`/`delete` sub-commands with JSON output and base64 value encoding
+- [x] Task 4A-3: `src/services/go_api/cache.py` — created thin wrapper with `cache_get`/`cache_set`/`cache_delete` + runner injection; 22 tests in `tests/test_go_api_cache.py`
+- [x] Task 4A-4: `src/scrapers/cache_manager.py` — delegate `get()`/`set()`/`delete()` to Go
 
 ### Phase 4B — IncrementalJSONDB Go delegation
-- [ ] Task 4B-1: `src/models/incremental_json_database.py` — delegate `get_video`/`update_video` to `go_api/db.py`
+
+- [x] Task 4B-1: `src/models/incremental_json_database.py` — delegate `get_video`/`update_video` to `go_api/db.py`
 
 ---
 
 ## 📝 Notes
 
-_(AI may append run notes here)_
+- Phase 3 / go_accelerated_db.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved 5 Go API function imports + `GoBridgeError` to module level (replacing repeated inline imports in 6 methods); simplified `_check_go_availability` to skip bridge storage. All 191 tests pass.
+- Phase 3 / go_accelerated_studio.py (2026-04-05): Removed dead `_go_bridge` instance variable; moved `identify_studio` + `identify_studios_batch` Go API imports to module level (replacing 4 inline imports across 4 methods); added `_GO_API_IMPORT_OK` guard; simplified `_check_go_availability`. All 191 tests pass.
+- Phase 4A / Task 4A-1 (2026-04-05): Added `CachePayload` struct to `pkg/cache/types.go`; added `hashKey`, `cacheFilePath`, `Set`, `Get`, `Delete`, `Exists` to `pkg/cache/cache.go` (with `crypto/sha256` import); added 4 new tests (`TestCacheGetSetDelete`, `TestCacheExpiry`, `TestCacheGetMissing`, `TestCacheIndexUpdatedOnSet`). All 13 cache tests + full Go pkg suite pass.
+- Phase 5 / Task 5-2 (2026-04-05): Added `db_get_all_videos(data_dir, *, runner)` to `src/services/go_api/db.py` — calls `["db", "list", "--full"]`, mirrors `db_list_videos` pattern; created `tests/test_go_api_db_all_videos.py` with 4 tests. All 228 tests pass.
+- Phase 5 / Task 5-4 (2026-04-05): Renamed `get_all_videos` → `_get_all_videos_python`; added new `get_all_videos` that delegates to `_go_db_get_all_videos(data_dir=...)` with Python fallback on exception; created `tests/test_json_db_go_delegation.py` with 15 tests in 4 classes (`TestGetVideoInfoDelegation`, `TestAddOrUpdateVideoDelegation`, `TestDeleteVideoDelegation`, `TestGetAllVideosDelegation`). All 243 tests pass.

@@ -466,6 +466,22 @@ func (db *JSONDatabase) ListVideos() ([]string, error) {
 	return codes, nil
 }
 
+// GetAllVideos 取得所有影片的完整資料（RLock，journal 已於 Load 時合併）
+func (db *JSONDatabase) GetAllVideos() ([]*VideoData, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if !db.loaded {
+		return nil, ErrDatabaseNotLoaded
+	}
+
+	videos := make([]*VideoData, 0, len(db.root.Videos))
+	for _, v := range db.root.Videos {
+		videos = append(videos, v)
+	}
+	return videos, nil
+}
+
 // GetVideoCount 取得影片總數
 func (db *JSONDatabase) GetVideoCount() (int, error) {
 	db.mu.RLock()
