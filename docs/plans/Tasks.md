@@ -11,8 +11,10 @@
 - 方法：Wails binding 提供 `ScanDirectory`、`SearchAndClassify`、`MoveFiles`、`StartStudioClassification`、`OpenPreferences`、`OpenOperationHistory`
 - 層層：Go binding / React 主視窗元件 / Wails Events
 - 實作檔案：`wails-app/backend/app.go`、`wails-app/frontend/src/App.tsx`、`wails-app/frontend/src/components/MainLayout.tsx`、`wails-app/frontend/src/components/DirectoryPicker.tsx`、`wails-app/frontend/src/components/VideoList.tsx`、`wails-app/frontend/src/components/VideoCard.tsx`、`wails-app/frontend/src/components/SearchPanel.tsx`、`wails-app/frontend/src/components/StatusBar.tsx`、`wails-app/frontend/src/components/ProgressBar.tsx`
+- 補充：主視窗元件需明確納入 `VideoCard`、`SearchPanel`、`StatusBar`，與清單/搜尋/狀態區的拆分一致，避免後續實作時只做出單一大頁面。
 - 輸入輸出：輸入為資料夾路徑、搜尋模式、移動策略；回傳為結構化結果、進度事件與錯誤訊息 JSON。
 - 補充：`ScanDirectory` 需明確支援 `workers` 與 `recursive`，對齊 `pkg/app/scan_service.go` 的 `ScanFiles(req ScanRequest)`。
+- 補充：`ScanDirectory` 的回傳與進度事件要維持批次摘要、成功、暫時性異常與失敗的可測試輸出，避免前端只剩單一 loading 狀態。
 - 補充：前端狀態至少拆為結果清單、進度條、狀態列與按鈕啟用狀態，並以事件區分一般文字、錯誤、清除與 callback 類型。
 - 補充：搜尋執行需保留批次狀態展示與搜尋迴圈結果摘要，至少能顯示批次開始、處理中、成功、暫時性異常、失敗與完成訊息，避免只剩單一 spinner。
 
@@ -59,6 +61,7 @@
 
 ### 遷移目標（Go/React）
 - 方法：Wails binding 提供 `ListOperations`、`GetOperation`、`RollbackOperation`；React 提供 `OperationHistoryDialog`、`OperationHistoryTable`、`RollbackConfirmModal`
+- 補充：`GetOperation` 需明確對應 `pkg/app/history_service.go` 的 `ShowOperation`，讓詳情視窗不必依賴列表資料。
 - 層層：Go binding / React Dialog / Wails Event
 - 實作檔案：`wails-app/backend/app.go`、`wails-app/frontend/src/components/OperationHistoryDialog.tsx`
 - 輸入輸出：輸入為查詢限制、操作 ID；輸出為操作日誌、詳情資料與回滾結果 JSON。
@@ -108,8 +111,8 @@
 - 方法：完全移除 Python 橋接，改由 Wails direct binding 呼叫 Go 後端方法；需要時由 Go 內部直接操作 pkg/ 與 subprocess。
 - 層層：Go binding / Go service / Wails Event
 - 實作檔案：`wails-app/backend/app.go`、`wails-app/backend/services/*.go`、`wails-app/frontend/src/lib/api.ts`
-- 輸入輸出：輸入為原本 bridge 的方法參數；輸出改為 Go struct 或 JSON 可序列化物件。
 - 補充：`MoveFiles` 的設計需同時涵蓋 `MoveFile`、`MoveDir`、`BatchMove` 與 `BatchMoveStdin`，不要只寫單一檔案搬移。
+- 輸入輸出：輸入為原本 bridge 的方法參數；輸出改為 Go struct 或 JSON 可序列化物件。
 
 ### 驗收標準
 - 所有原本由 `go_bridge.py` 暴露的能力都可由 Wails backend 直接提供。
