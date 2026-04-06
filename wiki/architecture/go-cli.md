@@ -104,9 +104,17 @@ classifier.exe db <子命令> [選項]
 | `update <code> <json>` | 更新影片資料 |
 | `delete <code>` | 刪除影片記錄 |
 | `list [--full]` | 列出所有影片番號（`--full` 含完整資料） |
-| `stats` | 顯示資料庫統計 |
+| `stats [--actress] [--studio]` | 顯示資料庫統計；`--actress` 按女優、`--studio` 按片商 |
 | `merge -source <path>` | 合併外部 JSON 資料庫 |
 | `fix-studios` | 批次修正片商資料 |
+| `actress-get <id>` | 取得女優資料 |
+| `actress-update <id> <json>` | 新增/更新女優 |
+| `actress-delete <id>` | 刪除女優 |
+| `actress-list` | 列出所有女優 ID |
+| `backup-create` | 建立時間戳備份（data.json → backup/backup_YYYY-MM-DD_HH-MM-SS.json） |
+| `backup-restore -backup-path <path>` | 從備份還原 |
+| `backup-list` | 列出所有備份檔 |
+| `backup-cleanup [-days N] [-max-count N]` | 清理過期/超量備份（預設 30 天、50 個） |
 
 **fix-studios 旗標**：
 | 旗標 | 說明 |

@@ -76,9 +76,11 @@ src/services/go_api/
 ├── __init__.py      ← 必須同步 import + __all__
 ├── scan.py          ← scan_directory()
 ├── move.py          ← move_file() / batch_move() / rollback()
-├── db.py            ← db_get_video() / db_update_video() 等
+├── db.py            ← db_get_video() / db_update_video() / db_get_actress() /
+│                      db_backup_create() / db_backup_restore() 等
 ├── identify.py      ← identify_studio() / list_studios() 等
-└── cache.py         ← cache_get() / cache_set() / cache_delete()
+└── cache.py         ← cache_get() / cache_set() / cache_delete() /
+                       cache_get_stats() / cache_prune() / cache_clear()
 ```
 
 ### 新增函式時必須同步三處
@@ -116,6 +118,11 @@ db_new_func = api.db_new_func  # ← 補上
 | Phase 4B | IncrementalJSONDB get/update 委派 | ✅ 完成 |
 | Phase 5 | JSONDBManager 完整委派 | ✅ 完成 |
 | Phase 6 | **全數移除 Python fallback**（~1,440 行） | ✅ 完成（226 tests，1.9s） |
+| Phase 7A | Actress CRUD Go（GetActress/Upsert/Delete/List） | ✅ 完成 |
+| Phase 7B | 統計 Go 委派（GetActressStats/GetStudioStats） | ✅ 完成 |
+| Phase 7C | Cache cleanup 委派（prune/clear/stats） | ✅ 完成 |
+| Phase 7D | Backup/Restore Go（BackupCreate/Restore/List/Cleanup） | ✅ 完成 |
+| Phase 7E | json_database.py Python fallback 瘦身（-137 行） | ✅ 完成 |
 
 ### Phase 6 後的 Fallback 策略
 

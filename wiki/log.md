@@ -100,7 +100,35 @@
 
 ---
 
-## [2026-04-06] refactor | Phase 6 全部完成 — Python fallback 全數移除
+## [2026-04-06] refactor | Phase 7 全部完成 — 深度 Go 委派
+
+**涉及檔案**：
+
+| 檔案 | 變更內容 |
+|------|---------|
+| `pkg/database/jsondb.go` | 新增 10 個方法：GetActress/UpsertActress/DeleteActress/ListActresses/GetActressStats/GetStudioStats/BackupCreate/BackupRestore/BackupList/BackupCleanup |
+| `cmd/scanner/db_cmd.go` | 新增子命令：actress-get/update/delete/list、stats --actress/--studio、backup-create/restore/list/cleanup |
+| `src/services/go_api/db.py` | 新增 12 個橋接函式（actress CRUD + stats + backup） |
+| `src/services/go_api/cache.py` | 新增 3 個橋接函式（cache_get_stats/cache_prune/cache_clear） |
+| `src/scrapers/cache_manager.py` | 5 個方法委派 Go（cleanup_expired/cleanup_by_size/get_cache_stats/clear_all/auto_cleanup） |
+| `src/models/json_database.py` | 委派 Go 新增 8 個方法；Phase 7E 移除 Python fallback **-137 行** |
+
+**程式碼變動**：
+- Phase 7A-7D：+1,296 行
+- Phase 7E：-137 行
+- 總淨變動：**+1,159 行**（新增 Go 功能 + 精簡 Python 殼）
+
+**關鍵決策**：
+- Actress 寫入操作：Go 不可用 → `raise RuntimeError`（與 Phase 6 寫入策略一致）
+- Actress 讀取操作：Go 不可用 → 記憶體 cache 返回（`self.data["actresses"].get(id)`）
+- 統計查詢：`if result:` → `if result is not None:`（修正空陣列被誤判為 Go 失敗的 bug）
+- Backup：保留 Python fallback（工具性功能，Python file copy 仍有價值）
+
+**測試結果**：226 passed，0 failed（1.74s）
+
+---
+
+
 
 **涉及檔案**：
 - `src/models/extractor.py` — 刪除 `_extract_code_python()` 等（6A-1）
