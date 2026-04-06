@@ -2,8 +2,8 @@ name: Copilot Python to Go Migration Refactor
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 * * * *'
+  # schedule:
+  #   - cron: '0 * * * *'  # 暫停排程
 
 permissions:
   contents: write
