@@ -1050,8 +1050,9 @@ class UnifiedActressClassifierGUI:
 
     def start_fix_studios(self):
         """批次修正資料庫內 UNKNOWN/空白片商"""
-        bridge = self.core.go_bridge if hasattr(self.core, "go_bridge") else None
-        if bridge is None or not bridge.is_available:
+        from services.go_bridge import get_bridge
+        bridge = get_bridge()
+        if not bridge.is_available:
             messagebox.showwarning("警告", "Go CLI 不可用，無法執行片商批次修正。\n請確認 classifier.exe 存在。")
             return
 
@@ -1072,18 +1073,18 @@ class UnifiedActressClassifierGUI:
 
     def _fix_studios_worker(self):
         """修正片商工作執行緒"""
+        from services.go_bridge import get_bridge
         self.status_var.set("執行中：修正片商資料...")
         try:
-            bridge = self.core.go_bridge if hasattr(self.core, "go_bridge") else None
-            if bridge is None:
-                self.update_progress("❌ Go Bridge 未初始化\n")
+            bridge = get_bridge()
+            if not bridge.is_available:
+                self.update_progress("❌ Go CLI 不可用\n")
                 self.status_var.set("錯誤")
                 return
 
-            # 找資料庫路徑
-            data_dir = getattr(self.core, "db_path", "data/json_db")
-            if hasattr(data_dir, "__str__"):
-                data_dir = str(data_dir)
+            # 從 db_manager 取得資料庫路徑
+            db_manager = self.core.db_manager
+            data_dir = str(getattr(db_manager, "data_dir", "data/json_db"))
 
             self.update_progress(f"📂 資料庫路徑: {data_dir}\n🚀 開始批次識別...\n")
 
