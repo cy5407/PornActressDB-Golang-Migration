@@ -10,8 +10,11 @@
 ### 遷移目標（Go/React）
 - 方法：Wails binding 提供 `ScanDirectory`、`SearchAndClassify`、`MoveFiles`、`StartStudioClassification`、`OpenPreferences`、`OpenOperationHistory`
 - 層層：Go binding / React 主視窗元件 / Wails Events
-- 實作檔案：`wails-app/backend/app.go`、`wails-app/frontend/src/App.tsx`、`wails-app/frontend/src/components/MainLayout.tsx`、`wails-app/frontend/src/components/DirectoryPicker.tsx`、`wails-app/frontend/src/components/VideoList.tsx`
+- 實作檔案：`wails-app/backend/app.go`、`wails-app/frontend/src/App.tsx`、`wails-app/frontend/src/components/MainLayout.tsx`、`wails-app/frontend/src/components/DirectoryPicker.tsx`、`wails-app/frontend/src/components/VideoList.tsx`、`wails-app/frontend/src/components/VideoCard.tsx`、`wails-app/frontend/src/components/SearchPanel.tsx`、`wails-app/frontend/src/components/StatusBar.tsx`、`wails-app/frontend/src/components/ProgressBar.tsx`
 - 輸入輸出：輸入為資料夾路徑、搜尋模式、移動策略；回傳為結構化結果、進度事件與錯誤訊息 JSON。
+- 補充：`ScanDirectory` 需明確支援 `workers` 與 `recursive`，對齊 `pkg/app/scan_service.go` 的 `ScanFiles(req ScanRequest)`。
+- 補充：前端狀態至少拆為結果清單、進度條、狀態列與按鈕啟用狀態，並以事件區分一般文字、錯誤、清除與 callback 類型。
+- 補充：搜尋執行需保留批次狀態展示與搜尋迴圈結果摘要，至少能顯示批次開始、處理中、成功、暫時性異常、失敗與完成訊息，避免只剩單一 spinner。
 
 ### 驗收標準
 - 可在 React 畫面選擇資料夾並觸發掃描/搜尋/移動。
@@ -34,15 +37,18 @@
 - 層層：Go binding / React Dialog / Wails Event
 - 實作檔案：`wails-app/frontend/src/components/SearchResultDialog.tsx`、`wails-app/frontend/src/components/SearchResultTable.tsx`、`wails-app/backend/app.go`
 - 輸入輸出：輸入為 `{code, actresses, source, status, studio, triedSources}`；輸出為表格資料、CSV 檔路徑與使用者操作結果。
+- 補充：詳情視窗所需單筆資料應由 `GetOperation` / `ShowOperation` 類型的獨立查詢支援，不要只依賴列表資料。
 
 ### 驗收標準
 - 可依狀態與關鍵字篩選結果。
 - 可點欄位排序、雙擊查看單筆詳情。
+- 可多選結果列後批次複製、匯出或查看選取摘要。
 - 可匯出 CSV 並複製成功/失敗番號。
 
 ### 廃除條件
 - `src/ui/search_result_dialog.py`
 - 舊有 `show_search_results` 入口與 Tkinter 依賴。
+- 舊的單選/複選結果操作流程與剪貼簿輔助邏輯。
 
 ## 模組：操作歷史對話框
 
@@ -56,6 +62,8 @@
 - 層層：Go binding / React Dialog / Wails Event
 - 實作檔案：`wails-app/backend/app.go`、`wails-app/frontend/src/components/OperationHistoryDialog.tsx`
 - 輸入輸出：輸入為查詢限制、操作 ID；輸出為操作日誌、詳情資料與回滾結果 JSON。
+- 補充：歷史列表需支援獨立查詢單筆操作詳情，對齊 `pkg/app/history_service.go` 的 `ShowOperation`。
+- 補充：`RollbackLast` 與 `RollbackOperation` 的語意要分開，前者是最近一次，後者是指定操作。
 
 ### 驗收標準
 - 可載入最近 50 筆操作歷史。
@@ -78,6 +86,7 @@
 - 層層：Go binding / React Dialog / Wails Event
 - 實作檔案：`wails-app/frontend/src/components/PreferencesDialog.tsx`、`wails-app/frontend/src/components/PreferencesForm.tsx`、`wails-app/backend/app.go`
 - 輸入輸出：輸入為偏好設定物件；輸出為儲存狀態、驗證錯誤與目前設定值。
+- 補充：偏好頁面應保留女優偏好、分類選項、片商分類與共演記錄四個區塊，避免只做單一表單。
 
 ### 驗收標準
 - 可新增/刪除最愛女優與優先女優。
@@ -96,10 +105,11 @@
 - 邏輯：以 subprocess 呼叫 `classifier.exe`，處理 JSON 解析、錯誤分類、臨時檔清理與可用性檢查。
 
 ### 遷移目標（Go/React）
-- 方法：完全移除 Python 橋接，改由 Wails 直接 binding 呼叫 Go 後端方法；需要時由 Go 內部直接操作 pkg/ 與 subprocess。
+- 方法：完全移除 Python 橋接，改由 Wails direct binding 呼叫 Go 後端方法；需要時由 Go 內部直接操作 pkg/ 與 subprocess。
 - 層層：Go binding / Go service / Wails Event
 - 實作檔案：`wails-app/backend/app.go`、`wails-app/backend/services/*.go`、`wails-app/frontend/src/lib/api.ts`
 - 輸入輸出：輸入為原本 bridge 的方法參數；輸出改為 Go struct 或 JSON 可序列化物件。
+- 補充：`MoveFiles` 的設計需同時涵蓋 `MoveFile`、`MoveDir`、`BatchMove` 與 `BatchMoveStdin`，不要只寫單一檔案搬移。
 
 ### 驗收標準
 - 所有原本由 `go_bridge.py` 暴露的能力都可由 Wails backend 直接提供。
@@ -123,6 +133,8 @@
 - 層層：Go service / subprocess Python scraper / Wails binding
 - 實作檔案：`wails-app/backend/services/scan.go`、`wails-app/backend/services/identify.go`、`wails-app/backend/services/db.go`、`wails-app/backend/services/move.go`、`src/scrapers/run_search.py`
 - 輸入輸出：輸入為番號、資料夾、批次項目與快取參數；輸出為 Go struct、JSON 結果與錯誤資訊。
+- 補充：掃描能力需保留 `workers` 與 `recursive` 參數，並限制只處理支援格式。
+- 補充：爬蟲 subprocess 若保留，timeout / stderr / JSON parse error 需分開回傳前端，避免只顯示泛用失敗。
 
 ### 驗收標準
 - 掃描、片商識別、資料庫與搬移功能可在 Go 後端完成。
@@ -149,11 +161,13 @@
 - 層層：Wails Event / React store / UI ProgressBar
 - 實作檔案：`wails-app/backend/app.go`、`wails-app/frontend/src/stores/taskStore.ts`、`wails-app/frontend/src/components/ProgressBar.tsx`
 - 輸入輸出：輸入為進度百分比、訊息與任務狀態；輸出為事件 payload 與前端可觀察狀態。
+- 補充：事件層要區分批次開始、單筆成功、暫時性異常、單筆失敗、階段切換與摘要完成。
 
 ### 驗收標準
 - 背景任務可即時推送進度與狀態更新到前端。
 - 長時間任務不會凍結 UI。
 - 重要訊息與錯誤能在前端被清楚呈現。
+- 批次搜尋時可看到目前批次 / 總批次、成功數、失敗數與暫時性異常數的即時變化。
 
 ### 廃除條件
 - `ProgressThrottler`、`SafeGUIUpdater` 與 `main_gui.py` 內的 Tkinter 進度輪詢/after 更新機制。
