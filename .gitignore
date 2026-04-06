@@ -148,3 +148,5 @@ coverage_report.txt
 
 # 本地保留的安全掃描原始產物
 security_reports/_local_archives/
+
+.venv/
