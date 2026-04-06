@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="wiki-data.js"></script>
 <style>
   :root {
     --bg: #0d1117;
@@ -157,6 +158,7 @@ const WIKI = {
         { label: "Issue 13：GUI Bridge 取法錯誤 → Go CLI 不可用警告", icon: "❌", file: "pitfalls/gui-bridge-wrong-access.md", path: "pitfalls/gui-bridge-wrong-access" },
         { label: "Issue 12：JAVDB False Positive", icon: "❌", file: "pitfalls/javdb-false-positive.md", path: "pitfalls/javdb-false-positive" },
         { label: "PyInstaller 打包路徑問題", icon: "❌", file: "pitfalls/pyinstaller-path.md", path: "pitfalls/pyinstaller-path" },
+        { label: "Chrome file:// CORS 封鎖 wiki fetch", icon: "❌", file: "pitfalls/viewer-file-cors.md", path: "pitfalls/viewer-file-cors" },
       ]
     }
   ]
@@ -210,7 +212,12 @@ async function loadPage(item) {
     let md;
     if (cache[item.file]) {
       md = cache[item.file];
+    } else if (window.WIKI_DATA && window.WIKI_DATA[item.file]) {
+      // 優先從內嵌資料讀取（支援 file:// 直接開啟）
+      md = window.WIKI_DATA[item.file];
+      cache[item.file] = md;
     } else {
+      // fallback: 透過 HTTP 取得（serve.py 模式）
       const res = await fetch(item.file);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       md = await res.text();

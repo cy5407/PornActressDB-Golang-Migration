@@ -31,6 +31,11 @@ wiki/
 3. 更新 `wiki/index.md` 的對應表格
 4. 在 `wiki/log.md` 末尾追加一筆記錄
 5. **同步 `wiki/viewer.html` 的 `WIKI` 物件**（見下方規則）
+6. **重新產生 `wiki/wiki-data.js`**（讓 viewer.html 不需要 server）
+
+```powershell
+python wiki/gen_data.py
+```
 
 log 格式：
 ```
