@@ -21,10 +21,6 @@ from filelock import FileLock
 # Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
 UTC = timezone.utc
 
-try:
-    from utils.json_utils import load as json_load
-except ImportError:  # pragma: no cover
-    from src.utils.json_utils import load as json_load
 
 from src.models.json_types import (
     ISO_DATETIME_FORMAT,
@@ -32,7 +28,6 @@ from src.models.json_types import (
     SCHEMA_VERSION,
     WRITE_LOCK_TIMEOUT,
     ActressDict,
-    BackupError,
     CorruptedDataError,
     DataIntegrityError,
     JSONDatabaseDict,
@@ -40,7 +35,6 @@ from src.models.json_types import (
     LockError,
     ValidationError,
     VideoDict,
-    get_empty_actress,
     get_empty_json_database,
     get_empty_video,
 )
@@ -420,141 +414,6 @@ class JSONDBManager:
 
         logger.debug("✅ 參照完整性驗證通過")
 
-    def _validate_structure(self, data: dict[str, Any]) -> None:
-        """
-        驗證資料結構和欄位類型（第二層驗證）
-
-        Args:
-            data: 要驗證的資料
-
-        Raises:
-            ValidationError: 若結構或欄位類型不正確
-        """
-        # 驗證 videos 結構
-        videos = data.get("videos", {})
-        if not isinstance(videos, dict):
-            raise ValidationError("'videos' 必須是字典")
-
-        for code, video in videos.items():
-            if not isinstance(video, dict):
-                raise ValidationError(f"影片 '{code}' 必須是字典")
-
-            # 必需欄位
-            required_video_fields = {"code", "title", "studio", "release_date"}
-            missing = required_video_fields - set(video.keys())
-            if missing:
-                raise ValidationError(f"影片 '{code}' 缺少欄位: {missing}")
-
-            # 欄位類型檢查
-            if not isinstance(video.get("code"), str):
-                raise ValidationError(f"影片 '{code}' 的 'code' 必須是字串")
-            if not isinstance(video.get("actresses"), list):
-                raise ValidationError(f"影片 '{code}' 的 'actresses' 必須是清單")
-
-        # 驗證 actresses 結構
-        actresses = data.get("actresses", {})
-        if not isinstance(actresses, dict):
-            raise ValidationError("'actresses' 必須是字典")
-
-        for actress_id, actress in actresses.items():
-            if not isinstance(actress, dict):
-                raise ValidationError(f"女優 '{actress_id}' 必須是字典")
-
-            required_actress_fields = {"id", "name"}
-            missing = required_actress_fields - set(actress.keys())
-            if missing:
-                raise ValidationError(f"女優 '{actress_id}' 缺少欄位: {missing}")
-
-        # 驗證 links 結構
-        links = data.get("links", [])
-        if not isinstance(links, list):
-            raise ValidationError("'links' 必須是清單")
-
-        for idx, link in enumerate(links):
-            if not isinstance(link, dict):
-                raise ValidationError(f"連結 {idx} 必須是字典")
-
-            required_link_fields = {"video_code", "actress_id"}
-            missing = required_link_fields - set(link.keys())
-            if missing:
-                raise ValidationError(f"連結 {idx} 缺少欄位: {missing}")
-
-        logger.debug("✅ 資料結構驗證通過")
-
-    def _validate_consistency(self) -> bool:
-        """
-        驗證統計快取一致性（第四層驗證）
-
-        驗證快取統計是否與實際資料一致。
-
-        Returns:
-            bool: 一致則 True
-        """
-        try:
-            data = self.data
-            actresses = data.get("actresses", {})
-            links = data.get("links", [])
-
-            # 計算實際的女優出演部數
-            actual_actress_counts = {}
-            for link in links:
-                actress_id = link.get("actress_id")
-                if actress_id:
-                    actual_actress_counts[actress_id] = (
-                        actual_actress_counts.get(actress_id, 0) + 1
-                    )
-
-            # 驗證 actresses 的 video_count 是否一致
-            for actress_id, actress in actresses.items():
-                expected_count = actual_actress_counts.get(actress_id, 0)
-                actual_count = actress.get("video_count", 0)
-
-                if expected_count != actual_count:
-                    logger.warning(
-                        f"女優 '{actress_id}' 的 video_count 不一致: "
-                        f"預期 {expected_count}, 實際 {actual_count}"
-                    )
-                    return False
-
-            logger.debug("✅ 一致性驗證通過")
-            return True
-
-        except Exception as e:
-            logger.error(f"❌ 一致性檢查失敗: {e}")
-            return False
-
-    def validate_data(self) -> dict[str, Any]:
-        """
-        執行全面的資料驗證
-
-        Returns:
-            驗證結果字典，包含:
-            - 'valid' (bool): 是否有效
-            - 'errors' (List[str]): 錯誤訊息清單
-        """
-        result = {
-            "valid": True,
-            "errors": [],
-        }
-
-        try:
-            self._validate_json_format(self.data)
-        except ValidationError as e:
-            result["valid"] = False
-            result["errors"].append(f"格式驗證失敗: {e}")
-
-        try:
-            self._validate_referential_integrity(self.data)
-        except DataIntegrityError as e:
-            result["valid"] = False
-            result["errors"].append(f"完整性驗證失敗: {e}")
-
-        if not self._validate_consistency():
-            result["valid"] = False
-            result["errors"].append("一致性驗證失敗")
-
-        return result
-
     # ========================================================================
     # 備份和恢復 (將在 T006 實現)
     # ========================================================================
@@ -633,18 +492,6 @@ class JSONDBManager:
         )
         return deleted
 
-    @staticmethod
-    def _is_backup_expired(backup_file: Path, cutoff_date: datetime) -> bool:
-        """檢查備份是否過期"""
-        try:
-            date_str = backup_file.stem.replace("backup_", "")
-            date_part = date_str.split("_")[0]  # YYYY-MM-DD
-            file_date = datetime.strptime(date_part, "%Y-%m-%d").replace(tzinfo=UTC)
-            return file_date < cutoff_date
-        except Exception as e:
-            logger.warning(f"無法解析備份檔案日期: {backup_file}, {e}")
-            return False
-
     # ========================================================================
     # 並行鎖定 (已在 __init__ 實現)
     # ========================================================================
@@ -667,25 +514,6 @@ class JSONDBManager:
         except Exception as e:
             logger.error(f"❌ 無法獲得讀鎖定: {e}")
             raise LockError(f"無法獲得讀鎖定: {e}") from e
-
-    def _acquire_write_lock(self, timeout: int = WRITE_LOCK_TIMEOUT) -> None:
-        """
-        獲取寫鎖定
-
-        獨佔鎖定，確保寫操作不被干擾。
-
-        Args:
-            timeout: 等待超時 (秒)
-
-        Raises:
-            LockError: 若無法獲取鎖定
-        """
-        try:
-            self.write_lock.acquire(timeout=timeout)
-            logger.debug("✅ 寫鎖定已獲取")
-        except Exception as e:
-            logger.error(f"❌ 無法獲得寫鎖定: {e}")
-            raise LockError(f"無法獲得寫鎖定: {e}") from e
 
     def _release_locks(self) -> None:
         """
@@ -763,7 +591,6 @@ class JSONDBManager:
             if success:
                 # 同步記憶體快取
                 self.data["videos"][video_code] = merged_dict
-                self._cache_statistics()
                 logger.info(f"✅ 影片已新增/更新 (Go): {video_code}")
                 return video_code
             raise RuntimeError(f"Go db_update_video 回傳失敗: {video_code}")
@@ -853,7 +680,6 @@ class JSONDBManager:
                 self.data["links"] = [
                     link for link in links if link.get("video_code") != code
                 ]
-                self._cache_statistics()
                 logger.info(f"✅ 影片已刪除 (Go): {code}")
             else:
                 logger.warning(f"⚠️ 影片不存在或刪除失敗 (Go): {code}")
@@ -893,7 +719,6 @@ class JSONDBManager:
             success = _go_db_update_actress(actress_id, actress_info, data_dir=str(self.data_dir))
             if success:
                 self.data["actresses"][actress_id] = actress_info
-                self._cache_statistics()
                 logger.info(f"✅ 女優已新增/更新（Go）: {actress_id}")
                 return actress_id
         except (ValidationError, DataIntegrityError):
@@ -956,7 +781,6 @@ class JSONDBManager:
                 self.data["links"] = [
                     link for link in links if link.get("actress_id") != actress_id
                 ]
-                self._cache_statistics()
                 logger.info(f"✅ 女優已刪除 (Go): {actress_id}")
             else:
                 logger.warning(f"⚠️ 女優不存在或刪除失敗 (Go): {actress_id}")
@@ -964,508 +788,6 @@ class JSONDBManager:
         except Exception as e:
             logger.warning(f"⚠️ Go 委派 delete_actress 失敗: {e}")
             raise RuntimeError(f"Go delete_actress 失敗: {actress_id}: {e}") from e
-
-    # ========================================================================
-    # 輔助方法
-    # ========================================================================
-
-    # ========================================================================
-    # 統計查詢快取機制 (T025)
-    # ========================================================================
-
-    def _compute_statistics(self) -> dict[str, Any]:
-        """
-        計算統計資訊 (T025)
-
-        計算所有統計指標並返回統計字典。
-
-        Returns:
-            統計字典，包含:
-            - actress_statistics: 女優統計清單
-            - studio_statistics: 片商統計清單
-            - enhanced_actress_studio_statistics: 增強交叉統計清單
-            - total_videos: 總影片數
-            - total_actresses: 總女優數
-            - total_studios: 總片商數
-            - computed_at: 計算時間
-        """
-        try:
-            # 計算各種統計
-            actress_stats = self._compute_actress_statistics_internal()
-            studio_stats = self._compute_studio_statistics_internal()
-            enhanced_stats = self._compute_enhanced_actress_studio_statistics_internal()
-
-            # 基本統計
-            total_videos = len(self.data.get("videos", {}))
-            total_actresses = len(self.data.get("actresses", {}))
-
-            # 計算片商數 (去重)
-            studios = set()
-            for video in self.data.get("videos", {}).values():
-                studio = video.get("studio")
-                if studio and studio != "UNKNOWN":
-                    studios.add(studio)
-            total_studios = len(studios)
-
-            computed_at = datetime.now(UTC).strftime(ISO_DATETIME_FORMAT)
-
-            statistics = {
-                "actress_statistics": actress_stats,
-                "studio_statistics": studio_stats,
-                "enhanced_actress_studio_statistics": enhanced_stats,
-                "total_videos": total_videos,
-                "total_actresses": total_actresses,
-                "total_studios": total_studios,
-                "computed_at": computed_at,
-            }
-
-            logger.info(
-                f"✅ 統計計算完成: {total_videos} 部影片, {total_actresses} 位女優, {total_studios} 間片商"
-            )
-            return statistics
-
-        except Exception as e:
-            logger.error(f"❌ 統計計算失敗: {e}")
-            raise
-
-    def _cache_statistics(self) -> None:
-        """
-        更新統計快取 (T025)
-
-        計算統計並更新到 self.data['statistics']。
-        在新增/修改影片時自動呼叫此方法。
-
-        Raises:
-            LockError: 若無法獲得寫鎖定
-        """
-        try:
-            # 計算統計
-            statistics = self._compute_statistics()
-
-            # 更新快取
-            self.data["statistics"] = statistics
-
-            logger.info("✅ 統計快取已更新")
-
-        except Exception as e:
-            logger.error(f"❌ 統計快取更新失敗: {e}")
-            raise
-
-    def get_cached_statistics(self, force_refresh: bool = False) -> dict[str, Any]:
-        """
-        獲取快取的統計資訊 (T025)
-
-        從快取中取得統計資訊，若快取不存在或需要重新整理則重新計算。
-
-        Args:
-            force_refresh: 是否強制重新計算統計 (預設: False)
-
-        Returns:
-            統計字典，包含所有統計資訊
-
-        Raises:
-            LockError: 若無法獲得鎖定
-        """
-        try:
-            # 獲取讀鎖定
-            self._acquire_read_lock()
-
-            try:
-                statistics = self.data.get("statistics", {})
-
-                # 檢查快取是否存在且有效
-                has_valid_cache = (
-                    statistics
-                    and "computed_at" in statistics
-                    and "total_videos" in statistics
-                )
-
-                if not has_valid_cache or force_refresh:
-                    # 釋放讀鎖，獲取寫鎖以更新快取
-                    self._release_locks()
-                    self._acquire_write_lock()
-
-                    try:
-                        # 重新載入最新資料
-                        self._load_data_internal()
-
-                        # 重新計算統計
-                        self._cache_statistics()
-
-                        # 保存到磁碟
-                        self._save_all_data(self.data)
-
-                        statistics = self.data.get("statistics", {})
-
-                    finally:
-                        # 寫鎖會在外層 with 區塊結束時自動釋放
-                        logger.debug("統計快取操作完成")
-
-                logger.info("✅ 取得統計快取成功")
-                return statistics
-
-            finally:
-                self._release_locks()
-
-        except LockError as e:
-            logger.error(f"❌ 無法獲取鎖定: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 取得統計快取失敗: {e}")
-            raise
-
-    def refresh_statistics_cache(self) -> bool:
-        """
-        手動重新整理統計快取 (T025)
-
-        強制重新計算所有統計並更新快取。
-
-        Returns:
-            成功則返回 True
-
-        Raises:
-            LockError: 若無法獲得寫鎖定
-        """
-        try:
-            self.get_cached_statistics(force_refresh=True)
-            logger.info("✅ 統計快取手動重新整理成功")
-            return True
-
-        except Exception as e:
-            logger.error(f"❌ 統計快取重新整理失敗: {e}")
-            raise
-
-    # ========================================================================
-    # 統計查詢方法 (T022, T023, T024)
-    # ========================================================================
-
-    def get_actress_statistics(self) -> list[dict[str, Any]]:
-        """
-        取得女優統計資訊，包含片商分佈 (T022)
-
-        遍歷所有女優，計算每位女優的出演部數、片商清單等。
-        結果格式與 SQLite 版本相同。
-
-        Returns:
-            女優統計清單，每項包含:
-            - actress_name: 女優名稱
-            - video_count: 出演部數
-            - studios: 片商清單 (去重)
-            - studio_codes: 片商代碼清單 (去重)
-
-        Raises:
-            LockError: 若無法獲得讀鎖定
-        """
-        # Go 委派
-        from services.go_api.db import db_get_actress_stats
-        result = db_get_actress_stats(data_dir=str(self.data_dir))
-        if result is not None:
-            return result
-
-        raise RuntimeError("Go get_actress_stats 回傳空結果")
-
-    def _compute_actress_statistics_internal(self) -> list[dict[str, Any]]:
-        """
-        內部女優統計計算方法（不獲取鎖）
-
-        在已獲取鎖的情況下計算女優統計。
-
-        Returns:
-            女優統計清單
-        """
-        actresses = self.data.get("actresses", {})
-        videos = self.data.get("videos", {})
-        links = self.data.get("links", [])
-
-        # 建立 actress_id → codes 映射
-        actress_video_map: dict[str, list[str]] = {}
-        for link in links:
-            actress_id = link.get("actress_id")
-            video_code = link.get("video_code")
-            if actress_id and video_code:
-                if actress_id not in actress_video_map:
-                    actress_video_map[actress_id] = []
-                actress_video_map[actress_id].append(video_code)
-
-        # 統計每位女優的資訊
-        statistics = []
-        for actress_id, actress in actresses.items():
-            actress_name = actress.get("name", "")
-
-            # 取得該女優的所有影片
-            video_codes = actress_video_map.get(actress_id, [])
-            video_count = len(video_codes)
-
-            # 收集片商資訊
-            studios = set()
-            studio_codes = set()
-
-            for code in video_codes:
-                video = videos.get(code)
-                if video:
-                    studio = video.get("studio")
-                    studio_code = video.get("studio_code")
-                    if studio:
-                        studios.add(studio)
-                    if studio_code:
-                        studio_codes.add(studio_code)
-
-            statistics.append(
-                {
-                    "actress_name": actress_name,
-                    "video_count": video_count,
-                    "studios": sorted(studios),
-                    "studio_codes": sorted(studio_codes),
-                }
-            )
-
-        # 按出演部數降序排序
-        statistics.sort(key=lambda x: x["video_count"], reverse=True)
-
-        logger.debug(f"✅ 女優統計計算完成: {len(statistics)} 位女優")
-        return statistics
-
-    def get_studio_statistics(self) -> list[dict[str, Any]]:
-        """
-        取得片商統計資訊 (T023)
-
-        遍歷所有影片按片商分組，計算每間片商的影片數、女優數等。
-        結果格式與 SQLite 版本相同。
-
-        Returns:
-            片商統計清單，每項包含:
-            - studio: 片商名稱
-            - studio_code: 片商代碼
-            - video_count: 影片數
-            - actress_count: 女優數 (去重)
-
-        Raises:
-            LockError: 若無法獲得讀鎖定
-        """
-        # Go 委派
-        from services.go_api.db import db_get_studio_stats
-        result = db_get_studio_stats(data_dir=str(self.data_dir))
-        if result is not None:
-            return result
-
-        raise RuntimeError("Go get_studio_stats 回傳空結果")
-
-    def _compute_studio_statistics_internal(self) -> list[dict[str, Any]]:
-        """
-        內部片商統計計算方法（不獲取鎖）
-
-        在已獲取鎖的情況下計算片商統計。
-
-        Returns:
-            片商統計清單
-        """
-        videos = self.data.get("videos", {})
-        links = self.data.get("links", [])
-
-        # 建立片商統計映射 {(studio, studio_code): {...}}
-        studio_stats: dict[tuple, dict[str, Any]] = {}
-
-        # 建立 code → actress_ids 映射
-        video_actress_map: dict[str, set] = {}
-        for link in links:
-            video_code = link.get("video_code")
-            actress_id = link.get("actress_id")
-            if video_code and actress_id:
-                if video_code not in video_actress_map:
-                    video_actress_map[video_code] = set()
-                video_actress_map[video_code].add(actress_id)
-
-        # 遍歷所有影片
-        for code, video in videos.items():
-            studio = video.get("studio")
-            studio_code = video.get("studio_code", "")
-
-            # 過濾掉無片商的影片
-            if not studio:
-                continue
-
-            # 使用 (studio, studio_code) 作為鍵
-            key = (studio, studio_code)
-
-            if key not in studio_stats:
-                studio_stats[key] = {
-                    "studio": studio,
-                    "studio_code": studio_code,
-                    "video_count": 0,
-                    "actress_ids": set(),
-                }
-
-            # 增加影片計數
-            studio_stats[key]["video_count"] += 1
-
-            # 收集女優 ID
-            if code in video_actress_map:
-                studio_stats[key]["actress_ids"].update(video_actress_map[code])
-
-        # 轉換為結果格式
-        statistics = []
-        for _, stats in studio_stats.items():
-            statistics.append(
-                {
-                    "studio": stats["studio"],
-                    "studio_code": stats["studio_code"],
-                    "video_count": stats["video_count"],
-                    "actress_count": len(stats["actress_ids"]),
-                }
-            )
-
-        # 按影片數降序排序
-        statistics.sort(key=lambda x: x["video_count"], reverse=True)
-
-        logger.debug(f"✅ 片商統計計算完成: {len(statistics)} 間片商")
-        return statistics
-
-    def get_enhanced_actress_studio_statistics(
-        self, actress_name: str | None = None
-    ) -> list[dict[str, Any]]:
-        """
-        取得增強版女優片商統計資訊（包含檔案關聯類型分析） (T024)
-
-        遍歷關聯表，建立 (actress_id, studio) 組合計數。
-        支援多維聚合，結果格式與 SQLite 版本相同。
-
-        Args:
-            actress_name: 篩選特定女優名稱（可選）
-
-        Returns:
-            交叉統計清單，每項包含:
-            - actress_name: 女優名稱
-            - studio: 片商名稱
-            - studio_code: 片商代碼
-            - association_type: 關聯類型 (role_type)
-            - video_count: 該組合的影片數
-            - video_codes: 影片代碼清單
-            - first_appearance: 首次出現日期
-            - latest_appearance: 最新出現日期
-
-        Raises:
-            LockError: 若無法獲得讀鎖定
-        """
-        try:
-            # 獲取讀鎖定
-            self._acquire_read_lock()
-
-            try:
-                return self._compute_enhanced_actress_studio_statistics_internal(
-                    actress_name
-                )
-
-            finally:
-                self._release_locks()
-
-        except LockError as e:
-            logger.error(f"❌ 無法獲取讀鎖定: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 增強女優片商統計查詢失敗: {e}")
-            raise
-
-    def _compute_enhanced_actress_studio_statistics_internal(
-        self, actress_name: str | None = None
-    ) -> list[dict[str, Any]]:
-        """
-        內部增強女優片商統計計算方法（不獲取鎖）
-
-        在已獲取鎖的情況下計算增強交叉統計。
-
-        Args:
-            actress_name: 篩選特定女優名稱（可選）
-
-        Returns:
-            增強交叉統計清單
-        """
-        actresses = self.data.get("actresses", {})
-        videos = self.data.get("videos", {})
-        links = self.data.get("links", [])
-
-        # 建立 actress_id → actress_name 映射
-        actress_id_to_name = {
-            actress_id: actress.get("name", "")
-            for actress_id, actress in actresses.items()
-        }
-
-        # 建立統計映射 {(actress_id, studio, studio_code, role_type): {...}}
-        stats_map: dict[tuple, dict[str, Any]] = {}
-
-        # 遍歷所有關聯
-        for link in links:
-            actress_id = link.get("actress_id")
-            video_code = link.get("video_code")
-            role_type = link.get("role_type", "primary")  # 預設為 primary
-            timestamp = link.get("timestamp", "")
-
-            if not actress_id or not video_code:
-                continue
-
-            # 取得女優名稱
-            name = actress_id_to_name.get(actress_id, "")
-
-            # 如果指定了 actress_name，則過濾
-            if actress_name and name != actress_name:
-                continue
-
-            # 取得影片資訊
-            video = videos.get(video_code)
-            if not video:
-                continue
-
-            studio = video.get("studio", "")
-            studio_code = video.get("studio_code", "")
-            video.get("code", "")
-
-            # 過濾掉無片商或 UNKNOWN 的影片
-            if not studio or studio == "UNKNOWN":
-                continue
-
-            # 使用 (actress_id, studio, studio_code, role_type) 作為鍵
-            key = (actress_id, studio, studio_code, role_type)
-
-            if key not in stats_map:
-                stats_map[key] = {
-                    "actress_name": name,
-                    "studio": studio,
-                    "studio_code": studio_code,
-                    "association_type": role_type,
-                    "video_count": 0,
-                    "video_codes": [],
-                    "first_appearance": timestamp,
-                    "latest_appearance": timestamp,
-                }
-
-            # 更新統計
-            stats = stats_map[key]
-            stats["video_count"] += 1
-            stats["video_codes"].append(video_code)
-
-            # 更新日期範圍
-            if timestamp:
-                if (
-                    not stats["first_appearance"]
-                    or timestamp < stats["first_appearance"]
-                ):
-                    stats["first_appearance"] = timestamp
-                if (
-                    not stats["latest_appearance"]
-                    or timestamp > stats["latest_appearance"]
-                ):
-                    stats["latest_appearance"] = timestamp
-
-        # 轉換為結果格式
-        statistics = list(stats_map.values())
-
-        # 排序：如果指定女優則按影片數降序，否則按女優名稱+影片數
-        if actress_name:
-            statistics.sort(key=lambda x: x["video_count"], reverse=True)
-        else:
-            statistics.sort(key=lambda x: (x["actress_name"], -x["video_count"]))
-
-        logger.debug(f"✅ 增強女優片商統計計算完成: {len(statistics)} 筆記錄")
-        return statistics
 
     # ========================================================================
     # 輔助方法
