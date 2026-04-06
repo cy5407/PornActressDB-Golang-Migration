@@ -6,7 +6,8 @@
     "SONE",
     "ONEZ",
     "OFJE",
-    "SNOS"
+    "SNOS",
+    "SIVR"
   ],
   "MOODYZ": [
     "MIRD",
@@ -18,7 +19,12 @@
     "MIAD",
     "MIFD",
     "MIBB",
-    "MIDA"
+    "MIDA",
+    "MDVR",
+    "MIKR",
+    "MIMK",
+    "MIZD",
+    "MNGS"
   ],
   "PREMIUM": [
     "IPX",
@@ -27,33 +33,48 @@
     "IDEA",
     "IPN",
     "IDEAPOCKET",
-    "PRED"
+    "PRED",
+    "IPBZ",
+    "IPVR"
   ],
   "FALENO": [
     "FSDSS",
     "FNS",
-    "FADSS"
+    "FADSS",
+    "MGOLD"
   ],
   "KAWAII": [
     "KAWD",
     "CAWD",
-    "KWBD"
+    "KWBD",
+    "KAVR"
   ],
   "ATTACKERS": [
     "SHKD",
     "ADN",
     "ATID",
     "RBD",
-    "SSPD"
+    "SSPD",
+    "JBD",
+    "RBK",
+    "SAME",
+    "YUJ"
   ],
   "E-BODY": [
     "EBWH",
-    "EBOD"
+    "EBOD",
+    "EBVR",
+    "EYAN",
+    "MKCK",
+    "NTRH"
   ],
   "FITCH": [
     "JUFD",
     "JUNY",
-    "JUFE"
+    "JUFE",
+    "DEAB",
+    "FCVR",
+    "NIMA"
   ],
   "MADONNA": [
     "JUQ",
@@ -61,7 +82,10 @@
     "JUX",
     "JUC",
     "JUKD",
-    "JUR"
+    "JUR",
+    "ACHJ",
+    "JUVR",
+    "ROE"
   ],
   "PRESTIGE": [
     "ABW",
@@ -70,7 +94,10 @@
     "BGN",
     "CHN",
     "ABF",
-    "FPRE"
+    "FPRE",
+    "FIG",
+    "PASN",
+    "PPR"
   ],
   "SOD": [
     "SDJS",
@@ -89,7 +116,10 @@
     "STAR",
     "SACE",
     "SDMUA",
-    "HJMO"
+    "HJMO",
+    "KUSE",
+    "MOGI",
+    "SDMM"
   ],
   "V&R": [
     "VEC",
