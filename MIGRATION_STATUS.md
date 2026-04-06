@@ -30,12 +30,39 @@
 ### Phase 6A — 薄適配層 Python fallback 移除（低風險）
 
 - [x] Task 6A-1: `src/models/extractor.py` — deleted `_extract_code_python()`, `_validate_code()`, `_should_skip_file()`, `__init__`, and all Python-only attributes; `extract_code()` now calls `_extract_code_via_go()` directly; updated `tests/test_extractor.py` to remove tests of deleted methods
+- [x] Task 6A-2: `src/models/studio.py` — deleted `_identify_studio_python()`; Go 不可用時自訂規則檔走 `code_to_studio` 前綴查詢；預設 studios.json 走 Go
+- [x] Task 6A-3: `src/utils/scanner.py` — deleted Python `rglob` fallback; Go 不可用時 `raise RuntimeError`
+- [x] Task 6A-4: `src/utils/file_mover.py` — deleted `shutil.move` fallback; Go 不可用時 raise RuntimeError
+
+### Phase 6B — 快取層清除
+
+- [x] Task 6B-1: `src/scrapers/cache_manager.py` — deleted `_set_python/_get_python/_delete_python` (~175 行); Go 不可用時 no-op
+
+### Phase 6C — 冗餘包裝類別刪除
+
+- [x] Task 6C-1: `src/models/go_accelerated_db.py` — 整個刪除 (258 行)；刪除對應測試
+- [x] Task 6C-2: `src/models/go_accelerated_studio.py` — 整個刪除 (217 行)；刪除對應測試
+
+### Phase 6D — 核心資料庫模組瘦身
+
+- [x] Task 6D-1: `src/models/incremental_json_database.py` — deleted `_update_video_python()` / `_get_video_info_python()`; Go 不可用時 raise RuntimeError；記憶體讀取改直接呼叫 `base_db.get_video_info()`
+- [x] Task 6D-2: `src/models/json_database.py` — deleted `_add_or_update_video_python` / `_get_video_info_python` / `_get_all_videos_python` / `_delete_video_python` (~280 行); 寫入 Go 不可用時 raise RuntimeError；讀取從記憶體 cache 返回
 
 ---
 
 ## 🔄 Current Status
 
-**Phase 6A 進行中。** Task 6A-1 完成（extractor.py Python fallback 已移除）。下一個任務：Task 6A-2（studio.py）。
+**✅ Phase 6 完成。** 所有 Python fallback 已移除。226 個測試全數通過。
+
+### 刪減統計（Phase 6）
+
+| Phase | 刪除行數 |
+|-------|---------|
+| 6A（4 個薄適配層） | ~250 行 |
+| 6B（cache_manager） | ~175 行 |
+| 6C（2 個整刪檔案） | ~475 行 |
+| 6D（2 個核心 DB 模組） | ~317 行 |
+| **合計** | **~1,217 行** |
 
 ### Phase 5 — JSONDBManager Go 完整委派
 
