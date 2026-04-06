@@ -25,16 +25,11 @@ except ImportError:  # pragma: no cover
     from src.utils.json_utils import dump as json_dump
     from src.utils.json_utils import load as json_load
 
-# Go 快取 API — 在 Go CLI 可用時使用，不可用時 fallback 到 Python 實作
-try:
-    from src.services.go_api.cache import cache_delete as _go_cache_delete
-    from src.services.go_api.cache import cache_get as _go_cache_get
-    from src.services.go_api.cache import cache_set as _go_cache_set
-    from src.services.go_runner import GoBridgeError as _GoBridgeError
-    from src.services.go_runner import GoBridgeNotFoundError as _GoBridgeNotFoundError
-    _GO_CACHE_API_OK = True
-except ImportError:
-    _GO_CACHE_API_OK = False
+from src.services.go_api.cache import cache_delete as _go_cache_delete
+from src.services.go_api.cache import cache_get as _go_cache_get
+from src.services.go_api.cache import cache_set as _go_cache_set
+from src.services.go_runner import GoBridgeError as _GoBridgeError
+from src.services.go_runner import GoBridgeNotFoundError as _GoBridgeNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -101,21 +96,7 @@ class CacheManager:
         # 啟動背景清理任務
         self._start_cleanup_task()
 
-        # Go 快取可用性（每個實例獨立判斷）
-        self._GO_CACHE_AVAILABLE = self._check_go_available()
-
         logger.info(f"💾 快取管理器已初始化 - 目錄: {self.cache_dir}")
-
-    @staticmethod
-    def _check_go_available() -> bool:
-        """檢查 Go CLI 快取是否可用。"""
-        if not _GO_CACHE_API_OK:
-            return False
-        try:
-            from src.services.go_bridge import GoBridge
-            return GoBridge().is_available
-        except Exception:
-            return False
 
     def _init_index(self):
         """初始化 JSON 索引檔案"""
@@ -235,9 +216,7 @@ class CacheManager:
         return time.time() - created_at > ttl_seconds
 
     def set(self, key: str, value: Any, ttl_hours: int | None = None) -> bool:
-        """設置快取值。Go 不可用時回傳 False（no-op）。"""
-        if not self._GO_CACHE_AVAILABLE:
-            return False
+        """設置快取值。Go 失敗時回傳 False。"""
         try:
             return self._set_go(key, value, ttl_hours)
         except Exception as e:
@@ -245,9 +224,7 @@ class CacheManager:
             return False
 
     def get(self, key: str) -> Any | None:
-        """獲取快取值。Go 不可用時回傳 None（no-op）。"""
-        if not self._GO_CACHE_AVAILABLE:
-            return None
+        """獲取快取值。Go 失敗時回傳 None。"""
         try:
             return self._get_go(key)
         except _GoBridgeNotFoundError:
@@ -257,9 +234,7 @@ class CacheManager:
             return None
 
     def delete(self, key: str) -> bool:
-        """刪除快取條目。Go 不可用時回傳 False（no-op）。"""
-        if not self._GO_CACHE_AVAILABLE:
-            return False
+        """刪除快取條目。Go 失敗時回傳 False。"""
         try:
             return self._delete_go(key)
         except Exception as e:

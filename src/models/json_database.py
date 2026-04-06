@@ -48,26 +48,21 @@ from src.models.json_types import (
 # 設定日誌
 logger = logging.getLogger(__name__)
 
-# Go API 函式 — 在 Go CLI 可用時使用，不可用則 fallback 到 Python 實作
-try:
-    from src.services.go_api.db import (
-        db_backup_cleanup as _go_db_backup_cleanup,
-        db_backup_create as _go_db_backup_create,
-        db_backup_list as _go_db_backup_list,
-        db_backup_restore as _go_db_backup_restore,
-        db_delete_actress as _go_db_delete_actress,
-        db_delete_video as _go_db_delete_video,
-        db_get_actress as _go_db_get_actress,
-        db_get_all_videos as _go_db_get_all_videos,
-        db_get_video as _go_db_get_video,
-        db_update_actress as _go_db_update_actress,
-        db_update_video as _go_db_update_video,
-    )
-    from src.services.go_runner import GoBridgeError as _GoBridgeError
-    from src.services.go_runner import GoBridgeNotFoundError as _GoBridgeNotFoundError
-    _GO_DB_API_IMPORT_OK = True
-except ImportError:
-    _GO_DB_API_IMPORT_OK = False
+from src.services.go_api.db import (
+    db_backup_cleanup as _go_db_backup_cleanup,
+    db_backup_create as _go_db_backup_create,
+    db_backup_list as _go_db_backup_list,
+    db_backup_restore as _go_db_backup_restore,
+    db_delete_actress as _go_db_delete_actress,
+    db_delete_video as _go_db_delete_video,
+    db_get_actress as _go_db_get_actress,
+    db_get_all_videos as _go_db_get_all_videos,
+    db_get_video as _go_db_get_video,
+    db_update_actress as _go_db_update_actress,
+    db_update_video as _go_db_update_video,
+)
+from src.services.go_runner import GoBridgeError as _GoBridgeError
+from src.services.go_runner import GoBridgeNotFoundError as _GoBridgeNotFoundError
 
 
 class JSONDBManager:
@@ -123,9 +118,6 @@ class JSONDBManager:
             # 載入資料到記憶體
             self._load_all_data()
 
-            # 初始化 Go 委派可用性旗標
-            self._GO_DB_AVAILABLE: bool = self._check_go_db_available()
-
             logger.info(f"✅ JSONDBManager 初始化成功: {self.data_file}")
 
         except Exception as e:
@@ -142,16 +134,6 @@ class JSONDBManager:
             logger.info(f"建立新的 JSON 資料庫檔案: {self.data_file}")
             initial_data = get_empty_json_database()
             self._save_all_data(initial_data)
-
-    def _check_go_db_available(self) -> bool:
-        """檢查 Go CLI 資料庫委派是否可用。"""
-        if not _GO_DB_API_IMPORT_OK:
-            return False
-        try:
-            from src.services.go_bridge import get_bridge
-            return get_bridge().is_available
-        except Exception:
-            return False
 
     def _load_all_data(self) -> None:
         """
@@ -589,12 +571,10 @@ class JSONDBManager:
         Raises:
             BackupError: 若備份失敗
         """
-        if self._GO_DB_AVAILABLE:
-            result = _go_db_backup_create(data_dir=str(self.data_dir))
-            if result:
-                return result
-            raise RuntimeError("Go backup-create 回傳空結果")
-        raise RuntimeError("Go CLI 不可用，無法建立備份")
+        result = _go_db_backup_create(data_dir=str(self.data_dir))
+        if result:
+            return result
+        raise RuntimeError("Go backup-create 回傳空結果")
 
     def restore_from_backup(self, backup_path: str) -> bool:
         """
@@ -611,14 +591,12 @@ class JSONDBManager:
         Raises:
             BackupError: 若還原失敗
         """
-        if self._GO_DB_AVAILABLE:
-            result = _go_db_backup_restore(backup_path=backup_path, data_dir=str(self.data_dir))
-            if result:
-                # 重新載入記憶體
-                self._load_data_internal()
-                return True
-            raise RuntimeError("Go backup-restore 回傳失敗")
-        raise RuntimeError("Go CLI 不可用，無法還原備份")
+        result = _go_db_backup_restore(backup_path=backup_path, data_dir=str(self.data_dir))
+        if result:
+            # 重新載入記憶體
+            self._load_data_internal()
+            return True
+        raise RuntimeError("Go backup-restore 回傳失敗")
 
     def get_backup_list(self) -> list[str]:
         """
@@ -627,12 +605,10 @@ class JSONDBManager:
         Returns:
             備份檔案路徑清單 (按時間排序)
         """
-        if self._GO_DB_AVAILABLE:
-            result = _go_db_backup_list(data_dir=str(self.data_dir))
-            if result is not None:
-                return result
-            raise RuntimeError("Go backup-list 回傳空結果")
-        raise RuntimeError("Go CLI 不可用，無法列出備份")
+        result = _go_db_backup_list(data_dir=str(self.data_dir))
+        if result is not None:
+            return result
+        raise RuntimeError("Go backup-list 回傳空結果")
 
     def cleanup_old_backups(self, days: int = None, max_count: int = None) -> int:
         """
@@ -652,12 +628,10 @@ class JSONDBManager:
         if max_count is None:
             max_count = self.DEFAULT_BACKUP_MAX_COUNT
 
-        if self._GO_DB_AVAILABLE:
-            deleted = _go_db_backup_cleanup(
-                data_dir=str(self.data_dir), days=days, max_count=max_count
-            )
-            return deleted
-        raise RuntimeError("Go CLI 不可用，無法清理備份")
+        deleted = _go_db_backup_cleanup(
+            data_dir=str(self.data_dir), days=days, max_count=max_count
+        )
+        return deleted
 
     @staticmethod
     def _is_backup_expired(backup_file: Path, cutoff_date: datetime) -> bool:
@@ -760,46 +734,45 @@ class JSONDBManager:
         Returns:
             影片番號 (新建或已更新)
         """
-        if self._GO_DB_AVAILABLE:
-            # 先建構 merged dict（與 Python 路徑相同邏輯）
-            try:
-                if isinstance(code, dict):
-                    if info is not None:
-                        raise ValidationError("傳入影片字典時不可同時提供 info")
-                    video_info = code.copy()
-                    video_code = video_info.get("code")
-                else:
-                    if not isinstance(info, dict):
-                        raise ValidationError("影片資訊必須是字典")
-                    video_code = code
-                    video_info = info.copy()
+        # 先建構 merged dict
+        try:
+            if isinstance(code, dict):
+                if info is not None:
+                    raise ValidationError("傳入影片字典時不可同時提供 info")
+                video_info = code.copy()
+                video_code = video_info.get("code")
+            else:
+                if not isinstance(info, dict):
+                    raise ValidationError("影片資訊必須是字典")
+                video_code = code
+                video_info = info.copy()
 
-                if not isinstance(video_code, str) or not video_code:
-                    raise ValidationError("影片番號必須存在")
+            if not isinstance(video_code, str) or not video_code:
+                raise ValidationError("影片番號必須存在")
 
-                merged_dict = get_empty_video()
-                merged_dict["code"] = video_code
-                merged_dict.update(video_info)
-                merged_dict["updated_at"] = datetime.now(UTC).strftime(
-                    ISO_DATETIME_FORMAT
-                )
+            merged_dict = get_empty_video()
+            merged_dict["code"] = video_code
+            merged_dict.update(video_info)
+            merged_dict["updated_at"] = datetime.now(UTC).strftime(
+                ISO_DATETIME_FORMAT
+            )
 
-                success = _go_db_update_video(
-                    video_code, merged_dict, data_dir=str(self.data_dir)
-                )
-                if success:
-                    # 同步記憶體快取
-                    self.data["videos"][video_code] = merged_dict
-                    self._cache_statistics()
-                    logger.info(f"✅ 影片已新增/更新 (Go): {video_code}")
-                    return video_code
-                # Go 回傳失敗，fallback 到 Python
-            except (ValidationError, DataIntegrityError):
-                raise
-            except Exception as e:
-                logger.warning(f"⚠️ Go 委派 add_or_update_video 失敗，切換 Python: {e}")
-
-        raise RuntimeError(f"Go CLI 不可用，無法新增/更新影片: {code}")
+            success = _go_db_update_video(
+                video_code, merged_dict, data_dir=str(self.data_dir)
+            )
+            if success:
+                # 同步記憶體快取
+                self.data["videos"][video_code] = merged_dict
+                self._cache_statistics()
+                logger.info(f"✅ 影片已新增/更新 (Go): {video_code}")
+                return video_code
+            raise RuntimeError(f"Go db_update_video 回傳失敗: {video_code}")
+        except (ValidationError, DataIntegrityError):
+            raise
+        except RuntimeError:
+            raise
+        except Exception as e:
+            raise RuntimeError(f"Go 委派 add_or_update_video 失敗: {e}") from e
 
     def get_video_info(self, code: str) -> VideoDict | None:
         """
@@ -811,21 +784,18 @@ class JSONDBManager:
         Returns:
             影片資訊，若不存在則返回 None
         """
-        if self._GO_DB_AVAILABLE:
-            try:
-                result = _go_db_get_video(code, data_dir=str(self.data_dir))
-                if result is not None:
-                    logger.debug(f"✅ 查詢影片成功 (Go): {code}")
-                else:
-                    logger.debug(f"⚠️ 影片不存在 (Go): {code}")
-                return result
-            except _GoBridgeNotFoundError:
+        try:
+            result = _go_db_get_video(code, data_dir=str(self.data_dir))
+            if result is not None:
+                logger.debug(f"✅ 查詢影片成功 (Go): {code}")
+            else:
                 logger.debug(f"⚠️ 影片不存在 (Go): {code}")
-                return None
-            except _GoBridgeError as e:
-                raise RuntimeError(f"Go CLI 執行失敗: {e}") from e
-
-        return self.data.get("videos", {}).get(code)
+            return result
+        except _GoBridgeNotFoundError:
+            logger.debug(f"⚠️ 影片不存在 (Go): {code}")
+            return None
+        except _GoBridgeError as e:
+            raise RuntimeError(f"Go CLI 執行失敗: {e}") from e
 
     def get_all_videos(
         self, filter_dict: dict[str, Any] | None = None
@@ -840,19 +810,18 @@ class JSONDBManager:
         Returns:
             影片清單
         """
-        if self._GO_DB_AVAILABLE:
-            try:
-                videos = _go_db_get_all_videos(data_dir=str(self.data_dir))
-                # 確保每個影片有 code 欄位（與 Python 實作一致）
-                for v in videos:
-                    if "code" not in v and "id" in v:
-                        v["code"] = v["id"]
-                if filter_dict:
-                    videos = self._apply_video_filters(videos, filter_dict)
-                logger.debug(f"✅ 取得 {len(videos)} 個影片 (Go)")
-                return videos
-            except Exception as e:
-                logger.warning(f"⚠️ Go 委派 get_all_videos 失敗，從記憶體返回: {e}")
+        try:
+            videos = _go_db_get_all_videos(data_dir=str(self.data_dir))
+            # 確保每個影片有 code 欄位（與 Python 實作一致）
+            for v in videos:
+                if "code" not in v and "id" in v:
+                    v["code"] = v["id"]
+            if filter_dict:
+                videos = self._apply_video_filters(videos, filter_dict)
+            logger.debug(f"✅ 取得 {len(videos)} 個影片 (Go)")
+            return videos
+        except Exception as e:
+            logger.warning(f"⚠️ Go 委派 get_all_videos 失敗，從記憶體返回: {e}")
 
         videos = self.data.get("videos", {})
         video_list = [
@@ -875,25 +844,23 @@ class JSONDBManager:
         Returns:
             成功則返回 True，若影片不存在則返回 False
         """
-        if self._GO_DB_AVAILABLE:
-            try:
-                result = _go_db_delete_video(code, data_dir=str(self.data_dir))
-                if result:
-                    # 同步記憶體快取：移除影片和相關關聯
-                    self.data["videos"].pop(code, None)
-                    links = self.data.get("links", [])
-                    self.data["links"] = [
-                        link for link in links if link.get("video_code") != code
-                    ]
-                    self._cache_statistics()
-                    logger.info(f"✅ 影片已刪除 (Go): {code}")
-                else:
-                    logger.warning(f"⚠️ 影片不存在或刪除失敗 (Go): {code}")
-                return result
-            except Exception as e:
-                logger.warning(f"⚠️ Go 委派 delete_video 失敗: {e}")
-                raise RuntimeError(f"Go delete_video 失敗: {code}: {e}") from e
-        raise RuntimeError(f"Go CLI 不可用，無法刪除影片: {code}")
+        try:
+            result = _go_db_delete_video(code, data_dir=str(self.data_dir))
+            if result:
+                # 同步記憶體快取：移除影片和相關關聯
+                self.data["videos"].pop(code, None)
+                links = self.data.get("links", [])
+                self.data["links"] = [
+                    link for link in links if link.get("video_code") != code
+                ]
+                self._cache_statistics()
+                logger.info(f"✅ 影片已刪除 (Go): {code}")
+            else:
+                logger.warning(f"⚠️ 影片不存在或刪除失敗 (Go): {code}")
+            return result
+        except Exception as e:
+            logger.warning(f"⚠️ Go 委派 delete_video 失敗: {e}")
+            raise RuntimeError(f"Go delete_video 失敗: {code}: {e}") from e
 
     def add_or_update_actress(self, actress_info: ActressDict) -> str:
         """
@@ -919,21 +886,23 @@ class JSONDBManager:
 
         actress_id = actress_info.get("id")
 
-        if self._GO_DB_AVAILABLE and actress_id:
-            try:
-                success = _go_db_update_actress(actress_id, actress_info, data_dir=str(self.data_dir))
-                if success:
-                    self.data["actresses"][actress_id] = actress_info
-                    self._cache_statistics()
-                    logger.info(f"✅ 女優已新增/更新（Go）: {actress_id}")
-                    return actress_id
-            except (ValidationError, DataIntegrityError):
-                raise
-            except Exception as e:
-                logger.warning(f"⚠️ Go 委派 add_or_update_actress 失敗: {e}")
-                raise RuntimeError(f"Go add_or_update_actress 失敗: {actress_id}: {e}") from e
+        if not actress_id:
+            raise ValidationError("女優 ID 不得為空")
 
-        raise RuntimeError(f"Go CLI 不可用，無法新增/更新女優: {actress_id}")
+        try:
+            success = _go_db_update_actress(actress_id, actress_info, data_dir=str(self.data_dir))
+            if success:
+                self.data["actresses"][actress_id] = actress_info
+                self._cache_statistics()
+                logger.info(f"✅ 女優已新增/更新（Go）: {actress_id}")
+                return actress_id
+        except (ValidationError, DataIntegrityError):
+            raise
+        except Exception as e:
+            logger.warning(f"⚠️ Go 委派 add_or_update_actress 失敗: {e}")
+            raise RuntimeError(f"Go add_or_update_actress 失敗: {actress_id}: {e}") from e
+
+        raise RuntimeError(f"Go db_update_actress 回傳失敗: {actress_id}")
 
     def get_actress_info(self, actress_id: str) -> ActressDict | None:
         """
@@ -949,21 +918,18 @@ class JSONDBManager:
             LockError: 若無法獲得讀鎖定
         """
         # Go 委派
-        if self._GO_DB_AVAILABLE:
-            try:
-                result = _go_db_get_actress(actress_id, data_dir=str(self.data_dir))
-                if result is not None:
-                    logger.debug(f"✅ 查詢女優成功 (Go): {actress_id}")
-                else:
-                    logger.debug(f"⚠️ 女優不存在 (Go): {actress_id}")
-                return result
-            except _GoBridgeNotFoundError:
+        try:
+            result = _go_db_get_actress(actress_id, data_dir=str(self.data_dir))
+            if result is not None:
+                logger.debug(f"✅ 查詢女優成功 (Go): {actress_id}")
+            else:
                 logger.debug(f"⚠️ 女優不存在 (Go): {actress_id}")
-                return None
-            except _GoBridgeError as e:
-                raise RuntimeError(f"Go CLI 執行失敗: {e}") from e
-
-        return self.data.get("actresses", {}).get(actress_id)
+            return result
+        except _GoBridgeNotFoundError:
+            logger.debug(f"⚠️ 女優不存在 (Go): {actress_id}")
+            return None
+        except _GoBridgeError as e:
+            raise RuntimeError(f"Go CLI 執行失敗: {e}") from e
 
     def delete_actress(self, actress_id: str) -> bool:
         """
@@ -982,25 +948,22 @@ class JSONDBManager:
             CorruptedDataError: 若刪除失敗
         """
         # Go 委派
-        if self._GO_DB_AVAILABLE:
-            try:
-                result = _go_db_delete_actress(actress_id, data_dir=str(self.data_dir))
-                if result:
-                    self.data["actresses"].pop(actress_id, None)
-                    links = self.data.get("links", [])
-                    self.data["links"] = [
-                        link for link in links if link.get("actress_id") != actress_id
-                    ]
-                    self._cache_statistics()
-                    logger.info(f"✅ 女優已刪除 (Go): {actress_id}")
-                else:
-                    logger.warning(f"⚠️ 女優不存在或刪除失敗 (Go): {actress_id}")
-                return result
-            except Exception as e:
-                logger.warning(f"⚠️ Go 委派 delete_actress 失敗: {e}")
-                raise RuntimeError(f"Go delete_actress 失敗: {actress_id}: {e}") from e
-
-        raise RuntimeError(f"Go CLI 不可用，無法刪除女優: {actress_id}")
+        try:
+            result = _go_db_delete_actress(actress_id, data_dir=str(self.data_dir))
+            if result:
+                self.data["actresses"].pop(actress_id, None)
+                links = self.data.get("links", [])
+                self.data["links"] = [
+                    link for link in links if link.get("actress_id") != actress_id
+                ]
+                self._cache_statistics()
+                logger.info(f"✅ 女優已刪除 (Go): {actress_id}")
+            else:
+                logger.warning(f"⚠️ 女優不存在或刪除失敗 (Go): {actress_id}")
+            return result
+        except Exception as e:
+            logger.warning(f"⚠️ Go 委派 delete_actress 失敗: {e}")
+            raise RuntimeError(f"Go delete_actress 失敗: {actress_id}: {e}") from e
 
     # ========================================================================
     # 輔助方法
@@ -1194,13 +1157,12 @@ class JSONDBManager:
             LockError: 若無法獲得讀鎖定
         """
         # Go 委派
-        if self._GO_DB_AVAILABLE:
-            from services.go_api.db import db_get_actress_stats
-            result = db_get_actress_stats(data_dir=str(self.data_dir))
-            if result is not None:
-                return result
+        from services.go_api.db import db_get_actress_stats
+        result = db_get_actress_stats(data_dir=str(self.data_dir))
+        if result is not None:
+            return result
 
-        raise RuntimeError("Go CLI 不可用，無法計算女優統計")
+        raise RuntimeError("Go get_actress_stats 回傳空結果")
 
     def _compute_actress_statistics_internal(self) -> list[dict[str, Any]]:
         """
@@ -1281,13 +1243,12 @@ class JSONDBManager:
             LockError: 若無法獲得讀鎖定
         """
         # Go 委派
-        if self._GO_DB_AVAILABLE:
-            from services.go_api.db import db_get_studio_stats
-            result = db_get_studio_stats(data_dir=str(self.data_dir))
-            if result is not None:
-                return result
+        from services.go_api.db import db_get_studio_stats
+        result = db_get_studio_stats(data_dir=str(self.data_dir))
+        if result is not None:
+            return result
 
-        raise RuntimeError("Go CLI 不可用，無法計算片商統計")
+        raise RuntimeError("Go get_studio_stats 回傳空結果")
 
     def _compute_studio_statistics_internal(self) -> list[dict[str, Any]]:
         """

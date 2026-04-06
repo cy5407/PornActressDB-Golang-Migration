@@ -74,19 +74,6 @@ class TestGetVideoInfoDelegation(unittest.TestCase):
         self.assertEqual(args[0], "SONE-001")
         self.assertEqual(result["title"], "Go 標題")
 
-    def test_get_video_info_skips_go_when_unavailable(self):
-        """Go 不可用時直接使用 Python 記憶體查詢。"""
-        db = _make_db_with_go(self._tmp_path, go_available=False)
-
-        with patch(
-            "models.incremental_json_database._go_db_get_video"
-        ) as mock_go:
-            result = db.get_video_info("SONE-001")
-
-        mock_go.assert_not_called()
-        self.assertIsNotNone(result)
-        self.assertEqual(result["code"], "SONE-001")
-
     def test_get_video_info_falls_back_on_go_error(self):
         """Go 拋出例外時 fallback 到 Python。"""
         from services.go_runner import GoBridgeError
@@ -169,18 +156,6 @@ class TestUpdateVideoDelegation(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 db.update_video("SONE-001", {"title": "fallback 標題"})
 
-    def test_update_video_skips_go_when_unavailable(self):
-        """Go 不可用時應 raise RuntimeError。"""
-        db = _make_db_with_go(self._tmp_path, go_available=False)
-
-        with patch(
-            "models.incremental_json_database._go_db_update_video"
-        ) as mock_go:
-            with self.assertRaises(RuntimeError):
-                db.update_video("SONE-001", {"title": "Python 標題"})
-
-        mock_go.assert_not_called()
-
     def test_update_video_raises_for_nonexistent_video(self):
         """更新不存在的影片時應拋出 JSONDatabaseError。"""
         from src.models.json_types import JSONDatabaseError
@@ -195,10 +170,10 @@ class TestUpdateVideoDelegation(unittest.TestCase):
 
         mock_go.assert_not_called()
 
-    def test_go_db_available_attribute_exists(self):
-        """確認 _GO_DB_AVAILABLE 類別屬性存在。"""
+    def test_go_db_available_attribute_does_not_exist(self):
+        """確認 _GO_DB_AVAILABLE 類別屬性已移除（Phase 10 重構）。"""
         from models.incremental_json_database import IncrementalJSONDB
-        self.assertIn("_GO_DB_AVAILABLE", IncrementalJSONDB.__dict__)
+        self.assertNotIn("_GO_DB_AVAILABLE", IncrementalJSONDB.__dict__)
 
 
 class TestAddDeleteVideoDelegation(unittest.TestCase):
@@ -223,13 +198,6 @@ class TestAddDeleteVideoDelegation(unittest.TestCase):
         self.assertEqual(video_arg["title"], "新增標題")
         self.assertIn("SONE-777", db.base_db.data["videos"])
 
-    def test_add_video_raises_when_go_unavailable(self):
-        db = _make_db_with_go(self._tmp_path, go_available=False)
-        with patch("models.incremental_json_database._go_db_update_video") as mock_go:
-            with self.assertRaises(RuntimeError):
-                db.add_video({"code": "SONE-888", "title": "Python"})
-        mock_go.assert_not_called()
-
     def test_delete_video_calls_go_when_available(self):
         db = _make_db_with_go(self._tmp_path, go_available=True)
         db.base_db.data["videos"]["SONE-999"] = {"code": "SONE-999", "title": "刪除標題"}
@@ -239,13 +207,6 @@ class TestAddDeleteVideoDelegation(unittest.TestCase):
 
         mock_go.assert_called_once_with("SONE-999", str(db.data_dir))
         self.assertNotIn("SONE-999", db.base_db.data["videos"])
-
-    def test_delete_video_raises_when_go_unavailable(self):
-        db = _make_db_with_go(self._tmp_path, go_available=False)
-        with patch("models.incremental_json_database._go_db_delete_video") as mock_go:
-            with self.assertRaises(RuntimeError):
-                db.delete_video("SONE-000")
-        mock_go.assert_not_called()
 
 
 if __name__ == "__main__":
