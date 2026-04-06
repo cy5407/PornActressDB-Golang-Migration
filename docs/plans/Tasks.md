@@ -157,3 +157,22 @@
 
 ### 廃除條件
 - `ProgressThrottler`、`SafeGUIUpdater` 與 `main_gui.py` 內的 Tkinter 進度輪詢/after 更新機制。
+
+## 補充：已確認但 Tasks.md 先前漏寫的實作範圍
+
+### 已存在的 Go 核心能力
+- `pkg/app/scan_service.go`：`ScanFiles(req ScanRequest)`，實際支援 `Workers` 與 `Recursive` 參數，掃描時僅處理支援格式並回傳 `contracts.ScanResult`。
+- `pkg/app/move_service.go`：除單檔與批次移動外，還有 `MoveDir`、`BatchMoveStdin`，且所有搬移都支援 `dryRun` 與 `logDir`。
+- `pkg/app/history_service.go`：除 `ListOperations`、`Rollback` 外，還有 `ShowOperation`，對應前端詳情視窗會需要獨立查詢單筆操作。
+
+### Tasks.md 需要補上的細節
+- 主視窗的 React 元件清單應補上 `VideoCard`、`SearchPanel`、`StatusBar`，因為它們在計畫文件中已列入核心 UI 組成。
+- `ScanDirectory` 的 binding 說明應補上 `workers` 與 `recursive`，否則無法對齊目前 Go 的 `ScanRequest`。
+- `MoveFiles` 的設計應明確涵蓋 `MoveDir` 與 `BatchMoveStdin`，避免只寫到單一檔案搬移。
+- `OperationHistoryDialog` 的 binding 應補上 `GetOperation` 對應 `ShowOperation`，否則詳情視窗的資料來源不完整。
+- 若前端要完整顯示搬移歷史，`RollbackLast` 與 `RollbackOperation` 的差異也應在後續實作說明中分開標註。
+
+### 驗收標準補充
+- 掃描可依 `workers` 與 `recursive` 參數切換行為。
+- 搬移模組可同時處理單檔、資料夾與 stdin 批次輸入。
+- 歷史視窗可獨立查詢單筆操作詳情後再執行回滾。
