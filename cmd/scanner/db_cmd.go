@@ -163,6 +163,7 @@ func dbFixStudiosCmd(args []string) {
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
 	studiosFile := fs.String("studios", "studios.json", "片商規則檔案路徑")
 	forceFlag := fs.Bool("force", false, "強制覆蓋已有片商資料（非 UNKNOWN）")
+	_ = fs.Bool("json", false, "輸出 JSON 格式（預設即為 JSON，保留相容性）")
 	parseFlagsOrExit(fs, args)
 
 	// 載入片商識別器
