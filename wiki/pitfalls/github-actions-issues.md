@@ -270,6 +270,64 @@ permissions:
 
 ---
 
+## Issue 20：Go Bridge 在 Linux CI 上找不到 `classifier` binary，導致 Phase 6 fallback 移除後全部測試失敗
+
+**症狀**：Phase 6A-1 agent 移除 Python fallback 後，CI 上 16 個 extractor 測試全部回傳 `None`（應回傳番號）。只有「預期 `None`」的 FC2/PPV 和無效檔名測試通過。
+
+**根本原因鏈**：
+
+```
+Linux CI builds → classifier (無 .exe)
+  ↓ 
+GoBridge._find_exe() 只找 classifier.exe
+  ↓
+Path.cwd() / "classifier.exe" 不存在
+shutil.which("classifier") 只搜 PATH（project root 不在 PATH）
+  ↓
+is_available = False
+  ↓
+_extract_code_via_go() 回傳 None
+  ↓
+Python fallback 已被 Phase 6A-1 移除
+  ↓
+extract_code() 回傳 None（所有有效番號）
+```
+
+**修正**：`go_bridge.py` `_find_exe()` 改為跨平台搜尋
+
+```python
+# 修正前：只找 classifier.exe
+possible_paths = [
+    Path(__file__).parent.parent.parent / "classifier.exe",
+    Path.cwd() / "classifier.exe",
+    ...
+]
+
+# 修正後：Windows 優先 .exe，Linux 優先無副檔名
+exe_names = ["classifier.exe", "classifier"] if is_windows else ["classifier", "classifier.exe"]
+search_dirs = [Path(__file__).parent.parent.parent, Path.cwd(), ...]
+for name in exe_names:
+    for base in search_dirs:
+        if (base / name).exists():
+            return str((base / name).resolve())
+```
+
+**`.gitignore` 補充**：
+
+```gitignore
+# Linux/macOS Go build artifacts (no extension)
+classifier
+scanner
+ralph-loop
+```
+
+**教訓**：
+- `.gitignore` 只寫 `*.exe` 不夠，Linux CI 產生的無副檔名 binary 也需要忽略
+- Go bridge `is_available` 失效時，刪除 Python fallback 會造成「靜默失敗」（全部回傳 `None`，無錯誤訊息）
+- Phase 6 移除 Python fallback 前，必須先確認 Go bridge 在目標平台（Linux CI）上正確工作
+
+---
+
 ## 附錄：GitHub Actions 觸發類型差異
 
 | 觸發類型 | 支援 `branches` 過濾 | 執行分支 |

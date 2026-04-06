@@ -41,28 +41,34 @@ class GoBridge:
         self._runner = GoCommandRunner(self.exe_path)
     
     def _find_exe(self) -> str:
-        """自動偵測 classifier.exe 位置"""
-        possible_paths = [
-            Path(getattr(sys, "_MEIPASS", "")) / "classifier.exe",
-            Path(__file__).parent.parent.parent / "classifier.exe",
-            Path.cwd() / "classifier.exe",
-            Path(os.environ.get("PROGRAMFILES", "")) / "classifier" / "classifier.exe",
+        """自動偵測 classifier.exe / classifier 位置（跨平台）"""
+        is_windows = platform.system() == "Windows"
+        exe_names = ["classifier.exe", "classifier"] if is_windows else ["classifier", "classifier.exe"]
+
+        search_dirs = [
+            Path(getattr(sys, "_MEIPASS", "")),
+            Path(__file__).parent.parent.parent,
+            Path.cwd(),
+            Path(os.environ.get("PROGRAMFILES", "")) / "classifier",
         ]
-        
-        for path in possible_paths:
-            if path.exists():
-                resolved = str(path.resolve())
-                if platform.system() != "Windows" and not os.access(resolved, os.X_OK):
-                    logger.warning(f"⚠️ 找到 {resolved} 但缺少執行權限（+x）")
-                    continue
-                return resolved
-        
+
+        for name in exe_names:
+            for base in search_dirs:
+                path = base / name
+                if path.exists():
+                    resolved = str(path.resolve())
+                    if not is_windows and not os.access(resolved, os.X_OK):
+                        logger.warning(f"⚠️ 找到 {resolved} 但缺少執行權限（+x）")
+                        continue
+                    return resolved
+
         import shutil
 
-        exe_in_path = shutil.which("classifier.exe") or shutil.which("classifier")
-        if exe_in_path:
-            return exe_in_path
-        
+        for name in exe_names:
+            found = shutil.which(name)
+            if found:
+                return found
+
         return "classifier.exe"  # 返回預設名稱，讓後續檢查失敗
     
     @property

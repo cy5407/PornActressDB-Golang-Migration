@@ -62,7 +62,15 @@
 
 ---
 
-## [2026-04-06] pitfall | Phase 6 Workflow 四個新問題（Issue 16-19）
+## [2026-04-06] fix | Go Bridge Linux binary 偵測失敗（Issue 20）
+
+**涉及檔案**：
+- `src/services/go_bridge.py` — `_find_exe()` 跨平台修正
+- `.gitignore` — 補上 Linux binary（classifier, scanner, ralph-loop）
+
+**根因**：`_find_exe()` 只搜尋 `classifier.exe`，在 Linux CI 上找不到 `classifier`（無副檔名），導致 `is_available = False`。Phase 6A-1 移除 Python fallback 後，所有番號提取返回 None（靜默失敗）。
+
+**踩坑**：Issue 20（見 pitfalls/github-actions-issues.md）
 
 **背景**：規劃 Phase 6（刪除 Python fallback）並設定 GitHub Actions 自動執行期間，連續發現四個 CI/CD 設定問題。
 

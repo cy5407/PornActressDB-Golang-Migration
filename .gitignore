@@ -99,6 +99,10 @@ _build/
 # Go 相關
 *.exe
 *.exe~
+# Linux/macOS Go build artifacts (no extension)
+classifier
+scanner
+ralph-loop
 *.dll
 *.so
 *.dylib
