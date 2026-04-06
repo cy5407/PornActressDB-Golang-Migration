@@ -128,3 +128,80 @@ def cache_delete(
         return False
 
     return isinstance(data, dict) and bool(data.get("success"))
+
+
+def cache_get_stats(
+    cache_dir: str = "cache",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> dict:
+    """取得快取統計資訊（磁碟端）。"""
+    r = _get_runner(runner)
+    cmd = ["cache", "stats", "-cache-dir", cache_dir]
+    try:
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        return data if isinstance(data, dict) else {}
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 快取統計失敗: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"❌ 快取統計失敗: {e}")
+        return {}
+
+
+def cache_prune(
+    cache_dir: str = "cache",
+    ttl_days: int = 7,
+    max_size_mb: int = 500,
+    min_keep: int = 100,
+    dry_run: bool = False,
+    *,
+    runner: GoCommandRunner | None = None,
+) -> dict:
+    """清理過期或超大的快取（委派給 Go `cache prune`）。"""
+    r = _get_runner(runner)
+    cmd = [
+        "cache", "prune",
+        "-cache-dir", cache_dir,
+        "-ttl-days", str(ttl_days),
+        "-max-size", str(max_size_mb),
+        "-min-keep", str(min_keep),
+    ]
+    if dry_run:
+        cmd.append("-dry-run")
+    try:
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        return data if isinstance(data, dict) else {}
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 快取清理失敗: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"❌ 快取清理失敗: {e}")
+        return {}
+
+
+def cache_clear(
+    cache_dir: str = "cache",
+    dry_run: bool = False,
+    *,
+    runner: GoCommandRunner | None = None,
+) -> dict:
+    """清空所有快取（委派給 Go `cache clear`）。"""
+    r = _get_runner(runner)
+    cmd = ["cache", "clear", "-cache-dir", cache_dir]
+    if dry_run:
+        cmd.append("-dry-run")
+    else:
+        cmd.append("-confirm")
+    try:
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        return data if isinstance(data, dict) else {}
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 清空快取失敗: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"❌ 清空快取失敗: {e}")
+        return {}

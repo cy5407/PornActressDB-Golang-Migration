@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -700,6 +701,96 @@ func (db *JSONDatabase) GetDeletedCodes() ([]string, error) {
 	return codes, nil
 }
 
+// GetActress 取得女優資訊
+func (db *JSONDatabase) GetActress(id string) (*ActressData, error) {
+	if id == "" {
+		return nil, ErrInvalidCode
+	}
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if !db.loaded {
+		return nil, ErrDatabaseNotLoaded
+	}
+	actress, exists := db.root.Actresses[id]
+	if !exists {
+		return nil, ErrNotFound
+	}
+	copy := *actress
+	return &copy, nil
+}
+
+// UpsertActress 新增或更新女優資訊（與 Python add_or_update_actress 相容）
+func (db *JSONDatabase) UpsertActress(actress *ActressData) error {
+	if actress == nil || actress.ID == "" {
+		return errors.New("actress id cannot be empty")
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if !db.loaded {
+		return ErrDatabaseNotLoaded
+	}
+	now := time.Now().UTC().Format(ISODateTimeFormat)
+	actress.UpdatedAt = now
+	isNew := false
+	if _, exists := db.root.Actresses[actress.ID]; !exists {
+		actress.CreatedAt = now
+		isNew = true
+	}
+	db.root.Actresses[actress.ID] = actress
+	op := OpUpdate
+	if isNew {
+		op = OpAdd
+	}
+	entry, err := NewJournalEntry(op, TypeActress, actress.ID, actress)
+	if err == nil {
+		if err2 := db.appendJournalEntry(entry); err2 == nil {
+			db.dirtyActresses[actress.ID] = true
+			db.journalSize++
+			_ = db.saveIndex()
+		}
+	}
+	return nil
+}
+
+// DeleteActress 刪除女優
+func (db *JSONDatabase) DeleteActress(id string) error {
+	if id == "" {
+		return ErrInvalidCode
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if !db.loaded {
+		return ErrDatabaseNotLoaded
+	}
+	if _, exists := db.root.Actresses[id]; !exists {
+		return ErrNotFound
+	}
+	delete(db.root.Actresses, id)
+	entry, err := NewJournalEntry(OpDelete, TypeActress, id, nil)
+	if err == nil {
+		if err2 := db.appendJournalEntry(entry); err2 == nil {
+			db.dirtyActresses[id] = true
+			db.journalSize++
+			_ = db.saveIndex()
+		}
+	}
+	return nil
+}
+
+// ListActresses 列出所有女優 ID
+func (db *JSONDatabase) ListActresses() ([]string, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if !db.loaded {
+		return nil, ErrDatabaseNotLoaded
+	}
+	ids := make([]string, 0, len(db.root.Actresses))
+	for id := range db.root.Actresses {
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 // MergeFromFile 從 JSON 檔案合併資料到目前資料庫
 func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*MergeStats, error) {
 	if strings.TrimSpace(sourceFile) == "" {
@@ -847,4 +938,72 @@ func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*Merge
 	}
 
 	return stats, nil
+}
+
+// GetActressStats 取得女優統計資訊（影片數排序）
+func (db *JSONDatabase) GetActressStats() ([]map[string]any, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if !db.loaded {
+		return nil, ErrDatabaseNotLoaded
+	}
+
+	actressCounts := make(map[string]int)
+	for _, video := range db.root.Videos {
+		if video == nil {
+			continue
+		}
+		for _, actressName := range video.Actresses {
+			actressCounts[actressName]++
+		}
+	}
+
+	results := make([]map[string]any, 0, len(actressCounts))
+	for name, count := range actressCounts {
+		results = append(results, map[string]any{
+			"actress_name": name,
+			"video_count":  count,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i]["video_count"].(int) > results[j]["video_count"].(int)
+	})
+
+	return results, nil
+}
+
+// GetStudioStats 取得片商統計資訊（影片數排序）
+func (db *JSONDatabase) GetStudioStats() ([]map[string]any, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if !db.loaded {
+		return nil, ErrDatabaseNotLoaded
+	}
+
+	studioCounts := make(map[string]int)
+	for _, video := range db.root.Videos {
+		if video == nil {
+			continue
+		}
+		studio := video.Studio
+		if studio == "" {
+			studio = "UNKNOWN"
+		}
+		studioCounts[studio]++
+	}
+
+	results := make([]map[string]any, 0, len(studioCounts))
+	for studio, count := range studioCounts {
+		results = append(results, map[string]any{
+			"studio":      studio,
+			"video_count": count,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i]["video_count"].(int) > results[j]["video_count"].(int)
+	})
+
+	return results, nil
 }

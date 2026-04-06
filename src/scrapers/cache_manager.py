@@ -570,6 +570,26 @@ class CacheManager:
         """
         result = {"deleted_files": 0, "freed_bytes": 0, "remaining_files": 0}
 
+        # Go 委派（速度更快，避免 Python index 鎖競爭）
+        if self._GO_CACHE_AVAILABLE:
+            try:
+                from src.services.go_api.cache import cache_prune
+                go_result = cache_prune(
+                    cache_dir=str(self.cache_dir),
+                    ttl_days=ttl_days,
+                    max_size_mb=9999,
+                    min_keep=min_keep_entries,
+                )
+                if go_result:
+                    logger.info(f"🧹 Go 快取清理完成: {go_result}")
+                    return {
+                        "deleted_files": go_result.get("deleted_count", 0),
+                        "freed_bytes": int(go_result.get("freed_bytes", 0)),
+                        "remaining_files": go_result.get("remaining_count", 0),
+                    }
+            except Exception as e:
+                logger.warning(f"⚠️ Go 快取清理失敗，降級 Python: {e}")
+
         try:
             ttl_seconds = ttl_days * 24 * 3600
             current_time = time.time()
@@ -657,6 +677,27 @@ class CacheManager:
             "remaining_files": 0,
             "current_size_mb": 0.0,
         }
+
+        # Go 委派
+        if self._GO_CACHE_AVAILABLE:
+            try:
+                from src.services.go_api.cache import cache_prune
+                go_result = cache_prune(
+                    cache_dir=str(self.cache_dir),
+                    ttl_days=9999,
+                    max_size_mb=max_size_mb,
+                    min_keep=min_keep_entries,
+                )
+                if go_result:
+                    logger.info(f"🧹 Go 大小清理完成: {go_result}")
+                    return {
+                        "deleted_files": go_result.get("deleted_count", 0),
+                        "freed_bytes": int(go_result.get("freed_bytes", 0)),
+                        "remaining_files": go_result.get("remaining_count", 0),
+                        "current_size_mb": go_result.get("current_size_mb", 0.0),
+                    }
+            except Exception as e:
+                logger.warning(f"⚠️ Go 大小清理失敗，降級 Python: {e}")
 
         try:
             max_size_bytes = max_size_mb * 1024 * 1024
@@ -751,6 +792,17 @@ class CacheManager:
                 'average_access_count': 平均存取次數
             }
         """
+        # Go 委派
+        if self._GO_CACHE_AVAILABLE:
+            try:
+                from src.services.go_api.cache import cache_get_stats
+                go_result = cache_get_stats(cache_dir=str(self.cache_dir))
+                if go_result:
+                    go_result["memory_cache_entries"] = len(self.memory_cache)
+                    return go_result
+            except Exception as e:
+                logger.warning(f"⚠️ Go 快取統計失敗，降級 Python: {e}")
+
         try:
             index_data = self._load_index()
             entries = index_data.get("entries", {})
@@ -816,6 +868,20 @@ class CacheManager:
             logger.warning("清除所有快取需要 confirm=True 參數")
             return False
 
+        # Go 委派
+        if self._GO_CACHE_AVAILABLE:
+            try:
+                from src.services.go_api.cache import cache_clear
+                result = cache_clear(cache_dir=str(self.cache_dir), dry_run=False)
+                if result:
+                    # 同步清空記憶體快取
+                    with self.memory_lock:
+                        self.memory_cache.clear()
+                    logger.info("🗑️ 已清除所有快取（Go）")
+                    return True
+            except Exception as e:
+                logger.warning(f"⚠️ Go 清空快取失敗，降級 Python: {e}")
+
         try:
             # 使用現有的 clear_cache 方法
             self.clear_cache()
@@ -845,6 +911,30 @@ class CacheManager:
             "total_deleted": 0,
             "total_freed_mb": 0.0,
         }
+
+        # Go 委派（一次性清理，比先後呼叫 cleanup_expired + cleanup_by_size 更有效率）
+        if self._GO_CACHE_AVAILABLE:
+            try:
+                from src.services.go_api.cache import cache_prune
+                go_result = cache_prune(
+                    cache_dir=str(self.cache_dir),
+                    ttl_days=ttl_days,
+                    max_size_mb=max_size_mb,
+                    min_keep=min_keep_entries,
+                )
+                if go_result:
+                    result["expired_cleanup"] = go_result
+                    result["size_cleanup"] = {}
+                    result["total_deleted"] = go_result.get("deleted_count", 0)
+                    result["total_freed_mb"] = go_result.get("freed_bytes", 0) / (1024 * 1024)
+                    if result["total_deleted"] > 0:
+                        logger.info(
+                            f"🧹 Go 自動清理完成: 共刪除 {result['total_deleted']} 個檔案，"
+                            f"釋放 {result['total_freed_mb']:.2f} MB"
+                        )
+                    return result
+            except Exception as e:
+                logger.warning(f"⚠️ Go 自動清理失敗，降級 Python: {e}")
 
         try:
             # 先清理過期

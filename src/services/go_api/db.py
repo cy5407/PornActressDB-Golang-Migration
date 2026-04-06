@@ -262,3 +262,162 @@ def db_fix_studios(
     except Exception as e:
         logger.error(f"❌ 片商批次修正失敗: {e}")
         return {"success": False, "updated": 0, "error": str(e)}
+
+
+def db_get_actress(
+    actress_id: str,
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> Optional[dict]:
+    """取得女優資訊。"""
+    r = _get_runner(runner)
+    cmd = ["db", "actress-get"]
+    if data_dir != "data/json_db":
+        cmd.extend(["-data-dir", data_dir])
+    cmd.append(actress_id)
+    try:
+        result = r.run(cmd)
+    except GoBridgeError as e:
+        if "not found" in str(e).lower():
+            return None
+        logger.error(f"❌ Go CLI 執行失敗 (女優 {actress_id}): {e}")
+        raise
+    output = result.stdout.strip()
+    if not output or output == "null":
+        return None
+    try:
+        data = r.parse_json(output)
+    except GoBridgeError as e:
+        logger.warning(f"⚠️ JSON 解析失敗 (女優 {actress_id}): {e}")
+        raise
+    return data if isinstance(data, dict) else None
+
+
+def db_update_actress(
+    actress_id: str,
+    actress: dict,
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> bool:
+    """新增或更新女優資訊。"""
+    r = _get_runner(runner)
+    temp_file = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as f:
+            json.dump(actress, f, ensure_ascii=False, indent=2)
+            temp_file = f.name
+        cmd = ["db", "actress-update"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+        cmd.extend(["-json", actress_id, temp_file])
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        if not isinstance(data, dict) or not data.get("success"):
+            raise GoBridgeError(f"actress-update 回傳非預期結果: {result.stdout[:200]}")
+        logger.info(f"✅ 女優 {actress_id} 更新成功")
+        return True
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 執行失敗，女優 {actress_id} 更新失敗: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ 更新女優失敗 {actress_id}: {e}")
+        return False
+    finally:
+        _cleanup_temp_file(temp_file, "db_update_actress")
+
+
+def db_delete_actress(
+    actress_id: str,
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> bool:
+    """刪除女優。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "actress-delete"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+        cmd.extend(["-json", actress_id])
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        if not isinstance(data, dict) or not data.get("success"):
+            raise GoBridgeError(f"actress-delete 回傳非預期結果: {result.stdout[:200]}")
+        logger.info(f"✅ 女優 {actress_id} 刪除成功")
+        return True
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 執行失敗，女優 {actress_id} 刪除失敗: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ 刪除女優失敗 {actress_id}: {e}")
+        return False
+
+
+def db_list_actresses(
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> list[str]:
+    """列出所有女優 ID。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "actress-list"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        return data if isinstance(data, list) else []
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 執行失敗，列出女優失敗: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"❌ 列出女優失敗: {e}")
+        return []
+
+
+def db_get_actress_stats(
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> list[dict]:
+    """取得女優統計資訊（按影片數排序）。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "stats", "--actress"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        return data if isinstance(data, list) else []
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 女優統計失敗: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"❌ 女優統計失敗: {e}")
+        return []
+
+
+def db_get_studio_stats(
+    data_dir: str = "data/json_db",
+    *,
+    runner: GoCommandRunner | None = None,
+) -> list[dict]:
+    """取得片商統計資訊（按影片數排序）。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "stats", "--studio"]
+        if data_dir != "data/json_db":
+            cmd.extend(["-data-dir", data_dir])
+        result = r.run(cmd)
+        data = r.parse_json(result.stdout)
+        return data if isinstance(data, list) else []
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 片商統計失敗: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"❌ 片商統計失敗: {e}")
+        return []

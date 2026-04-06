@@ -51,9 +51,12 @@ logger = logging.getLogger(__name__)
 # Go API 函式 — 在 Go CLI 可用時使用，不可用則 fallback 到 Python 實作
 try:
     from src.services.go_api.db import (
+        db_delete_actress as _go_db_delete_actress,
         db_delete_video as _go_db_delete_video,
+        db_get_actress as _go_db_get_actress,
         db_get_all_videos as _go_db_get_all_videos,
         db_get_video as _go_db_get_video,
+        db_update_actress as _go_db_update_actress,
         db_update_video as _go_db_update_video,
     )
     from src.services.go_runner import GoBridgeError as _GoBridgeError
@@ -967,6 +970,20 @@ class JSONDBManager:
 
             actress_id = actress_info.get("id")
 
+            # Go 委派
+            if self._GO_DB_AVAILABLE and actress_id:
+                try:
+                    success = _go_db_update_actress(actress_id, actress_info, data_dir=str(self.data_dir))
+                    if success:
+                        self.data["actresses"][actress_id] = actress_info
+                        self._cache_statistics()
+                        logger.info(f"✅ 女優已新增/更新（Go）: {actress_id}")
+                        return actress_id
+                except (ValidationError, DataIntegrityError):
+                    raise
+                except Exception as e:
+                    logger.warning(f"⚠️ Go 委派 add_or_update_actress 失敗，切換 Python: {e}")
+
             # 獲取寫鎖定
             self._acquire_write_lock()
 
@@ -1019,6 +1036,18 @@ class JSONDBManager:
         Raises:
             LockError: 若無法獲得讀鎖定
         """
+        # Go 委派
+        if self._GO_DB_AVAILABLE:
+            try:
+                result = _go_db_get_actress(actress_id, data_dir=str(self.data_dir))
+                if result is not None:
+                    logger.debug(f"✅ 查詢女優成功 (Go): {actress_id}")
+                else:
+                    logger.debug(f"⚠️ 女優不存在 (Go): {actress_id}")
+                return result
+            except Exception as e:
+                logger.warning(f"⚠️ Go 委派 get_actress_info 失敗，從記憶體查詢: {e}")
+
         try:
             # 獲取讀鎖定
             self._acquire_read_lock()
@@ -1060,6 +1089,25 @@ class JSONDBManager:
             LockError: 若無法獲得寫鎖定
             CorruptedDataError: 若刪除失敗
         """
+        # Go 委派
+        if self._GO_DB_AVAILABLE:
+            try:
+                result = _go_db_delete_actress(actress_id, data_dir=str(self.data_dir))
+                if result:
+                    self.data["actresses"].pop(actress_id, None)
+                    links = self.data.get("links", [])
+                    self.data["links"] = [
+                        link for link in links if link.get("actress_id") != actress_id
+                    ]
+                    self._cache_statistics()
+                    logger.info(f"✅ 女優已刪除 (Go): {actress_id}")
+                else:
+                    logger.warning(f"⚠️ 女優不存在或刪除失敗 (Go): {actress_id}")
+                return result
+            except Exception as e:
+                logger.warning(f"⚠️ Go 委派 delete_actress 失敗: {e}")
+                raise RuntimeError(f"Go delete_actress 失敗: {actress_id}: {e}") from e
+
         try:
             # 獲取寫鎖定
             self._acquire_write_lock()
@@ -1297,6 +1345,13 @@ class JSONDBManager:
         Raises:
             LockError: 若無法獲得讀鎖定
         """
+        # Go 委派
+        if self._GO_DB_AVAILABLE:
+            from services.go_api.db import db_get_actress_stats
+            result = db_get_actress_stats(data_dir=str(self.data_dir))
+            if result:
+                return result
+
         try:
             # 獲取讀鎖定
             self._acquire_read_lock()
@@ -1392,6 +1447,13 @@ class JSONDBManager:
         Raises:
             LockError: 若無法獲得讀鎖定
         """
+        # Go 委派
+        if self._GO_DB_AVAILABLE:
+            from services.go_api.db import db_get_studio_stats
+            result = db_get_studio_stats(data_dir=str(self.data_dir))
+            if result:
+                return result
+
         try:
             # 獲取讀鎖定
             self._acquire_read_lock()

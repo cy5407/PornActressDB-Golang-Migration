@@ -15,7 +15,7 @@ import (
 
 func dbCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios> [選項]")
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios|actress-get|actress-update|actress-delete|actress-list> [選項]")
 		os.Exit(1)
 	}
 
@@ -30,6 +30,8 @@ func dbCmd(args []string) {
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
 	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
 	fullOutput := fs.Bool("full", false, "輸出完整影片資料（僅 list 子命令）")
+	actressStats := fs.Bool("actress", false, "顯示女優統計")
+	studioStats := fs.Bool("studio", false, "顯示片商統計")
 	parseFlagsOrExit(fs, args[1:])
 	remaining := fs.Args()
 
@@ -116,12 +118,28 @@ func dbCmd(args []string) {
 			outputJSON(codes)
 		}
 	case "stats":
-		stats, err := db.GetStats()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "取得統計失敗: %v\n", err)
-			os.Exit(1)
+		if *actressStats {
+			stats, err := db.GetActressStats()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "取得女優統計失敗: %v\n", err)
+				os.Exit(1)
+			}
+			outputJSON(stats)
+		} else if *studioStats {
+			stats, err := db.GetStudioStats()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "取得片商統計失敗: %v\n", err)
+				os.Exit(1)
+			}
+			outputJSON(stats)
+		} else {
+			stats, err := db.GetStats()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "取得統計失敗: %v\n", err)
+				os.Exit(1)
+			}
+			outputJSON(stats)
 		}
-		outputJSON(stats)
 	case "compact":
 		if err := db.CompactJournal(); err != nil {
 			fmt.Fprintf(os.Stderr, "合併 journal 失敗: %v\n", err)
@@ -151,6 +169,77 @@ func dbCmd(args []string) {
 			os.Exit(1)
 		}
 		outputJSON(stats)
+	case "actress-get":
+		if len(remaining) < 1 {
+			fmt.Fprintln(os.Stderr, "用法: classifier.exe db actress-get <女優ID>")
+			os.Exit(1)
+		}
+		actress, err := db.GetActress(remaining[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "取得女優失敗: %v\n", err)
+			os.Exit(1)
+		}
+		outputJSON(actress)
+
+	case "actress-update":
+		if len(remaining) < 2 {
+			fmt.Fprintln(os.Stderr, "用法: classifier.exe db actress-update <女優ID> <JSON檔案>")
+			os.Exit(1)
+		}
+		actressID, jsonFile := remaining[0], remaining[1]
+		data, err := safefile.ReadFile(jsonFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "無法讀取 JSON 檔案: %v\n", err)
+			os.Exit(1)
+		}
+		var actress database.ActressData
+		if err := json.Unmarshal(data, &actress); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON 解析錯誤: %v\n", err)
+			os.Exit(1)
+		}
+		actress.ID = actressID
+		if err := db.UpsertActress(&actress); err != nil {
+			fmt.Fprintf(os.Stderr, "更新女優失敗: %v\n", err)
+			os.Exit(1)
+		}
+		if err := db.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
+			os.Exit(1)
+		}
+		if *jsonOutput {
+			outputJSON(map[string]any{"success": true, "action": "actress-update", "id": actressID})
+			return
+		}
+		printSuccess("女優 %s 更新成功", actressID)
+
+	case "actress-delete":
+		if len(remaining) < 1 {
+			fmt.Fprintln(os.Stderr, "用法: classifier.exe db actress-delete <女優ID>")
+			os.Exit(1)
+		}
+		actressID := remaining[0]
+		if err := db.DeleteActress(actressID); err != nil {
+			fmt.Fprintf(os.Stderr, "刪除女優失敗: %v\n", err)
+			os.Exit(1)
+		}
+		if err := db.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
+			os.Exit(1)
+		}
+		if *jsonOutput {
+			outputJSON(map[string]any{"success": true, "action": "actress-delete", "id": actressID})
+			return
+		}
+		printSuccess("女優 %s 刪除成功", actressID)
+
+	case "actress-list":
+		ids, err := db.ListActresses()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "列出女優失敗: %v\n", err)
+			os.Exit(1)
+		}
+		outputJSON(ids)
+
 	default:
 		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)
 		os.Exit(1)
