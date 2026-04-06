@@ -64,6 +64,7 @@ try:
         db_update_video as _go_db_update_video,
     )
     from src.services.go_runner import GoBridgeError as _GoBridgeError
+    from src.services.go_runner import GoBridgeNotFoundError as _GoBridgeNotFoundError
     _GO_DB_API_IMPORT_OK = True
 except ImportError:
     _GO_DB_API_IMPORT_OK = False
@@ -818,8 +819,11 @@ class JSONDBManager:
                 else:
                     logger.debug(f"⚠️ 影片不存在 (Go): {code}")
                 return result
-            except Exception as e:
-                logger.warning(f"⚠️ Go 委派 get_video_info 失敗，從記憶體查詢: {e}")
+            except _GoBridgeNotFoundError:
+                logger.debug(f"⚠️ 影片不存在 (Go): {code}")
+                return None
+            except _GoBridgeError as e:
+                raise RuntimeError(f"Go CLI 執行失敗: {e}") from e
 
         return self.data.get("videos", {}).get(code)
 
@@ -953,8 +957,11 @@ class JSONDBManager:
                 else:
                     logger.debug(f"⚠️ 女優不存在 (Go): {actress_id}")
                 return result
-            except Exception as e:
-                logger.warning(f"⚠️ Go 委派 get_actress_info 失敗，從記憶體查詢: {e}")
+            except _GoBridgeNotFoundError:
+                logger.debug(f"⚠️ 女優不存在 (Go): {actress_id}")
+                return None
+            except _GoBridgeError as e:
+                raise RuntimeError(f"Go CLI 執行失敗: {e}") from e
 
         return self.data.get("actresses", {}).get(actress_id)
 

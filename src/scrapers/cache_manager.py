@@ -30,6 +30,8 @@ try:
     from src.services.go_api.cache import cache_delete as _go_cache_delete
     from src.services.go_api.cache import cache_get as _go_cache_get
     from src.services.go_api.cache import cache_set as _go_cache_set
+    from src.services.go_runner import GoBridgeError as _GoBridgeError
+    from src.services.go_runner import GoBridgeNotFoundError as _GoBridgeNotFoundError
     _GO_CACHE_API_OK = True
 except ImportError:
     _GO_CACHE_API_OK = False
@@ -248,7 +250,9 @@ class CacheManager:
             return None
         try:
             return self._get_go(key)
-        except Exception as e:
+        except _GoBridgeNotFoundError:
+            return None
+        except _GoBridgeError as e:
             logger.warning(f"⚠️ Go 快取讀取失敗: {e}")
             return None
 

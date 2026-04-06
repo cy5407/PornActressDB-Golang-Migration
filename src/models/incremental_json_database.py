@@ -43,6 +43,7 @@ try:
     from src.services.go_api.db import (
         db_get_video as _go_db_get_video,
         db_update_video as _go_db_update_video,
+        db_delete_video as _go_db_delete_video,
     )
     from src.services.go_runner import GoBridgeError as _GoBridgeError
     _GO_DB_API_IMPORT_OK = True
@@ -332,43 +333,50 @@ class IncrementalJSONDB:
 
     def add_video(self, video: VideoDict):
         """
-        新增影片（快速操作）
+        新增影片（委派給 Go CLI）
 
         Args:
             video: 影片資料
+
+        Raises:
+            RuntimeError: Go CLI 不可用或失敗
         """
-        entry = JournalEntry(
-            operation=JOURNAL_OP_ADD,
-            entity_type="video",
-            entity_id=video["code"],
-            data=video,
-        )
-
-        self._append_journal(entry)
-
-        # 立即更新記憶體中的資料
-        self.base_db.data["videos"][video["code"]] = video
-
-        logger.debug(f"✅ 快速新增影片 {video['code']} 到 journal 並同步記憶體")
+        code = video["code"]
+        if self._GO_DB_AVAILABLE:
+            try:
+                if _go_db_update_video(code, video, str(self.data_dir)):
+                    self.base_db.data["videos"][code] = video
+                    logger.debug(f"✅ Go add_video 成功並同步記憶體: {code}")
+                    return
+                raise RuntimeError(f"Go add_video 回傳失敗: {code}")
+            except RuntimeError:
+                raise
+            except Exception as e:
+                raise RuntimeError(f"Go add_video 失敗: {code}: {e}") from e
+        raise RuntimeError(f"Go CLI 不可用，無法新增影片: {code}")
 
     def delete_video(self, code: str):
         """
-        刪除影片（快速操作）
+        刪除影片（委派給 Go CLI）
 
         Args:
             code: 影片番號
+
+        Raises:
+            RuntimeError: Go CLI 不可用或失敗
         """
-        entry = JournalEntry(
-            operation=JOURNAL_OP_DELETE, entity_type="video", entity_id=code
-        )
-
-        self._append_journal(entry)
-
-        # 立即更新記憶體中的資料
-        if code in self.base_db.data["videos"]:
-            del self.base_db.data["videos"][code]
-
-        logger.debug(f"✅ 快速刪除影片 {code} 標記到 journal 並同步記憶體")
+        if self._GO_DB_AVAILABLE:
+            try:
+                if _go_db_delete_video(code, str(self.data_dir)):
+                    self.base_db.data["videos"].pop(code, None)
+                    logger.debug(f"✅ Go delete_video 成功並同步記憶體: {code}")
+                    return
+                raise RuntimeError(f"Go delete_video 回傳失敗: {code}")
+            except RuntimeError:
+                raise
+            except Exception as e:
+                raise RuntimeError(f"Go delete_video 失敗: {code}: {e}") from e
+        raise RuntimeError(f"Go CLI 不可用，無法刪除影片: {code}")
 
     # ========================================================================
     # 相容性介面 (與 JSONDBManager 一致)

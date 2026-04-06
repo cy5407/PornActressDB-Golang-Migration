@@ -53,7 +53,7 @@ func NewCodeExtractor() *CodeExtractor {
 		resolutionRe: regexp.MustCompile(`(?i)[-_]?(1080p|720p|4K|HDR|HEVC|AVC|X264|X265)`),
 		techSuffixRe: regexp.MustCompile(`(?i)(?:[-_ ]?(?:30FPS|60FPS|120FPS|2160P|1080P|720P))+$`),
 		versionRe:    regexp.MustCompile(`(?i)[-_ ]?c\d*$`),
-		siteRe:       regexp.MustCompile(`(?i)^(hhd800\.com@|xxx\.com-)`),
+		siteRe:       regexp.MustCompile(`(?i)^([a-z0-9.-]+\.com[@-])`),
 		spaceRe:      regexp.MustCompile(`\s+`),
 		hyphenRe:     regexp.MustCompile(`-+`),
 

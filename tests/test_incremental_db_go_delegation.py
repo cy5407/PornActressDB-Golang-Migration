@@ -4,7 +4,8 @@
 驗證：
 1. get_video_info 在 Go 可用時委派給 db_get_video
 2. update_video 在 Go 可用時委派給 db_update_video
-3. Go 失敗時自動 fallback 到 Python 實作
+3. add_video / delete_video 在 Go 可用時委派給 Go CLI
+4. Go 失敗時不會默默寫入 Python journal
 """
 
 import json
@@ -198,6 +199,53 @@ class TestUpdateVideoDelegation(unittest.TestCase):
         """確認 _GO_DB_AVAILABLE 類別屬性存在。"""
         from models.incremental_json_database import IncrementalJSONDB
         self.assertIn("_GO_DB_AVAILABLE", IncrementalJSONDB.__dict__)
+
+
+class TestAddDeleteVideoDelegation(unittest.TestCase):
+    """add_video / delete_video 委派測試"""
+
+    def setUp(self):
+        import tempfile
+
+        self._tmp = tempfile.mkdtemp()
+        self._tmp_path = Path(self._tmp)
+
+    def test_add_video_calls_go_when_available(self):
+        db = _make_db_with_go(self._tmp_path, go_available=True)
+        video = {"code": "SONE-777", "title": "新增標題"}
+
+        with patch("models.incremental_json_database._go_db_update_video", return_value=True) as mock_go:
+            db.add_video(video)
+
+        mock_go.assert_called_once()
+        code_arg, video_arg = mock_go.call_args[0][:2]
+        self.assertEqual(code_arg, "SONE-777")
+        self.assertEqual(video_arg["title"], "新增標題")
+        self.assertIn("SONE-777", db.base_db.data["videos"])
+
+    def test_add_video_raises_when_go_unavailable(self):
+        db = _make_db_with_go(self._tmp_path, go_available=False)
+        with patch("models.incremental_json_database._go_db_update_video") as mock_go:
+            with self.assertRaises(RuntimeError):
+                db.add_video({"code": "SONE-888", "title": "Python"})
+        mock_go.assert_not_called()
+
+    def test_delete_video_calls_go_when_available(self):
+        db = _make_db_with_go(self._tmp_path, go_available=True)
+        db.base_db.data["videos"]["SONE-999"] = {"code": "SONE-999", "title": "刪除標題"}
+
+        with patch("models.incremental_json_database._go_db_delete_video", return_value=True) as mock_go:
+            db.delete_video("SONE-999")
+
+        mock_go.assert_called_once_with("SONE-999", str(db.data_dir))
+        self.assertNotIn("SONE-999", db.base_db.data["videos"])
+
+    def test_delete_video_raises_when_go_unavailable(self):
+        db = _make_db_with_go(self._tmp_path, go_available=False)
+        with patch("models.incremental_json_database._go_db_delete_video") as mock_go:
+            with self.assertRaises(RuntimeError):
+                db.delete_video("SONE-000")
+        mock_go.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -1,7 +1,55 @@
 # 專案程式碼巡檢持續追蹤報告
 
-最後更新：2026-04-02 16:35 (Asia/Taipei)
-基準提交：`7c71346` `Add automated security scan reports`
+最後更新：2026-04-06 17:41 (Asia/Taipei)
+基準提交：`da535ca` `fix(extractor): siteRe 通用化`
+
+---
+
+## 本輪巡檢（2026-04-06）— Python→Go 遷移現狀全盤盤點
+
+### 基線
+- **測試**：251 passed（`python -m pytest tests/ -q`）
+- **分支**：`phase9-migration`（比 `main` 新 3 commits：Phase 9 e2e + error handling + incremental db）
+- **Go 檔案數**：31 個（`pkg/` + `cmd/`）
+- **Python 檔案數**：52 個（`src/`）
+
+### 已完成（已在 commit 中驗證）
+
+| Phase | 內容 | commit |
+|-------|------|--------|
+| 6A-6D | Python fallback 全移除（~1217 行）| `8353136` |
+| 7-7E  | actress CRUD、backup、json_database 瘦身 | `559f8aa`~`6ddbf39` |
+| 8     | 移除 Phase 7 殘留 fallback（-328 行）| `558afed` |
+| 9     | OpenClaw e2e + error handling + incremental db | `ae66216` |
+| extractor | siteRe 通用化（489155.com@ 等前綴排除）| `da535ca` |
+
+### 本輪發現的殘留問題
+
+| 問題 | 位置 | 影響 |
+|------|------|------|
+| `_GO_DB_AVAILABLE` guard × 17 | `json_database.py`（1782 行）| 無意義 guard，可移除 ~200 行 |
+| `_GO_DB_AVAILABLE` guard × 4 | `incremental_json_database.py`（555 行）| Phase 9C 完成後清除 |
+| `_GO_CACHE_AVAILABLE` guard × 3 | `cache_manager.py`（754 行）| 可直接委派 Go |
+| `GoBridgeError` 語意不清 | `go_runner.py` | 無法區分 NotFound vs ExecError |
+| `add_video`/`delete_video` Python journal | `incremental_json_database.py` | 雙份業務邏輯（Phase 9C 目標）|
+| e2e 測試無 CI 自動化 | `.github/workflows/` | 本機需手動執行 classifier.exe 測試 |
+
+### 待辦 Todo（已入 SQL）
+
+| ID | 任務 | 優先 |
+|----|------|------|
+| `p9-merge` | phase9-migration → main | ⭐⭐⭐ 立即可做 |
+| `p9b-exception` | GoBridgeError 語意細化 | ⭐⭐⭐ 立即可做 |
+| `p9c-incremental` | IncrementalJSONDB add/delete 委派 Go | ⭐⭐ 待 merge 後 |
+| `p10-json-db-guards` | json_database.py 移除 17 個 guards | ⭐⭐ 待 merge 後 |
+| `p10-incremental-guards` | incremental_json_database.py guards 清除 | ⭐⭐ 待 p9c |
+| `p10-cache-guards` | cache_manager.py guards 清除 | ⭐⭐ 待 merge 後 |
+| `p10-slim-db` | json_database.py 瘦身 1782→800 行 | ⭐ 待 p10-json |
+| `p11-e2e-ci` | CI 自動執行 e2e 測試 | ⭐⭐ 待 merge 後 |
+| `doc-migration-status` | MIGRATION_STATUS.md 補 Phase 7-9 | ⭐ 待 merge 後 |
+| `doc-wiki-phase9` | wiki log + go-bridge.md Phase 9 記錄 | ⭐ 待 merge 後 |
+
+---
 
 ## 本輪檢查範圍
 
