@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>女優分類系統 Wiki</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-hover: #79c0ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --sidebar-w: 280px;
+    --header-h: 52px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Header */
+  header { height: var(--header-h); background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0; z-index: 10; }
+  header h1 { font-size: 15px; font-weight: 600; color: var(--text); }
+  .header-tag { font-size: 11px; background: #1f3a5f; color: var(--accent); border: 1px solid #1f6feb; border-radius: 12px; padding: 2px 8px; }
+  .search-wrap { margin-left: auto; position: relative; }
+  #search { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 10px 5px 30px; font-size: 13px; width: 220px; outline: none; }
+  #search:focus { border-color: var(--accent); }
+  .search-icon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 13px; pointer-events: none; }
+  .search-results { position: absolute; right: 0; top: 34px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; width: 340px; max-height: 320px; overflow-y: auto; z-index: 100; display: none; }
+  .search-result-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .search-result-item:last-child { border-bottom: none; }
+  .search-result-item:hover { background: #1c2128; }
+  .search-result-title { font-size: 13px; color: var(--accent); }
+  .search-result-excerpt { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  mark { background: #3d2b00; color: #e3b341; border-radius: 2px; padding: 0 1px; }
+
+  /* Layout */
+  .layout { display: flex; flex: 1; overflow: hidden; }
+
+  /* Sidebar */
+  aside { width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; padding-bottom: 24px; }
+  .nav-section { padding: 12px 8px 4px; }
+  .nav-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 4px 8px; }
+  .nav-item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--muted); transition: all 0.15s; text-decoration: none; }
+  .nav-item:hover { background: #1c2128; color: var(--text); }
+  .nav-item.active { background: #1f3a5f; color: var(--accent); }
+  .nav-item .icon { font-size: 14px; width: 18px; text-align: center; }
+
+  /* Main */
+  main { flex: 1; overflow-y: auto; padding: 32px 40px; max-width: 900px; }
+  .breadcrumb { font-size: 12px; color: var(--muted); margin-bottom: 20px; }
+  .breadcrumb span { color: var(--accent); }
+
+  /* Markdown 樣式 */
+  #content h1 { font-size: 26px; font-weight: 700; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 20px; }
+  #content h2 { font-size: 20px; font-weight: 600; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  #content h3 { font-size: 16px; font-weight: 600; margin: 20px 0 8px; color: var(--accent); }
+  #content h4 { font-size: 14px; font-weight: 600; margin: 16px 0 6px; }
+  #content p { line-height: 1.7; margin-bottom: 14px; font-size: 14px; }
+  #content ul, #content ol { padding-left: 22px; margin-bottom: 14px; font-size: 14px; line-height: 1.8; }
+  #content li { margin-bottom: 3px; }
+  #content a { color: var(--accent); text-decoration: none; }
+  #content a:hover { text-decoration: underline; }
+  #content blockquote { border-left: 3px solid var(--border); padding: 8px 16px; margin: 14px 0; color: var(--muted); background: var(--surface); border-radius: 0 6px 6px 0; font-size: 13px; }
+  #content code { background: #1c2128; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12px; font-family: "SFMono-Regular", Consolas, monospace; color: #e6edf3; }
+  #content pre { background: #161b22; border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-x: auto; margin: 14px 0; }
+  #content pre code { background: none; border: none; padding: 0; font-size: 13px; }
+  #content table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  #content th { background: var(--surface); border: 1px solid var(--border); padding: 8px 12px; text-align: left; font-weight: 600; }
+  #content td { border: 1px solid var(--border); padding: 7px 12px; }
+  #content tr:nth-child(even) td { background: #0d1117; }
+  #content hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+  #content strong { color: var(--accent-hover); }
+  #content .task-list-item { list-style: none; }
+  #content .task-list-item input { margin-right: 6px; }
+  #content del { color: var(--muted); }
+
+  /* Loading */
+  .loading { display: flex; align-items: center; justify-content: center; height: 200px; color: var(--muted); gap: 8px; }
+  .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="font-size:20px">📚</div>
+  <h1>女優分類系統 Wiki</h1>
+  <span class="header-tag">v6.0.0</span>
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input id="search" type="text" placeholder="搜尋 wiki...">
+    <div class="search-results" id="searchResults"></div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside id="sidebar"></aside>
+  <main>
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div id="content"><div class="loading"><div class="spinner"></div> 載入中…</div></div>
+  </main>
+</div>
+
+<script>
+// Wiki 結構定義
+const WIKI = {
+  sections: [
+    {
+      title: "📖 索引",
+      items: [
+        { label: "首頁", icon: "🏠", file: "index.md", path: "index" },
+        { label: "操作日誌", icon: "📋", file: "log.md", path: "log" },
+      ]
+    },
+    {
+      title: "🏛️ 架構",
+      items: [
+        { label: "系統總覽", icon: "🗺️", file: "architecture/overview.md", path: "architecture/overview" },
+        { label: "Go CLI", icon: "⚙️", file: "architecture/go-cli.md", path: "architecture/go-cli" },
+        { label: "Go Bridge", icon: "🌉", file: "architecture/go-bridge.md", path: "architecture/go-bridge" },
+        { label: "資料庫", icon: "🗄️", file: "architecture/database.md", path: "architecture/database" },
+        { label: "搜尋引擎", icon: "🔍", file: "architecture/search-engine.md", path: "architecture/search-engine" },
+      ]
+    },
+    {
+      title: "📐 開發模式",
+      items: [
+        { label: "新增 Go API 函式", icon: "➕", file: "patterns/add-go-api-function.md", path: "patterns/add-go-api-function" },
+        { label: "新增 Go CLI 命令", icon: "🖥️", file: "patterns/add-go-cli-command.md", path: "patterns/add-go-cli-command" },
+        { label: "新增 GUI 按鈕", icon: "🖱️", file: "patterns/add-gui-button.md", path: "patterns/add-gui-button" },
+        { label: "命名規範", icon: "📝", file: "patterns/naming-conventions.md", path: "patterns/naming-conventions" },
+        { label: "PyInstaller 打包", icon: "📦", file: "patterns/pyinstaller.md", path: "patterns/pyinstaller" },
+        { label: "零女優二次搜尋", icon: "🔄", file: "patterns/zero-actress-retry.md", path: "patterns/zero-actress-retry" },
+      ]
+    },
+    {
+      title: "🪲 踩坑紀錄",
+      items: [
+        { label: "go_api 匯出遺漏", icon: "❌", file: "pitfalls/go-api-export-missing.md", path: "pitfalls/go-api-export-missing" },
+        { label: "GUI Bridge 取法錯誤", icon: "❌", file: "pitfalls/gui-bridge-wrong-access.md", path: "pitfalls/gui-bridge-wrong-access" },
+        { label: "Go CLI -json 遺漏", icon: "❌", file: "pitfalls/go-cli-json-flag-missing.md", path: "pitfalls/go-cli-json-flag-missing" },
+        { label: "JAVDB False Positive", icon: "❌", file: "pitfalls/javdb-false-positive.md", path: "pitfalls/javdb-false-positive" },
+        { label: "PyInstaller 路徑", icon: "❌", file: "pitfalls/pyinstaller-path.md", path: "pitfalls/pyinstaller-path" },
+        { label: "GitHub Actions 故障", icon: "❌", file: "pitfalls/github-actions-issues.md", path: "pitfalls/github-actions-issues" },
+      ]
+    }
+  ]
+};
+
+// 快取
+const cache = {};
+
+// 建立側欄
+function buildSidebar() {
+  const aside = document.getElementById('sidebar');
+  aside.innerHTML = '';
+  WIKI.sections.forEach(section => {
+    const sec = document.createElement('div');
+    sec.className = 'nav-section';
+    const title = document.createElement('div');
+    title.className = 'nav-section-title';
+    title.textContent = section.title;
+    sec.appendChild(title);
+    section.items.forEach(item => {
+      const a = document.createElement('a');
+      a.className = 'nav-item';
+      a.dataset.path = item.path;
+      a.dataset.file = item.file;
+      a.innerHTML = `<span class="icon">${item.icon}</span>${item.label}`;
+      a.addEventListener('click', () => loadPage(item));
+      sec.appendChild(a);
+    });
+    aside.appendChild(sec);
+  });
+}
+
+// 載入頁面
+async function loadPage(item) {
+  // 高亮側欄
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const activeEl = document.querySelector(`[data-path="${item.path}"]`);
+  if (activeEl) activeEl.classList.add('active');
+
+  // 更新 breadcrumb
+  const bc = document.getElementById('breadcrumb');
+  const parts = item.path.split('/');
+  bc.innerHTML = parts.length > 1
+    ? `wiki / <span>${parts[0]}</span> / ${parts[1]}`
+    : `wiki / <span>${item.path}</span>`;
+
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
+
+  try {
+    let md;
+    if (cache[item.file]) {
+      md = cache[item.file];
+    } else {
+      const res = await fetch(item.file);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      md = await res.text();
+      cache[item.file] = md;
+    }
+
+    // 配置 marked
+    marked.setOptions({
+      highlight: (code, lang) => {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: true,
+      gfm: true,
+    });
+
+    content.innerHTML = marked.parse(md);
+
+    // 修正相對連結
+    content.querySelectorAll('a[href]').forEach(a => {
+      const href = a.getAttribute('href');
+      if (href && !href.startsWith('http') && href.endsWith('.md')) {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          const targetPath = resolvePath(item.path, href);
+          const targetItem = findItemByPath(targetPath);
+          if (targetItem) loadPage(targetItem);
+        });
+      }
+    });
+
+    // 程式碼高亮
+    content.querySelectorAll('pre code').forEach(el => {
+      hljs.highlightElement(el);
+    });
+
+    window.scrollTo(0, 0);
+  } catch (err) {
+    content.innerHTML = `<div style="color:var(--red);padding:20px">❌ 無法載入 ${item.file}：${err.message}</div>`;
+  }
+}
+
+function resolvePath(currentPath, relativePath) {
+  const base = currentPath.includes('/') ? currentPath.substring(0, currentPath.lastIndexOf('/')) : '';
+  let parts = (base ? base + '/' : '') + relativePath.replace('.md', '');
+  // 處理 ../
+  const segs = parts.split('/');
+  const resolved = [];
+  segs.forEach(s => {
+    if (s === '..') resolved.pop();
+    else if (s !== '.') resolved.push(s);
+  });
+  return resolved.join('/');
+}
+
+function findItemByPath(path) {
+  for (const section of WIKI.sections) {
+    for (const item of section.items) {
+      if (item.path === path) return item;
+    }
+  }
+  return null;
+}
+
+// 建立搜尋索引
+let searchIndex = [];
+
+async function buildSearchIndex() {
+  for (const section of WIKI.sections) {
+    for (const item of section.items) {
+      try {
+        const res = await fetch(item.file);
+        if (!res.ok) continue;
+        const text = await res.text();
+        cache[item.file] = text;
+        searchIndex.push({ item, text, label: item.label });
+      } catch {}
+    }
+  }
+}
+
+document.getElementById('search').addEventListener('input', function() {
+  const q = this.value.trim().toLowerCase();
+  const resultsEl = document.getElementById('searchResults');
+  if (!q) { resultsEl.style.display = 'none'; return; }
+
+  const results = [];
+  searchIndex.forEach(({ item, text, label }) => {
+    const idx = text.toLowerCase().indexOf(q);
+    if (idx !== -1 || label.toLowerCase().includes(q)) {
+      const excerpt = idx !== -1
+        ? text.substring(Math.max(0, idx - 40), idx + 80).replace(/\n/g, ' ')
+        : '';
+      const hi = (s) => s.replace(new RegExp(`(${q})`, 'gi'), '<mark>$1</mark>');
+      results.push({ item, titleHtml: hi(label), excerptHtml: hi(excerpt) });
+    }
+  });
+
+  if (!results.length) {
+    resultsEl.style.display = 'none';
+    return;
+  }
+
+  resultsEl.innerHTML = results.slice(0, 8).map(r => `
+    <div class="search-result-item" data-path="${r.item.path}">
+      <div class="search-result-title">${r.titleHtml}</div>
+      ${r.excerptHtml ? `<div class="search-result-excerpt">${r.excerptHtml}…</div>` : ''}
+    </div>
+  `).join('');
+
+  resultsEl.querySelectorAll('.search-result-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const path = el.dataset.path;
+      const item = findItemByPath(path);
+      if (item) { loadPage(item); resultsEl.style.display = 'none'; document.getElementById('search').value = ''; }
+    });
+  });
+
+  resultsEl.style.display = 'block';
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-wrap')) {
+    document.getElementById('searchResults').style.display = 'none';
+  }
+});
+
+// 初始化
+buildSidebar();
+const firstItem = WIKI.sections[0].items[0];
+loadPage(firstItem);
+buildSearchIndex();
+</script>
+</body>
+</html>
