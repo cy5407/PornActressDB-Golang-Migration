@@ -4,7 +4,7 @@
 
 直接雙擊 `wiki/viewer.html` 開啟時，所有 `fetch()` 呼叫失敗：
 
-```
+```text
 ❌ 無法載入 architecture/go-bridge.md：Failed to fetch
 ```
 
