@@ -247,6 +247,51 @@ scope guard 設計本身正確，無需修改。下一輪（Run #38）AI 重試�
 
 ---
 
+## Issue 11：Go Cache 委派後測試找不到快取檔案路徑
+
+### 狀況
+執行 `tests/test_cache_manager_security.py` 時，3 個測試失敗：
+
+```
+FAILED tests/test_cache_manager_security.py::test_disk_cache_uses_json_payload
+FAILED tests/test_cache_manager_security.py::test_legacy_pickle_cache_is_ignored_and_removed
+FAILED tests/test_cache_manager_security.py::test_compressed_json_cache_roundtrip
+```
+
+錯誤訊息為：
+```
+FileNotFoundError: No such file or directory: '...pytest-of-cy5407.../xxx.cache'
+```
+
+`manager.set()` 回傳 `True`（表示成功），但 Python 端用 `_get_file_path()` 計算的路徑上找不到實際檔案。
+
+### 原因
+`CacheManager` 在 Phase 4A 將 `set()`/`get()`/`delete()` 委派給 Go CLI（`classifier.exe cache set`）後，快取檔案由 **Go CLI 寫入 Go 自己計算的路徑**。然而測試中呼叫 `manager._get_file_path(cache_key)` 是 **Python 端計算的路徑**，兩者的雜湊/目錄邏輯不一致，導致 Python 算出的路徑上根本沒有檔案。
+
+### 排查結果
+- 確認該測試檔案是在 security 強化 commit（`8148592`）加入，早於 Phase 4A 委派改動
+- 240 個其他測試全部通過，只有這 3 個路徑驗證型測試失敗
+- `manager.set()` 本身功能正常，只是路徑計算邏輯 Python/Go 兩端尚未對齊
+
+### 解法（待執行）
+兩個方向擇一：
+
+**方案 A（推薦）**：修改測試，改用 Go CLI 查詢確認快取是否存在，不直接操作 Python 端路徑：
+```python
+# 原本（直接讀取 Python 計算的路徑）
+cache_path = manager._get_file_path(cache_key)
+payload = json.loads(cache_path.read_text())
+
+# 改為（透過 manager 公開 API 驗證）
+assert manager.get("video:test") == value  # 用 Go CLI 查詢驗證
+```
+
+**方案 B**：讓 Go CLI 的路徑雜湊邏輯與 Python `_get_file_path()` 保持一致（修改 Go 端或 Python 端使兩者輸出相同路徑）。
+
+> ⚠️ 目前此問題不影響應用程式實際功能，快取寫入/讀取均正常，只是測試的**白箱路徑驗證**失效。
+
+---
+
 ## 附錄：重要的 GitHub Actions 行為差異
 
 | 觸發類型 | 支援 `branches` 過濾 | 執行分支 |
