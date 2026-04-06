@@ -353,3 +353,116 @@ if title_code_match:
 
 > ℹ️ **WTB-045** 本身確實不存在於 JAVDB（本身就是無效番號）；**WTB-031** 同樣無效。這是程式應正常回報「未找到」的情況，而非誤匹配其他番號。
 
+---
+
+## Issue 13：GUI「修正片商資料」按鈕出現「Go CLI 不可用」錯誤
+
+### 狀況
+點擊新增的「🔧 修正片商資料」按鈕後，立即跳出警告：
+```
+Go CLI 不可用，無法執行片商批次修正。請確認 classifier.exe 存在。
+```
+但 `classifier.exe` 明明存在且其他功能正常運作。
+
+### 原因
+`start_fix_studios()` 中使用了不存在的屬性路徑：
+
+```python
+# 錯誤寫法：UnifiedClassifierCore 沒有 go_bridge 屬性
+bridge = self.core.go_bridge if hasattr(self.core, "go_bridge") else None
+```
+
+`UnifiedClassifierCore` 從未持有 `go_bridge` 屬性，因此 `bridge` 永遠是 `None`，導致直接進入不可用的判斷分支。
+
+另外 `_fix_studios_worker` 中也同樣取法錯誤，且 `data_dir` 使用了不存在的 `self.core.db_path`。
+
+### 排查結果
+- 其他功能（掃描、移動）也不透過 `self.core.go_bridge`，而是各自直接 import `get_bridge()`
+- `IncrementalJSONDB` 的資料庫路徑應從 `self.core.db_manager.data_dir` 取得
+
+### 解法
+**修改 `src/ui/main_gui.py`**：
+
+```python
+# 修改後：直接取得 bridge 實例
+from services.go_bridge import get_bridge
+bridge = get_bridge()
+if not bridge.is_available:
+    messagebox.showwarning(...)
+    return
+
+# data_dir 改由 db_manager 取得
+data_dir = str(getattr(self.core.db_manager, "data_dir", "data/json_db"))
+```
+
+---
+
+## Issue 14：`db_fix_studios` 未在 `go_api/__init__.py` 匯出
+
+### 狀況
+點擊按鈕後執行至 `_fix_studios_worker`，出現：
+```
+💥 修正片商發生未預期錯誤: module 'services.go_api' has no attribute 'db_fix_studios'
+```
+
+### 原因
+`go_bridge.py` 將 `go_api` 作為 **package** 匯入（`import services.go_api as api`），呼叫的是 `api.db_fix_studios`。這表示必須在 `go_api/__init__.py` 的 `from .db import (...)` 和 `__all__` 中明確匯出，且 `go_bridge.py` 的模組層級重匯出列表也要同步更新。
+
+新增 `db_fix_studios` 到 `go_api/db.py` 時只修改了實作檔，遺漏了三個需要同步的地方：
+
+1. `go_api/__init__.py` — `from .db import` 區塊
+2. `go_api/__init__.py` — `__all__` 列表
+3. `go_bridge.py` — 模組層級重匯出列表（第 19-28 行）
+
+### 解法
+三處同步補上 `db_fix_studios`：
+
+```python
+# go_api/__init__.py
+from .db import (
+    db_compact_journal,
+    db_delete_video,
+    db_fix_studios,   # ← 補上
+    ...
+)
+
+__all__ = [
+    ...
+    "db_fix_studios", # ← 補上
+    ...
+]
+
+# go_bridge.py
+db_fix_studios = api.db_fix_studios  # ← 補上
+```
+
+> 📌 **教訓**：go_api 套件新增公開函式時，須同步更新三處：`db.py` 實作 → `__init__.py` import → `__init__.py` `__all__` → `go_bridge.py` 重匯出。
+
+---
+
+## Issue 15：Go CLI `fix-studios` 子命令未定義 `-json` flag
+
+### 狀況
+點擊按鈕後出現：
+```
+❌ 修正失敗: flag provided but not defined: -json
+```
+
+### 原因
+Python `db_fix_studios()` 固定在命令列加上 `--json` 參數（與其他 `db` 子命令保持一致）：
+
+```python
+cmd = ["db", "fix-studios", "--data-dir", data_dir, "--studios", studios_file, "--json"]
+```
+
+但 Go 的 `dbFixStudiosCmd` 建立 `flag.FlagSet` 時沒有定義 `-json` flag，導致 `flag.ExitOnError` 收到未知參數直接報錯退出。
+
+### 解法
+**修改 `cmd/scanner/db_cmd.go`**：加入 no-op `-json` flag（輸出本就是 JSON，flag 僅作相容性保留）：
+
+```go
+_ = fs.Bool("json", false, "輸出 JSON 格式（預設即為 JSON，保留相容性）")
+```
+
+> 📌 **預防方式**：新增 Go CLI 子命令時，若 Python 呼叫慣例固定傳 `--json`，Go 端應一律宣告此 flag（即使 no-op），避免 `flag.ExitOnError` 因未知 flag 靜默退出。
+
