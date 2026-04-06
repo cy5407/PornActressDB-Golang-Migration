@@ -6,6 +6,27 @@
 
 ---
 
+## [2026-04-06] docs | OpenClaw 遷移審閱計畫建立
+
+**涉及檔案**：
+- `openclaw-review/OPENCLAW_PLAN.md` — 新建
+
+**內容**：
+建立 OpenClaw 審閱計畫文件，供外部工具（OpenClaw）執行 Python→Go 遷移完整度稽核。
+
+計畫包含四大任務：
+1. **Python 端逐方法審閱**（11 個檔案，逐方法標記 ✅⚠️❌🔵）
+2. **Go 端完整性確認**（10 個 Go 檔案，確認 CLI 子命令、JSON 格式、測試覆蓋）
+3. **Phase 9+ 可遷移項目評估**（含「不應遷移」清單）
+4. **產出 `OPENCLAW_AUDIT_2026-04-06.md` 報告**
+
+稽核重點：
+- Python 委派呼叫的 Go CLI 子命令必須真正存在（pkg 層 + CLI 層分別確認）
+- `_GO_DB_AVAILABLE` 的 false 分支是否全改成 `raise RuntimeError`
+- incremental_json_database.py journal 邏輯是否有遷移空間
+
+---
+
 ## [2026-04-06] init | Wiki 初始建立
 
 **內容**：
