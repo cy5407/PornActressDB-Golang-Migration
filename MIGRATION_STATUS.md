@@ -61,21 +61,31 @@
 - [x] Task 11-1: `tests/test_extractor.py` — 補 `489155.com@` site prefix 委派測試、通用 siteRe 測試
 - [x] Task 11-2: `.github/workflows/integration-test.yml` — 加入 e2e 整合測試步驟（`go build → pytest tests/integration/`）
 
+### Phase 12 — Python 程式碼進一步精簡
+
+- [x] Task 12-1: `src/services/go_bridge_test.py` → 移至 `tests/test_go_bridge.py`（測試誤放 src/，-592 行 from src）
+- [x] Task 12-2: `src/models/json_database.py` — 移除 Python filelock 機制（`_acquire_read_lock`/`_release_locks`/`FileLock`，-88 行）
+- [x] Task 12-3: `src/models/incremental_json_database.py` — 移除冗餘 journal dead code（`JournalEntry`/`_replay_journal`/`_append_journal` 等，-60 行）
+- [x] Task 12-4: `src/services/classifier_core.py` — 移除 dead code 與重複迭代邏輯（`process_and_search_japanese_sites` 等，-130 行）
+
 ---
 
 ## 🔄 Current Status
 
-**✅ Phase 10 完成。** 全數 Go availability guards 移除，247 個測試全數通過。
+**✅ Phase 12 完成。** src/ Python 程式碼縮減至 15,419 行，276 tests 通過。
 
-### 刪減統計（Phase 6）
+### 累計刪減統計
 
-| Phase | 刪除行數 |
-|-------|---------|
-| 6A（4 個薄適配層） | ~250 行 |
-| 6B（cache_manager） | ~175 行 |
-| 6C（2 個整刪檔案） | ~475 行 |
-| 6D（2 個核心 DB 模組） | ~317 行 |
-| **合計** | **~1,217 行** |
+| Phase | 刪除行數 | 說明 |
+|-------|---------|------|
+| 6A（4 個薄適配層） | ~250 行 | extractor/studio/scanner/file_mover Python fallback |
+| 6B（cache_manager） | ~175 行 | _set/get/delete_python() 移除 |
+| 6C（2 個整刪檔案） | ~475 行 | go_accelerated_db/studio 整個刪除 |
+| 6D（2 個核心 DB 模組） | ~317 行 | json_database/incremental Python fallback |
+| 7-8（DB/cache 深度委派） | ~441 行 | actress CRUD / backup / cache 5 方法 |
+| 10（guards 全移除） | ~100 行 | _GO_DB_AVAILABLE / _GO_CACHE_AVAILABLE guards |
+| 12（進一步精簡） | ~870 行 | filelock / journal dead code / classifier dead code / test 移位 |
+| **合計** | **~2,628 行** | 相較 Phase 6 前基準 |
 
 ### Phase 5 — JSONDBManager Go 完整委派
 

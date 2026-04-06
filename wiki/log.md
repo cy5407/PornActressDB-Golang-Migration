@@ -18,6 +18,23 @@
 
 ---
 
+## [2026-04-07] refactor | p12~p16 Python 程式碼縮減（src/ -976 行）
+
+**涉及檔案**：
+- `src/services/go_bridge_test.py` → **移到 `tests/test_go_bridge.py`**（p12，-592 行 from src）
+- `src/models/json_database.py` — 移除 Python filelock 機制（p13，-88 行）
+- `src/models/incremental_json_database.py` — journal dead code 清除（p14，-60 行）
+- `src/services/classifier_core.py` — dead code + 重複邏輯精簡（p16，-130 行）
+- `src/services/studio_classifier.py` — `_identify_major_studios()` + 重複常數精簡（p15，-33 行）
+
+**統計**：
+- src/ 行數：16,362 → **15,386 行**（-976 行，-6.0%）
+- 測試：276 passed
+
+**p15 委派 Go 結論**：統計分析方法目前無法委派（Go 缺 AnalyzeDistribution API），記錄為未來任務。
+
+---
+
 ## [2026-04-07] refactor | Phase 10 Go guards 全移除（247 tests pass）
 
 **涉及檔案**：
