@@ -300,17 +300,19 @@ class IncrementalJSONDB:
 
     def update_video(self, code: str, updates: dict[str, Any]):
         """
-        更新影片資料
-
-        優先使用 Go CLI，失敗時 fallback 到 Python journal 寫入。
+        更新影片資料（委派給 Go CLI）
 
         Args:
             code: 影片番號
             updates: 要更新的欄位
+
+        Raises:
+            JSONDatabaseError: 影片不存在
+            RuntimeError: Go CLI 不可用或失敗
         """
         if self._GO_DB_AVAILABLE:
             try:
-                existing = self._get_video_info_python(code)
+                existing = self.base_db.get_video_info(code)
                 if not existing:
                     raise JSONDatabaseError(f"影片不存在: {code}")
                 merged = {**existing, **updates}
@@ -319,41 +321,14 @@ class IncrementalJSONDB:
                     self.base_db.data["videos"][code] = merged
                     logger.debug(f"✅ Go update_video 成功並同步記憶體: {code}")
                     return
+                raise RuntimeError(f"Go update_video 回傳失敗: {code}")
             except JSONDatabaseError:
                 raise
+            except RuntimeError:
+                raise
             except Exception as e:
-                logger.warning(f"⚠️ Go update_video 失敗，fallback 到 Python ({code}): {e}")
-        self._update_video_python(code, updates)
-
-    def _update_video_python(self, code: str, updates: dict[str, Any]):
-        """
-        更新影片資料（快速 journal 操作）
-
-        Args:
-            code: 影片番號
-            updates: 要更新的欄位
-        """
-        # 先檢查影片是否存在
-        video = self.base_db.get_video_info(code)
-        if not video:
-            raise JSONDatabaseError(f"影片不存在: {code}")
-
-        # 建立 journal 記錄
-        entry = JournalEntry(
-            operation=JOURNAL_OP_UPDATE,
-            entity_type="video",
-            entity_id=code,
-            data=updates,
-        )
-
-        # 追加到 journal（快速）
-        self._append_journal(entry)
-
-        # 立即更新記憶體中的資料，確保讀取一致性
-        video.update(updates)
-        self.base_db.data["videos"][code] = video
-
-        logger.debug(f"✅ 快速更新影片 {code} 到 journal 並同步記憶體")
+                raise RuntimeError(f"Go update_video 失敗: {code}: {e}") from e
+        raise RuntimeError(f"Go CLI 不可用，無法更新影片: {code}")
 
     def add_video(self, video: VideoDict):
         """
@@ -420,20 +395,14 @@ class IncrementalJSONDB:
 
     def get_video_info(self, code: str) -> VideoDict | None:
         """
-        取得影片資訊
-
-        優先使用 Go CLI，失敗時 fallback 到 Python（記憶體查詢）。
+        取得影片資訊。優先使用 Go CLI，失敗時從記憶體快取查詢。
         """
         if self._GO_DB_AVAILABLE:
             try:
                 result = _go_db_get_video(code, str(self.data_dir))
                 return result  # None 表示影片不存在
             except Exception as e:
-                logger.warning(f"⚠️ Go get_video_info 失敗，fallback 到 Python ({code}): {e}")
-        return self._get_video_info_python(code)
-
-    def _get_video_info_python(self, code: str) -> VideoDict | None:
-        """取得影片資訊（委派給 base_db 記憶體查詢）"""
+                logger.warning(f"⚠️ Go get_video_info 失敗，從記憶體查詢 ({code}): {e}")
         return self.base_db.get_video_info(code)
 
     def add_or_update_video(self, code: str, info: dict) -> str:

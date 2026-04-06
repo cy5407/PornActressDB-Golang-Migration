@@ -34,20 +34,6 @@ class TestGetVideoInfoDelegation:
         result = db.get_video_info("STARS-001")
         assert result["code"] == "STARS-001"
 
-    def test_falls_back_to_python_on_go_failure(self, tmp_path):
-        from models.json_database import JSONDBManager
-        from services.go_runner import GoBridgeError
-
-        db = JSONDBManager(str(tmp_path))
-        db._GO_DB_AVAILABLE = True
-        db.data["videos"]["STARS-001"] = {"code": "STARS-001"}
-        with patch(
-            "models.json_database._go_db_get_video",
-            side_effect=GoBridgeError("fail"),
-        ):
-            result = db.get_video_info("STARS-001")
-        assert result is not None
-
     def test_returns_none_for_missing_video(self, tmp_path):
         from models.json_database import JSONDBManager
 
@@ -86,13 +72,13 @@ class TestAddOrUpdateVideoDelegation:
         assert "STARS-001" in db.data["videos"]
 
     def test_falls_back_to_python_when_go_unavailable(self, tmp_path):
+        """Go 不可用時 add_or_update_video 應 raise RuntimeError。"""
         from models.json_database import JSONDBManager
 
         db = JSONDBManager(str(tmp_path))
         db._GO_DB_AVAILABLE = False
-        code = db.add_or_update_video("STARS-001", {"title": "Test"})
-        assert code == "STARS-001"
-        assert "STARS-001" in db.data.get("videos", {})
+        with pytest.raises(RuntimeError):
+            db.add_or_update_video("STARS-001", {"title": "Test"})
 
     def test_accepts_video_dict_as_first_arg(self, tmp_path):
         from models.json_database import JSONDBManager
@@ -138,13 +124,14 @@ class TestDeleteVideoDelegation:
         assert len(remaining_links) == 1
 
     def test_falls_back_to_python_when_go_unavailable(self, tmp_path):
+        """Go 不可用時 delete_video 應 raise RuntimeError。"""
         from models.json_database import JSONDBManager
 
         db = JSONDBManager(str(tmp_path))
         db._GO_DB_AVAILABLE = False
-        db._add_or_update_video_python("STARS-001", {"code": "STARS-001", "title": "T"})
-        result = db.delete_video("STARS-001")
-        assert result is True
+        db.data["videos"]["STARS-001"] = {"code": "STARS-001", "title": "T"}
+        with pytest.raises(RuntimeError):
+            db.delete_video("STARS-001")
 
 
 class TestGetAllVideosDelegation:
@@ -180,6 +167,7 @@ class TestGetAllVideosDelegation:
         assert result[0]["code"] == "STARS-001"
 
     def test_falls_back_to_python_when_go_unavailable(self, tmp_path):
+        """Go 不可用時從記憶體返回影片清單。"""
         from models.json_database import JSONDBManager
 
         db = JSONDBManager(str(tmp_path))
@@ -189,6 +177,7 @@ class TestGetAllVideosDelegation:
         assert len(result) == 1
 
     def test_falls_back_to_python_on_go_failure(self, tmp_path):
+        """Go 拋出例外時從記憶體返回影片清單。"""
         from models.json_database import JSONDBManager
 
         db = JSONDBManager(str(tmp_path))

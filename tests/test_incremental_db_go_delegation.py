@@ -156,36 +156,29 @@ class TestUpdateVideoDelegation(unittest.TestCase):
         self.assertEqual(cached.get("title"), "已更新")
 
     def test_update_video_falls_back_on_go_exception(self):
-        """Go 拋出例外時 fallback 到 Python journal 寫入。"""
+        """Go 拋出例外時應 raise RuntimeError（不再寫入 journal）。"""
         from services.go_runner import GoBridgeError
 
         db = _make_db_with_go(self._tmp_path, go_available=True)
-        initial_journal_size = db.journal_size
 
         with patch(
             "models.incremental_json_database._go_db_update_video",
             side_effect=GoBridgeError("CLI 故障"),
         ):
-            db.update_video("SONE-001", {"title": "fallback 標題"})
-
-        # Python fallback 應寫入 journal
-        self.assertGreater(db.journal_size, initial_journal_size)
-        # 記憶體應已更新
-        cached = db.base_db.data["videos"].get("SONE-001", {})
-        self.assertEqual(cached.get("title"), "fallback 標題")
+            with self.assertRaises(RuntimeError):
+                db.update_video("SONE-001", {"title": "fallback 標題"})
 
     def test_update_video_skips_go_when_unavailable(self):
-        """Go 不可用時直接使用 Python journal 寫入。"""
+        """Go 不可用時應 raise RuntimeError。"""
         db = _make_db_with_go(self._tmp_path, go_available=False)
-        initial_journal_size = db.journal_size
 
         with patch(
             "models.incremental_json_database._go_db_update_video"
         ) as mock_go:
-            db.update_video("SONE-001", {"title": "Python 標題"})
+            with self.assertRaises(RuntimeError):
+                db.update_video("SONE-001", {"title": "Python 標題"})
 
         mock_go.assert_not_called()
-        self.assertGreater(db.journal_size, initial_journal_size)
 
     def test_update_video_raises_for_nonexistent_video(self):
         """更新不存在的影片時應拋出 JSONDatabaseError。"""
@@ -200,12 +193,6 @@ class TestUpdateVideoDelegation(unittest.TestCase):
                 db.update_video("NOT-EXIST", {"title": "不存在"})
 
         mock_go.assert_not_called()
-
-    def test_python_fallback_method_exists(self):
-        """確認 _get_video_info_python 與 _update_video_python 方法存在。"""
-        db = _make_db_with_go(self._tmp_path, go_available=False)
-        self.assertTrue(hasattr(db, "_get_video_info_python"))
-        self.assertTrue(hasattr(db, "_update_video_python"))
 
     def test_go_db_available_attribute_exists(self):
         """確認 _GO_DB_AVAILABLE 類別屬性存在。"""

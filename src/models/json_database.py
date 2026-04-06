@@ -847,82 +847,7 @@ class JSONDBManager:
             except Exception as e:
                 logger.warning(f"⚠️ Go 委派 add_or_update_video 失敗，切換 Python: {e}")
 
-        return self._add_or_update_video_python(code, info)
-
-    def _add_or_update_video_python(
-        self, code: str | VideoDict, info: dict[str, Any] | None = None
-    ) -> str:
-        """
-        新增或更新影片 (Python 實作)
-
-        若影片番號已存在則更新，否則建立新記錄。
-
-        Args:
-            code: 影片番號，或直接傳入包含 `code` 的影片資訊字典
-            info: 影片資訊字典（當第一個參數為番號時必填）
-
-        Returns:
-            影片番號 (新建或已更新)
-
-        Raises:
-            ValidationError: 若影片資訊無效
-            LockError: 若無法獲得寫鎖定
-            CorruptedDataError: 若寫入失敗
-        """
-        try:
-            if isinstance(code, dict):
-                if info is not None:
-                    raise ValidationError("傳入影片字典時不可同時提供 info")
-                video_info = code.copy()
-                video_code = video_info.get("code")
-            else:
-                if not isinstance(info, dict):
-                    raise ValidationError("影片資訊必須是字典")
-                video_code = code
-                video_info = info.copy()
-
-            if not isinstance(video_code, str) or not video_code:
-                raise ValidationError("影片番號必須存在")
-
-            # 獲取寫鎖定
-            self._acquire_write_lock()
-
-            try:
-                # 重新載入最新資料
-                self._load_data_internal()
-
-                # 準備影片資料
-                video_dict = get_empty_video()
-                video_dict["code"] = video_code
-                video_dict.update(video_info)
-                video_dict["updated_at"] = datetime.now(UTC).strftime(
-                    ISO_DATETIME_FORMAT
-                )
-
-                # 新增或更新
-                self.data["videos"][video_code] = video_dict
-
-                # 驗證完整性
-                self._validate_referential_integrity(self.data)
-
-                # 更新統計快取（快取失效策略）
-                self._cache_statistics()
-
-                # 保存
-                self._save_all_data(self.data)
-
-                logger.info(f"✅ 影片已新增/更新: {video_code}")
-                return video_code
-
-            finally:
-                self._release_locks()
-
-        except (ValidationError, DataIntegrityError, LockError) as e:
-            logger.error(f"❌ 新增/更新影片失敗: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 未預期的錯誤: {e}")
-            raise CorruptedDataError(f"新增/更新影片失敗: {e}") from e
+        raise RuntimeError(f"Go CLI 不可用，無法新增/更新影片: {code}")
 
     def get_video_info(self, code: str) -> VideoDict | None:
         """
@@ -943,47 +868,9 @@ class JSONDBManager:
                     logger.debug(f"⚠️ 影片不存在 (Go): {code}")
                 return result
             except Exception as e:
-                logger.warning(f"⚠️ Go 委派 get_video_info 失敗，切換 Python: {e}")
+                logger.warning(f"⚠️ Go 委派 get_video_info 失敗，從記憶體查詢: {e}")
 
-        return self._get_video_info_python(code)
-
-    def _get_video_info_python(self, code: str) -> VideoDict | None:
-        """
-        查詢影片資訊 (Python 實作)
-
-        Args:
-            code: 影片番號
-
-        Returns:
-            影片資訊，若不存在則返回 None
-
-        Raises:
-            LockError: 若無法獲得讀鎖定
-        """
-        try:
-            # 獲取讀鎖定
-            self._acquire_read_lock()
-
-            try:
-                videos = self.data.get("videos", {})
-                video = videos.get(code)
-
-                if video:
-                    logger.debug(f"✅ 查詢影片成功: {code}")
-                    return video
-                else:
-                    logger.debug(f"⚠️ 影片不存在: {code}")
-                    return None
-
-            finally:
-                self._release_locks()
-
-        except LockError as e:
-            logger.error(f"❌ 無法獲取讀鎖定: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 查詢影片失敗: {e}")
-            raise
+        return self.data.get("videos", {}).get(code)
 
     def get_all_videos(
         self, filter_dict: dict[str, Any] | None = None
@@ -1010,60 +897,16 @@ class JSONDBManager:
                 logger.debug(f"✅ 取得 {len(videos)} 個影片 (Go)")
                 return videos
             except Exception as e:
-                logger.warning(f"⚠️ Go 委派 get_all_videos 失敗，切換 Python: {e}")
+                logger.warning(f"⚠️ Go 委派 get_all_videos 失敗，從記憶體返回: {e}")
 
-        return self._get_all_videos_python(filter_dict)
-
-    def _get_all_videos_python(
-        self, filter_dict: dict[str, Any] | None = None
-    ) -> list[VideoDict]:
-        """
-        取得所有影片清單 (Python 實作)
-
-        Args:
-            filter_dict: 過濾條件 (例如: {'studio': 'ABC'})
-                        支援的鍵: 'studio', 'release_date_after', 'release_date_before'
-
-        Returns:
-            影片清單
-
-        Raises:
-            LockError: 若無法獲得讀鎖定
-        """
-        try:
-            # 獲取讀鎖定
-            self._acquire_read_lock()
-
-            try:
-                videos = self.data.get("videos", {})
-                video_list = []
-
-                # 處理每個影片，確保有 code 欄位（統一格式）
-                for code, video in videos.items():
-                    # 如果影片字典中沒有 code 欄位，但有 id 欄位，則使用 id 或鍵值作為 code
-                    if "code" not in video:
-                        if "id" in video:
-                            video["code"] = video["id"]
-                        else:
-                            video["code"] = code
-                    video_list.append(video)
-
-                # 應用過濾
-                if filter_dict:
-                    video_list = self._apply_video_filters(video_list, filter_dict)
-
-                logger.debug(f"✅ 取得 {len(video_list)} 個影片")
-                return video_list
-
-            finally:
-                self._release_locks()
-
-        except LockError as e:
-            logger.error(f"❌ 無法獲取讀鎖定: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 取得影片清單失敗: {e}")
-            raise
+        videos = self.data.get("videos", {})
+        video_list = [
+            {**v, "code": v.get("code") or v.get("id") or k}
+            for k, v in videos.items()
+        ]
+        if filter_dict:
+            video_list = self._apply_video_filters(video_list, filter_dict)
+        return video_list
 
     def delete_video(self, code: str) -> bool:
         """
@@ -1093,71 +936,9 @@ class JSONDBManager:
                     logger.warning(f"⚠️ 影片不存在或刪除失敗 (Go): {code}")
                 return result
             except Exception as e:
-                logger.warning(f"⚠️ Go 委派 delete_video 失敗，切換 Python: {e}")
-
-        return self._delete_video_python(code)
-
-    def _delete_video_python(self, code: str) -> bool:
-        """
-        刪除影片 (Python 實作)
-
-        同時刪除相關的影片-女優關聯記錄。
-
-        Args:
-            code: 影片番號
-
-        Returns:
-            成功則返回 True，若影片不存在則返回 False
-
-        Raises:
-            LockError: 若無法獲得寫鎖定
-            CorruptedDataError: 若刪除失敗
-        """
-        try:
-            # 獲取寫鎖定
-            self._acquire_write_lock()
-
-            try:
-                # 重新載入最新資料
-                self._load_data_internal()
-
-                videos = self.data.get("videos", {})
-
-                # 檢查影片是否存在
-                if code not in videos:
-                    logger.warning(f"⚠️ 影片不存在: {code}")
-                    return False
-
-                # 刪除影片
-                del videos[code]
-
-                # 刪除相關的影片-女優關聯
-                links = self.data.get("links", [])
-                self.data["links"] = [
-                    link for link in links if link.get("video_code") != code
-                ]
-
-                # 驗證完整性
-                self._validate_referential_integrity(self.data)
-
-                # 更新統計快取（快取失效策略）
-                self._cache_statistics()
-
-                # 保存
-                self._save_all_data(self.data)
-
-                logger.info(f"✅ 影片已刪除: {code}")
-                return True
-
-            finally:
-                self._release_locks()
-
-        except (DataIntegrityError, LockError) as e:
-            logger.error(f"❌ 刪除影片失敗: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"❌ 未預期的錯誤: {e}")
-            raise CorruptedDataError(f"刪除影片失敗: {e}") from e
+                logger.warning(f"⚠️ Go 委派 delete_video 失敗: {e}")
+                raise RuntimeError(f"Go delete_video 失敗: {code}: {e}") from e
+        raise RuntimeError(f"Go CLI 不可用，無法刪除影片: {code}")
 
     def add_or_update_actress(self, actress_info: ActressDict) -> str:
         """
