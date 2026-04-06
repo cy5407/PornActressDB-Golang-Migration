@@ -114,10 +114,27 @@ The source of truth is `MIGRATION_STATUS.md`.
 - If no clearly safe migration step is available, make no changes.
 
 # Validation
-- Run targeted tests for touched Go packages.
-- Run `go test ./pkg/... -v` after changes.
-- Run `python -m pytest tests/ -v` after any Python changes.
-- All tests must pass before considering the task complete.
+
+## Step 0 — Establish baseline (before making any changes)
+Run tests on the unmodified code to record which tests are already failing:
+```
+go build -o classifier.exe ./cmd/scanner
+python -m pytest tests/ -q --tb=no 2>&1 | tail -5
+```
+Save the count of pre-existing failures. In later steps you only need to ensure you introduce **zero new failures** (pre-existing failures are not your responsibility unless the task explicitly targets that file).
+
+## Step 1 — After making changes
+Always rebuild the binary first, then run tests:
+```
+go build -o classifier.exe ./cmd/scanner   # REQUIRED before every pytest run
+go test ./pkg/... -v                        # if Go files changed
+python -m pytest tests/ -v --tb=short      # always
+```
+- All tests must pass (or match the pre-existing baseline count).
+- **Never commit if the failure count is higher than the baseline.**
+
+## Step 2 — Confirm diff is non-empty
+Run `git diff HEAD -- <target_file>` and verify it shows real changes before marking done.
 
 # Completion
 - Stop once one task from the task list is complete and all tests pass.
