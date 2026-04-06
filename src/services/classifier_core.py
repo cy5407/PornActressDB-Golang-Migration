@@ -206,11 +206,6 @@ class UnifiedClassifierCore:
             folder_path, terminal_progress_callback
         )
 
-    def get_actress_studio_distribution(self, actress_name: str) -> dict:
-        """取得指定女優的片商分佈統計"""
-        # 這裡可以根據需要實作具體的查詢邏輯
-        pass
-
     def preview_studio_classification(self, folder_path: str) -> dict:
         """預覽片商分類結果（不實際移動檔案）"""
         if not self.studio_classifier:
@@ -328,95 +323,6 @@ class UnifiedClassifierCore:
             }
         except Exception as e:
             self.logger.error(f"搜尋過程中發生錯誤: {e}", exc_info=True)
-            return {"status": "error", "message": str(e)}
-
-    def process_and_search_japanese_sites(
-        self,
-        folder_path: str,
-        stop_event: threading.Event,
-        progress_callback=None,
-        use_avwiki_concurrent=True,
-    ):
-        """僅使用 AV-WIKI 搜尋
-
-        Args:
-            folder_path: 資料夾路徑
-            stop_event: 停止事件
-            progress_callback: 進度回調函式
-            use_avwiki_concurrent: 是否使用 AV-WIKI 批次併發搜尋（預設 True）
-        """
-        try:
-            if progress_callback:
-                progress_callback("🇯🇵 開始掃描資料夾 (日文網站搜尋模式)...\n")
-            video_files = self.file_scanner.scan_directory(folder_path)
-            if not video_files:
-                if progress_callback:
-                    progress_callback("🤷 未發現任何影片檔案。\n")
-                return {"status": "success", "message": "未發現影片檔案"}
-            if progress_callback:
-                progress_callback(f"📁 發現 {len(video_files)} 個影片檔案。\n")
-
-            codes_in_db = {v["code"] for v in self.db_manager.get_all_videos()}
-            new_code_file_map = {}
-            for file_path in video_files:
-                code = self.code_extractor.extract_code(file_path.name)
-                if code and code not in codes_in_db:
-                    if code not in new_code_file_map:
-                        new_code_file_map[code] = []
-                    new_code_file_map[code].append(file_path)
-            if progress_callback:
-                progress_callback(
-                    f"✅ 資料庫中已存在 {len(codes_in_db)} 個影片的番號記錄。\n"
-                )
-                progress_callback(
-                    f"🎯 需要透過日文網站搜尋 {len(new_code_file_map)} 個新番號。\n\n"
-                )
-            if not new_code_file_map:
-                if progress_callback:
-                    progress_callback("🎉 所有影片都已在資料庫中！\n")
-                return {"status": "success", "message": "所有番號都已存在於資料庫中"}
-
-            # 使用 AV-WIKI 批次併發搜尋（如果啟用）
-            if use_avwiki_concurrent and self.web_searcher.avwiki_concurrent_enabled:
-                if progress_callback:
-                    progress_callback(
-                        f"🚀 使用 AV-WIKI 批次併發搜尋 (併發數: {self.web_searcher.avwiki_max_concurrent})...\n"
-                    )
-                search_results = self.web_searcher.batch_search_avwiki_concurrent(
-                    list(new_code_file_map.keys()), stop_event, progress_callback
-                )
-            else:
-                # 使用傳統日文網站專用搜尋方法
-                search_results = self.web_searcher.batch_search(
-                    list(new_code_file_map.keys()),
-                    self.web_searcher.search_japanese_sites,
-                    stop_event,
-                    progress_callback,
-                )
-            success_count = 0
-            failed_count = 0
-
-            for code, result in search_results.items():
-                if result and result.get("actresses"):
-                    success_count += 1
-                else:
-                    failed_count += 1
-                self._persist_code_result(
-                    code=code,
-                    file_paths=new_code_file_map.get(code, []),
-                    result=result,
-                    fallback_method="日文網站",
-                    progress_callback=progress_callback,
-                )
-            return {
-                "status": "success",
-                "total_files": len(video_files),
-                "new_codes": len(new_code_file_map),
-                "success": success_count,
-                "failed": failed_count,
-            }
-        except Exception as e:
-            self.logger.error(f"日文網站搜尋過程中發生錯誤: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
     def process_and_search_javdb(
@@ -672,6 +578,36 @@ class UnifiedClassifierCore:
             self.logger.error(f"JAVDB 搜尋過程中發生錯誤: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
+    def _collect_new_and_zero_actress_codes(
+        self, video_files: list
+    ) -> tuple[dict, dict, dict, int]:
+        """掃描影片檔案並分類為新番號與零女優番號。
+
+        Returns:
+            tuple: (new_code_file_map, zero_actress_file_map, all_codes_to_search, db_count)
+        """
+        all_videos = self.db_manager.get_all_videos()
+        codes_in_db = {v["code"] for v in all_videos}
+        zero_actress_codes = {v["code"] for v in all_videos if not v.get("actresses")}
+
+        new_code_file_map: dict = {}
+        zero_actress_file_map: dict = {}
+
+        for file_path in video_files:
+            code = self.code_extractor.extract_code(file_path.name)
+            if not code:
+                continue
+            if code not in codes_in_db:
+                new_code_file_map.setdefault(code, []).append(file_path)
+            elif code in zero_actress_codes:
+                zero_actress_file_map.setdefault(code, []).append(file_path)
+
+        all_codes_to_search = dict(new_code_file_map)
+        for code, files in zero_actress_file_map.items():
+            all_codes_to_search.setdefault(code, []).extend(files)
+
+        return new_code_file_map, zero_actress_file_map, all_codes_to_search, len(codes_in_db)
+
     def process_and_search_shiroutowiki(
         self, folder_path: str, stop_event: threading.Event, progress_callback=None
     ):
@@ -689,31 +625,15 @@ class UnifiedClassifierCore:
             if progress_callback:
                 progress_callback(f"📁 發現 {len(video_files)} 個影片檔案。\n")
 
-            all_videos = self.db_manager.get_all_videos()
-            codes_in_db = {v["code"] for v in all_videos}
-            zero_actress_codes = {
-                video["code"]
-                for video in all_videos
-                if not video.get("actresses")
-            }
-
-            new_code_file_map = {}
-            zero_actress_file_map = {}
-
-            for file_path in video_files:
-                code = self.code_extractor.extract_code(file_path.name)
-                if not code:
-                    continue
-
-                if code not in codes_in_db:
-                    new_code_file_map.setdefault(code, []).append(file_path)
-                elif code in zero_actress_codes:
-                    zero_actress_file_map.setdefault(code, []).append(file_path)
+            (
+                new_code_file_map,
+                zero_actress_file_map,
+                all_codes_to_search,
+                db_count,
+            ) = self._collect_new_and_zero_actress_codes(video_files)
 
             if progress_callback:
-                progress_callback(
-                    f"✅ 資料庫中已存在 {len(codes_in_db)} 個影片的番號記錄。\n"
-                )
+                progress_callback(f"✅ 資料庫中已存在 {db_count} 個影片的番號記錄。\n")
                 if zero_actress_file_map:
                     progress_callback(
                         f"⚠️ 發現 {len(zero_actress_file_map)} 個零女優番號，將進行重新搜尋。\n"
@@ -721,10 +641,6 @@ class UnifiedClassifierCore:
                 progress_callback(
                     f"🎯 需要透過 shiroutowiki 搜尋 {len(new_code_file_map)} 個新番號。\n\n"
                 )
-
-            all_codes_to_search = dict(new_code_file_map)
-            for code, files in zero_actress_file_map.items():
-                all_codes_to_search.setdefault(code, []).extend(files)
 
             if not all_codes_to_search:
                 if progress_callback:
@@ -849,54 +765,21 @@ class UnifiedClassifierCore:
                 progress_callback(f"📁 發現 {len(video_files)} 個影片檔案。\n")
 
             # 取得資料庫中已有的番號及其女優資訊
-            all_videos = self.db_manager.get_all_videos()
-            codes_in_db = {v["code"] for v in all_videos}
-
-            # 🔧 識別零女優番號（已存在但沒有女優資料的番號）
-            zero_actress_codes = set()
-            for video in all_videos:
-                actresses = video.get("actresses", [])
-                if not actresses or len(actresses) == 0:
-                    zero_actress_codes.add(video["code"])
-
-            new_code_file_map = {}
-            zero_actress_file_map = {}  # 零女優番號的檔案映射
-
-            for file_path in video_files:
-                code = self.code_extractor.extract_code(file_path.name)
-                if not code:
-                    continue
-
-                # 新番號
-                if code not in codes_in_db:
-                    if code not in new_code_file_map:
-                        new_code_file_map[code] = []
-                    new_code_file_map[code].append(file_path)
-                # 零女優番號（需要重新搜尋）
-                elif code in zero_actress_codes:
-                    if code not in zero_actress_file_map:
-                        zero_actress_file_map[code] = []
-                    zero_actress_file_map[code].append(file_path)
+            (
+                new_code_file_map,
+                zero_actress_file_map,
+                all_codes_to_search,
+                db_count,
+            ) = self._collect_new_and_zero_actress_codes(video_files)
 
             if progress_callback:
-                progress_callback(
-                    f"✅ 資料庫中已存在 {len(codes_in_db)} 個影片的番號記錄。\n"
-                )
+                progress_callback(f"✅ 資料庫中已存在 {db_count} 個影片的番號記錄。\n")
                 if zero_actress_file_map:
                     progress_callback(
                         f"⚠️ 發現 {len(zero_actress_file_map)} 個零女優番號，將進行重新搜尋。\n"
                     )
                 if new_code_file_map:
-                    progress_callback(
-                        f"🎯 需要搜尋 {len(new_code_file_map)} 個新番號。\n\n"
-                    )
-
-            # 合併新番號和零女優番號
-            all_codes_to_search = dict(new_code_file_map)
-            for code, files in zero_actress_file_map.items():
-                if code not in all_codes_to_search:
-                    all_codes_to_search[code] = []
-                all_codes_to_search[code].extend(files)
+                    progress_callback(f"🎯 需要搜尋 {len(new_code_file_map)} 個新番號。\n\n")
 
             if not all_codes_to_search:
                 if progress_callback:
@@ -1213,7 +1096,6 @@ class UnifiedClassifierCore:
             if progress_callback:
                 progress_callback("📂 步驟 1/3: 掃描影片檔案...\n")
 
-            Path(folder_path)
             video_files = self.file_scanner.scan_directory(folder_path, recursive=False)
 
             if not video_files:
@@ -1281,33 +1163,21 @@ class UnifiedClassifierCore:
                 )
 
                 # 儲存搜尋結果
-                from datetime import datetime
-
-                current_time = datetime.now().isoformat()
                 success_count = 0
 
                 for code, result in search_results.items():
                     if stop_event.is_set():
                         break
-
                     if result and result.get("actresses"):
                         success_count += 1
                         file_path = code_file_map.get(code)
                         if file_path:
-                            studio = result.get("studio")
-                            if not studio or studio == "UNKNOWN":
-                                studio = self.studio_identifier.identify_studio(code)
-
-                            info = {
-                                "actresses": result["actresses"],
-                                "original_filename": file_path.name,
-                                "file_path": str(file_path),
-                                "studio": studio,
-                                "search_method": result.get("source", "未知"),
-                                "search_status": "searched_found",
-                                "last_search_date": current_time,
-                            }
-                            self.db_manager.add_or_update_video(code, info)
+                            self._persist_code_result(
+                                code=code,
+                                file_paths=[file_path],
+                                result=result,
+                                fallback_method=result.get("source", "AV-WIKI"),
+                            )
 
                 if progress_callback:
                     progress_callback(
