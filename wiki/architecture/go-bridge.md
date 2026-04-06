@@ -125,6 +125,10 @@ db_new_func = api.db_new_func  # ← 補上
 | Phase 7E | json_database.py Python fallback 瘦身（-137 行） | ✅ 完成 |
 | Phase 8A | json_database.py backup fallback 全移除（-82 行） | ✅ 完成 |
 | Phase 8B | cache_manager.py 5 個方法 fallback 全移除（-222 行） | ✅ 完成 |
+| Phase 9A | e2e 整合測試（db/cache/identify/scan/bridge） | ✅ 完成 |
+| Phase 9B | GoBridgeError 語意細化（ExecError/NotFoundError/JSONError） | ✅ 完成 |
+| Phase 9C | IncrementalJSONDB add_video/delete_video 委派 Go | ✅ 完成 |
+| Phase 9D | 文件收尾（wiki / 計畫 / 完成記錄） | ✅ 完成 |
 
 ### Phase 6+ 後的 Fallback 策略
 

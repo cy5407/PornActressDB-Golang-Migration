@@ -736,11 +736,11 @@ git commit -m "refactor(Phase 9C): IncrementalJSONDB add_video/delete_video 委�
 
 ### Task 9D-1：更新 wiki
 
-- [ ] **Step 1：更新 wiki/log.md**
+- [x] **Step 1：更新 wiki/log.md**
 
 加入 Phase 9 完成記錄（格式同前，最新在上）。
 
-- [ ] **Step 2：更新 wiki/architecture/go-bridge.md 進度表**
+- [x] **Step 2：更新 wiki/architecture/go-bridge.md 進度表**
 
 在遷移進度表末尾加入：
 
@@ -750,14 +750,13 @@ git commit -m "refactor(Phase 9C): IncrementalJSONDB add_video/delete_video 委�
 | Phase 9C | IncrementalJSONDB add_video/delete_video 委派 Go | ✅ 完成 |
 ```
 
-- [ ] **Step 3：產生 wiki-data.js + commit**
+- [x] **Step 3：產生 wiki-data.js**
 
 ```powershell
-python wiki/gen_data.py
-git add wiki/
-git commit -m "docs: wiki Phase 9 完成記錄"
-git push
+python3 wiki/gen_data.py
 ```
+
+> commit / push 由人工或後續流程處理，避免在文件收尾階段混入非文件變更。
 
 ---
 
