@@ -59,3 +59,30 @@
 - `wiki/patterns/pyinstaller.md` ← 女優分類系統_修復版.spec
 - `wiki/patterns/zero-actress-retry.md` ← QUICK_START_GUIDE.md
 - `wiki/pitfalls/github-actions-issues.md` ← docs/茶包射手/（Issue 1-15 摘要）
+
+---
+
+## [2026-04-06] pitfall | Phase 6 Workflow 四個新問題（Issue 16-19）
+
+**背景**：規劃 Phase 6（刪除 Python fallback）並設定 GitHub Actions 自動執行期間，連續發現四個 CI/CD 設定問題。
+
+**Issue 16：Guard 誤判 Linux classifier binary**
+- `go build` 在 Linux 產生 `classifier`（無副檔名）被 Guard 視為 out-of-scope 新建檔案
+- 修正：Guard 前 `rm -f classifier classifier.exe` + regex 白名單加 `classifier(\.exe)?$`
+
+**Issue 17：`git add` 無法 stage 刪除操作**
+- `git add <已刪除路徑>` 靜默失敗，Phase 6C 整檔刪除不被記錄
+- 修正：改用 `git add -u src/` 追蹤刪除，再補 `git add src/` 追蹤新建
+
+**Issue 18：執行時間與深度不足**
+- `timeout-minutes: 45` + `--max-autopilot-continues 5` 每次只能完成一個小任務
+- 修正：timeout 45→90、continues 5→20、prompt 允許同 Phase 最多 3 任務
+
+**Issue 19：Phase 6 九個任務需手動逐次觸發**
+- 完整鏈式觸發設計：成功後自動 `gh workflow run`，prompt TODO 歸零時停止
+- 需要 `permissions: actions: write`，失敗時 Guard 自動阻斷無限迴圈
+
+**涉及檔案**：
+- `.github/workflows/copilot-refactor-go.yml` — 四個問題的修正
+- `.github/prompts/refactor-python-to-go-migration.md` — 多任務指示
+- `wiki/pitfalls/github-actions-issues.md` — Issue 16-19 詳細記錄

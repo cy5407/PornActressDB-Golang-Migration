@@ -45,6 +45,7 @@
 
 ## 快速查找
 
+- **CI/CD 故障排查** → [pitfalls/github-actions-issues.md](pitfalls/github-actions-issues.md)（Issue 1-19）
 - **新增 Go API 功能** → [patterns/add-go-api-function.md](patterns/add-go-api-function.md)
 - **新增 GUI 按鈕** → [patterns/add-gui-button.md](patterns/add-gui-button.md)
 - **Rebuild EXE** → [patterns/pyinstaller.md](patterns/pyinstaller.md)

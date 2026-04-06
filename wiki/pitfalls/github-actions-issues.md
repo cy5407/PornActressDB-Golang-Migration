@@ -140,6 +140,136 @@ env:
 
 ---
 
+## Issue 16：Guard 誤判 Go 二進位檔（`classifier` 無副檔名）
+
+**症狀**：Copilot agent 在 Linux runner 執行 `go build` 後，workflow 被 Guard 攔截並中止（`out-of-scope`），即使程式碼改動完全正確。
+
+**原因**：
+- Go build 在 Linux 產生 `classifier`（無副檔名）
+- `.gitignore` 只忽略 `classifier.exe`，`classifier` 沒有被忽略
+- `git ls-files --others --exclude-standard` 偵測到 `classifier` 為新建 untracked 檔案
+- Guard regex 未預期此檔名，判定為 out-of-scope
+
+**解法**：雙重防護
+
+```yaml
+# 1. Guard 步驟前加 cleanup
+- name: 🧹 Cleanup Go build artifacts
+  shell: bash
+  run: rm -f classifier classifier.exe
+
+# 2. Guard regex 白名單加入 classifier
+allowed_pattern="(src/.*\.py|pkg/.*\.go|cmd/.*\.go|\.github/prompts/.*\.md|tests/.*\.py|classifier(\.exe)?$)"
+```
+
+**教訓**：跨平台 binary 名稱不同（Linux: `classifier` / Windows: `classifier.exe`），`.gitignore` 與 scope guard 都要同時處理兩種名稱。
+
+---
+
+## Issue 17：`git add <path>` 無法 stage 已刪除的檔案
+
+**症狀**：Phase 6C 需要整檔刪除（如 `go_accelerated_db.py`），但 `git add src/models/go_accelerated_db.py` 對不存在的路徑**靜默成功但不 stage 任何東西**，commit 後刪除未被記錄。
+
+**原因**：`git add <path>` 對已刪除的路徑不報錯，直接跳過。Workflow 原本只有 `git add src/ pkg/ cmd/`，等效於 `git add` 已存在的目錄，刪除操作不被捕捉。
+
+**解法**：改用 `git add -u` 追蹤刪除
+
+```bash
+# ❌ 錯誤：刪除檔案後這樣做沒有效果
+git add src/models/go_accelerated_db.py
+
+# ✅ 正確：-u 旗標會追蹤所有修改（含刪除）
+git add -u src/
+git add src/ pkg/ cmd/ .github/prompts/  # 再補上新建檔案
+```
+
+**YML 實作**：
+
+```yaml
+- name: Stage changes
+  shell: bash
+  run: |
+    git add -u src/ pkg/ cmd/ .github/prompts/  # stage 修改+刪除
+    git add src/ pkg/ cmd/ .github/prompts/      # stage 新建
+```
+
+---
+
+## Issue 18：Copilot Agent 執行時間與深度不足
+
+**症狀**：每次 workflow 執行只完成一個小任務（如 extractor.py 改動 +18 -183），Phase 6 共 9 個任務需要執行 9 次，且每次 agent 思考步驟有限。
+
+**原因**：
+- `timeout-minutes: 45` — 單次執行最多 45 分鐘
+- `--max-autopilot-continues 5` — agent 最多 5 步思考迴圈
+- prompt 指示「每次只做一個任務」
+
+**解法**：三項並行提升
+
+| 設定 | 舊值 | 新值 | 效果 |
+|------|------|------|------|
+| `timeout-minutes` | 45 | **90** | 允許更複雜修改 |
+| `--max-autopilot-continues` | 5 | **20** | agent 思考步驟 4x |
+| prompt 每次任務數 | 1 | **同 Phase 最多 3** | 減少觸發次數 |
+
+```yaml
+# YML 修改
+timeout-minutes: 90
+
+run: |
+  copilot agent run \
+    --max-autopilot-continues 20 \
+    ...
+```
+
+```markdown
+<!-- prompt 修改 -->
+You may complete **up to 3 tasks in one run** if they are in the same Phase
+and all tests pass after each task.
+```
+
+---
+
+## Issue 19：每次 Workflow 需手動觸發，Phase 6 無法自動完成
+
+**症狀**：9 個 Phase 6 任務每次只做 1-3 個，需要人工盯著手動觸發下一次，效率低。
+
+**解法**：自鏈式觸發（Self-chaining Workflow）
+
+在 workflow 最後新增步驟，成功完成任務後自動觸發下一次執行：
+
+```yaml
+- name: 🔁 Auto-trigger next run if tasks remain
+  if: steps.scope.outputs.has_changes == 'true'
+  env:
+    GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+  shell: bash
+  run: |
+    remaining=$(grep -c "^\- \[ \] TODO:" .github/prompts/refactor-python-to-go-migration.md 2>/dev/null || echo "0")
+    echo "Remaining TODO tasks: $remaining"
+    if [ "$remaining" -gt 0 ]; then
+      gh workflow run copilot-refactor-go.yml --ref main
+      echo "Next run triggered"
+    else
+      echo "All tasks completed!"
+    fi
+```
+
+**終止條件**：prompt 中 `[ ] TODO:` 數量歸零，自動停止。
+
+**必要前提**：
+
+```yaml
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write    # ← 必須加這行才能呼叫 gh workflow run
+```
+
+**觸發失敗保護**：若任務失敗 → Guard 偵測無 changes → `has_changes != 'true'` → **不觸發下一次**，自動停止迴圈。
+
+---
+
 ## 附錄：GitHub Actions 觸發類型差異
 
 | 觸發類型 | 支援 `branches` 過濾 | 執行分支 |
