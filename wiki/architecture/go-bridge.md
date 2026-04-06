@@ -123,26 +123,36 @@ db_new_func = api.db_new_func  # ← 補上
 | Phase 7C | Cache cleanup 委派（prune/clear/stats） | ✅ 完成 |
 | Phase 7D | Backup/Restore Go（BackupCreate/Restore/List/Cleanup） | ✅ 完成 |
 | Phase 7E | json_database.py Python fallback 瘦身（-137 行） | ✅ 完成 |
+| Phase 8A | json_database.py backup fallback 全移除（-82 行） | ✅ 完成 |
+| Phase 8B | cache_manager.py 5 個方法 fallback 全移除（-222 行） | ✅ 完成 |
 
-### Phase 6 後的 Fallback 策略
+### Phase 6+ 後的 Fallback 策略
 
-Phase 6 完成後，Python fallback 已全數移除。現行設計：
+Phase 6 完成後，Python fallback 已全數移除。Phase 7/8 新增委派方法沿用相同原則：
 
 ```python
-# 寫入操作：Go 不可用 → RuntimeError（不接受降級）
-def update_video(self, code, updates):
+# 寫入/刪除操作：Go 不可用 → RuntimeError（不接受降級）
+def create_backup(self):
     if self._GO_DB_AVAILABLE:
-        ...go call...
-    raise RuntimeError(f"Go CLI 不可用，無法更新影片: {code}")
+        result = db_backup_create(data_dir=str(self.data_dir))
+        if result:
+            return result
+    raise RuntimeError("Go CLI 不可用，無法建立備份")
 
-# 讀取操作：Go 不可用 → 記憶體 cache（降級讀取 OK）
-def get_video_info(self, code):
+# 唯一合法的記憶體讀取 fallback
+def get_actress_info(self, actress_id):
     if self._GO_DB_AVAILABLE:
         ...go call...
-    return self.data.get("videos", {}).get(code)
+    return self.data.get("actresses", {}).get(actress_id)  # ← 唯一例外
 ```
 
-> **完整移除策略**：→ [patterns/remove-python-fallback.md](../patterns/remove-python-fallback.md)
+**判斷標準**：
+| 操作類型 | Go 不可用時 |
+|---------|------------|
+| 寫入（add/update/delete） | `raise RuntimeError` |
+| 磁碟讀取（backup list、cache stats） | `raise RuntimeError` |
+| **記憶體讀取**（`self.data` 已載入） | **保留輕量 fallback** |
+| 工具性功能（backup/cache cleanup） | `raise RuntimeError` |
 
 ---
 

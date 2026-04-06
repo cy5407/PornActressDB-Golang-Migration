@@ -100,6 +100,29 @@
 
 ---
 
+## [2026-04-06] refactor | Phase 8 — 移除 Phase 7 殘留 Python fallback
+
+**涉及檔案**：
+
+| 檔案 | 移除內容 | 行數 |
+|------|---------|------|
+| `src/models/json_database.py` | create_backup/restore_from_backup/get_backup_list/cleanup_old_backups fallback | -82 行 |
+| `src/scrapers/cache_manager.py` | cleanup_expired/cleanup_by_size/get_cache_stats/clear_all/auto_cleanup fallback | -222 行 |
+
+**程式碼變動**：-328 行重複 Python 程式碼
+
+**保留唯一例外**：
+- `get_actress_info()` 第 1 行記憶體 fallback：`return self.data.get("actresses", {}).get(actress_id)`
+- 理由：符合 Phase 6 原則（記憶體讀取，非 IO 操作）
+
+**設計原則確立**：
+> backup、cache cleanup 等「工具性功能」同樣適用 Phase 6 原則 —— 凡涉及磁碟寫入/刪除，Go 不可用時一律 `raise RuntimeError`，不接受降級。
+> 唯一合法的 Python fallback 是從 `self.data`（已載入記憶體）直接讀取，且僅限讀取操作。
+
+**測試結果**：226 passed，0 failed（1.78s）
+
+---
+
 ## [2026-04-06] refactor | Phase 7 全部完成 — 深度 Go 委派
 
 **涉及檔案**：
