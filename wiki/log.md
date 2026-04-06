@@ -98,7 +98,32 @@
 - 完整鏈式觸發設計：成功後自動 `gh workflow run`，prompt TODO 歸零時停止
 - 需要 `permissions: actions: write`，失敗時 Guard 自動阻斷無限迴圈
 
+---
+
+## [2026-04-06] refactor | Phase 6 全部完成 — Python fallback 全數移除
+
 **涉及檔案**：
-- `.github/workflows/copilot-refactor-go.yml` — 四個問題的修正
-- `.github/prompts/refactor-python-to-go-migration.md` — 多任務指示
-- `wiki/pitfalls/github-actions-issues.md` — Issue 16-19 詳細記錄
+- `src/models/extractor.py` — 刪除 `_extract_code_python()` 等（6A-1）
+- `src/models/studio.py` — 刪除 `_identify_studio_python()`（6A-2）
+- `src/utils/scanner.py` — 刪除 rglob fallback（6A-3）
+- `src/utils/file_mover.py` — 刪除 shutil fallback（6A-4）
+- `src/scrapers/cache_manager.py` — 刪除 `_set/get/delete_python()`（6B-1）
+- `src/models/go_accelerated_db.py` — **整個刪除**（6C-1）
+- `src/models/go_accelerated_studio.py` — **整個刪除**（6C-2）
+- `src/models/incremental_json_database.py` — 刪除 2 個 Python 方法（6D-1）
+- `src/models/json_database.py` — 刪除 4 個 Python 方法（6D-2）
+
+**程式碼變動**：
+- +526 / **-1,966 行**，淨刪除 **-1,440 行**
+- 測試速度：167s → 1.9s（**88x**，移除整合測試後）
+- 最終測試：226 passed，0 failed（1.79s）
+
+**關鍵設計決策**：
+- 寫入操作 Go 不可用 → `raise RuntimeError`（不接受降級）
+- 讀取操作 Go 不可用 → 從記憶體 cache 返回
+- `_get_video_info_python` 只是 memory 讀取，直接 inline（非 IO fallback）
+- `code_to_studio` 雖由 `_identify_studio_python` 建立，仍需保留供 `normalize_studio_name()` 使用
+
+**新增 wiki**：
+- `wiki/patterns/remove-python-fallback.md` — 完整 fallback 移除策略與流程
+

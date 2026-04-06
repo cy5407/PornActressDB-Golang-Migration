@@ -105,7 +105,7 @@ db_new_func = api.db_new_func  # ← 補上
 
 ---
 
-## Go 委派遷移進度（Phase 5 完成）
+## Go 委派遷移進度（Phase 6 完成）
 
 | Phase | 內容 | 狀態 |
 |-------|------|------|
@@ -114,32 +114,28 @@ db_new_func = api.db_new_func  # ← 補上
 | Phase 3 | go_accelerated_db / studio 清理 | ✅ 完成 |
 | Phase 4A | CacheManager Go core | ✅ 完成 |
 | Phase 4B | IncrementalJSONDB get/update 委派 | ✅ 完成 |
-| Phase 5 | JSONDBManager 完整委派 | ✅ 完成（243 tests pass） |
+| Phase 5 | JSONDBManager 完整委派 | ✅ 完成 |
+| Phase 6 | **全數移除 Python fallback**（~1,440 行） | ✅ 完成（226 tests，1.9s） |
 
-### Phase 5 委派清單
+### Phase 6 後的 Fallback 策略
 
-| Python 方法 | Go CLI 命令 |
-|-------------|-------------|
-| `get_video_info` | `db get <code>` |
-| `add_or_update_video` | `db update <code> <json>` |
-| `delete_video` | `db delete <code>` |
-| `get_all_videos` | `db list --full` |
-
----
-
-## Fallback 策略
+Phase 6 完成後，Python fallback 已全數移除。現行設計：
 
 ```python
-# 標準模式：Go 優先，失敗時回退 Python
-try:
-    if bridge.is_available:
-        result = bridge.scan_directory(dir)
-    else:
-        result = python_scanner.scan(dir)
-except GoBridgeError as e:
-    logger.warning(f"⚠️ Go 加速失敗，切換 Python: {e}")
-    result = python_scanner.scan(dir)
+# 寫入操作：Go 不可用 → RuntimeError（不接受降級）
+def update_video(self, code, updates):
+    if self._GO_DB_AVAILABLE:
+        ...go call...
+    raise RuntimeError(f"Go CLI 不可用，無法更新影片: {code}")
+
+# 讀取操作：Go 不可用 → 記憶體 cache（降級讀取 OK）
+def get_video_info(self, code):
+    if self._GO_DB_AVAILABLE:
+        ...go call...
+    return self.data.get("videos", {}).get(code)
 ```
+
+> **完整移除策略**：→ [patterns/remove-python-fallback.md](../patterns/remove-python-fallback.md)
 
 ---
 

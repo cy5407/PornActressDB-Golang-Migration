@@ -27,6 +27,7 @@
 | [PyInstaller 打包](patterns/pyinstaller.md) | spec 設定、sys._MEIPASS 路徑、dist 同步 |
 | [零女優二次搜尋](patterns/zero-actress-retry.md) | 零女優自動清快取 + 第二輪 JAVDB 搜尋流程 |
 | [命名規範](patterns/naming-conventions.md) | Python/Go/JSON/CLI API 動詞與跨語言對應規則 |
+| [Python Fallback 移除](patterns/remove-python-fallback.md) | Phase 6 策略：寫入→RuntimeError、讀取→記憶體、整刪包裝類別 |
 
 ---
 
@@ -45,6 +46,7 @@
 
 ## 快速查找
 
+- **Python Fallback 移除** → [patterns/remove-python-fallback.md](patterns/remove-python-fallback.md)（Phase 6 完整策略）
 - **CI/CD 故障排查** → [pitfalls/github-actions-issues.md](pitfalls/github-actions-issues.md)（Issue 1-19）
 - **新增 Go API 功能** → [patterns/add-go-api-function.md](patterns/add-go-api-function.md)
 - **新增 GUI 按鈕** → [patterns/add-gui-button.md](patterns/add-gui-button.md)
