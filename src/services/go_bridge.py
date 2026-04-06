@@ -100,6 +100,7 @@ class GoBridge:
     def db_list_videos(self, data_dir: str = "data/json_db") -> list[str]: return api.db_list_videos(data_dir, runner=self._runner)
     def db_get_stats(self, data_dir: str = "data/json_db") -> dict: return api.db_get_stats(data_dir, runner=self._runner)
     def db_compact_journal(self, data_dir: str = "data/json_db") -> bool: return api.db_compact_journal(data_dir, runner=self._runner)
+    def db_fix_studios(self, data_dir: str = "data/json_db", studios_file: str = "studios.json", force: bool = False) -> dict: return api.db_fix_studios(data_dir, studios_file, force, runner=self._runner)
 
     # Identify instance methods — pass self._runner
     def identify_studio(self, code: str, check_major: bool = False) -> dict: return api.identify_studio(code, check_major, runner=self._runner)

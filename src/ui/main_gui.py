@@ -351,21 +351,26 @@ class UnifiedActressClassifierGUI:
         )
         self.stop_btn.grid(row=0, column=3, padx=(2, 0), sticky="ew", ipady=5)
 
-        # 第三排按鈕 - 片商分類和操作歷史
+        # 第三排按鈕 - 片商分類、修正片商資料和操作歷史
         row3_frame = ttk.Frame(button_frame)
         row3_frame.pack(fill="x")
-        row3_frame.columnconfigure((0, 1), weight=1)
+        row3_frame.columnconfigure((0, 1, 2), weight=1)
 
         self.studio_classify_btn = ttk.Button(
             row3_frame, text="🏢 片商分類", command=self.start_studio_classification
         )
         self.studio_classify_btn.grid(row=0, column=0, padx=(0, 2), sticky="ew", ipady=5)
 
+        self.fix_studios_btn = ttk.Button(
+            row3_frame, text="🔧 修正片商資料", command=self.start_fix_studios
+        )
+        self.fix_studios_btn.grid(row=0, column=1, padx=(2, 2), sticky="ew", ipady=5)
+
         # 新增操作歷史按鈕
         self.history_btn = ttk.Button(
             row3_frame, text="📜 操作歷史", command=self.show_operation_history
         )
-        self.history_btn.grid(row=0, column=1, padx=(2, 0), sticky="ew", ipady=5)
+        self.history_btn.grid(row=0, column=2, padx=(2, 0), sticky="ew", ipady=5)
 
         # 結果顯示區域
         result_frame = ttk.LabelFrame(main_frame, text="📋 執行結果", padding="10")
@@ -632,6 +637,7 @@ class UnifiedActressClassifierGUI:
             self.standard_move_btn,
             self.smart_search_move_btn,
             self.studio_classify_btn,
+            self.fix_studios_btn,
             self.history_btn,
             self.settings_btn,
         ]
@@ -1040,6 +1046,88 @@ class UnifiedActressClassifierGUI:
         except Exception as e:
             if self.is_running:
                 self.update_progress(f"\n💥 片商分類發生未預期錯誤: {str(e)}\n")
+                self.status_var.set(f"錯誤: {str(e)}")
+
+    def start_fix_studios(self):
+        """批次修正資料庫內 UNKNOWN/空白片商"""
+        bridge = self.core.go_bridge if hasattr(self.core, "go_bridge") else None
+        if bridge is None or not bridge.is_available:
+            messagebox.showwarning("警告", "Go CLI 不可用，無法執行片商批次修正。\n請確認 classifier.exe 存在。")
+            return
+
+        if not messagebox.askyesno(
+            "確認修正片商資料",
+            "此操作將掃描整個資料庫，\n對 UNKNOWN 或空白片商的影片自動識別並更新片商名稱。\n\n是否繼續？",
+        ):
+            return
+
+        self.clear_results()
+        self.update_progress("🔧 修正片商資料\n" + "=" * 60 + "\n")
+
+        threading.Thread(
+            target=self._run_task,
+            args=(self._fix_studios_worker,),
+            daemon=True,
+        ).start()
+
+    def _fix_studios_worker(self):
+        """修正片商工作執行緒"""
+        self.status_var.set("執行中：修正片商資料...")
+        try:
+            bridge = self.core.go_bridge if hasattr(self.core, "go_bridge") else None
+            if bridge is None:
+                self.update_progress("❌ Go Bridge 未初始化\n")
+                self.status_var.set("錯誤")
+                return
+
+            # 找資料庫路徑
+            data_dir = getattr(self.core, "db_path", "data/json_db")
+            if hasattr(data_dir, "__str__"):
+                data_dir = str(data_dir)
+
+            self.update_progress(f"📂 資料庫路徑: {data_dir}\n🚀 開始批次識別...\n")
+
+            result = bridge.db_fix_studios(data_dir=data_dir)
+
+            if not self.is_running:
+                return
+
+            if result.get("success"):
+                updated = result.get("updated", 0)
+                total = result.get("total", 0)
+                skipped = result.get("skipped", 0)
+                already_correct = result.get("already_correct", 0)
+
+                self.update_progress(
+                    f"\n{'=' * 60}\n"
+                    f"📊 修正結果摘要\n"
+                    f"  總計影片: {total}\n"
+                    f"  已更新:   {updated}\n"
+                    f"  已正確:   {already_correct}\n"
+                    f"  無法識別: {skipped}\n"
+                )
+
+                changes = result.get("changes") or []
+                if changes:
+                    self.update_progress(f"\n📝 更新明細 (共 {len(changes)} 筆):\n")
+                    for c in changes[:50]:
+                        self.update_progress(
+                            f"  {c['code']}: {c['from'] or '(空白)'} → {c['to']}\n"
+                        )
+                    if len(changes) > 50:
+                        self.update_progress(f"  ... 及其他 {len(changes) - 50} 筆\n")
+                else:
+                    self.update_progress("  (無變更)\n")
+
+                self.status_var.set(f"片商修正完成，更新 {updated} 筆")
+            else:
+                err = result.get("error", "未知錯誤")
+                self.update_progress(f"\n❌ 修正失敗: {err}\n")
+                self.status_var.set(f"錯誤: {err}")
+
+        except Exception as e:
+            if self.is_running:
+                self.update_progress(f"\n💥 修正片商發生未預期錯誤: {str(e)}\n")
                 self.status_var.set(f"錯誤: {str(e)}")
 
     # ============================================================

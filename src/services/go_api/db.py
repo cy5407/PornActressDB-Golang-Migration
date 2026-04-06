@@ -235,3 +235,30 @@ def db_compact_journal(
     except Exception as e:
         logger.error(f"❌ 合併 journal 失敗: {e}")
         return False
+
+
+def db_fix_studios(
+    data_dir: str = "data/json_db",
+    studios_file: str = "studios.json",
+    force: bool = False,
+    *,
+    runner: GoCommandRunner | None = None,
+) -> dict:
+    """批次修正資料庫內的片商資料，對 UNKNOWN 或空白片商自動識別並更新。"""
+    r = _get_runner(runner)
+    try:
+        cmd = ["db", "fix-studios", "--data-dir", data_dir, "--studios", studios_file, "--json"]
+        if force:
+            cmd.append("--force")
+        result = r.run(cmd, timeout=120)
+        data = r.parse_json(result.stdout)
+        if not isinstance(data, dict) or not data.get("success"):
+            raise GoBridgeError(f"fix-studios 回傳非預期結果: {result.stdout[:200]}")
+        logger.info(f"✅ 片商批次修正完成，更新 {data.get('updated', 0)} 筆")
+        return data
+    except GoBridgeError as e:
+        logger.error(f"❌ Go CLI 片商批次修正失敗: {e}")
+        return {"success": False, "updated": 0, "error": str(e)}
+    except Exception as e:
+        logger.error(f"❌ 片商批次修正失敗: {e}")
+        return {"success": False, "updated": 0, "error": str(e)}
