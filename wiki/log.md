@@ -5,6 +5,19 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-07] docs | 技術選型決策紀錄建立
+
+**涉及檔案**：
+- `wiki/architecture/tech-stack-decisions.md` — 新建
+
+**內容**：
+- 爬蟲層語言比較（Python vs Node.js vs Go vs Rust），結論：Python 保留
+- GUI 層比較（Tkinter vs PyQt6 vs Wails vs Tauri），長期目標：Wails
+- 未來升級路線：Wails (Go-based GUI) 可讓整個 Python 橋接層消失
+- 語言分工原則確立（Phase 10 後）
+
+---
+
 ## [2026-04-07] refactor | Phase 10 Go guards 全移除（247 tests pass）
 
 **涉及檔案**：
