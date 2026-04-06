@@ -2,7 +2,6 @@
 JSON 資料庫管理器 (JSONDBManager)
 
 此模組提供 JSON 檔案型資料庫的核心管理功能，包括：
-- 檔案鎖定機制（讀寫並行控制）
 - 資料的載入和保存
 - 基本 CRUD 操作
 - 資料驗證和完整性檢查
@@ -16,23 +15,18 @@ from pathlib import Path
 from typing import Any
 
 import orjson
-from filelock import FileLock
-
 # Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
 UTC = timezone.utc
 
 
 from src.models.json_types import (
     ISO_DATETIME_FORMAT,
-    READ_LOCK_TIMEOUT,
     SCHEMA_VERSION,
-    WRITE_LOCK_TIMEOUT,
     ActressDict,
     CorruptedDataError,
     DataIntegrityError,
     JSONDatabaseDict,
     JSONDatabaseError,
-    LockError,
     ValidationError,
     VideoDict,
     get_empty_json_database,
@@ -62,13 +56,11 @@ from src.services.go_runner import GoBridgeNotFoundError as _GoBridgeNotFoundErr
 class JSONDBManager:
     """JSON 資料庫管理器類別
 
-    提供 JSON 檔案型資料庫的管理功能，支援並行讀寫操作。
+    提供 JSON 檔案型資料庫的管理功能。
 
     Attributes:
         data_file: JSON 資料庫檔案路徑
         backup_dir: 備份目錄路徑
-        read_lock: 讀操作鎖定物件
-        write_lock: 寫操作鎖定物件
         data: 記憶體中的資料快取
     """
 
@@ -97,11 +89,6 @@ class JSONDBManager:
             # 建立必需的目錄
             self.data_dir.mkdir(parents=True, exist_ok=True)
             self.backup_dir.mkdir(parents=True, exist_ok=True)
-
-            # 初始化鎖定機制
-            lock_file = self.data_dir / "db.lock"
-            self.read_lock = FileLock(str(lock_file), timeout=READ_LOCK_TIMEOUT)
-            self.write_lock = FileLock(str(lock_file), timeout=WRITE_LOCK_TIMEOUT)
 
             # 初始化記憶體快取
             self.data: JSONDatabaseDict = get_empty_json_database()
@@ -139,12 +126,8 @@ class JSONDBManager:
             CorruptedDataError: 若資料損壞或無法解析
         """
         try:
-            with self.read_lock:
-                self._load_data_internal()
+            self._load_data_internal()
 
-        except LockError as e:
-            logger.error(f"❌ 讀鎖定失敗: {e}")
-            raise
         except CorruptedDataError:
             raise
         except Exception as e:
@@ -269,7 +252,6 @@ class JSONDBManager:
             data: 要儲存的資料字典
 
         Raises:
-            LockError: 若無法獲得寫鎖定
             DataIntegrityError: 若寫入驗證失敗
         """
         max_retries = 5
@@ -291,40 +273,39 @@ class JSONDBManager:
                 # 更新時間戳
                 data["updated_at"] = datetime.now(UTC).strftime(ISO_DATETIME_FORMAT)
 
-                with self.write_lock:
-                    # 原子寫入
-                    temp_file = self.data_file.parent / f"{self.data_file.name}.tmp"
+                # 原子寫入
+                temp_file = self.data_file.parent / f"{self.data_file.name}.tmp"
 
-                    # 確保 temp 檔案不存在
-                    if temp_file.exists():
-                        try:
-                            temp_file.unlink()
-                        except Exception as e:
-                            logger.debug(f"清理暫存檔失敗: {e}")
+                # 確保 temp 檔案不存在
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink()
+                    except Exception as e:
+                        logger.debug(f"清理暫存檔失敗: {e}")
 
-                    with open(temp_file, "wb") as f:
-                        # 使用 orjson 加速，OPT_INDENT_2 提供格式化輸出
-                        f.write(orjson.dumps(data, option=orjson.OPT_INDENT_2))
+                with open(temp_file, "wb") as f:
+                    # 使用 orjson 加速，OPT_INDENT_2 提供格式化輸出
+                    f.write(orjson.dumps(data, option=orjson.OPT_INDENT_2))
 
-                    # 在替換前確保原檔案可訪問
-                    if self.data_file.exists():
-                        # 在 Windows OneDrive 環境下，需要等待檔案完全釋放
-                        try:
-                            self.data_file.unlink()
-                        except PermissionError as pe:
-                            if attempt < max_retries - 1:
-                                logger.warning(
-                                    f"檔案被鎖定（嘗試 {attempt + 1}/{max_retries}），等待後重試: {pe}"
-                                )
-                                time.sleep(retry_delay * (attempt + 1))
-                                continue
-                            raise
+                # 在替換前確保原檔案可訪問
+                if self.data_file.exists():
+                    # 在 Windows OneDrive 環境下，需要等待檔案完全釋放
+                    try:
+                        self.data_file.unlink()
+                    except PermissionError as pe:
+                        if attempt < max_retries - 1:
+                            logger.warning(
+                                f"檔案被鎖定（嘗試 {attempt + 1}/{max_retries}），等待後重試: {pe}"
+                            )
+                            time.sleep(retry_delay * (attempt + 1))
+                            continue
+                        raise
 
-                    # 重新命名 temp 檔案
-                    temp_file.rename(self.data_file)
+                # 重新命名 temp 檔案
+                temp_file.rename(self.data_file)
 
-                    logger.info(f"✅ 資料儲存成功: {self.data_file}")
-                    return  # 成功，退出循環
+                logger.info(f"✅ 資料儲存成功: {self.data_file}")
+                return  # 成功，退出循環
 
             except PermissionError as pe:
                 if attempt < max_retries - 1:
@@ -335,9 +316,6 @@ class JSONDBManager:
                     continue
                 logger.error(f"❌ 資料儲存失敗（所有重試已用盡）: {pe}")
                 raise DataIntegrityError(f"儲存失敗: {pe}") from pe
-            except LockError as e:
-                logger.error(f"❌ 寫鎖定失敗: {e}")
-                raise
             except Exception as e:
                 if attempt < max_retries - 1:
                     logger.warning(
@@ -493,58 +471,6 @@ class JSONDBManager:
         return deleted
 
     # ========================================================================
-    # 並行鎖定 (已在 __init__ 實現)
-    # ========================================================================
-
-    def _acquire_read_lock(self, timeout: int = READ_LOCK_TIMEOUT) -> None:
-        """
-        獲取讀鎖定
-
-        允許多個讀操作並行執行。
-
-        Args:
-            timeout: 等待超時 (秒)
-
-        Raises:
-            LockError: 若無法獲取鎖定
-        """
-        try:
-            self.read_lock.acquire(timeout=timeout)
-            logger.debug("✅ 讀鎖定已獲取")
-        except Exception as e:
-            logger.error(f"❌ 無法獲得讀鎖定: {e}")
-            raise LockError(f"無法獲得讀鎖定: {e}") from e
-
-    def _release_locks(self) -> None:
-        """
-        釋放所有鎖定
-
-        在操作完成後釋放已獲取的鎖定。
-        安全處理已釋放的鎖定物件。
-        """
-        try:
-            if self.read_lock.is_locked:
-                self.read_lock.release()
-                logger.debug("✅ 讀鎖定已釋放")
-        except Exception as e:
-            logger.warning(f"⚠️ 釋放讀鎖定時發生錯誤: {e}")
-
-        try:
-            if self.write_lock.is_locked:
-                self.write_lock.release()
-                logger.debug("✅ 寫鎖定已釋放")
-        except Exception as e:
-            logger.warning(f"⚠️ 釋放寫鎖定時發生錯誤: {e}")
-
-    def __enter__(self):
-        """上下文管理器進入"""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """上下文管理器退出"""
-        self._release_locks()
-        return False
-
     # ========================================================================
     # CRUD 操作 (T010 實現)
     # ========================================================================
@@ -702,7 +628,6 @@ class JSONDBManager:
 
         Raises:
             ValidationError: 若女優資訊無效
-            LockError: 若無法獲得寫鎖定
             CorruptedDataError: 若寫入失敗
         """
         if not isinstance(actress_info, dict):
@@ -738,9 +663,6 @@ class JSONDBManager:
 
         Returns:
             女優資訊，若不存在則返回 None
-
-        Raises:
-            LockError: 若無法獲得讀鎖定
         """
         # Go 委派
         try:
@@ -769,7 +691,6 @@ class JSONDBManager:
             成功則返回 True，若女優不存在則返回 False
 
         Raises:
-            LockError: 若無法獲得寫鎖定
             CorruptedDataError: 若刪除失敗
         """
         # Go 委派
@@ -856,210 +777,201 @@ class JSONDBManager:
             - studio_count: 片商數量
         """
         try:
-            self._acquire_read_lock()
+            videos = self.data.get("videos", {})
 
-            try:
-                videos = self.data.get("videos", {})
+            # 找出該女優的所有影片
+            actress_videos = []
+            for _code, video in videos.items():
+                actresses = video.get("actresses", [])
+                if actress_name in actresses:
+                    actress_videos.append(video)
 
-                # 找出該女優的所有影片
-                actress_videos = []
-                for _code, video in videos.items():
-                    actresses = video.get("actresses", [])
-                    if actress_name in actresses:
-                        actress_videos.append(video)
+            # 統計片商分布
+            studio_stats = {}
+            total_videos = 0
 
-                # 統計片商分布
-                studio_stats = {}
-                total_videos = 0
+            for video in actress_videos:
+                studio = video.get("studio")
+                if not studio or studio == "UNKNOWN":
+                    continue
 
-                for video in actress_videos:
-                    studio = video.get("studio")
-                    if not studio or studio == "UNKNOWN":
-                        continue
+                studio_code = video.get("studio_code", "")
+                total_videos += 1
 
-                    studio_code = video.get("studio_code", "")
-                    total_videos += 1
-
-                    if studio not in studio_stats:
-                        studio_stats[studio] = {
-                            "studio_code": studio_code,
-                            "primary_count": 1,  # JSON 資料庫中沒有 association_type,全部視為 primary
-                            "collaboration_count": 0,
-                            "total_count": 0,
-                            "codes": [],
-                        }
-
-                    studio_stats[studio]["total_count"] += 1
-                    studio_stats[studio]["codes"].append(video.get("code", ""))
-
-                # 如果沒有影片資料
-                if not studio_stats:
-                    return {
-                        "actress_name": actress_name,
-                        "primary_studio": "UNKNOWN",
-                        "confidence": 0.0,
-                        "total_videos": 0,
-                        "studio_distribution": {},
-                        "recommendation": "solo_artist",
-                        "classification_type": "no_data",
-                        "studio_count": 0,
+                if studio not in studio_stats:
+                    studio_stats[studio] = {
+                        "studio_code": studio_code,
+                        "primary_count": 1,  # JSON 資料庫中沒有 association_type,全部視為 primary
+                        "collaboration_count": 0,
+                        "total_count": 0,
+                        "codes": [],
                     }
 
-                studio_count = len(studio_stats)
+                studio_stats[studio]["total_count"] += 1
+                studio_stats[studio]["codes"].append(video.get("code", ""))
 
-                # ========== 第一層：專屬女優快速通道 ==========
-                # 條件：只有 1 個片商且至少 3 部影片
-                if studio_count == 1 and total_videos >= 3:
-                    studio = list(studio_stats.keys())[0]
-                    is_major = major_studios and studio in major_studios
-                    logger.debug(
-                        f"🎯 專屬女優: {actress_name} → {studio} "
-                        f"({total_videos} 部, 大片商: {is_major})"
-                    )
-                    return {
-                        "actress_name": actress_name,
-                        "primary_studio": studio,
-                        "confidence": 100.0,
-                        "total_videos": total_videos,
-                        "studio_distribution": studio_stats,
-                        "recommendation": "studio_classification" if is_major else "solo_artist",
-                        "classification_type": "exclusive",
-                        "studio_count": 1,
-                    }
-
-                # 找出作品數最多的片商
-                best_studio = max(
-                    studio_stats.items(), key=lambda x: x[1]["total_count"]
-                )[0]
-                best_stats = studio_stats[best_studio]
-
-                # 計算最高占比
-                max_ratio = best_stats["total_count"] / total_videos if total_videos > 0 else 0
-
-                # ========== 第二層：高忠誠度女優 ==========
-                # 條件：大片商占比 >= 70% 且至少 5 部作品
-                if major_studios:
-                    for studio, stats in studio_stats.items():
-                        if studio in major_studios:
-                            studio_ratio = stats["total_count"] / total_videos
-                            if studio_ratio >= 0.70 and stats["total_count"] >= 5:
-                                confidence = round(studio_ratio * 100, 1)
-                                logger.debug(
-                                    f"💎 高忠誠度女優: {actress_name} → {studio} "
-                                    f"({stats['total_count']}/{total_videos} = {confidence}%)"
-                                )
-                                return {
-                                    "actress_name": actress_name,
-                                    "primary_studio": studio,
-                                    "confidence": confidence,
-                                    "total_videos": total_videos,
-                                    "studio_distribution": studio_stats,
-                                    "recommendation": "studio_classification",
-                                    "classification_type": "high_loyalty",
-                                    "studio_count": studio_count,
-                                }
-
-                # ========== 第三層：跨片商女優判定 ==========
-                # 條件 A：跨 5+ 片商，直接歸入單體企劃
-                if studio_count >= 5:
-                    confidence = round(max_ratio * 100, 1)
-                    logger.debug(
-                        f"🎭 跨片商女優 (5+): {actress_name} "
-                        f"({studio_count} 片商, 主要 {best_studio} {confidence}%)"
-                    )
-                    return {
-                        "actress_name": actress_name,
-                        "primary_studio": best_studio,
-                        "confidence": confidence,
-                        "total_videos": total_videos,
-                        "studio_distribution": studio_stats,
-                        "recommendation": "solo_artist",
-                        "classification_type": "multi_studio",
-                        "studio_count": studio_count,
-                    }
-
-                # 條件 B：跨 3+ 片商且最高占比 < 40%
-                if studio_count >= 3 and max_ratio < 0.40:
-                    confidence = round(max_ratio * 100, 1)
-                    logger.debug(
-                        f"🎭 跨片商女優 (無主導): {actress_name} "
-                        f"({studio_count} 片商, 最高 {best_studio} {confidence}%)"
-                    )
-                    return {
-                        "actress_name": actress_name,
-                        "primary_studio": best_studio,
-                        "confidence": confidence,
-                        "total_videos": total_videos,
-                        "studio_distribution": studio_stats,
-                        "recommendation": "solo_artist",
-                        "classification_type": "multi_studio",
-                        "studio_count": studio_count,
-                    }
-
-                # ========== 第四層：標準分類邏輯 ==========
-                confidence = round(max_ratio * 100, 1)
-                recommendation = "solo_artist"
-                has_major_studio_work = False
-                major_studio_work_count = 0
-                minor_studio_work_count = 0
-                best_major_studio = None
-                best_major_count = 0
-
-                if major_studios:
-                    for studio, stats in studio_stats.items():
-                        if studio in major_studios:
-                            has_major_studio_work = True
-                            major_studio_work_count += stats["total_count"]
-                            if stats["total_count"] > best_major_count:
-                                best_major_count = stats["total_count"]
-                                best_major_studio = studio
-                        else:
-                            minor_studio_work_count += stats["total_count"]
-
-                # 標準分類邏輯
-                if has_major_studio_work:
-                    if best_major_studio and best_major_studio == best_studio:
-                        # 最佳片商就是大片商
-                        if best_stats["total_count"] >= 3 and confidence >= 70:
-                            recommendation = "studio_classification"
-                        elif (
-                            best_stats["total_count"] >= 1
-                            and minor_studio_work_count < 10
-                        ):
-                            recommendation = "studio_classification"
-                            confidence = max(confidence, 60.0)
-                    elif best_major_studio and major_studio_work_count >= 1 and minor_studio_work_count < 10:
-                        # 最佳片商不是大片商,但有大片商作品
-                        recommendation = "studio_classification"
-                        best_studio = best_major_studio
-                        major_studio_confidence = (
-                            studio_stats[best_major_studio]["total_count"]
-                            / total_videos
-                        ) * 100
-                        confidence = max(round(major_studio_confidence, 1), 60.0)
-
-                logger.debug(
-                    f"📊 標準分類: {actress_name} → {best_studio} "
-                    f"({confidence}%, {recommendation})"
-                )
-
+            # 如果沒有影片資料
+            if not studio_stats:
                 return {
                     "actress_name": actress_name,
-                    "primary_studio": best_studio or "UNKNOWN",
-                    "confidence": round(confidence, 1),
+                    "primary_studio": "UNKNOWN",
+                    "confidence": 0.0,
+                    "total_videos": 0,
+                    "studio_distribution": {},
+                    "recommendation": "solo_artist",
+                    "classification_type": "no_data",
+                    "studio_count": 0,
+                }
+
+            studio_count = len(studio_stats)
+
+            # ========== 第一層：專屬女優快速通道 ==========
+            # 條件：只有 1 個片商且至少 3 部影片
+            if studio_count == 1 and total_videos >= 3:
+                studio = list(studio_stats.keys())[0]
+                is_major = major_studios and studio in major_studios
+                logger.debug(
+                    f"🎯 專屬女優: {actress_name} → {studio} "
+                    f"({total_videos} 部, 大片商: {is_major})"
+                )
+                return {
+                    "actress_name": actress_name,
+                    "primary_studio": studio,
+                    "confidence": 100.0,
                     "total_videos": total_videos,
                     "studio_distribution": studio_stats,
-                    "recommendation": recommendation,
-                    "classification_type": "standard",
+                    "recommendation": "studio_classification" if is_major else "solo_artist",
+                    "classification_type": "exclusive",
+                    "studio_count": 1,
+                }
+
+            # 找出作品數最多的片商
+            best_studio = max(
+                studio_stats.items(), key=lambda x: x[1]["total_count"]
+            )[0]
+            best_stats = studio_stats[best_studio]
+
+            # 計算最高占比
+            max_ratio = best_stats["total_count"] / total_videos if total_videos > 0 else 0
+
+            # ========== 第二層：高忠誠度女優 ==========
+            # 條件：大片商占比 >= 70% 且至少 5 部作品
+            if major_studios:
+                for studio, stats in studio_stats.items():
+                    if studio in major_studios:
+                        studio_ratio = stats["total_count"] / total_videos
+                        if studio_ratio >= 0.70 and stats["total_count"] >= 5:
+                            confidence = round(studio_ratio * 100, 1)
+                            logger.debug(
+                                f"💎 高忠誠度女優: {actress_name} → {studio} "
+                                f"({stats['total_count']}/{total_videos} = {confidence}%)"
+                            )
+                            return {
+                                "actress_name": actress_name,
+                                "primary_studio": studio,
+                                "confidence": confidence,
+                                "total_videos": total_videos,
+                                "studio_distribution": studio_stats,
+                                "recommendation": "studio_classification",
+                                "classification_type": "high_loyalty",
+                                "studio_count": studio_count,
+                            }
+
+            # ========== 第三層：跨片商女優判定 ==========
+            # 條件 A：跨 5+ 片商，直接歸入單體企劃
+            if studio_count >= 5:
+                confidence = round(max_ratio * 100, 1)
+                logger.debug(
+                    f"🎭 跨片商女優 (5+): {actress_name} "
+                    f"({studio_count} 片商, 主要 {best_studio} {confidence}%)"
+                )
+                return {
+                    "actress_name": actress_name,
+                    "primary_studio": best_studio,
+                    "confidence": confidence,
+                    "total_videos": total_videos,
+                    "studio_distribution": studio_stats,
+                    "recommendation": "solo_artist",
+                    "classification_type": "multi_studio",
                     "studio_count": studio_count,
                 }
 
-            finally:
-                self._release_locks()
+            # 條件 B：跨 3+ 片商且最高占比 < 40%
+            if studio_count >= 3 and max_ratio < 0.40:
+                confidence = round(max_ratio * 100, 1)
+                logger.debug(
+                    f"🎭 跨片商女優 (無主導): {actress_name} "
+                    f"({studio_count} 片商, 最高 {best_studio} {confidence}%)"
+                )
+                return {
+                    "actress_name": actress_name,
+                    "primary_studio": best_studio,
+                    "confidence": confidence,
+                    "total_videos": total_videos,
+                    "studio_distribution": studio_stats,
+                    "recommendation": "solo_artist",
+                    "classification_type": "multi_studio",
+                    "studio_count": studio_count,
+                }
 
-        except LockError as e:
-            logger.error(f"❌ 無法獲取讀鎖定: {e}")
-            raise
+            # ========== 第四層：標準分類邏輯 ==========
+            confidence = round(max_ratio * 100, 1)
+            recommendation = "solo_artist"
+            has_major_studio_work = False
+            major_studio_work_count = 0
+            minor_studio_work_count = 0
+            best_major_studio = None
+            best_major_count = 0
+
+            if major_studios:
+                for studio, stats in studio_stats.items():
+                    if studio in major_studios:
+                        has_major_studio_work = True
+                        major_studio_work_count += stats["total_count"]
+                        if stats["total_count"] > best_major_count:
+                            best_major_count = stats["total_count"]
+                            best_major_studio = studio
+                    else:
+                        minor_studio_work_count += stats["total_count"]
+
+            # 標準分類邏輯
+            if has_major_studio_work:
+                if best_major_studio and best_major_studio == best_studio:
+                    # 最佳片商就是大片商
+                    if best_stats["total_count"] >= 3 and confidence >= 70:
+                        recommendation = "studio_classification"
+                    elif (
+                        best_stats["total_count"] >= 1
+                        and minor_studio_work_count < 10
+                    ):
+                        recommendation = "studio_classification"
+                        confidence = max(confidence, 60.0)
+                elif best_major_studio and major_studio_work_count >= 1 and minor_studio_work_count < 10:
+                    # 最佳片商不是大片商,但有大片商作品
+                    recommendation = "studio_classification"
+                    best_studio = best_major_studio
+                    major_studio_confidence = (
+                        studio_stats[best_major_studio]["total_count"]
+                        / total_videos
+                    ) * 100
+                    confidence = max(round(major_studio_confidence, 1), 60.0)
+
+            logger.debug(
+                f"📊 標準分類: {actress_name} → {best_studio} "
+                f"({confidence}%, {recommendation})"
+            )
+
+            return {
+                "actress_name": actress_name,
+                "primary_studio": best_studio or "UNKNOWN",
+                "confidence": round(confidence, 1),
+                "total_videos": total_videos,
+                "studio_distribution": studio_stats,
+                "recommendation": recommendation,
+                "classification_type": "standard",
+                "studio_count": studio_count,
+            }
+
         except Exception as e:
             logger.error(f"❌ 分析女優主要片商失敗: {e}")
             raise
