@@ -122,6 +122,8 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
+          # Guard step 已刪除 classifier.exe 以防誤判 out-of-scope，此處重新 build
+          go build -o classifier.exe ./cmd/scanner
           go test ./pkg/... -v
           python -m pytest tests/ -v --tb=short
 
