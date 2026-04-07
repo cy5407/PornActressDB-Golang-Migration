@@ -281,20 +281,54 @@ if code != "" && !seen[code] {
 
 ---
 
-## E2E 效能數據（2026-04-07 實測）
+## E2E 效能數據（2026-04-07 實測，共四輪優化）
+
+### 掃描效能（各輪一致）
 
 | 步驟 | 耗時 | 備註 |
 |------|------|------|
 | 掃描 99 個檔案 | **< 1 秒** | 純 Go `filepath.WalkDir` |
-| 辨識有效番號（修復前）| — | 65 筆（含 2 重複）|
-| 辨識有效番號（修復後）| — | 63 筆（去重）|
-| 搜尋 65 筆（修復前）| **75 秒** | 09:17:17 → 09:18:32 |
-| 搜尋平均每筆 | **~1.15 秒** | Python subprocess + HTTP |
-| 搜尋成功率 | **65/65 = 100%** | AV-WIKI 為主要來源 |
-| 並行 workers | **5** | 可調高到 10-15 |
+| 去重後有效番號 | 63 筆 | 修復前 65 筆（含 2 重複）|
 
-**效能瓶頸**：Python subprocess 啟動 + HTTP 往返延遲  
-**優化建議**：workers 調高到 10-15（需留意 AV-WIKI 速率限制）
+### 搜尋效能優化歷程
+
+| 輪次 | 總耗時 | 啟動耗時 | 搜尋耗時 | Workers | 優化描述 |
+|------|--------|----------|----------|---------|---------|
+| 第一輪（原始）| **75 秒** | ~32 秒 | ~43 秒 | 5 | 每筆番號啟動獨立 Python process |
+| 第二輪 | **39 秒** | ~5 秒 | ~34 秒 | 15 | 改為單一 Python + 內部 ThreadPoolExecutor |
+| 第三輪（反效果）| **50 秒** | ~14 秒 | ~36 秒 | 20 | 主 thread 預建 searcher（串行反而更慢）|
+| **第四輪（最終）** | **🚀 10 秒** | ~3 秒 | ~7 秒 | 20 | thread-local 並行初始化 + 停用 rate limiter |
+
+**第四輪優化效果：75s → 10s（7.5x 加速），成功率 63/63 = 100%**
+
+### 第四輪實測 Log（09:46:08 → 09:46:18）
+
+```
+09:46:08 🔍 開始搜尋 63 筆番號
+09:46:11 搜尋中 (1/63)：PFES-115    ← Python 啟動僅 3 秒
+09:46:11 搜尋中 (14/63)：SDAB-314   ← 5 秒內完成前 14 筆
+09:46:18 搜尋完成：63 成功 / 0 失敗  ← 總計 10 秒
+```
+
+### 優化技術細節
+
+**瓶頸 1 — Python 啟動開銷（75s → 39s）**
+
+原版每個番號啟動一個 Python process（約 500ms 啟動延遲 × 65 次 = 32s）。  
+改為 `src/scrapers/run_batch_search.py`：一個 process + 內部 ThreadPoolExecutor(workers)。
+
+**瓶頸 2 — Rate limiter 人工 sleep（39s → 10s）**
+
+`SafeSearcher.japanese_searcher.config`：`min_interval=0.5s, max_interval=1.5s`  
+HTTP 快速回傳（<0.5s）時仍會 sleep 最長 1.2s。  
+批次模式下每個 thread 有獨立 SafeSearcher（`_thread_local`），跨 thread 不共用 `last_request_time`，rate limiter 無意義。  
+修法：初始化時直接設 `min_interval = max_interval = 0.0`。
+
+**踩坑 — 主 thread 預建 searcher 反效果（39s → 50s）**
+
+試圖在 `main()` 主 thread 依序建立 20 個 WebSearcher 以「避免 GIL 競爭」，實際上把初始化完全串行化（14s）。  
+Python GIL 在 I/O 操作（讀 cache 文件、import module）時自動讓步，thread-local 並行初始化反而更快（3s）。  
+**教訓**：GIL 在 I/O 密集段不是瓶頸，強制串行只會更慢。
 
 ---
 

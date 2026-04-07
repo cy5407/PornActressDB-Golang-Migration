@@ -55,23 +55,37 @@ _ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 | 搜尋次數 | 65 次 | 63 次 |
 | 搜尋總耗時（估）| 75 秒 | ~73 秒 |
 
-## 搜尋效能分析（2026-04-07 實測）
+## 搜尋效能分析（2026-04-07 實測，完整四輪優化）
 
-掃描目錄：`C:\Users\cy5407\Downloads\AV`
+掃描目錄：`C:\Users\cy5407\Downloads\AV`，63 個唯一番號
 
-| 指標 | 數值 |
-|------|------|
-| 掃描 99 個檔案耗時 | < 1 秒（純 Go WalkDir）|
-| 有效番號（去重）| 63 筆 |
-| 搜尋開始 | 09:17:17 |
-| 搜尋結束 | 09:18:32 |
-| 搜尋總耗時 | **75 秒** |
-| 每筆平均 | **~1.15 秒/筆** |
-| 並行 workers | 5 |
-| 成功率 | 65/65（修復前）→ 預計 63/63 |
+| 輪次 | 總耗時 | 啟動耗時 | 搜尋耗時 | Workers | 優化描述 |
+|------|--------|----------|----------|---------|---------|
+| 第一輪（原始）| **75 秒** | ~32 秒 | ~43 秒 | 5 | 每筆獨立啟動 Python process |
+| 第二輪（batch）| **39 秒** | ~5 秒 | ~34 秒 | 15 | 單一 process + ThreadPoolExecutor |
+| 第三輪（反效果）| **50 秒** | ~14 秒 | ~36 秒 | 20 | 主 thread 預建 searcher（串行反慢）|
+| **第四輪（最終）**| **🚀 10 秒** | ~3 秒 | ~7 秒 | 20 | thread-local 並行初始化 + 停用 rate limiter |
 
-**搜尋瓶頸**：Python subprocess 啟動開銷 + HTTP 網路往返延遲（AV-WIKI / JAVDB）。  
-**優化方向**：提高 workers 數（建議 10-15），但需注意目標網站速率限制。
+**整體加速：75s → 10s（**7.5x**），成功率 63/63 = 100%**
+
+### 第四輪核心優化：停用 Rate Limiter
+
+`SafeSearcher` 的 `japanese_searcher.config`：`min_interval=0.5s, max_interval=1.5s`  
+批次模式中每個 thread 有獨立 `SafeSearcher`（`_thread_local`），`last_request_time` 不跨 thread 共用，rate limiter 只會白白 sleep。
+
+修法（`run_batch_search.py`）：
+```python
+searcher.japanese_searcher.config.min_interval = 0.0
+searcher.japanese_searcher.config.max_interval = 0.0
+searcher.safe_searcher.config.min_interval = 0.0
+searcher.safe_searcher.config.max_interval = 0.0
+```
+
+### 踩坑：主 thread 預建 searcher 反效果
+
+試圖串行預建 20 個 WebSearcher 以「避免 GIL 競爭」：啟動從 5s 惡化到 14s。  
+原因：Python GIL 在 I/O（讀 cache、import）時自動讓步，threads 並行初始化反而更快。  
+**教訓**：I/O 密集操作交給 threads 並行，強制串行只會更慢。
 
 ## 相關文件
 

@@ -45,6 +45,7 @@
 | [GitHub Actions 故障](pitfalls/github-actions-issues.md) | schedule/scope guard/Go API/Node.js Issue 1-15 全紀錄 | CI/CD |
 | [Wails 掃描重複番號](pitfalls/wails-scan-duplicate.md) | WalkDir 無去重導致同番號多次出現並浪費搜尋請求 | E2E 實測 |
 | [Wails 建置踩坑](pitfalls/wails-build-issues.md) | npm 版本衝突、TS 命名空間錯誤、native dialog 無法從前端呼叫 | E2E 實測 |
+| [Wails 搜尋效能優化](pitfalls/wails-search-perf.md) | 批次搜尋 75s→10s：rate limiter 停用 + thread-local 並行初始化 | E2E 實測 |
 
 ---
 

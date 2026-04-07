@@ -5,6 +5,25 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-07] perf | Wails 批次搜尋效能優化 75s→10s（7.5x）
+
+**涉及檔案**：
+- `src/scrapers/run_batch_search.py` — thread-local + rate limiter 停用
+- `wails-app/backend/app.go` — workers 升至 20
+- `wiki/pitfalls/wails-search-perf.md` — 新建效能優化踩坑文件
+- `wiki/pitfalls/wails-scan-duplicate.md` — 補充四輪效能數據
+- `docs/茶包射手/wails-e2e-scan.md` — 更新完整效能歷程表
+
+**四輪優化歷程（63 筆，1G 網路）**：
+1. 原始：75s（每筆獨立 Python process）
+2. batch script：39s（單一 process + ThreadPoolExecutor(15)）
+3. 主 thread 預建 searcher（反效果）：50s（串行初始化 14s）
+4. **thread-local 並行初始化 + 停用 rate limiter：🚀 10s**
+
+**關鍵發現**：
+- Rate limiter（min/max_interval=0.5/1.5s）在批次模式完全無效（各 thread 獨立 SafeSearcher，不共用 `last_request_time`）
+- GIL 在 I/O 密集段自動讓步，threads 並行初始化比主 thread 串行更快
+
 ## [2026-04-07] pitfall | Wails 掃描重複番號 & E2E 效能記錄
 
 **涉及檔案**：
