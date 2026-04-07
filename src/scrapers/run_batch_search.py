@@ -51,10 +51,24 @@ _thread_local = threading.local()
 
 
 def _get_searcher():
+    """每個 thread 只建立一次 WebSearcher，並停用人工 rate limit。
+
+    批次模式的設計原則：
+    - 每個 thread 有獨立 SafeSearcher，各自的 last_request_time 互不干擾
+    - SafeSearcher 的 rate limiter 是為了防止「同一 session 高頻請求」
+    - 批次模式下每個 thread 處理 ≤5 個 code，自然的 HTTP 往返時間已足夠緩衝
+    - 停用後不影響其他 thread；AV-WIKI 自然 TCP back-pressure 仍有保護
+    """
     if not hasattr(_thread_local, "searcher"):
         from models.config import ConfigManager
         from services.web_searcher import WebSearcher
-        _thread_local.searcher = WebSearcher(ConfigManager(_resolve_config_path()))
+        searcher = WebSearcher(ConfigManager(_resolve_config_path()))
+        # 停用 rate limiter：批次模式各 thread 獨立，人工 sleep 只會浪費時間
+        searcher.japanese_searcher.config.min_interval = 0.0
+        searcher.japanese_searcher.config.max_interval = 0.0
+        searcher.safe_searcher.config.min_interval = 0.0
+        searcher.safe_searcher.config.max_interval = 0.0
+        _thread_local.searcher = searcher
     return _thread_local.searcher
 
 
@@ -74,9 +88,9 @@ def _normalize(raw: dict, code: str) -> dict:
     }
 
 
-def search_one(code: str) -> dict:
+def search_one(args: tuple) -> dict:
+    code, searcher = args
     try:
-        searcher = _get_searcher()
         stop_event = threading.Event()
         raw = searcher.search_info(code, stop_event)
         if not raw:
@@ -86,6 +100,18 @@ def search_one(code: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         return {"code": code, "title": "", "studio": "", "release_date": "",
                 "url": "", "actresses": [], "method": "", "error": str(exc)}
+
+
+def _make_searcher():
+    """建立一個已停用 rate limiter 的 WebSearcher。"""
+    from models.config import ConfigManager
+    from services.web_searcher import WebSearcher
+    searcher = WebSearcher(ConfigManager(_resolve_config_path()))
+    searcher.japanese_searcher.config.min_interval = 0.0
+    searcher.japanese_searcher.config.max_interval = 0.0
+    searcher.safe_searcher.config.min_interval = 0.0
+    searcher.safe_searcher.config.max_interval = 0.0
+    return searcher
 
 
 def main() -> None:
@@ -102,9 +128,19 @@ def main() -> None:
     if not codes:
         sys.exit(0)
 
+    # 在主 thread 預先建立所有 searcher，避免 threads 競爭 GIL 做初始化
+    # 每個 searcher 對應一個 worker thread（round-robin 分配）
+    from models.config import ConfigManager  # noqa: F401 — 觸發 import cache
+    from services.web_searcher import WebSearcher  # noqa: F401
+    actual_workers = min(workers, len(codes))
+    searchers = [_make_searcher() for _ in range(actual_workers)]
+
+    # 將 codes 與對應的 searcher 配對（round-robin）
+    args = [(code, searchers[i % actual_workers]) for i, code in enumerate(codes)]
+
     # 串流輸出：每筆完成即立即 print，Go 端逐行讀取並發送 Wails 事件
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(search_one, c): c for c in codes}
+    with ThreadPoolExecutor(max_workers=actual_workers) as executor:
+        futures = {executor.submit(search_one, arg): arg[0] for arg in args}
         for future in as_completed(futures):
             result = future.result()
             print(json.dumps(result, ensure_ascii=False), flush=True)

@@ -423,7 +423,7 @@ func (a *App) PythonSearch(code string) (*SearchResult, error) {
 // This eliminates N×Python-startup overhead; estimated 10-20x faster than the old per-code approach.
 func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 	if workers <= 0 {
-		workers = 15
+		workers = 20
 	}
 	total := len(codes)
 	if total == 0 {
