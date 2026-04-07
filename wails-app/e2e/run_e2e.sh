@@ -15,6 +15,12 @@ if [ ! -f "backend/integration_test.go" ]; then
   exit 1
 fi
 
+echo "Step 0: Generate fixtures (if not already present)"
+FIXTURE_VIDEOS_DIR="e2e/fixtures/videos"
+if [ ! -d "$FIXTURE_VIDEOS_DIR" ] || [ -z "$(find "$FIXTURE_VIDEOS_DIR" -maxdepth 1 -type f | head -n 1)" ]; then
+  python3 e2e/fixtures/gen_fixtures.py
+fi
+
 TEST_OUTPUT="$(go test ./backend -run 'TestIntegration|TestBackendSmoke' -v 2>&1)"
 STATUS=$?
 printf '%s\n' "$TEST_OUTPUT"

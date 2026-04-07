@@ -1,5 +1,18 @@
 # E2E 測試場景
 
+## Fixture 說明
+
+測試 fixture 在 `wails-app/e2e/fixtures/` 下：
+- `videos/`：100 個假影片檔（0-byte），覆蓋 10 個廠牌
+- `test_db/data.json`：對應 DB 資料，search_status 全為 "failed"，可用來模擬「尚未搜尋、待分類」狀態
+- 重新產生：`python3 gen_fixtures.py`
+
+測試流程建議：
+1. 執行掃描 → 確認 100 筆都被 ScanDirectory 偵測到
+2. 執行搜尋（可 mock 或真實）→ 確認 search_status 更新
+3. 執行搬移 → 確認檔案依女優/片商分類到正確目錄
+4. 執行回滾 → 確認檔案回到原目錄
+
 以下場景用來驗收 Wails 遷移後的 Go backend 與前端事件串接是否完整。
 
 ## 1. 掃描目錄
