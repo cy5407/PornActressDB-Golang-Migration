@@ -554,12 +554,20 @@ func (a *App) ensureDB() {
 }
 
 func resolveConfigPath() string {
-	// Try next to executable first, then fall back to CWD
+	// Priority: exe dir → project root (dev: 3 levels up from build/bin) → CWD
 	exe, err := os.Executable()
 	if err == nil {
-		candidate := filepath.Join(filepath.Dir(exe), "config.ini")
-		if _, err2 := os.Stat(candidate); err2 == nil {
-			return candidate
+		exeDir := filepath.Dir(exe)
+		candidates := []string{
+			filepath.Join(exeDir, "config.ini"),
+			filepath.Join(exeDir, "..", "..", "..", "config.ini"), // wails-app/build/bin → project root
+		}
+		for _, c := range candidates {
+			if abs, err2 := filepath.Abs(c); err2 == nil {
+				if _, err3 := os.Stat(abs); err3 == nil {
+					return abs
+				}
+			}
 		}
 	}
 	return "config.ini"
@@ -579,16 +587,37 @@ func resolveStudiosPath() string {
 func resolveDataDir(cfgPath string) string {
 	cfgSvc := services.NewConfigService(cfgPath)
 	prefs, _ := cfgSvc.Load()
-	return prefs.JSONDataDir
+	dir := prefs.JSONDataDir
+	if filepath.IsAbs(dir) {
+		return dir
+	}
+	// Relative path: resolve relative to the config file's directory.
+	// This ensures "data/json_db" in project root's config.ini resolves to
+	// the project root's data/json_db, not the exe's working directory.
+	if cfgPath != "" && cfgPath != "config.ini" {
+		if abs, err := filepath.Abs(filepath.Join(filepath.Dir(cfgPath), dir)); err == nil {
+			return abs
+		}
+	}
+	return dir
 }
 
 func resolveLogDir(cfgPath string) string {
 	cfgSvc := services.NewConfigService(cfgPath)
 	prefs, _ := cfgSvc.Load()
+	dir := "logs"
 	if prefs.LogDir != "" {
-		return prefs.LogDir
+		dir = prefs.LogDir
 	}
-	return "logs"
+	if filepath.IsAbs(dir) {
+		return dir
+	}
+	if cfgPath != "" && cfgPath != "config.ini" {
+		if abs, err := filepath.Abs(filepath.Join(filepath.Dir(cfgPath), dir)); err == nil {
+			return abs
+		}
+	}
+	return dir
 }
 
 func resolvePythonExe() string {
