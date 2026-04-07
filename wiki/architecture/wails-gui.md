@@ -71,6 +71,7 @@ wails-app/
 | `DbListVideos()` | pkg/database | 列出所有影片 |
 | `IdentifyStudio(code)` | pkg/studio | 識別片商 |
 | `ListStudios()` | pkg/studio | 列出所有片商 |
+| `StudioClassifyMove(codes, outputDir, workers)` | pkg/database + pkg/app/move_service | 片商分類移動（W7）→ 詳見 [片商分類架構](studio-classification.md) |
 | `GetPreferences()` | backend/services/config | 讀取設定 |
 | `UpdatePreferences(prefs)` | backend/services/config | 儲存設定 |
 | `ResetPreferences()` | backend/services/config | 重設設定 |
@@ -113,6 +114,8 @@ EventsEmit(ctx, "search:done", {...})
 | `search:progress` | 批次搜尋進度 | `{current, total, code}` |
 | `search:result` | 單筆搜尋完成 | `{code, result}` |
 | `search:done` | 全部批次搜尋完畢 | `{total, success, failed}` |
+| `studio:move:progress` | 片商分類移動進度（W7） | `{current, total, code}` |
+| `studio:move:done` | 片商分類移動完畢（W7） | `{total, success, failed}` |
 
 ---
 
