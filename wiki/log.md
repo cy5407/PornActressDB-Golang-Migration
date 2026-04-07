@@ -5,7 +5,20 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
-## [2026-04-07] pitfall | Wails 六大潛在問題分析記錄
+## [2026-04-07] fix | Wails 六大問題全修復（T1-T6）
+
+**commit**：e2b0289  
+
+| Task | 說明 | 修改檔案 |
+|------|------|---------|
+| T1 | `getStatus` 加 `title` 判定，有標題無女優不標記 failed | `SearchResultDialog.tsx` |
+| T2 | `BatchSearch workers` 讀 `config.ThreadCount`，前端傳 0 | `app.go`、`App.tsx` |
+| T3 | 移動後從 `scanResults` 清除已成功移動項目 | `App.tsx` |
+| T4 | `dbOnce` 改為 `mutex+nil`，`UpdatePreferences/ResetPreferences` 後重置 DB | `app.go` |
+| T5 | 移動路徑改為 `outputDir\女優名\番號.ext`，無資料放「未分類」 | `App.tsx` |
+| T6 | 移動前顯示 N 個檔案 → M 個資料夾的預覽訊息 | `App.tsx` |
+
+
 
 **涉及檔案**：
 - `wiki/pitfalls/wails-move-stale-paths.md` — 新建：移動後 scanResults 路徑未更新
