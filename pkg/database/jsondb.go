@@ -1129,3 +1129,35 @@ func (db *JSONDatabase) GetStudioStats() ([]map[string]any, error) {
 
 	return results, nil
 }
+
+// GetActressPrimaryStudio 統計 DB 中女優出現最多的片商名稱。
+// actressName 為空或無任何有效 studio 記錄時返回空字串。
+// 同票數時取字典序較小的片商名。
+func (db *JSONDatabase) GetActressPrimaryStudio(actressName string) string {
+if actressName == "" {
+return ""
+}
+db.mu.RLock()
+defer db.mu.RUnlock()
+
+studioCounts := map[string]int{}
+for _, video := range db.root.Videos {
+for _, a := range video.Actresses {
+if a == actressName {
+if video.Studio != "" && video.Studio != "UNKNOWN" {
+studioCounts[video.Studio]++
+}
+}
+}
+}
+if len(studioCounts) == 0 {
+return ""
+}
+maxStudio, maxCount := "", 0
+for s, c := range studioCounts {
+if c > maxCount || (c == maxCount && s < maxStudio) {
+maxStudio, maxCount = s, c
+}
+}
+return maxStudio
+}
