@@ -569,10 +569,6 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 //   - 無任何 studio 記錄 → ""（前端應歸入「未分類」）
 func (a *App) GetActressPrimaryStudios(actressNames []string) map[string]string {
 	a.ensureDB()
-	if a.db == nil {
-		return map[string]string{}
-	}
-
 	result := make(map[string]string, len(actressNames))
 	seen := map[string]bool{}
 	for _, name := range actressNames {
