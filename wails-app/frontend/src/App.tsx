@@ -125,9 +125,15 @@ function ActionToolbar() {
     resetProgress();
     pushEvent('info', `📦 開始移動 ${targets.length} 個檔案 → ${outputDir}`);
 
+    const pathExt = (p: string): string => {
+      const lastDot = p.lastIndexOf('.');
+      const lastSep = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+      return lastDot > lastSep ? p.slice(lastDot) : '';
+    };
+
     const items = targets.map((r) => ({
       source: r.path,
-      destination: `${outputDir}/${r.code}`,
+      destination: `${outputDir}\\${r.code}${pathExt(r.path)}`,
       on_conflict: conflictStrategy,
     }));
 
