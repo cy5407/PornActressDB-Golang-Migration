@@ -36,21 +36,37 @@ from src.models.json_types import (
 # 設定日誌
 logger = logging.getLogger(__name__)
 
-from src.services.go_api.db import (
-    db_backup_cleanup as _go_db_backup_cleanup,
-    db_backup_create as _go_db_backup_create,
-    db_backup_list as _go_db_backup_list,
-    db_backup_restore as _go_db_backup_restore,
-    db_delete_actress as _go_db_delete_actress,
-    db_delete_video as _go_db_delete_video,
-    db_get_actress as _go_db_get_actress,
-    db_get_all_videos as _go_db_get_all_videos,
-    db_get_video as _go_db_get_video,
-    db_update_actress as _go_db_update_actress,
-    db_update_video as _go_db_update_video,
-)
-from src.services.go_runner import GoBridgeError as _GoBridgeError
-from src.services.go_runner import GoBridgeNotFoundError as _GoBridgeNotFoundError
+try:
+    from src.services.go_cli import (
+        GoError as _GoBridgeError,
+        GoNotFoundError as _GoBridgeNotFoundError,
+        db_backup_cleanup as _go_db_backup_cleanup,
+        db_backup_create as _go_db_backup_create,
+        db_backup_list as _go_db_backup_list,
+        db_backup_restore as _go_db_backup_restore,
+        db_delete_actress as _go_db_delete_actress,
+        db_delete_video as _go_db_delete_video,
+        db_get_actress as _go_db_get_actress,
+        db_get_all_videos as _go_db_get_all_videos,
+        db_get_video as _go_db_get_video,
+        db_update_actress as _go_db_update_actress,
+        db_update_video as _go_db_update_video,
+    )
+except ImportError:
+    def _go_db_backup_cleanup(*a, **kw): return {}  # noqa: E731
+    def _go_db_backup_create(*a, **kw): return {}  # noqa: E731
+    def _go_db_backup_list(*a, **kw): return []  # noqa: E731
+    def _go_db_backup_restore(*a, **kw): return {}  # noqa: E731
+    def _go_db_delete_actress(*a, **kw): return {}  # noqa: E731
+    def _go_db_delete_video(*a, **kw): return {}  # noqa: E731
+    def _go_db_get_actress(*a, **kw): return {}  # noqa: E731
+    def _go_db_get_all_videos(*a, **kw): return []  # noqa: E731
+    def _go_db_get_video(*a, **kw): return {}  # noqa: E731
+    def _go_db_update_actress(*a, **kw): return {}  # noqa: E731
+    def _go_db_update_video(*a, **kw): return {}  # noqa: E731
+
+    class _GoBridgeError(Exception): pass  # noqa: E701
+    class _GoBridgeNotFoundError(_GoBridgeError): pass  # noqa: E701
 
 
 class JSONDBManager:

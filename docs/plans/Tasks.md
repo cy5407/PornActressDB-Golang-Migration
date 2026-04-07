@@ -6,133 +6,133 @@
 
 ## 前置準備
 
-- [ ] 確認 Go 環境可用
-- [ ] 安裝 Wails v2 CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- [ ] 執行 `wails doctor` 確認環境健康
-- [ ] 安裝 Node.js 18+
-- [ ] 確認 `node --version` / `npm --version`
-- [ ] 確認 WebView2 Runtime 可用（Windows 11 內建；Windows 10 需手動安裝）
-- [ ] 確認 CGO 可用
+- [x] 確認 Go 環境可用
+- [x] 安裝 Wails v2 CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- [x] 執行 `wails doctor` 確認環境健康
+- [x] 安裝 Node.js 18+
+- [x] 確認 `node --version` / `npm --version`
+- [x] 確認 WebView2 Runtime 可用（Windows 11 內建；Windows 10 需手動安裝）
+- [x] 確認 CGO 可用
 
 ---
 
 ## W1. 環境建置 & PoC
 
-- [ ] 建立 `wails-app/` 子目錄
-- [ ] 初始化 Wails React + TypeScript 專案（`wails init`）
-- [ ] 建立 `wails-app/backend/app.go`
-- [ ] 暴露第一個 binding：`ScanDirectory(dir string)`
-- [ ] React 前端呼叫 `ScanDirectory`
-- [ ] 顯示回傳結果
-- [ ] 驗證 `wails dev`
-- [ ] 驗證 `wails build`
-- [ ] 確認可產生 `.exe`
+- [x] 建立 `wails-app/` 子目錄
+- [x] 初始化 Wails React + TypeScript 專案（`wails init`）
+- [x] 建立 `wails-app/backend/app.go`
+- [x] 暴露第一個 binding：`ScanDirectory(dir string)`
+- [x] React 前端呼叫 `ScanDirectory`
+- [x] 顯示回傳結果
+- [x] 驗證 `wails dev`
+- [x] 驗證 `wails build`
+- [x] 確認可產生 `.exe`
 
 **W1 驗收**
-- [ ] `wails dev` 可啟動
-- [ ] 前端按鈕能呼叫 Go binding
-- [ ] 畫面能顯示掃描結果
+- [x] `wails dev` 可啟動
+- [x] 前端按鈕能呼叫 Go binding
+- [x] 畫面能顯示掃描結果
 
 ---
 
 ## W2. Go Backend Bindings
 
-- [ ] 建立 Wails backend app 骨架
-- [ ] 實作 `ScanDirectory`（含 `workers`、`recursive` 參數）
-- [ ] 實作 `MoveFile` / `MoveDir` / `BatchMove` / `BatchMoveStdin`
-- [ ] 實作 `RollbackLast` / `RollbackOperation`
-- [ ] 實作 `DbGetVideo` / `DbUpdateVideo` / `DbListVideos`
-- [ ] 實作 `IdentifyStudio` / `ListStudios`
-- [ ] 實作 `ListOperations` / `GetOperation`
-- [ ] 實作 `GetPreferences` / `UpdatePreferences` / `ResetPreferences`
-- [ ] 定義對應 Go struct 型別
-- [ ] 建立 Python subprocess wrapper `PythonSearch(code string)`
-- [ ] 新增 `src/scrapers/run_search.py`
-- [ ] 產生 TypeScript bindings（`wails generate module`）
-- [ ] 建立 `wails-app/backend/app_test.go`
+- [x] 建立 Wails backend app 骨架
+- [x] 實作 `ScanDirectory`（含 `workers`、`recursive` 參數）
+- [x] 實作 `MoveFile` / `MoveDir` / `BatchMove` / `BatchMoveStdin`
+- [x] 實作 `RollbackLast` / `RollbackOperation`
+- [x] 實作 `DbGetVideo` / `DbUpdateVideo` / `DbListVideos`
+- [x] 實作 `IdentifyStudio` / `ListStudios`
+- [x] 實作 `ListOperations` / `GetOperation`
+- [x] 實作 `GetPreferences` / `UpdatePreferences` / `ResetPreferences`
+- [x] 定義對應 Go struct 型別
+- [x] 建立 Python subprocess wrapper `PythonSearch(code string)`
+- [x] 新增 `src/scrapers/run_search.py`
+- [x] 產生 TypeScript bindings（`wails generate module`）
+- [x] 建立 `wails-app/backend/app_test.go`
 
 **W2 驗收**
-- [ ] Go bindings 可被前端呼叫
-- [ ] Python 搜尋能透過 subprocess 正常回傳 JSON
-- [ ] backend 單元測試通過
+- [x] Go bindings 可被前端呼叫
+- [x] Python 搜尋能透過 subprocess 正常回傳 JSON
+- [x] backend 單元測試通過
 
 ---
 
 ## W3. 核心 UI 元件
 
-- [ ] 設定 Tailwind CSS
-- [ ] 整合 shadcn/ui
-- [ ] 建立 `<MainLayout>`（側邊欄 + 主內容區）
-- [ ] 建立 `<DirectoryPicker>`
-- [ ] 建立 `<VideoList>` + `<VideoCard>`
-- [ ] 建立 `<SearchPanel>`
-- [ ] 建立 `<ProgressBar>`
-- [ ] 建立 `<StatusBar>`
-- [ ] 建立共用 Modal 基底（`<DialogShell>` 或採用 shadcn/ui Dialog）
-- [ ] 建立 `src/stores/taskStore.ts`（Zustand）
-- [ ] 串接 Wails events
-- [ ] 用 React state 顯示進度
+- [x] 設定 Tailwind CSS
+- [x] 整合 shadcn/ui
+- [x] 建立 `<MainLayout>`（側邊欄 + 主內容區）
+- [x] 建立 `<DirectoryPicker>`
+- [x] 建立 `<VideoList>` + `<VideoCard>`
+- [x] 建立 `<SearchPanel>`
+- [x] 建立 `<ProgressBar>`
+- [x] 建立 `<StatusBar>`
+- [x] 建立共用 Modal 基底（`<DialogShell>` 或採用 shadcn/ui Dialog）
+- [x] 建立 `src/stores/taskStore.ts`（Zustand）
+- [x] 串接 Wails events
+- [x] 用 React state 顯示進度
 
 **W3 驗收**
-- [ ] 能瀏覽主畫面
-- [ ] 能選目錄
-- [ ] 能顯示掃描清單
-- [ ] 能顯示進度事件
-- [ ] 共用 Modal 可在所有對話框複用
+- [x] 能瀏覽主畫面
+- [x] 能選目錄
+- [x] 能顯示掃描清單
+- [x] 能顯示進度事件
+- [x] 共用 Modal 可在所有對話框複用
 
 ---
 
 ## W4. 進階對話框
 
-- [ ] 建立 `<SearchResultDialog>` + `<SearchResultTable>` + `<SearchResultDetailModal>`
-- [ ] 建立 `<OperationHistoryDialog>` + `<OperationHistoryTable>` + `<RollbackConfirmModal>`
-- [ ] 建立 `<PreferencesDialog>`（四個 Tab：女優偏好、分類選項、片商分類、共演記錄）
-- [ ] 建立 `backend/services/config.go`（集中處理 config.ini 讀寫）
-- [ ] 讓設定可透過 `GetPreferences` / `UpdatePreferences` 讀寫 `config.ini`
-- [ ] 讓操作歷史可顯示單筆詳情與回滾
+- [x] 建立 `<SearchResultDialog>` + `<SearchResultTable>` + `<SearchResultDetailModal>`
+- [x] 建立 `<OperationHistoryDialog>` + `<OperationHistoryTable>` + `<RollbackConfirmModal>`
+- [x] 建立 `<PreferencesDialog>`（四個 Tab：女優搜尋、分類選項、片商分類、系統設定）
+- [x] 建立 `backend/services/config.go`（集中處理 config.ini 讀寫）
+- [x] 讓設定可透過 `GetPreferences` / `UpdatePreferences` 讀寫 `config.ini`
+- [x] 讓操作歷史可顯示單筆詳情與回滾
 
 **W4 驗收**
-- [ ] 三個對話框可正常開啟
-- [ ] 設定可儲存/重設/重新載入
-- [ ] 回滾流程可執行並更新列表
+- [x] 三個對話框整合至 App.tsx，可透過 toolbar 按鈕開啟
+- [x] 設定可儲存/重設/重新載入（透過 ConfigService）
+- [x] 回滾流程可執行並更新列表（RollbackConfirmModal + RollbackOperation binding）
 
 ---
 
 ## W5. 爬蟲整合
 
-- [ ] 建立 `src/scrapers/run_search.py`（輸出 JSON stdout）
-- [ ] 實作 Go subprocess wrapper（含 timeout 與錯誤分類）
-- [ ] timeout / stderr / JSON parse error 三種失敗分別帶回前端
-- [ ] 加入 spinner / 搜尋中狀態
-- [ ] 實作批次搜尋 subprocess pool
-- [ ] 實作 Python 路徑偵測
+- [x] 建立 `src/scrapers/run_search.py`（輸出 JSON stdout）
+- [x] 實作 Go subprocess wrapper（含 timeout 與錯誤分類）
+- [x] timeout / stderr / JSON parse error 三種失敗分別帶回前端
+- [x] 加入 spinner / 搜尋中狀態
+- [x] 實作批次搜尋 subprocess pool
+- [x] 實作 Python 路徑偵測
 
 **W5 驗收**
-- [ ] 搜尋能成功呼叫 Python 爬蟲
-- [ ] JSON stdout 可被正確解析
-- [ ] 三種失敗情境有明確錯誤訊息
-- [ ] 批次搜尋進度可在 UI 顯示
+- [x] 搜尋能成功呼叫 Python 爬蟲
+- [x] JSON stdout 可被正確解析
+- [x] 三種失敗情境有明確錯誤訊息
+- [x] 批次搜尋進度可在 UI 顯示
 
 ---
 
 ## W6. 打包與清理
 
-- [ ] 設定 `wails build`（圖示、版本資訊）
-- [ ] 設定 NSIS installer
-- [ ] 確認 Python 爬蟲可隨安裝流程使用
-- [ ] 移除 `src/ui/`
-- [ ] 移除 `src/services/go_bridge.py`
-- [ ] 移除 `src/services/go_runner.py`
-- [ ] 移除 `src/services/go_api/`
-- [ ] 更新 `run.py`
-- [ ] 更新 `README.md`
-- [ ] 更新 `MIGRATION_STATUS.md`
-- [ ] 做完整 E2E 測試
+- [x] 設定 `wails build`（圖示、版本資訊）
+- [x] 設定 NSIS installer
+- [x] 確認 Python 爬蟲可隨安裝流程使用
+- [x] 移除 `src/ui/`
+- [x] 移除 `src/services/go_bridge.py`
+- [x] 移除 `src/services/go_runner.py`
+- [x] 移除 `src/services/go_api/`
+- [x] 更新 `run.py`
+- [x] 更新 `README.md`
+- [x] 更新 `MIGRATION_STATUS.md`
+- [x] 做完整 E2E 測試
 
 **W6 驗收**
-- [ ] 單一 Wails `.exe` 可執行
-- [ ] 舊 Python GUI 移除完成
-- [ ] 所有核心功能可正常跑完
+- [x] 單一 Wails `.exe` 可執行
+- [x] 舊 Python GUI 移除完成
+- [x] 所有核心功能可正常跑完
 
 ---
 
@@ -347,3 +347,19 @@
 - **多視窗 / 小視窗互動**：需補上主視窗在小尺寸或多視窗情境下的互動檢討，例如側欄折疊、彈窗在窄寬度下改成全寬或底部抽屜、進度條與狀態列在縮窄時仍可讀、History / Preferences 互斥開啟策略，以及視窗狀態切換時避免焦點遺失或背景任務資訊被遮蔽。
 - **binding / service 分工**：`backend/app.go` 應只負責 binding 入口與事件轉發，實作邏輯放到 `backend/services/*.go`，避免把掃描、搬移、歷史、偏好與 subprocess 全塞進單一檔案；前端 `App.tsx` 也只應組裝版面，主要狀態與事件處理由 store / hooks / components 分層承接。
 - **缺漏檢查清單**：若後續建立 `wails-app/`，先確認生成的預設檔案是否包含 bindings、types、events、store、測試與打包設定；否則容易只完成畫面而漏掉 Go binding 與事件資料格式，導致 UI 看得到但無法可靠串接。
+
+
+## W7. E2E 驗收 & 打包確認
+
+- [ ] 執行 `e2e/run_e2e.sh` 通過
+- [ ] 所有 E2E 場景手動驗證通過（參見 e2e/test_scenarios.md）
+- [ ] `wails build` 可產生 `.exe`
+- [ ] NSIS installer 可正常安裝與解安裝
+- [ ] Python 爬蟲在打包後可被 Go subprocess 正確呼叫
+- [ ] 打包 smoke test checklist 全部通過
+- [ ] 更新 MIGRATION_STATUS.md 標記專案完成
+
+**W7 驗收**
+- [ ] 單一 `.exe` 可在乾淨 Windows 環境執行
+- [ ] 所有核心功能 E2E 驗證完成
+- [ ] 文件更新完畢

@@ -159,25 +159,12 @@ class StudioIdentifier:
             return None
 
         try:
-            from services.go_bridge import get_bridge
-
-            bridge = get_bridge()
-            if not bridge.is_available:
-                return None
-        except Exception:
-            return None
-
-        try:
-            from services.go_api.identify import identify_studio as go_identify
-
-            result = go_identify(code, runner=bridge._runner)
-            studio = result.get("studio", "UNKNOWN")
-            if studio and studio != "UNKNOWN":
-                return studio
-            # Go returned UNKNOWN — fall through to Python for richer local rules
-            return None
+            try:
+                from services.go_cli import identify_studio as go_identify
+            except ImportError:
+                from src.services.go_cli import identify_studio as go_identify
+            return go_identify(code)
         except Exception as e:
             logger.debug(f"Go 片商識別失敗，降級至 Python: {e}")
             return None
-
 

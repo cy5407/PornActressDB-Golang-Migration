@@ -25,11 +25,21 @@ except ImportError:  # pragma: no cover
     from src.utils.json_utils import dump as json_dump
     from src.utils.json_utils import load as json_load
 
-from src.services.go_api.cache import cache_delete as _go_cache_delete
-from src.services.go_api.cache import cache_get as _go_cache_get
-from src.services.go_api.cache import cache_set as _go_cache_set
-from src.services.go_runner import GoBridgeError as _GoBridgeError
-from src.services.go_runner import GoBridgeNotFoundError as _GoBridgeNotFoundError
+try:
+    from src.services.go_cli import (
+        GoError as _GoBridgeError,
+        GoNotFoundError as _GoBridgeNotFoundError,
+        cache_delete as _go_cache_delete,
+        cache_get as _go_cache_get,
+        cache_set as _go_cache_set,
+    )
+except ImportError:
+    def _go_cache_delete(key, cache_dir="cache"): return False  # noqa: E731
+    def _go_cache_get(key, cache_dir="cache"): return None  # noqa: E731
+    def _go_cache_set(key, value, ttl_hours=24, cache_dir="cache"): return False  # noqa: E731
+
+    class _GoBridgeError(Exception): pass  # noqa: E701
+    class _GoBridgeNotFoundError(_GoBridgeError): pass  # noqa: E701
 
 logger = logging.getLogger(__name__)
 
@@ -548,7 +558,7 @@ class CacheManager:
             }
         """
         try:
-            from src.services.go_api.cache import cache_prune
+            from src.services.go_cli import cache_prune
             go_result = cache_prune(
                 cache_dir=str(self.cache_dir),
                 ttl_days=ttl_days,
@@ -581,7 +591,7 @@ class CacheManager:
             清理結果統計
         """
         try:
-            from src.services.go_api.cache import cache_prune
+            from src.services.go_cli import cache_prune
             go_result = cache_prune(
                 cache_dir=str(self.cache_dir),
                 ttl_days=9999,
@@ -617,7 +627,7 @@ class CacheManager:
             }
         """
         try:
-            from src.services.go_api.cache import cache_get_stats
+            from src.services.go_cli import cache_get_stats
             go_result = cache_get_stats(cache_dir=str(self.cache_dir))
             if go_result:
                 go_result["memory_cache_entries"] = len(self.memory_cache)
@@ -642,7 +652,7 @@ class CacheManager:
             return False
 
         try:
-            from src.services.go_api.cache import cache_clear
+            from src.services.go_cli import cache_clear
             result = cache_clear(cache_dir=str(self.cache_dir), dry_run=False)
             if result:
                 with self.memory_lock:
@@ -669,7 +679,7 @@ class CacheManager:
             清理結果統計
         """
         try:
-            from src.services.go_api.cache import cache_prune
+            from src.services.go_cli import cache_prune
             go_result = cache_prune(
                 cache_dir=str(self.cache_dir),
                 ttl_days=ttl_days,

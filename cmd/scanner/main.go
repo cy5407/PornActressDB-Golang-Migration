@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"actress-classifier/pkg/app"
 	"actress-classifier/pkg/contracts"
@@ -201,11 +202,33 @@ func historyCmd(args []string) {
 	subCmd := args[0]
 
 	// 使用 flag.FlagSet 統一解析 -log-dir 參數
+	// 注意：Go flag 遇到非旗標字串就停止解析，因此把旗標和非旗標引數分開處理，
+	// 讓 `history rollback <id> -log-dir <path>` 和 `history rollback -log-dir <path> <id>` 都能正常運作。
 	fs := flag.NewFlagSet("history "+subCmd, flag.ExitOnError)
 	logDir := fs.String("log-dir", "logs", "操作日誌目錄")
 	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
-	parseFlagsOrExit(fs, args[1:])
-	remaining := fs.Args()
+
+	var flagArgs, posArgs []string
+	rawArgs := args[1:]
+	for i := 0; i < len(rawArgs); i++ {
+		a := rawArgs[i]
+		if strings.HasPrefix(a, "-") {
+			flagArgs = append(flagArgs, a)
+			// 若下一個不是旗標，視為此旗標的值一起帶走
+			if i+1 < len(rawArgs) && !strings.HasPrefix(rawArgs[i+1], "-") && strings.Contains(a, "=") == false {
+				// 只有在旗標不含 = 且下一個看起來是值時才吃掉
+				// 保守判斷：若旗標是 -log-dir / -json 這類
+				if a == "-log-dir" || a == "--log-dir" {
+					i++
+					flagArgs = append(flagArgs, rawArgs[i])
+				}
+			}
+		} else {
+			posArgs = append(posArgs, a)
+		}
+	}
+	parseFlagsOrExit(fs, flagArgs)
+	remaining := posArgs
 
 	switch subCmd {
 	case "list":

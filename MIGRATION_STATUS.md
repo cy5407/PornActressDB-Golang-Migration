@@ -72,7 +72,23 @@
 
 ## 🔄 Current Status
 
-**✅ Phase 12 完成。** src/ Python 程式碼縮減至 15,419 行，276 tests 通過。
+**✅ W6 完成。** Wails 桌面應用架構遷移完成。Python tkinter GUI 層已全部移除，應用程式透過 Wails (Go + React) 提供 GUI。
+
+### W6 — 打包與清理
+
+- [x] 設定 `wails.json`：productName="女優分類系統"、productVersion="6.0.0"、companyName="OpenClaw"
+- [x] 確認 NSIS installer（透過 wails_tools.nsh 自動讀取 wails.json）
+- [x] 確認 Python 爬蟲管線可用（`run_search.py` 保留，由 Wails 後端呼叫）
+- [x] 移除 `src/ui/`（Python tkinter GUI，5 個檔案）
+- [x] 移除 `src/services/go_bridge.py`
+- [x] 移除 `src/services/go_runner.py`
+- [x] 移除 `src/services/go_api/`（整目錄，6 個檔案）
+- [x] 建立 `src/services/go_cli.py`（輕量直接委派層，取代橋接層）
+- [x] 更新 `src/utils/scanner.py`、`src/utils/file_mover.py`（改用 go_cli.py）
+- [x] 更新 `run.py`（啟動 Wails 應用程式而非 tkinter）
+- [x] 更新 `README.md`（說明 Wails 架構）
+- [x] 更新 `MIGRATION_STATUS.md`
+- [x] 所有 99 個 Python 測試通過
 
 ### 累計刪減統計
 
