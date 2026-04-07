@@ -5,7 +5,22 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
-## [2026-04-07] pitfall | Wails DB 路徑與 data.json 未更新雙修
+## [2026-04-07] pitfall | Wails 六大潛在問題分析記錄
+
+**涉及檔案**：
+- `wiki/pitfalls/wails-move-stale-paths.md` — 新建：移動後 scanResults 路徑未更新
+- `wiki/pitfalls/wails-dbonce-no-reset.md` — 新建：dbOnce 不會重置（設定變更需重啟）
+- `wiki/pitfalls/wails-cache-status-mismatch.md` — 新建：快取狀態判定 Go 後端與前端不一致
+
+**分析結果**（尚未修復）：
+1. 移動目標路徑平鋪（無女優分資料夾）——功能設計缺失
+2. searchResults 與移動操作脫鉤——設計問題
+3. 移動後 scanResults 路徑未更新——已建 pitfall
+4. BatchSearch workers 固定寫死 5——忽視 config thread_count
+5. dbOnce 不會重置——已建 pitfall
+6. 快取狀態判定不一致——已建 pitfall
+
+
 
 **涉及檔案**：
 - `wiki/pitfalls/wails-db-path-wrong-dir.md` — 新建：DB 寫入 build/bin/ 而非專案根

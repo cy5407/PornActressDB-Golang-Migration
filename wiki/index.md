@@ -49,6 +49,9 @@
 | [Wiki Viewer 選單脫鉤](pitfalls/wiki-viewer-nav-out-of-sync.md) | viewer.html nav 需手動維護，與 wiki-data.js 自動產生脫鉤 | 2026-04-07 |
 | [Wails DB 路徑寫入錯誤目錄](pitfalls/wails-db-path-wrong-dir.md) | resolveConfigPath 未往上找 config.ini，DB 落到 build/bin/ | 2026-04-07 |
 | [Wails DB data.json 從未更新](pitfalls/wails-db-json-never-updated.md) | BatchSearch 缺少 Compact() 呼叫，快取永久失效 | 2026-04-07 |
+| [Wails 移動後路徑未更新](pitfalls/wails-move-stale-paths.md) | 移動成功後 scanResults 仍持有舊路徑，重複移動會失敗 | 2026-04-07 |
+| [Wails dbOnce 無法重置](pitfalls/wails-dbonce-no-reset.md) | sync.Once 初始化 DB，設定變更後 DB 路徑不生效需重啟 | 2026-04-07 |
+| [Wails 快取狀態判定不一致](pitfalls/wails-cache-status-mismatch.md) | Go 後端只看 search_status，前端還要 actresses.length > 0 | 2026-04-07 |
 
 ---
 
