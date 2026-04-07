@@ -8,6 +8,8 @@ export function BatchMove(arg1:Array<mover.MoveItem>,arg2:string):Promise<mover.
 
 export function BatchMoveJSON(arg1:string,arg2:string):Promise<mover.BatchResult>;
 
+export function BatchSearch(arg1:Array<string>,arg2:number):Promise<Array<backend.SearchResult>>;
+
 export function DbGetVideo(arg1:string):Promise<database.VideoData>;
 
 export function DbListVideos():Promise<Array<database.VideoData>>;

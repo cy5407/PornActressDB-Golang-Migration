@@ -11,6 +11,9 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
+
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"actress-classifier/pkg/database"
 	"actress-classifier/pkg/extractor"
@@ -27,6 +30,7 @@ type App struct {
 	db        *database.JSONDatabase
 	studio    *studio.StudioIdentifier
 	cfgSvc    *services.ConfigService
+	cfgPath   string
 	dbOnce    sync.Once
 }
 
@@ -46,14 +50,35 @@ func NewApp() *App {
 		mover:     mover.NewMover(logDir),
 		studio:    si,
 		cfgSvc:    cfgSvc,
+		cfgPath:   cfgPath,
 	}
+}
+
+// ============================================================================
+// backend-package helpers (re-exported for test access)
+// ============================================================================
+
+func defaultPreferences() services.Preferences {
+	return services.DefaultPreferences()
+}
+
+func buildIni(p services.Preferences) string {
+	svc := services.NewConfigService("")
+	_ = svc
+	// Use ConfigService.Save logic via a temp path approach is complex;
+	// delegate directly to the exported package-level helper.
+	return services.BuildIni(p)
+}
+
+func parseIni(content string, p *services.Preferences) {
+	services.ParseIni(content, p)
 }
 
 // Startup is called when the app starts.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	a.dbOnce.Do(func() {
-		dataDir := resolveDataDir(a.cfgSvc.CfgPath())
+		dataDir := resolveDataDir(a.cfgPath)
 		a.db = database.NewJSONDatabase(dataDir)
 		_ = a.db.Load(ctx)
 	})
@@ -245,57 +270,151 @@ type Preferences = services.Preferences
 
 // GetPreferences reads preferences from config.ini.
 func (a *App) GetPreferences() (Preferences, error) {
-	return a.cfgSvc.Load()
+	return services.NewConfigService(a.cfgPath).Load()
 }
 
 // UpdatePreferences writes new preferences to config.ini.
 func (a *App) UpdatePreferences(prefs Preferences) error {
-	return a.cfgSvc.Save(prefs)
+	return services.NewConfigService(a.cfgPath).Save(prefs)
 }
 
 // ResetPreferences resets config.ini to built-in defaults.
 func (a *App) ResetPreferences() error {
-	return a.cfgSvc.Reset()
+	return services.NewConfigService(a.cfgPath).Reset()
 }
 
 // ============================================================================
 // Python search bridge
 // ============================================================================
 
+// SearchErrorKind classifies the failure reason from a Python subprocess call.
+// Values: "" (success), "timeout", "stderr", "json_parse", "not_found"
+type SearchErrorKind = string
+
+const (
+	SearchErrorNone      SearchErrorKind = ""
+	SearchErrorTimeout   SearchErrorKind = "timeout"
+	SearchErrorStderr    SearchErrorKind = "stderr"
+	SearchErrorJSONParse SearchErrorKind = "json_parse"
+)
+
+// searchTimeout is the per-code subprocess execution deadline.
+const searchTimeout = 60 * time.Second
+
 // SearchResult is the payload returned from the Python search subprocess.
 type SearchResult struct {
-	Code    string   `json:"code"`
-	Title   string   `json:"title"`
-	Studio  string   `json:"studio"`
-	Release string   `json:"release_date"`
-	URL     string   `json:"url"`
+	Code      string   `json:"code"`
+	Title     string   `json:"title"`
+	Studio    string   `json:"studio"`
+	Release   string   `json:"release_date"`
+	URL       string   `json:"url"`
 	Actresses []string `json:"actresses"`
-	Method  string   `json:"method"`
-	Error   string   `json:"error,omitempty"`
+	Method    string   `json:"method"`
+	Error     string   `json:"error,omitempty"`
+	ErrorKind string   `json:"error_kind,omitempty"`
 }
 
 // PythonSearch invokes src/scrapers/run_search.py to search metadata for a video code.
+// Failure is classified into three kinds: timeout, stderr, json_parse.
 func (a *App) PythonSearch(code string) (*SearchResult, error) {
 	pythonExe := resolvePythonExe()
 	scriptPath := resolveRunSearchScript()
 
-	cmd := exec.CommandContext(a.ctx, pythonExe, scriptPath, code)
+	ctx, cancel := context.WithTimeout(a.ctx, searchTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, pythonExe, scriptPath, code)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg == "" {
-			errMsg = err.Error()
+		// 區分 timeout vs stderr 兩種失敗
+		if ctx.Err() == context.DeadlineExceeded {
+			return &SearchResult{
+				Code:      code,
+				Error:     fmt.Sprintf("搜尋逾時（超過 %s）", searchTimeout),
+				ErrorKind: SearchErrorTimeout,
+			}, fmt.Errorf("Python 搜尋逾時: %w", ctx.Err())
 		}
-		return &SearchResult{Code: code, Error: errMsg}, fmt.Errorf("Python 搜尋失敗: %w", err)
+		stderrMsg := strings.TrimSpace(stderr.String())
+		if stderrMsg == "" {
+			stderrMsg = err.Error()
+		}
+		return &SearchResult{
+			Code:      code,
+			Error:     stderrMsg,
+			ErrorKind: SearchErrorStderr,
+		}, fmt.Errorf("Python 搜尋程序失敗: %w", err)
 	}
 
+	// 解析 JSON stdout
 	var result SearchResult
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		return nil, fmt.Errorf("解析 Python 回傳 JSON 失敗: %w", err)
+		rawSnippet := strings.TrimSpace(stdout.String())
+		if len(rawSnippet) > 200 {
+			rawSnippet = rawSnippet[:200] + "…"
+		}
+		return &SearchResult{
+			Code:      code,
+			Error:     fmt.Sprintf("JSON 解析失敗: %v — 輸出片段: %s", err, rawSnippet),
+			ErrorKind: SearchErrorJSONParse,
+		}, fmt.Errorf("解析 Python 回傳 JSON 失敗: %w", err)
 	}
 	return &result, nil
+}
+
+// BatchSearch invokes PythonSearch for each code concurrently (up to workers goroutines).
+// Progress and individual results are emitted as Wails Events so the frontend can update
+// the UI in real time. The full result slice is also returned for the caller's convenience.
+func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
+	if workers <= 0 {
+		workers = 5
+	}
+	total := len(codes)
+	results := make([]SearchResult, total)
+
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	done := 0
+
+	for i, code := range codes {
+		wg.Add(1)
+		go func(idx int, c string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			res, _ := a.PythonSearch(c)
+			if res == nil {
+				res = &SearchResult{Code: c, Error: "未知錯誤", ErrorKind: SearchErrorStderr}
+			}
+
+			mu.Lock()
+			results[idx] = *res
+			done++
+			current := done
+			mu.Unlock()
+
+			// 發送 Wails 事件到前端
+			wailsRuntime.EventsEmit(a.ctx, "search:progress", current, total, c)
+			wailsRuntime.EventsEmit(a.ctx, "search:result", res)
+		}(i, code)
+	}
+
+	wg.Wait()
+
+	success := 0
+	for _, r := range results {
+		if r.Error == "" {
+			success++
+		}
+	}
+	summary := fmt.Sprintf("%d 成功 / %d 失敗", success, total-success)
+	wailsRuntime.EventsEmit(a.ctx, "search:done", summary)
+
+	return results
 }
 
 // ============================================================================
@@ -304,7 +423,7 @@ func (a *App) PythonSearch(code string) (*SearchResult, error) {
 
 func (a *App) ensureDB() {
 	a.dbOnce.Do(func() {
-		dataDir := resolveDataDir(a.cfgSvc.CfgPath())
+		dataDir := resolveDataDir(a.cfgPath)
 		a.db = database.NewJSONDatabase(dataDir)
 		_ = a.db.Load(context.Background())
 	})
@@ -350,7 +469,21 @@ func resolveLogDir(cfgPath string) string {
 
 func resolvePythonExe() string {
 	if runtime.GOOS == "windows" {
+		// Windows：依序嘗試 venv、python、py
+		candidates := []string{"python", "python3", "py"}
+		for _, c := range candidates {
+			if path, err := exec.LookPath(c); err == nil {
+				return path
+			}
+		}
 		return "python"
+	}
+	// Unix：優先使用 venv 的 python3，其次是系統 python3/python
+	candidates := []string{"python3", "python3.11", "python3.10", "python3.9", "python"}
+	for _, c := range candidates {
+		if path, err := exec.LookPath(c); err == nil {
+			return path
+		}
 	}
 	return "python3"
 }

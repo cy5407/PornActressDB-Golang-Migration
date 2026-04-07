@@ -11,7 +11,7 @@ import { PreferencesDialog } from '@/components/PreferencesDialog';
 import { Button } from '@/components/ui/button';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
-import { ScanDirectory, PythonSearch, BatchMove } from '../wailsjs/go/backend/App';
+import { ScanDirectory, BatchSearch, BatchMove } from '../wailsjs/go/backend/App';
 import { backend } from '../wailsjs/go/models';
 import { Scan, Search, FolderOutput, RotateCcw, ChevronDown, History, Settings } from 'lucide-react';
 
@@ -32,8 +32,6 @@ function ActionToolbar() {
     setStatusMessage,
     pushEvent,
     resetProgress,
-    setProgress,
-    addSearchResult,
     clearSearchResults,
     setLastBatchResult,
     setShowSearchResults,
@@ -78,38 +76,37 @@ function ActionToolbar() {
     clearSearchResults();
     resetProgress();
     pushEvent('info', `🔍 開始搜尋 ${targets.length} 筆番號…`);
+    setStatusMessage(`搜尋中：0 / ${targets.length}`, 'info');
 
-    let success = 0;
-    let failed = 0;
-
-    for (let i = 0; i < targets.length; i++) {
-      const item = targets[i];
-      setProgress(i + 1, targets.length);
-      setStatusMessage(`搜尋中 (${i + 1}/${targets.length})：${item.code}`, 'info');
-      try {
-        const result = await PythonSearch(item.code);
-        if (result) {
-          addSearchResult(result);
-          if (result.error) {
-            pushEvent('warning', `⚠ ${item.code}: ${result.error}`);
+    const codes = targets.map((r) => r.code);
+    try {
+      // BatchSearch 在 Go 端以 goroutine pool 並發執行，並透過 Wails Events
+      // 即時推送 search:progress / search:result / search:done 到前端。
+      // 回傳值為完整結果清單，作為補充（Events 已更新 store）。
+      const results = await BatchSearch(codes, 5);
+      if (results) {
+        let success = 0;
+        let failed = 0;
+        for (const r of results) {
+          if (r.error) {
             failed++;
           } else {
-            pushEvent('success', `✔ ${item.code}: ${result.title || '找到結果'}`);
             success++;
           }
         }
-      } catch (err) {
-        pushEvent('error', `❌ ${item.code}: ${err}`);
-        failed++;
+        const summary = `搜尋完成：${success} 成功 / ${failed} 失敗`;
+        setStatusMessage(summary, failed > 0 ? 'warning' : 'success');
+        if (success > 0) setShowSearchResults(true);
       }
+    } catch (err) {
+      const msg = `❌ 批次搜尋失敗：${err}`;
+      setStatusMessage(msg, 'error');
+      pushEvent('error', msg);
+      setStatus('error');
+      return;
     }
-
-    const summary = `搜尋完成：${success} 成功 / ${failed} 失敗`;
-    setStatusMessage(summary, failed > 0 ? 'warning' : 'success');
-    pushEvent(failed > 0 ? 'warning' : 'success', summary);
     setStatus('idle');
     resetProgress();
-    if (success > 0) setShowSearchResults(true);
   }
 
   async function handleMove() {

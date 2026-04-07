@@ -100,18 +100,18 @@
 
 ## W5. 爬蟲整合
 
-- [ ] 建立 `src/scrapers/run_search.py`（輸出 JSON stdout）
-- [ ] 實作 Go subprocess wrapper（含 timeout 與錯誤分類）
-- [ ] timeout / stderr / JSON parse error 三種失敗分別帶回前端
-- [ ] 加入 spinner / 搜尋中狀態
-- [ ] 實作批次搜尋 subprocess pool
-- [ ] 實作 Python 路徑偵測
+- [x] 建立 `src/scrapers/run_search.py`（輸出 JSON stdout）
+- [x] 實作 Go subprocess wrapper（含 timeout 與錯誤分類）
+- [x] timeout / stderr / JSON parse error 三種失敗分別帶回前端
+- [x] 加入 spinner / 搜尋中狀態
+- [x] 實作批次搜尋 subprocess pool
+- [x] 實作 Python 路徑偵測
 
 **W5 驗收**
-- [ ] 搜尋能成功呼叫 Python 爬蟲
-- [ ] JSON stdout 可被正確解析
-- [ ] 三種失敗情境有明確錯誤訊息
-- [ ] 批次搜尋進度可在 UI 顯示
+- [x] 搜尋能成功呼叫 Python 爬蟲
+- [x] JSON stdout 可被正確解析
+- [x] 三種失敗情境有明確錯誤訊息
+- [x] 批次搜尋進度可在 UI 顯示
 
 ---
 

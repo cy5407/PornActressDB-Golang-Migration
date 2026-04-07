@@ -10,6 +10,10 @@ export function BatchMoveJSON(arg1, arg2) {
   return window['go']['backend']['App']['BatchMoveJSON'](arg1, arg2);
 }
 
+export function BatchSearch(arg1, arg2) {
+  return window['go']['backend']['App']['BatchSearch'](arg1, arg2);
+}
+
 export function DbGetVideo(arg1) {
   return window['go']['backend']['App']['DbGetVideo'](arg1);
 }

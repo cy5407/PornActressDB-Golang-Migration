@@ -71,6 +71,7 @@ export namespace backend {
 	    actresses: string[];
 	    method: string;
 	    error?: string;
+	    error_kind?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SearchResult(source);
@@ -86,6 +87,7 @@ export namespace backend {
 	        this.actresses = source["actresses"];
 	        this.method = source["method"];
 	        this.error = source["error"];
+	        this.error_kind = source["error_kind"];
 	    }
 	}
 	export class StudioInfo {

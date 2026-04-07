@@ -103,6 +103,16 @@ func (c *ConfigService) Reset() error {
 // INI parser / writer
 // ============================================================================
 
+// ParseIni parses ini content into the Preferences struct pointed to by p.
+func ParseIni(content string, p *Preferences) {
+	parseIni(content, p)
+}
+
+// BuildIni serialises a Preferences struct into an ini-formatted string.
+func BuildIni(p Preferences) string {
+	return buildIni(p)
+}
+
 func parseIni(content string, p *Preferences) {
 	var section string
 	scanner := bufio.NewScanner(strings.NewReader(content))
