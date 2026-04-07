@@ -37,24 +37,24 @@
 
 ## W2. Go Backend Bindings
 
-- [ ] 建立 Wails backend app 骨架
-- [ ] 實作 `ScanDirectory`（含 `workers`、`recursive` 參數）
-- [ ] 實作 `MoveFile` / `MoveDir` / `BatchMove` / `BatchMoveStdin`
-- [ ] 實作 `RollbackLast` / `RollbackOperation`
-- [ ] 實作 `DbGetVideo` / `DbUpdateVideo` / `DbListVideos`
-- [ ] 實作 `IdentifyStudio` / `ListStudios`
-- [ ] 實作 `ListOperations` / `GetOperation`
-- [ ] 實作 `GetPreferences` / `UpdatePreferences` / `ResetPreferences`
-- [ ] 定義對應 Go struct 型別
-- [ ] 建立 Python subprocess wrapper `PythonSearch(code string)`
-- [ ] 新增 `src/scrapers/run_search.py`
-- [ ] 產生 TypeScript bindings（`wails generate module`）
-- [ ] 建立 `wails-app/backend/app_test.go`
+- [x] 建立 Wails backend app 骨架
+- [x] 實作 `ScanDirectory`（含 `workers`、`recursive` 參數）
+- [x] 實作 `MoveFile` / `MoveDir` / `BatchMove` / `BatchMoveStdin`
+- [x] 實作 `RollbackLast` / `RollbackOperation`
+- [x] 實作 `DbGetVideo` / `DbUpdateVideo` / `DbListVideos`
+- [x] 實作 `IdentifyStudio` / `ListStudios`
+- [x] 實作 `ListOperations` / `GetOperation`
+- [x] 實作 `GetPreferences` / `UpdatePreferences` / `ResetPreferences`
+- [x] 定義對應 Go struct 型別
+- [x] 建立 Python subprocess wrapper `PythonSearch(code string)`
+- [x] 新增 `src/scrapers/run_search.py`
+- [x] 產生 TypeScript bindings（`wails generate module`）
+- [x] 建立 `wails-app/backend/app_test.go`
 
 **W2 驗收**
-- [ ] Go bindings 可被前端呼叫
-- [ ] Python 搜尋能透過 subprocess 正常回傳 JSON
-- [ ] backend 單元測試通過
+- [x] Go bindings 可被前端呼叫
+- [x] Python 搜尋能透過 subprocess 正常回傳 JSON
+- [x] backend 單元測試通過
 
 ---
 

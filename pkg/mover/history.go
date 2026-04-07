@@ -85,6 +85,11 @@ func (m *Mover) loadOperationLog(id string) (*OperationLog, error) {
 	return nil, fmt.Errorf("找不到操作 ID: %s", id)
 }
 
+// GetOperation 取得指定 ID 的操作日誌（公開版 loadOperationLog）
+func (m *Mover) GetOperation(id string) (*OperationLog, error) {
+	return m.loadOperationLog(id)
+}
+
 func (m *Mover) createOperationLog(opType string, items []MoveItem) *OperationLog {
 	log := &OperationLog{
 		ID:         uuid.New().String()[:8],
