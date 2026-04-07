@@ -46,3 +46,5 @@ export function ScanDirectory(arg1:string,arg2:number,arg3:boolean):Promise<Arra
 export function SelectDirectory(arg1:string):Promise<string>;
 
 export function UpdatePreferences(arg1:services.Preferences):Promise<void>;
+
+export function GetActressPrimaryStudios(arg1:Array<string>):Promise<Record<string,string>>;

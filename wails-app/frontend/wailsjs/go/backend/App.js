@@ -85,3 +85,7 @@ export function SelectDirectory(arg1) {
 export function UpdatePreferences(arg1) {
   return window['go']['backend']['App']['UpdatePreferences'](arg1);
 }
+
+export function GetActressPrimaryStudios(arg1) {
+  return window['go']['backend']['App']['GetActressPrimaryStudios'](arg1);
+}
