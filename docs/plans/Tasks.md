@@ -347,3 +347,19 @@
 - **多視窗 / 小視窗互動**：需補上主視窗在小尺寸或多視窗情境下的互動檢討，例如側欄折疊、彈窗在窄寬度下改成全寬或底部抽屜、進度條與狀態列在縮窄時仍可讀、History / Preferences 互斥開啟策略，以及視窗狀態切換時避免焦點遺失或背景任務資訊被遮蔽。
 - **binding / service 分工**：`backend/app.go` 應只負責 binding 入口與事件轉發，實作邏輯放到 `backend/services/*.go`，避免把掃描、搬移、歷史、偏好與 subprocess 全塞進單一檔案；前端 `App.tsx` 也只應組裝版面，主要狀態與事件處理由 store / hooks / components 分層承接。
 - **缺漏檢查清單**：若後續建立 `wails-app/`，先確認生成的預設檔案是否包含 bindings、types、events、store、測試與打包設定；否則容易只完成畫面而漏掉 Go binding 與事件資料格式，導致 UI 看得到但無法可靠串接。
+
+
+## W7. E2E 驗收 & 打包確認
+
+- [ ] 執行 `e2e/run_e2e.sh` 通過
+- [ ] 所有 E2E 場景手動驗證通過（參見 e2e/test_scenarios.md）
+- [ ] `wails build` 可產生 `.exe`
+- [ ] NSIS installer 可正常安裝與解安裝
+- [ ] Python 爬蟲在打包後可被 Go subprocess 正確呼叫
+- [ ] 打包 smoke test checklist 全部通過
+- [ ] 更新 MIGRATION_STATUS.md 標記專案完成
+
+**W7 驗收**
+- [ ] 單一 `.exe` 可在乾淨 Windows 環境執行
+- [ ] 所有核心功能 E2E 驗證完成
+- [ ] 文件更新完畢
