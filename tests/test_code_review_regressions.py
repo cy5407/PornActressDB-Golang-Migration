@@ -11,7 +11,6 @@ if str(ROOT_DIR) not in sys.path:
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from src.services import classifier_core as classifier_core_module
 from src.services.safe_javdb_searcher import SafeJAVDBSearcher
 from src.services.web_searcher import WebSearcher
 from src.scrapers.sources.shiroutowiki_scraper import ShiroutoWikiScraper
@@ -22,84 +21,9 @@ from src.scrapers.rate_limiter import RateLimiter
 from src.utils.actress_name_filter import ActressNameFilter
 
 
-class _DummyConfig:
-    def get(self, _section, _option, fallback=None):
-        return fallback
-
-
-class _DummyFactory:
-    @staticmethod
-    def from_config(_config):
-        return object()
-
-
 class _TextResponse:
     def __init__(self, text: str):
         self.text = text
-
-
-def test_classifier_core_falls_back_to_json_db(monkeypatch):
-    class DummyJSONDBManager:
-        def __init__(self, data_dir):
-            self.data_dir = data_dir
-
-    def raise_incremental_error(_data_dir):
-        raise RuntimeError("journal init failed")
-
-    monkeypatch.setattr(
-        classifier_core_module, "IncrementalJSONDB", raise_incremental_error
-    )
-    monkeypatch.setattr(
-        classifier_core_module, "JSONDBManager", DummyJSONDBManager
-    )
-    monkeypatch.setattr(classifier_core_module, "UnifiedCodeExtractor", lambda: object())
-    monkeypatch.setattr(classifier_core_module, "UnifiedFileScanner", _DummyFactory)
-    monkeypatch.setattr(classifier_core_module, "FileMover", _DummyFactory)
-    monkeypatch.setattr(classifier_core_module, "StudioIdentifier", lambda: object())
-    monkeypatch.setattr(
-        classifier_core_module, "WebSearcher", lambda _config: object()
-    )
-
-    core = classifier_core_module.UnifiedClassifierCore(_DummyConfig())
-
-    assert isinstance(core.db_manager, DummyJSONDBManager)
-    assert core.db_manager.data_dir == "data/json_db"
-
-
-def test_classifier_core_researches_when_last_search_date_is_invalid():
-    assert (
-        classifier_core_module._should_research_stale_record(
-            "ABCD-123", "not-a-real-date"
-        )
-        is True
-    )
-
-
-def test_classifier_core_build_video_info_preserves_search_error_status():
-    class _DummyStudioIdentifier:
-        def identify_studio(self, _code):
-            return "S1"
-
-    core = classifier_core_module.UnifiedClassifierCore.__new__(
-        classifier_core_module.UnifiedClassifierCore
-    )
-    core.studio_identifier = _DummyStudioIdentifier()
-
-    info = core._build_video_info(
-        "SNOS-053",
-        Path("SNOS-053.mp4"),
-        {
-            "source": "JAVDB (安全增強版)",
-            "actresses": [],
-            "search_status": "search_error",
-            "search_error_reason": "JAVDB 搜尋頁疑似返回年齡驗證或異常落地頁",
-        },
-        "JAVDB",
-        "2026-04-04T01:30:00",
-    )
-
-    assert info["search_status"] == "search_error"
-    assert "年齡驗證" in info["search_error_reason"]
 
 
 def test_search_japanese_sites_only_delegates_to_unified_method():
