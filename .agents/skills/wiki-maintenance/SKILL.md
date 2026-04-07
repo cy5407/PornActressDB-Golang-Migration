@@ -28,9 +28,9 @@ wiki/
 步驟：
 1. 若新功能引入了新的「正確做法」→ 在 `wiki/patterns/` 新增或更新頁面
 2. 若發生了可預防的 Bug → 在 `wiki/pitfalls/` 新增頁面
-3. 更新 `wiki/index.md` 的對應表格
-4. 在 `wiki/log.md` 末尾追加一筆記錄
-5. **⚠️ 必做：同步 `wiki/viewer.html` 的 nav 陣列**（見下方規則；遺漏會導致頁面在選單消失）
+3. **⚠️ 必做：立刻同步 `wiki/viewer.html` 的 nav 陣列**（見下方規則；遺漏會導致頁面在選單消失）
+4. 更新 `wiki/index.md` 的對應表格
+5. 在 `wiki/log.md` 末尾追加一筆記錄
 6. **必做：重新產生 `wiki/wiki-data.js`**（讓 viewer.html 不需要 server）
 
 ```powershell
@@ -49,12 +49,12 @@ log 格式：
 
 ### 同步 viewer.html WIKI 物件（必須執行）
 
-每次新增或刪除 `wiki/**/*.md` 後，必須同步更新 `wiki/viewer.html` 第 118 行起的 `const WIKI = { sections: [...] }` 物件。
+每次新增或刪除 `wiki/**/*.md` 後，必須同步更新 `wiki/viewer.html` 第 121 行起的 `const WIKI = { sections: [...] }` 物件。
 
 **規則：**
 - 標題（label）：從 md 檔的第一個 `# H1` 取得
 - icon：依下表選取；無對應則 patterns 用 `📄`、pitfalls 用 `❌`
-- 新增項目：插入到對應 section 的 `items` 陣列，**依字母排序**
+- 新增項目：插入到對應 section 的 `items` 陣列末尾（依邏輯分組，不強制字母排）
 - 刪除項目：從 `items` 陣列移除對應行
 
 **Icon 參考表：**
@@ -62,7 +62,7 @@ log 格式：
 | 目錄 | 預設 | 常見對應 |
 |------|------|---------|
 | root | — | `index`→🏠 `log`→📋 |
-| architecture | 🗺️ | go-cli→⚙️ go-bridge→🌉 database→🗄️ search→🔍 |
+| architecture | 🗺️ | go-cli→⚙️ go-bridge→🌉 database→🗄️ search→🔍 studio→🏢 wails-gui→🖥️ |
 | patterns | 📄 | add-*→➕ gui→🖱️ naming→📝 pkg→📦 retry→🔄 remove→🗑️ |
 | pitfalls | ❌ | 效能優化→⚡、其餘全部 ❌ |
 
@@ -107,10 +107,11 @@ log 格式：
 步驟：
 1. 在 `wiki/pitfalls/<描述性名稱>.md` 建立新頁面
 2. 格式：**症狀**、**根因**、**正確做法**（連結到 patterns/）
-3. 更新 `wiki/index.md` 踩坑紀錄表格（加入 Issue 編號）
+3. **⚠️ 必做：立刻同步 viewer.html nav**（同 Ingest 步驟 3）
 4. 若此 Bug 有預防模式，在 `wiki/patterns/` 新增或更新對應頁面
-5. 在 `wiki/log.md` 追加 `pitfall` 類型記錄
-6. **⚠️ 必做：同步 viewer.html nav + 重新產生 wiki-data.js**（同 Ingest 步驟 5-6）
+5. 更新 `wiki/index.md` 踩坑紀錄表格（加入 Issue 編號）
+6. 在 `wiki/log.md` 追加 `pitfall` 類型記錄
+7. **必做：重新產生 wiki-data.js**（同 Ingest 步驟 6）
 
 ---
 
