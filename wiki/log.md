@@ -5,6 +5,18 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-07] docs | W7 片商分類設計完成
+
+**Wiki 新增**：[architecture/studio-classification.md](architecture/studio-classification.md)
+
+設計重點：
+- 路徑：`outputDir\片商名\女優名\番號.ext`
+- 判定規則：查 DB 作品最多的片商 → 對照 `major_studios.json`
+- 大片商 → 片商名資料夾；非大片商 → 單體企劃女優；無女優 → 未分類
+- 實作分三層：`pkg/database`（DB 統計）、`app.go`（binding）、`App.tsx`（按鈕）
+
+---
+
 ## [2026-04-07] fix | Wails 六大問題全修復（T1-T6）
 
 **commit**：e2b0289  
