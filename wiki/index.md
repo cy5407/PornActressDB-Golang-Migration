@@ -47,6 +47,8 @@
 | [Wails 建置踩坑](pitfalls/wails-build-issues.md) | npm 版本衝突、TS 命名空間錯誤、native dialog 無法從前端呼叫 | E2E 實測 |
 | [Wails 搜尋效能優化](pitfalls/wails-search-perf.md) | 批次搜尋 75s→10s：rate limiter 停用 + thread-local 並行初始化 | E2E 實測 |
 | [Wiki Viewer 選單脫鉤](pitfalls/wiki-viewer-nav-out-of-sync.md) | viewer.html nav 需手動維護，與 wiki-data.js 自動產生脫鉤 | 2026-04-07 |
+| [Wails DB 路徑寫入錯誤目錄](pitfalls/wails-db-path-wrong-dir.md) | resolveConfigPath 未往上找 config.ini，DB 落到 build/bin/ | 2026-04-07 |
+| [Wails DB data.json 從未更新](pitfalls/wails-db-json-never-updated.md) | BatchSearch 缺少 Compact() 呼叫，快取永久失效 | 2026-04-07 |
 
 ---
 

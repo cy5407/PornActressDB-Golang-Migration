@@ -5,6 +5,19 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-07] pitfall | Wails DB 路徑與 data.json 未更新雙修
+
+**涉及檔案**：
+- `wiki/pitfalls/wails-db-path-wrong-dir.md` — 新建：DB 寫入 build/bin/ 而非專案根
+- `wiki/pitfalls/wails-db-json-never-updated.md` — 新建：CompactIfNeeded 從未被呼叫
+- `wails-app/backend/app.go` — resolveConfigPath 往上找 config.ini；BatchSearch 末尾加 Compact()
+
+**踩坑**：
+1. `resolveConfigPath` 只找 exe 同目錄，dev 模式下找不到 project root 的 config.ini，DB 落到 `build/bin/data/json_db/`
+2. `CompactIfNeeded()` 從未被呼叫，63 筆搜尋遠低於 1000 筆閾值，`data.json` 永遠不更新，快取完全失效
+
+**修法**：`resolveConfigPath` 增加往上 3 層的候選路徑；`resolveDataDir`/`resolveLogDir` 改為相對 config.ini 目錄解析；`BatchSearch` 末尾強制 `Compact()`。
+
 ## [2026-04-07] pitfall | Wiki Viewer 導覽選單與 wiki-data.js 脫鉤
 
 **涉及檔案**：
