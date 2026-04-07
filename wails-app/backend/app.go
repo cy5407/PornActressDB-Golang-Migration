@@ -531,9 +531,9 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 
 	cmd.Wait()
 
-	// 搜尋完成後主動 compact：把 journal 合併進 data.json
+	// 搜尋完成後強制 compact：無論 journal 大小，立即合併進 data.json
 	if a.db != nil {
-		_, _ = a.db.CompactIfNeeded()
+		_ = a.db.Compact()
 	}
 
 	success := 0
