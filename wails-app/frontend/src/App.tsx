@@ -23,6 +23,7 @@ function ActionToolbar() {
     outputDir,
     status,
     scanResults,
+    searchResults,
     selectedCodes,
     conflictStrategy,
     scanWorkers,
@@ -83,7 +84,7 @@ function ActionToolbar() {
       // BatchSearch 在 Go 端以 goroutine pool 並發執行，並透過 Wails Events
       // 即時推送 search:progress / search:result / search:done 到前端。
       // 回傳值為完整結果清單，作為補充（Events 已更新 store）。
-      const results = await BatchSearch(codes, 5);
+      const results = await BatchSearch(codes, 0);
       if (results) {
         let success = 0;
         let failed = 0;
@@ -123,7 +124,6 @@ function ActionToolbar() {
     }
     setStatus('moving');
     resetProgress();
-    pushEvent('info', `📦 開始移動 ${targets.length} 個檔案 → ${outputDir}`);
 
     const pathExt = (p: string): string => {
       const lastDot = p.lastIndexOf('.');
@@ -131,11 +131,27 @@ function ActionToolbar() {
       return lastDot > lastSep ? p.slice(lastDot) : '';
     };
 
-    const items = targets.map((r) => ({
-      source: r.path,
-      destination: `${outputDir}\\${r.code}${pathExt(r.path)}`,
-      on_conflict: conflictStrategy,
-    }));
+    // code → 女優名映射（用第一位女優；無搜尋結果則放到「未分類」）
+    const codeToActress = new Map<string, string>(
+      searchResults.map((sr) => [sr.code, sr.actresses?.[0] ?? '未分類'])
+    );
+
+    // T6 預覽：計算實際資料夾分配並顯示
+    const folderSet = new Set(targets.map((r) => codeToActress.get(r.code) ?? '未分類'));
+    pushEvent(
+      'info',
+      `📦 開始移動 ${targets.length} 個檔案 → ${folderSet.size} 個資料夾（${outputDir}）`
+    );
+
+    // T5 女優資料夾：目標路徑為 outputDir\女優名\番號.ext
+    const items = targets.map((r) => {
+      const actress = codeToActress.get(r.code) ?? '未分類';
+      return {
+        source: r.path,
+        destination: `${outputDir}\\${actress}\\${r.code}${pathExt(r.path)}`,
+        on_conflict: conflictStrategy,
+      };
+    });
 
     try {
       const result = await BatchMove(items, conflictStrategy);
@@ -143,6 +159,14 @@ function ActionToolbar() {
       const summary = `移動完成：${result.success_count} 成功 / ${result.failed_count} 失敗 / ${result.skipped_count} 略過`;
       setStatusMessage(summary, result.failed_count > 0 ? 'warning' : 'success');
       pushEvent(result.failed_count > 0 ? 'warning' : 'success', summary);
+
+      // T3 清除已成功移動的項目，避免 scanResults 殘留過期路徑
+      if (result.results) {
+        const movedSources = new Set(
+          result.results.filter((mv) => mv.success).map((mv) => mv.source)
+        );
+        setScanResults(scanResults.filter((r) => !movedSources.has(r.path)));
+      }
     } catch (err) {
       const msg = `❌ 移動失敗：${err}`;
       setStatusMessage(msg, 'error');

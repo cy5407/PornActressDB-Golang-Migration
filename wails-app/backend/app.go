@@ -32,7 +32,7 @@ type App struct {
 	studio     *studio.StudioIdentifier
 	cfgSvc     *services.ConfigService
 	cfgPath    string
-	dbOnce     sync.Once
+	dbMu       sync.Mutex // 取代 dbOnce，支援設定變更後重置
 	cancelScan context.CancelFunc // 取消掃描/搜尋用
 	cancelMu   sync.Mutex
 }
@@ -80,11 +80,7 @@ func parseIni(content string, p *services.Preferences) {
 // Startup is called when the app starts.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	a.dbOnce.Do(func() {
-		dataDir := resolveDataDir(a.cfgPath)
-		a.db = database.NewJSONDatabase(dataDir)
-		_ = a.db.Load(ctx)
-	})
+	a.ensureDB()
 }
 
 // ============================================================================
@@ -312,12 +308,20 @@ func (a *App) GetPreferences() (Preferences, error) {
 
 // UpdatePreferences writes new preferences to config.ini.
 func (a *App) UpdatePreferences(prefs Preferences) error {
-	return services.NewConfigService(a.cfgPath).Save(prefs)
+	err := services.NewConfigService(a.cfgPath).Save(prefs)
+	if err == nil {
+		a.resetDB() // 讓下次操作以新設定重新初始化 DB
+	}
+	return err
 }
 
 // ResetPreferences resets config.ini to built-in defaults.
 func (a *App) ResetPreferences() error {
-	return services.NewConfigService(a.cfgPath).Reset()
+	err := services.NewConfigService(a.cfgPath).Reset()
+	if err == nil {
+		a.resetDB()
+	}
+	return err
 }
 
 // ============================================================================
@@ -424,7 +428,11 @@ func (a *App) PythonSearch(code string) (*SearchResult, error) {
 // DB integration: codes already in DB (search_status=success) are served from cache; new results are persisted.
 func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 	if workers <= 0 {
-		workers = 20
+		if prefs, err := a.cfgSvc.Load(); err == nil && prefs.ThreadCount > 0 {
+			workers = prefs.ThreadCount
+		} else {
+			workers = 20
+		}
 	}
 	total := len(codes)
 	if total == 0 {
@@ -551,11 +559,20 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 // ============================================================================
 
 func (a *App) ensureDB() {
-	a.dbOnce.Do(func() {
-		dataDir := resolveDataDir(a.cfgPath)
-		a.db = database.NewJSONDatabase(dataDir)
-		_ = a.db.Load(context.Background())
-	})
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+	if a.db != nil {
+		return
+	}
+	dataDir := resolveDataDir(a.cfgPath)
+	a.db = database.NewJSONDatabase(dataDir)
+	_ = a.db.Load(context.Background())
+}
+
+func (a *App) resetDB() {
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+	a.db = nil
 }
 
 func resolveConfigPath() string {
