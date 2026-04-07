@@ -5,6 +5,27 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-07] feature | Wails W1~W6 全部實作完成（Nova agent）
+
+**涉及檔案**：
+- `wails-app/` — 新建 Wails v2 + React TypeScript 完整專案
+- `wails-app/backend/app.go` — 17 個 Go bindings（ScanDirectory、MoveFile、BatchMove、DB、Studio、Preferences、PythonSearch、BatchSearch）
+- `wails-app/backend/services/config.go` — ConfigService（config.ini 讀寫）
+- `wails-app/frontend/src/components/` — 所有 UI 元件（MainLayout、VideoList、SearchPanel、ProgressBar、StatusBar、三個對話框）
+- `wails-app/frontend/src/stores/taskStore.ts` — Zustand 狀態管理
+- `src/scrapers/run_search.py` — Python 爬蟲 CLI 入口（subprocess 呼叫入口）
+- `wiki/architecture/wails-gui.md` — 新建架構文件
+
+**移除**：
+- `src/ui/`（~2,588 行 Tkinter GUI）
+- `src/services/go_bridge.py` / `go_runner.py` / `go_api/`（~1,587 行橋接層）
+- `src/services/classifier_core.py` / `interactive_classifier.py` / `studio_classifier.py`（~2,606 行）
+- 孤立模組：`encoding_enhancer.py`、`japanese_site_enhancer.py`、`unified_scraper.py`（~944 行）
+
+**累計移除**：W1~W6 共 **~7,725 行** Python 程式碼
+
+---
+
 ## [2026-04-07] docs | 技術選型決策紀錄建立
 
 **涉及檔案**：
