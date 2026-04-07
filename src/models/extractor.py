@@ -17,18 +17,15 @@ class UnifiedCodeExtractor:
     def _extract_code_via_go(self, filename: str) -> str | None:
         """嘗試透過 Go CLI 提取番號；若 Go 不可用則回傳 None。"""
         try:
-            from services.go_bridge import get_bridge
-
-            bridge = get_bridge()
-            if not bridge.is_available:
-                return None
+            from services.go_cli import extract_code as go_extract_code
+            return go_extract_code(filename)
         except Exception:
-            return None
+            pass
 
         try:
-            from services.go_api.scan import extract_code as go_extract_code
-
-            return go_extract_code(filename, runner=bridge._runner)
+            from src.services.go_cli import extract_code as go_extract_code
+            return go_extract_code(filename)
         except Exception as e:
             logger.debug(f"Go 番號提取失敗: {e}")
             return None
+

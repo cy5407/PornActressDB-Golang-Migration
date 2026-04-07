@@ -37,13 +37,21 @@ from src.models.json_types import (
 
 logger = logging.getLogger(__name__)
 
-from src.services.go_api.db import (
-    db_compact_journal as _go_db_compact_journal,
-    db_delete_video as _go_db_delete_video,
-    db_get_video as _go_db_get_video,
-    db_update_video as _go_db_update_video,
-)
-from src.services.go_runner import GoBridgeError as _GoBridgeError
+try:
+    from src.services.go_cli import (
+        GoError as _GoBridgeError,
+        db_compact_journal as _go_db_compact_journal,
+        db_delete_video as _go_db_delete_video,
+        db_get_video as _go_db_get_video,
+        db_update_video as _go_db_update_video,
+    )
+except ImportError:
+    def _go_db_compact_journal(*a, **kw): return {}  # noqa: E731
+    def _go_db_delete_video(*a, **kw): return {}  # noqa: E731
+    def _go_db_get_video(*a, **kw): return {}  # noqa: E731
+    def _go_db_update_video(*a, **kw): return {}  # noqa: E731
+
+    class _GoBridgeError(Exception): pass  # noqa: E701
 
 # 合併閾值設定（與 Go pkg/database/types.go 中的常數保持一致）
 JOURNAL_SIZE_THRESHOLD = 1000  # 當 journal 超過 1000 條記錄時觸發合併

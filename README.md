@@ -4,10 +4,11 @@
 
 它可以從影片檔名中提取番號，自動到多個網站搜尋女優資訊，再依女優名稱或片商將影片整理到對應資料夾，減少手動查詢與搬移檔案的時間。
 
-本專案使用 **Python + Go 混合架構**：
+本專案使用 **Go + React (Wails) 架構**：
 
-- **Python**：負責 GUI 介面、搜尋流程、資料庫整合與主要邏輯
-- **Go**：負責高速掃描、批次移動、資料庫工具與操作歷史
+- **Go + React/TypeScript (Wails)**：桌面 GUI 介面，提供原生視窗體驗
+- **Go (classifier)**：高速掃描、批次移動、資料庫工具與操作歷史
+- **Python**：搜尋爬蟲管線（AV-WIKI、JAVDB），透過 subprocess 呼叫
 
 ## 主要功能
 
@@ -22,10 +23,11 @@
 ## 適用環境
 
 - Windows 10 / 11
-- Python 3.11+
-- Go 1.21+（若要自行建置 `classifier.exe`）
+- Python 3.11+（搜尋爬蟲管線）
+- Go 1.21+（若要自行建置 `classifier` CLI）
+- Node.js 18+（若要自行建置 Wails 前端）
 
-> 如果你只想使用 GUI，Python 環境是必要的；Go CLI 則屬於建議安裝，可提升掃描與搬移效率。
+> 如果只想使用應用程式，下載 Releases 中的 `actress-classifier.exe` 即可；無需單獨安裝 Python 或 Go。
 
 ## 安裝方式
 
@@ -70,16 +72,27 @@ go build -o classifier.exe .\cmd\scanner
 
 > 請使用套件路徑建置，不要直接指定 `cmd\scanner\main.go`，否則會漏掉同套件中的輔助檔案。
 
-### 6. 建立 Windows GUI 發行版（選用）
+### 6. 建置 Wails 桌面應用程式（選用）
 
 ```powershell
-python -m PyInstaller --clean --noconfirm "女優分類系統_修復版.spec"
-Copy-Item .\classifier.exe .\dist\classifier.exe -Force
+# 安裝 Wails CLI（只需一次）
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+# 建置桌面應用
+cd wails-app
+wails build
+
+# 完成後，應用程式位於 wails-app/build/bin/actress-classifier.exe
 ```
 
-完成後，主要 GUI 發行檔位於 `dist\女優分類系統_修復版.exe`。
+### 7. 啟動應用程式
 
-`女優分類系統_修復版.spec` 不會自動把 `classifier.exe` 放進 `dist`，如果要保留 Go 加速功能，請另外同步最新的 `dist\classifier.exe`。
+```powershell
+# 使用 Wails 桌面應用（推薦）
+python run.py
+# 或直接執行
+.\wails-app\build\bin\actress-classifier.exe
+```
 
 ## 快速開始
 
@@ -88,6 +101,8 @@ Copy-Item .\classifier.exe .\dist\classifier.exe -Force
 ```powershell
 python run.py
 ```
+
+`run.py` 會自動尋找並啟動 `actress-classifier.exe`（Wails 桌面應用）。
 
 啟動後，主介面可用來：
 
@@ -98,33 +113,32 @@ python run.py
 - 進行片商分類
 - 查看操作歷史與回滾結果
 
-## 使用方式
+## 架構說明
 
-### 一般使用流程
+### Wails 桌面應用（`wails-app/`）
 
-1. 啟動 `python run.py`
-2. 選擇要處理的影片資料夾
-3. 執行搜尋功能取得女優資訊
-4. 檢查搜尋結果
-5. 執行分類或移動
-6. 如有需要，可從操作歷史中查看明細或回滾
+前後端整合的桌面 GUI，透過 Wails bindings 呼叫 Go 函式：
 
-### 搜尋來源
+- **後端 (`wails-app/backend/app.go`)**：Go 結構，提供 `ScanDirectory`、`SearchActress`、`MoveFiles` 等 binding
+- **前端 (`wails-app/frontend/`)**：React + TypeScript UI
+- **Python 爬蟲整合**：後端透過 `os/exec` 呼叫 `python run_search.py` 進行搜尋
 
-系統目前會依序使用以下來源搜尋：
+### Go CLI (`classifier` / `classifier.exe`)
 
-1. `AV-WIKI`
-2. `JAVDB`
+低階工具，可獨立或透過應用程式呼叫：
 
-### GUI 常見功能
+```powershell
+classifier.exe scan -dir "D:\Videos" -workers 10
+classifier.exe db get STARS-707
+classifier.exe move -src A.mp4 -dst dest/A.mp4 -strategy skip
+```
 
-- **日文網站搜尋**：從日文網站取得女優資訊
-- **JAVDB 搜尋**：以 JAVDB 為主來源搜尋
-- **智慧分類**：自動套用分類邏輯
-- **互動式分類**：多人共演時讓使用者手動選擇
-- **智慧搜尋並分類**：搜尋完成後直接進行整理
-- **片商分類**：依片商規則整理資料夾
-- **操作歷史**：查看批次移動與回滾紀錄
+### Python 搜尋管線 (`run_search.py`)
+
+由 Wails 後端呼叫（subprocess），負責：
+
+- AV-WIKI 與 JAVDB 的爬蟲搜尋
+- 搜尋結果透過 stdout JSON 回傳
 
 ## Go CLI 用法
 

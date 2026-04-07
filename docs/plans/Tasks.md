@@ -117,22 +117,22 @@
 
 ## W6. 打包與清理
 
-- [ ] 設定 `wails build`（圖示、版本資訊）
-- [ ] 設定 NSIS installer
-- [ ] 確認 Python 爬蟲可隨安裝流程使用
-- [ ] 移除 `src/ui/`
-- [ ] 移除 `src/services/go_bridge.py`
-- [ ] 移除 `src/services/go_runner.py`
-- [ ] 移除 `src/services/go_api/`
-- [ ] 更新 `run.py`
-- [ ] 更新 `README.md`
-- [ ] 更新 `MIGRATION_STATUS.md`
-- [ ] 做完整 E2E 測試
+- [x] 設定 `wails build`（圖示、版本資訊）
+- [x] 設定 NSIS installer
+- [x] 確認 Python 爬蟲可隨安裝流程使用
+- [x] 移除 `src/ui/`
+- [x] 移除 `src/services/go_bridge.py`
+- [x] 移除 `src/services/go_runner.py`
+- [x] 移除 `src/services/go_api/`
+- [x] 更新 `run.py`
+- [x] 更新 `README.md`
+- [x] 更新 `MIGRATION_STATUS.md`
+- [x] 做完整 E2E 測試
 
 **W6 驗收**
-- [ ] 單一 Wails `.exe` 可執行
-- [ ] 舊 Python GUI 移除完成
-- [ ] 所有核心功能可正常跑完
+- [x] 單一 Wails `.exe` 可執行
+- [x] 舊 Python GUI 移除完成
+- [x] 所有核心功能可正常跑完
 
 ---
 

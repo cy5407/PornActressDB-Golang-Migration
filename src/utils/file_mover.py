@@ -1,71 +1,107 @@
 import logging
-from importlib import import_module
-from pathlib import Path; from typing import Optional
+from pathlib import Path
+from typing import Optional
+
 logger = logging.getLogger(__name__)
+
+
 class FileMover:
-    def __init__(self, use_go: bool = False, conflict_strategy: str = "skip", enable_log: bool = True, log_dir: str = "logs", go_exe_path: Optional[str] = None):
-        self.use_go, self.conflict_strategy, self.enable_log, self.log_dir, self.go_exe_path, self._go_bridge, self._last_operation_id = use_go, conflict_strategy, enable_log, log_dir, go_exe_path, None, None
+    def __init__(
+        self,
+        use_go: bool = False,
+        conflict_strategy: str = "skip",
+        enable_log: bool = True,
+        log_dir: str = "logs",
+        go_exe_path: Optional[str] = None,
+    ):
+        self.use_go = use_go
+        self.conflict_strategy = conflict_strategy
+        self.enable_log = enable_log
+        self.log_dir = log_dir
+        self.go_exe_path = go_exe_path
+        self._go_available: Optional[bool] = None
+        self._last_operation_id: Optional[str] = None
 
     @property
     def go_bridge(self):
-        if self._go_bridge is None and self.use_go:
+        """相容性屬性：回傳 self（可用）或 None（不可用）。"""
+        if not self.use_go:
+            return None
+        if self._go_available is None:
             try:
-                try: GoBridge = import_module("src.services.go_bridge").GoBridge
-                except ImportError: GoBridge = import_module("services.go_bridge").GoBridge
-                bridge = GoBridge(exe_path=self.go_exe_path or None, log_dir=self.log_dir, default_strategy=self.conflict_strategy)
-                self._go_bridge = bridge if bridge.is_available else None
-                if not self._go_bridge: logger.warning("Go CLI 不可用，改走 Python 降級搬移")
-            except ImportError as e: logger.warning(f"無法載入 Go 橋接層，改走 Python 降級搬移: {e}")
-            self.use_go = bool(self._go_bridge)
-        return self._go_bridge
+                try:
+                    from services.go_cli import is_available
+                except ImportError:
+                    from src.services.go_cli import is_available
+                self._go_available = is_available()
+            except Exception:
+                self._go_available = False
+            if not self._go_available:
+                logger.warning("Go CLI 不可用，改走 Python 降級搬移")
+                self.use_go = False
+        return self if self._go_available else None
+
+    def _go_cli(self):
+        try:
+            import services.go_cli as go_cli
+        except ImportError:
+            import src.services.go_cli as go_cli
+        return go_cli
 
     def move_file(self, source: str | Path, destination: str | Path, create_dirs: bool = True) -> dict:
-        src, dst = Path(source), Path(destination)
+        src, dst = str(source), str(destination)
         if not self.go_bridge:
-            return {"success": False, "source": str(src), "destination": str(dst), "error": "Go CLI 不可用，無法搬移檔案", "skipped": False, "renamed": None}
-        try:
-            r = self.go_bridge.move_file(str(src), str(dst), self.conflict_strategy)
-            self._last_operation_id = getattr(r, "operation_id", None) or self._last_operation_id
-            return {"success": r.success, "source": r.source, "destination": r.destination, "error": r.error, "skipped": r.skipped, "renamed": r.renamed}
-        except Exception as e:
-            return {"success": False, "source": str(src), "destination": str(dst), "error": str(e), "skipped": False, "renamed": None}
+            return {"success": False, "source": src, "destination": dst, "error": "Go CLI 不可用，無法搬移檔案", "skipped": False, "renamed": None}
+        result = self._go_cli().move_file(src, dst, self.conflict_strategy)
+        self._last_operation_id = result.get("operation_id") or self._last_operation_id
+        return result
 
     def move_dir(self, source: str | Path, destination: str | Path) -> dict:
-        src, dst = Path(source), Path(destination)
+        src, dst = str(source), str(destination)
         if not self.go_bridge:
-            return {"success": False, "source": str(src), "destination": str(dst), "error": "Go CLI 不可用，無法搬移目錄", "skipped": False}
-        try:
-            return self.go_bridge.move_dir(str(src), str(dst), self.conflict_strategy)
-        except Exception as e:
-            return {"success": False, "source": str(src), "destination": str(dst), "error": str(e), "skipped": False}
+            return {"success": False, "source": src, "destination": dst, "error": "Go CLI 不可用，無法搬移目錄", "skipped": False}
+        return self._go_cli().move_dir(src, dst, self.conflict_strategy)
 
     def batch_move(self, moves: list[tuple[str | Path, str | Path]]) -> dict:
         if not self.go_bridge:
-            return {"total": len(moves), "success": 0, "failed": len(moves), "skipped": 0, "results": [{"success": False, "source": str(s), "destination": str(d), "error": "Go CLI 不可用，無法搬移檔案", "skipped": False, "renamed": None} for s, d in moves]}
+            return {
+                "total": len(moves), "success": 0, "failed": len(moves), "skipped": 0,
+                "results": [{"success": False, "source": str(s), "destination": str(d), "error": "Go CLI 不可用，無法搬移檔案", "skipped": False, "renamed": None} for s, d in moves],
+            }
         if len(moves) > 1:
-            try:
-                r = self.go_bridge.batch_move([{"source": str(src), "destination": str(dst)} for src, dst in moves], self.conflict_strategy)
-                self._last_operation_id = r.operation_id or self._last_operation_id
-                return {"total": r.total_items, "success": r.success_count, "failed": r.failed_count, "skipped": r.skipped_count, "operation_id": r.operation_id, "status": r.status, "summary": r.summary, "results": [{"success": i.success, "source": i.source, "destination": i.destination, "error": i.error, "skipped": i.skipped, "renamed": i.renamed} for i in r.results]}
-            except Exception as e:
-                return {"total": len(moves), "success": 0, "failed": len(moves), "skipped": 0, "error": str(e), "results": []}
-        results = [self.move_file(src, dst) for src, dst in moves]
-        return {"total": len(moves), "success": sum(1 for i in results if i["success"] and not i["skipped"]), "failed": sum(1 for i in results if not i["success"]), "skipped": sum(1 for i in results if i["skipped"]), "results": results}
+            items = [{"source": str(s), "destination": str(d)} for s, d in moves]
+            result = self._go_cli().batch_move(items, self.conflict_strategy, self.log_dir)
+            self._last_operation_id = result.get("operation_id") or self._last_operation_id
+            return result
+        results = [self.move_file(s, d) for s, d in moves]
+        return {
+            "total": len(results),
+            "success": sum(1 for r in results if r["success"] and not r["skipped"]),
+            "failed": sum(1 for r in results if not r["success"]),
+            "skipped": sum(1 for r in results if r["skipped"]),
+            "results": results,
+        }
 
     def rollback(self, operation_id: Optional[str] = None) -> dict:
-        if not self.go_bridge: return {"success": False, "error": "回滾功能僅在 Go 模式下可用"}
+        if not self.go_bridge:
+            return {"success": False, "error": "回滾功能僅在 Go 模式下可用"}
         op_id = operation_id or self._last_operation_id
-        if not op_id: return {"success": False, "error": "沒有可回滾的操作"}
-        try:
-            r = self.go_bridge.rollback(op_id)
-            return {"success": r.failed_count == 0, "operation_id": op_id, "rolled_back": r.success_count, "failed": r.failed_count, "skipped": r.skipped_count, "status": r.status, "summary": r.summary, "error": r.summary if r.failed_count > 0 else None, "results": [{"success": i.success, "source": i.source, "destination": i.destination, "error": i.error, "skipped": i.skipped, "renamed": i.renamed} for i in r.results]}
-        except Exception as e: return {"success": False, "error": str(e)}
+        if not op_id:
+            return {"success": False, "error": "沒有可回滾的操作"}
+        return self._go_cli().rollback(op_id, self.log_dir)
 
     def list_operations(self, limit: int = 10) -> list[dict]:
-        if not self.go_bridge: return []
-        try: return [{"id": o.id, "timestamp": o.timestamp, "type": o.type, "status": o.status, "items": o.items, "total_items": o.total_items, "success_count": o.success_count, "failed_count": o.failed_count, "skipped_count": o.skipped_count} for o in self.go_bridge.list_operations(limit=limit)]
-        except Exception: return []
+        if not self.go_bridge:
+            return []
+        return self._go_cli().list_operations(limit=limit, log_dir=self.log_dir)
 
     @classmethod
     def from_config(cls, config) -> "FileMover":
-        return cls(config.getboolean("go_integration", "enabled", fallback=True), config.get("go_integration", "move_conflict_strategy", fallback="skip"), config.getboolean("go_integration", "enable_operation_log", fallback=True), config.get("go_integration", "log_dir", fallback="logs"), config.get("go_integration", "exe_path", fallback=None) or None)
+        return cls(
+            use_go=config.getboolean("go_integration", "enabled", fallback=True),
+            conflict_strategy=config.get("go_integration", "move_conflict_strategy", fallback="skip"),
+            enable_log=config.getboolean("go_integration", "enable_operation_log", fallback=True),
+            log_dir=config.get("go_integration", "log_dir", fallback="logs"),
+            go_exe_path=config.get("go_integration", "exe_path", fallback=None) or None,
+        )
+
