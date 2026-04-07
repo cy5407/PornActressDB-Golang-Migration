@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -417,46 +418,66 @@ func (a *App) PythonSearch(code string) (*SearchResult, error) {
 	return &result, nil
 }
 
-// BatchSearch invokes PythonSearch for each code concurrently (up to workers goroutines).
-// Progress and individual results are emitted as Wails Events so the frontend can update
-// the UI in real time. The full result slice is also returned for the caller's convenience.
+// BatchSearch invokes run_batch_search.py with ALL codes at once (single Python process).
+// Results are streamed line-by-line (JSON Lines) so the frontend receives real-time updates.
+// This eliminates N×Python-startup overhead; estimated 10-20x faster than the old per-code approach.
 func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 	if workers <= 0 {
-		workers = 5
+		workers = 15
 	}
 	total := len(codes)
-	results := make([]SearchResult, total)
+	if total == 0 {
+		wailsRuntime.EventsEmit(a.ctx, "search:done", "0 成功 / 0 失敗")
+		return nil
+	}
 
-	sem := make(chan struct{}, workers)
-	var wg sync.WaitGroup
+	scriptPath := resolveRunBatchSearchScript()
+	pythonExe := resolvePythonExe()
+
+	input, _ := json.Marshal(map[string]interface{}{
+		"codes":   codes,
+		"workers": workers,
+	})
+
+	cmd := exec.CommandContext(a.ctx, pythonExe, "-X", "utf8", scriptPath)
+	cmd.Stdin = bytes.NewReader(input)
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
+	hideWindow(cmd)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		wailsRuntime.EventsEmit(a.ctx, "search:done", "0 成功 / 0 失敗（啟動失敗）")
+		return nil
+	}
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
+	if err := cmd.Start(); err != nil {
+		wailsRuntime.EventsEmit(a.ctx, "search:done", fmt.Sprintf("0 成功 / %d 失敗（%s）", total, err))
+		return nil
+	}
+
+	results := make([]SearchResult, 0, total)
 	var mu sync.Mutex
 	done := 0
 
-	for i, code := range codes {
-		wg.Add(1)
-		go func(idx int, c string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			res, _ := a.PythonSearch(c)
-			if res == nil {
-				res = &SearchResult{Code: c, Error: "未知錯誤", ErrorKind: SearchErrorStderr}
-			}
-
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 支援長標題
+	for scanner.Scan() {
+		var res SearchResult
+		if err2 := json.Unmarshal(scanner.Bytes(), &res); err2 == nil {
 			mu.Lock()
-			results[idx] = *res
+			results = append(results, res)
 			done++
 			current := done
 			mu.Unlock()
 
-			// 發送 Wails 事件到前端
-			wailsRuntime.EventsEmit(a.ctx, "search:progress", current, total, c)
-			wailsRuntime.EventsEmit(a.ctx, "search:result", res)
-		}(i, code)
+			wailsRuntime.EventsEmit(a.ctx, "search:progress", current, total, res.Code)
+			wailsRuntime.EventsEmit(a.ctx, "search:result", &res)
+		}
 	}
 
-	wg.Wait()
+	cmd.Wait()
 
 	success := 0
 	for _, r := range results {
@@ -464,9 +485,7 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 			success++
 		}
 	}
-	summary := fmt.Sprintf("%d 成功 / %d 失敗", success, total-success)
-	wailsRuntime.EventsEmit(a.ctx, "search:done", summary)
-
+	wailsRuntime.EventsEmit(a.ctx, "search:done", fmt.Sprintf("%d 成功 / %d 失敗", success, total-success))
 	return results
 }
 
@@ -560,4 +579,19 @@ func resolveRunSearchScript() string {
 	return filepath.Join("src", "scrapers", "run_search.py")
 }
 
-
+func resolveRunBatchSearchScript() string {
+	exe, err := os.Executable()
+	if err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "src", "scrapers", "run_batch_search.py")
+		if _, err2 := os.Stat(candidate); err2 == nil {
+			return candidate
+		}
+		candidate2 := filepath.Join(filepath.Dir(exe), "..", "..", "..", "src", "scrapers", "run_batch_search.py")
+		if abs, err3 := filepath.Abs(candidate2); err3 == nil {
+			if _, err4 := os.Stat(abs); err4 == nil {
+				return abs
+			}
+		}
+	}
+	return filepath.Join("src", "scrapers", "run_batch_search.py")
+}
