@@ -1,53 +1,5 @@
 export namespace backend {
 	
-	export class Preferences {
-	    json_data_dir: string;
-	    default_input_dir: string;
-	    batch_size: number;
-	    thread_count: number;
-	    batch_delay: number;
-	    request_timeout: number;
-	    avwiki_concurrent_enabled: boolean;
-	    avwiki_max_concurrent: number;
-	    mode: string;
-	    auto_apply_preferences: boolean;
-	    cache_ttl_days: number;
-	    cache_max_size_mb: number;
-	    cache_auto_cleanup_on_exit: boolean;
-	    go_enabled: boolean;
-	    go_exe_path: string;
-	    scan_workers: number;
-	    move_conflict_strategy: string;
-	    enable_operation_log: boolean;
-	    log_dir: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Preferences(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.json_data_dir = source["json_data_dir"];
-	        this.default_input_dir = source["default_input_dir"];
-	        this.batch_size = source["batch_size"];
-	        this.thread_count = source["thread_count"];
-	        this.batch_delay = source["batch_delay"];
-	        this.request_timeout = source["request_timeout"];
-	        this.avwiki_concurrent_enabled = source["avwiki_concurrent_enabled"];
-	        this.avwiki_max_concurrent = source["avwiki_max_concurrent"];
-	        this.mode = source["mode"];
-	        this.auto_apply_preferences = source["auto_apply_preferences"];
-	        this.cache_ttl_days = source["cache_ttl_days"];
-	        this.cache_max_size_mb = source["cache_max_size_mb"];
-	        this.cache_auto_cleanup_on_exit = source["cache_auto_cleanup_on_exit"];
-	        this.go_enabled = source["go_enabled"];
-	        this.go_exe_path = source["go_exe_path"];
-	        this.scan_workers = source["scan_workers"];
-	        this.move_conflict_strategy = source["move_conflict_strategy"];
-	        this.enable_operation_log = source["enable_operation_log"];
-	        this.log_dir = source["log_dir"];
-	    }
-	}
 	export class ScanResult {
 	    path: string;
 	    code: string;
@@ -377,6 +329,59 @@ export namespace mover {
 		    }
 		    return a;
 		}
+	}
+
+}
+
+export namespace services {
+	
+	export class Preferences {
+	    json_data_dir: string;
+	    default_input_dir: string;
+	    batch_size: number;
+	    thread_count: number;
+	    batch_delay: number;
+	    request_timeout: number;
+	    avwiki_concurrent_enabled: boolean;
+	    avwiki_max_concurrent: number;
+	    mode: string;
+	    auto_apply_preferences: boolean;
+	    cache_ttl_days: number;
+	    cache_max_size_mb: number;
+	    cache_auto_cleanup_on_exit: boolean;
+	    go_enabled: boolean;
+	    go_exe_path: string;
+	    scan_workers: number;
+	    move_conflict_strategy: string;
+	    enable_operation_log: boolean;
+	    log_dir: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Preferences(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.json_data_dir = source["json_data_dir"];
+	        this.default_input_dir = source["default_input_dir"];
+	        this.batch_size = source["batch_size"];
+	        this.thread_count = source["thread_count"];
+	        this.batch_delay = source["batch_delay"];
+	        this.request_timeout = source["request_timeout"];
+	        this.avwiki_concurrent_enabled = source["avwiki_concurrent_enabled"];
+	        this.avwiki_max_concurrent = source["avwiki_max_concurrent"];
+	        this.mode = source["mode"];
+	        this.auto_apply_preferences = source["auto_apply_preferences"];
+	        this.cache_ttl_days = source["cache_ttl_days"];
+	        this.cache_max_size_mb = source["cache_max_size_mb"];
+	        this.cache_auto_cleanup_on_exit = source["cache_auto_cleanup_on_exit"];
+	        this.go_enabled = source["go_enabled"];
+	        this.go_exe_path = source["go_exe_path"];
+	        this.scan_workers = source["scan_workers"];
+	        this.move_conflict_strategy = source["move_conflict_strategy"];
+	        this.enable_operation_log = source["enable_operation_log"];
+	        this.log_dir = source["log_dir"];
+	    }
 	}
 
 }

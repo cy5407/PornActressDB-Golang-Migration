@@ -5,6 +5,125 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-07] docs | W7 片商分類設計完成
+
+**Wiki 新增**：[architecture/studio-classification.md](architecture/studio-classification.md)
+
+設計重點：
+- 路徑：`outputDir\片商名\女優名\番號.ext`
+- 判定規則：查 DB 作品最多的片商 → 對照 `major_studios.json`
+- 大片商 → 片商名資料夾；非大片商 → 單體企劃女優；無女優 → 未分類
+- 實作分三層：`pkg/database`（DB 統計）、`app.go`（binding）、`App.tsx`（按鈕）
+
+---
+
+## [2026-04-07] fix | Wails 六大問題全修復（T1-T6）
+
+**commit**：e2b0289  
+
+| Task | 說明 | 修改檔案 |
+|------|------|---------|
+| T1 | `getStatus` 加 `title` 判定，有標題無女優不標記 failed | `SearchResultDialog.tsx` |
+| T2 | `BatchSearch workers` 讀 `config.ThreadCount`，前端傳 0 | `app.go`、`App.tsx` |
+| T3 | 移動後從 `scanResults` 清除已成功移動項目 | `App.tsx` |
+| T4 | `dbOnce` 改為 `mutex+nil`，`UpdatePreferences/ResetPreferences` 後重置 DB | `app.go` |
+| T5 | 移動路徑改為 `outputDir\女優名\番號.ext`，無資料放「未分類」 | `App.tsx` |
+| T6 | 移動前顯示 N 個檔案 → M 個資料夾的預覽訊息 | `App.tsx` |
+
+
+
+**涉及檔案**：
+- `wiki/pitfalls/wails-move-stale-paths.md` — 新建：移動後 scanResults 路徑未更新
+- `wiki/pitfalls/wails-dbonce-no-reset.md` — 新建：dbOnce 不會重置（設定變更需重啟）
+- `wiki/pitfalls/wails-cache-status-mismatch.md` — 新建：快取狀態判定 Go 後端與前端不一致
+
+**分析結果**（尚未修復）：
+1. 移動目標路徑平鋪（無女優分資料夾）——功能設計缺失
+2. searchResults 與移動操作脫鉤——設計問題
+3. 移動後 scanResults 路徑未更新——已建 pitfall
+4. BatchSearch workers 固定寫死 5——忽視 config thread_count
+5. dbOnce 不會重置——已建 pitfall
+6. 快取狀態判定不一致——已建 pitfall
+
+
+
+**涉及檔案**：
+- `wiki/pitfalls/wails-db-path-wrong-dir.md` — 新建：DB 寫入 build/bin/ 而非專案根
+- `wiki/pitfalls/wails-db-json-never-updated.md` — 新建：CompactIfNeeded 從未被呼叫
+- `wails-app/backend/app.go` — resolveConfigPath 往上找 config.ini；BatchSearch 末尾加 Compact()
+
+**踩坑**：
+1. `resolveConfigPath` 只找 exe 同目錄，dev 模式下找不到 project root 的 config.ini，DB 落到 `build/bin/data/json_db/`
+2. `CompactIfNeeded()` 從未被呼叫，63 筆搜尋遠低於 1000 筆閾值，`data.json` 永遠不更新，快取完全失效
+
+**修法**：`resolveConfigPath` 增加往上 3 層的候選路徑；`resolveDataDir`/`resolveLogDir` 改為相對 config.ini 目錄解析；`BatchSearch` 末尾強制 `Compact()`。
+
+## [2026-04-07] pitfall | Wiki Viewer 導覽選單與 wiki-data.js 脫鉤
+
+**涉及檔案**：
+- `wiki/pitfalls/wiki-viewer-nav-out-of-sync.md` — 新建踩坑文件
+- `wiki/viewer.html` — 補入 3 個遺漏的 Wails 條目
+- `.agents/skills/wiki-maintenance/SKILL.md` — 強化 Step 5 警示
+
+**問題**：`gen_data.py` 自動產生 `wiki-data.js`（含頁面內容），但 `viewer.html` 的導覽選單是獨立手動維護的 JS 陣列，兩者脫鉤——新增 `.md` 後忘了同步 viewer.html，導致 3 個 Wails 踩坑頁面在選單消失。
+
+**修法**：手動補入 viewer.html nav 陣列；SKILL.md Ingest/Pitfall 步驟加 ⚠️ 提示。
+
+## [2026-04-07] perf | Wails 批次搜尋效能優化 75s→10s（7.5x）
+
+**涉及檔案**：
+- `src/scrapers/run_batch_search.py` — thread-local + rate limiter 停用
+- `wails-app/backend/app.go` — workers 升至 20
+- `wiki/pitfalls/wails-search-perf.md` — 新建效能優化踩坑文件
+- `wiki/pitfalls/wails-scan-duplicate.md` — 補充四輪效能數據
+- `docs/茶包射手/wails-e2e-scan.md` — 更新完整效能歷程表
+
+**四輪優化歷程（63 筆，1G 網路）**：
+1. 原始：75s（每筆獨立 Python process）
+2. batch script：39s（單一 process + ThreadPoolExecutor(15)）
+3. 主 thread 預建 searcher（反效果）：50s（串行初始化 14s）
+4. **thread-local 並行初始化 + 停用 rate limiter：🚀 10s**
+
+**關鍵發現**：
+- Rate limiter（min/max_interval=0.5/1.5s）在批次模式完全無效（各 thread 獨立 SafeSearcher，不共用 `last_request_time`）
+- GIL 在 I/O 密集段自動讓步，threads 並行初始化比主 thread 串行更快
+
+## [2026-04-07] pitfall | Wails 掃描重複番號 & E2E 效能記錄
+
+**涉及檔案**：
+- `wails-app/backend/app.go` — `ScanDirectory()` 加入 `seen map` 去重
+- `wiki/pitfalls/wails-scan-duplicate.md` — 新建踩坑文件
+- `docs/茶包射手/wails-e2e-scan.md` — E2E 實測記錄
+
+**問題**：`filepath.WalkDir` 不去重，同番號（`EBON-004`、`CEMD-818`）出現兩次，導致重複搜尋。
+
+**修法**：`seen map` 在 Go 端去重，progress counter 改為顯示有效番號序號。
+
+**E2E 效能（2026-04-07 實測）**：掃描 99 個檔案 <1 秒；搜尋 65 筆約 75 秒（1.15 秒/筆，5 workers）；成功率 100%。
+
+---
+
+## [2026-04-07] feature | Wails W1~W6 全部實作完成（Nova agent）
+
+**涉及檔案**：
+- `wails-app/` — 新建 Wails v2 + React TypeScript 完整專案
+- `wails-app/backend/app.go` — 17 個 Go bindings（ScanDirectory、MoveFile、BatchMove、DB、Studio、Preferences、PythonSearch、BatchSearch）
+- `wails-app/backend/services/config.go` — ConfigService（config.ini 讀寫）
+- `wails-app/frontend/src/components/` — 所有 UI 元件（MainLayout、VideoList、SearchPanel、ProgressBar、StatusBar、三個對話框）
+- `wails-app/frontend/src/stores/taskStore.ts` — Zustand 狀態管理
+- `src/scrapers/run_search.py` — Python 爬蟲 CLI 入口（subprocess 呼叫入口）
+- `wiki/architecture/wails-gui.md` — 新建架構文件
+
+**移除**：
+- `src/ui/`（~2,588 行 Tkinter GUI）
+- `src/services/go_bridge.py` / `go_runner.py` / `go_api/`（~1,587 行橋接層）
+- `src/services/classifier_core.py` / `interactive_classifier.py` / `studio_classifier.py`（~2,606 行）
+- 孤立模組：`encoding_enhancer.py`、`japanese_site_enhancer.py`、`unified_scraper.py`（~944 行）
+
+**累計移除**：W1~W6 共 **~7,725 行** Python 程式碼
+
+---
+
 ## [2026-04-07] docs | 技術選型決策紀錄建立
 
 **涉及檔案**：

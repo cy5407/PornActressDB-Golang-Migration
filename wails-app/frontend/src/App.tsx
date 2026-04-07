@@ -11,9 +11,9 @@ import { PreferencesDialog } from '@/components/PreferencesDialog';
 import { Button } from '@/components/ui/button';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
-import { ScanDirectory, BatchSearch, BatchMove } from '../wailsjs/go/backend/App';
+import { ScanDirectory, BatchSearch, BatchMove, CancelOperation } from '../wailsjs/go/backend/App';
 import { backend } from '../wailsjs/go/models';
-import { Scan, Search, FolderOutput, RotateCcw, ChevronDown, History, Settings } from 'lucide-react';
+import { Scan, Search, FolderOutput, RotateCcw, ChevronDown, History, Settings, StopCircle } from 'lucide-react';
 
 type ScanResult = backend.ScanResult;
 
@@ -23,6 +23,7 @@ function ActionToolbar() {
     outputDir,
     status,
     scanResults,
+    searchResults,
     selectedCodes,
     conflictStrategy,
     scanWorkers,
@@ -83,7 +84,7 @@ function ActionToolbar() {
       // BatchSearch 在 Go 端以 goroutine pool 並發執行，並透過 Wails Events
       // 即時推送 search:progress / search:result / search:done 到前端。
       // 回傳值為完整結果清單，作為補充（Events 已更新 store）。
-      const results = await BatchSearch(codes, 5);
+      const results = await BatchSearch(codes, 0);
       if (results) {
         let success = 0;
         let failed = 0;
@@ -123,13 +124,34 @@ function ActionToolbar() {
     }
     setStatus('moving');
     resetProgress();
-    pushEvent('info', `📦 開始移動 ${targets.length} 個檔案 → ${outputDir}`);
 
-    const items = targets.map((r) => ({
-      source: r.path,
-      destination: `${outputDir}/${r.code}`,
-      on_conflict: conflictStrategy,
-    }));
+    const pathExt = (p: string): string => {
+      const lastDot = p.lastIndexOf('.');
+      const lastSep = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+      return lastDot > lastSep ? p.slice(lastDot) : '';
+    };
+
+    // code → 女優名映射（用第一位女優；無搜尋結果則放到「未分類」）
+    const codeToActress = new Map<string, string>(
+      searchResults.map((sr) => [sr.code, sr.actresses?.[0] ?? '未分類'])
+    );
+
+    // T6 預覽：計算實際資料夾分配並顯示
+    const folderSet = new Set(targets.map((r) => codeToActress.get(r.code) ?? '未分類'));
+    pushEvent(
+      'info',
+      `📦 開始移動 ${targets.length} 個檔案 → ${folderSet.size} 個資料夾（${outputDir}）`
+    );
+
+    // T5 女優資料夾：目標路徑為 outputDir\女優名\番號.ext
+    const items = targets.map((r) => {
+      const actress = codeToActress.get(r.code) ?? '未分類';
+      return {
+        source: r.path,
+        destination: `${outputDir}\\${actress}\\${r.code}${pathExt(r.path)}`,
+        on_conflict: conflictStrategy,
+      };
+    });
 
     try {
       const result = await BatchMove(items, conflictStrategy);
@@ -137,6 +159,14 @@ function ActionToolbar() {
       const summary = `移動完成：${result.success_count} 成功 / ${result.failed_count} 失敗 / ${result.skipped_count} 略過`;
       setStatusMessage(summary, result.failed_count > 0 ? 'warning' : 'success');
       pushEvent(result.failed_count > 0 ? 'warning' : 'success', summary);
+
+      // T3 清除已成功移動的項目，避免 scanResults 殘留過期路徑
+      if (result.results) {
+        const movedSources = new Set(
+          result.results.filter((mv) => mv.success).map((mv) => mv.source)
+        );
+        setScanResults(scanResults.filter((r) => !movedSources.has(r.path)));
+      }
     } catch (err) {
       const msg = `❌ 移動失敗：${err}`;
       setStatusMessage(msg, 'error');
@@ -172,6 +202,20 @@ function ActionToolbar() {
         <FolderOutput className="h-4 w-4 mr-1" />
         移動{selectedCodes.size > 0 ? ` (${selectedCodes.size})` : '全部'}
       </Button>
+      {isRunning && (
+        <Button
+          onClick={() => {
+            CancelOperation();
+            setStatus('idle');
+            setStatusMessage('⛔ 已取消操作', 'warning');
+          }}
+          variant="destructive"
+          size="sm"
+        >
+          <StopCircle className="h-4 w-4 mr-1" />
+          取消
+        </Button>
+      )}
     </div>
   );
 }
@@ -276,7 +320,7 @@ export default function App() {
         />
         {/* Scan options */}
         <div className="flex items-center gap-4 text-xs text-slate-400">
-          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none" title="掃描所有子目錄（建議保持開啟）">
             <input
               type="checkbox"
               checked={recursive}
@@ -284,7 +328,7 @@ export default function App() {
               disabled={isRunning}
               className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
             />
-            遞迴
+            含子目錄{recursive ? '（全部深度）' : '（僅第一層）'}
           </label>
           <label className="flex items-center gap-1.5">
             並行數：

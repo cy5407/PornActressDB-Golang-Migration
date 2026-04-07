@@ -119,7 +119,8 @@ interface SearchResultTableProps {
 type ColumnKey = 'code' | 'actresses' | 'source' | 'studio' | 'status';
 
 function getStatus(r: SearchResult): 'success' | 'failed' {
-  return !r.error && r.actresses?.length > 0 ? 'success' : 'failed';
+  const hasContent = (r.actresses?.length ?? 0) > 0 || Boolean(r.title);
+  return !r.error && hasContent ? 'success' : 'failed';
 }
 
 export function SearchResultTable({ results, onRowDoubleClick }: SearchResultTableProps) {
