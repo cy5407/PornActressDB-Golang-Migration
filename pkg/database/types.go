@@ -185,8 +185,8 @@ type DirtyIndex struct {
 type Stats struct {
 	JournalSize          int     `json:"journal_size"`
 	JournalAgeSeconds    float64 `json:"journal_age_seconds"`
-	DirtyVideos          int     `json:"dirty_videos"`          // ADD + UPDATE + DELETE 的合計
-	DeletedVideos        int     `json:"deleted_videos"`        // 僅 DELETE 操作（DirtyVideos 的子集）
+	DirtyVideos          int     `json:"dirty_videos"`   // ADD + UPDATE + DELETE 的合計
+	DeletedVideos        int     `json:"deleted_videos"` // 僅 DELETE 操作（DirtyVideos 的子集）
 	DirtyActresses       int     `json:"dirty_actresses"`
 	DirtyLinks           int     `json:"dirty_links"`
 	NeedsCompact         bool    `json:"needs_compact"`

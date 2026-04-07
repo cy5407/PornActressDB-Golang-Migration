@@ -423,59 +423,59 @@ func TestMergeFromFile_WithOverwrite(t *testing.T) {
 // ─── GetActressPrimaryStudio 測試 ────────────────────────────────────────────
 
 func TestGetActressPrimaryStudio_SingleStudio(t *testing.T) {
-db, _ := setupTestDB(t)
-for _, code := range []string{"STARS-001", "STARS-002", "STARS-003"} {
-v := NewVideo(code)
-v.Actresses = []string{"花蓮夏目"}
-v.Studio = "S1"
-if err := db.UpdateVideo(code, v); err != nil {
-t.Fatalf("UpdateVideo failed: %v", err)
-}
-}
-got := db.GetActressPrimaryStudio("花蓮夏目")
-if got != "S1" {
-t.Errorf("expected S1, got %q", got)
-}
+	db, _ := setupTestDB(t)
+	for _, code := range []string{"STARS-001", "STARS-002", "STARS-003"} {
+		v := NewVideo(code)
+		v.Actresses = []string{"花蓮夏目"}
+		v.Studio = "S1"
+		if err := db.UpdateVideo(code, v); err != nil {
+			t.Fatalf("UpdateVideo failed: %v", err)
+		}
+	}
+	got := db.GetActressPrimaryStudio("花蓮夏目")
+	if got != "S1" {
+		t.Errorf("expected S1, got %q", got)
+	}
 }
 
 func TestGetActressPrimaryStudio_MostFrequentWins(t *testing.T) {
-db, _ := setupTestDB(t)
-for code, studio := range map[string]string{
-"MIAB-001":  "MOODYZ",
-"MIAB-002":  "MOODYZ",
-"STARS-099": "S1",
-} {
-v := NewVideo(code)
-v.Actresses = []string{"某女優"}
-v.Studio = studio
-if err := db.UpdateVideo(code, v); err != nil {
-t.Fatalf("UpdateVideo failed: %v", err)
-}
-}
-got := db.GetActressPrimaryStudio("某女優")
-if got != "MOODYZ" {
-t.Errorf("expected MOODYZ, got %q", got)
-}
+	db, _ := setupTestDB(t)
+	for code, studio := range map[string]string{
+		"MIAB-001":  "MOODYZ",
+		"MIAB-002":  "MOODYZ",
+		"STARS-099": "S1",
+	} {
+		v := NewVideo(code)
+		v.Actresses = []string{"某女優"}
+		v.Studio = studio
+		if err := db.UpdateVideo(code, v); err != nil {
+			t.Fatalf("UpdateVideo failed: %v", err)
+		}
+	}
+	got := db.GetActressPrimaryStudio("某女優")
+	if got != "MOODYZ" {
+		t.Errorf("expected MOODYZ, got %q", got)
+	}
 }
 
 func TestGetActressPrimaryStudio_NoStudio(t *testing.T) {
-db, _ := setupTestDB(t)
-v := NewVideo("GANA-001")
-v.Actresses = []string{"素人女優"}
-v.Studio = ""
-if err := db.UpdateVideo("GANA-001", v); err != nil {
-t.Fatalf("UpdateVideo failed: %v", err)
-}
-got := db.GetActressPrimaryStudio("素人女優")
-if got != "" {
-t.Errorf("expected empty string, got %q", got)
-}
+	db, _ := setupTestDB(t)
+	v := NewVideo("GANA-001")
+	v.Actresses = []string{"素人女優"}
+	v.Studio = ""
+	if err := db.UpdateVideo("GANA-001", v); err != nil {
+		t.Fatalf("UpdateVideo failed: %v", err)
+	}
+	got := db.GetActressPrimaryStudio("素人女優")
+	if got != "" {
+		t.Errorf("expected empty string, got %q", got)
+	}
 }
 
 func TestGetActressPrimaryStudio_EmptyName(t *testing.T) {
-db, _ := setupTestDB(t)
-got := db.GetActressPrimaryStudio("")
-if got != "" {
-t.Errorf("expected empty string, got %q", got)
-}
+	db, _ := setupTestDB(t)
+	got := db.GetActressPrimaryStudio("")
+	if got != "" {
+		t.Errorf("expected empty string, got %q", got)
+	}
 }

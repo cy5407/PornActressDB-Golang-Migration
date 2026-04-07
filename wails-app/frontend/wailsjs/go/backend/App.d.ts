@@ -19,6 +19,8 @@ export function DbListVideos():Promise<Array<database.VideoData>>;
 
 export function DbUpdateVideo(arg1:string,arg2:string):Promise<void>;
 
+export function GetActressPrimaryStudios(arg1:Array<string>):Promise<Record<string, string>>;
+
 export function GetOperation(arg1:string):Promise<mover.OperationLog>;
 
 export function GetPreferences():Promise<services.Preferences>;
@@ -46,5 +48,3 @@ export function ScanDirectory(arg1:string,arg2:number,arg3:boolean):Promise<Arra
 export function SelectDirectory(arg1:string):Promise<string>;
 
 export function UpdatePreferences(arg1:services.Preferences):Promise<void>;
-
-export function GetActressPrimaryStudios(arg1:Array<string>):Promise<Record<string,string>>;
