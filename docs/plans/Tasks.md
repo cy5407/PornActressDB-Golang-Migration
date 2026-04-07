@@ -6,32 +6,32 @@
 
 ## 前置準備
 
-- [ ] 確認 Go 環境可用
-- [ ] 安裝 Wails v2 CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- [ ] 執行 `wails doctor` 確認環境健康
-- [ ] 安裝 Node.js 18+
-- [ ] 確認 `node --version` / `npm --version`
-- [ ] 確認 WebView2 Runtime 可用（Windows 11 內建；Windows 10 需手動安裝）
-- [ ] 確認 CGO 可用
+- [x] 確認 Go 環境可用
+- [x] 安裝 Wails v2 CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- [x] 執行 `wails doctor` 確認環境健康
+- [x] 安裝 Node.js 18+
+- [x] 確認 `node --version` / `npm --version`
+- [x] 確認 WebView2 Runtime 可用（Windows 11 內建；Windows 10 需手動安裝）
+- [x] 確認 CGO 可用
 
 ---
 
 ## W1. 環境建置 & PoC
 
-- [ ] 建立 `wails-app/` 子目錄
-- [ ] 初始化 Wails React + TypeScript 專案（`wails init`）
-- [ ] 建立 `wails-app/backend/app.go`
-- [ ] 暴露第一個 binding：`ScanDirectory(dir string)`
-- [ ] React 前端呼叫 `ScanDirectory`
-- [ ] 顯示回傳結果
-- [ ] 驗證 `wails dev`
-- [ ] 驗證 `wails build`
-- [ ] 確認可產生 `.exe`
+- [x] 建立 `wails-app/` 子目錄
+- [x] 初始化 Wails React + TypeScript 專案（`wails init`）
+- [x] 建立 `wails-app/backend/app.go`
+- [x] 暴露第一個 binding：`ScanDirectory(dir string)`
+- [x] React 前端呼叫 `ScanDirectory`
+- [x] 顯示回傳結果
+- [x] 驗證 `wails dev`
+- [x] 驗證 `wails build`
+- [x] 確認可產生 `.exe`
 
 **W1 驗收**
-- [ ] `wails dev` 可啟動
-- [ ] 前端按鈕能呼叫 Go binding
-- [ ] 畫面能顯示掃描結果
+- [x] `wails dev` 可啟動
+- [x] 前端按鈕能呼叫 Go binding
+- [x] 畫面能顯示掃描結果
 
 ---
 
