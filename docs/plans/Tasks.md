@@ -84,17 +84,17 @@
 
 ## W4. 進階對話框
 
-- [ ] 建立 `<SearchResultDialog>` + `<SearchResultTable>` + `<SearchResultDetailModal>`
-- [ ] 建立 `<OperationHistoryDialog>` + `<OperationHistoryTable>` + `<RollbackConfirmModal>`
-- [ ] 建立 `<PreferencesDialog>`（四個 Tab：女優偏好、分類選項、片商分類、共演記錄）
-- [ ] 建立 `backend/services/config.go`（集中處理 config.ini 讀寫）
-- [ ] 讓設定可透過 `GetPreferences` / `UpdatePreferences` 讀寫 `config.ini`
-- [ ] 讓操作歷史可顯示單筆詳情與回滾
+- [x] 建立 `<SearchResultDialog>` + `<SearchResultTable>` + `<SearchResultDetailModal>`
+- [x] 建立 `<OperationHistoryDialog>` + `<OperationHistoryTable>` + `<RollbackConfirmModal>`
+- [x] 建立 `<PreferencesDialog>`（四個 Tab：女優搜尋、分類選項、片商分類、系統設定）
+- [x] 建立 `backend/services/config.go`（集中處理 config.ini 讀寫）
+- [x] 讓設定可透過 `GetPreferences` / `UpdatePreferences` 讀寫 `config.ini`
+- [x] 讓操作歷史可顯示單筆詳情與回滾
 
 **W4 驗收**
-- [ ] 三個對話框可正常開啟
-- [ ] 設定可儲存/重設/重新載入
-- [ ] 回滾流程可執行並更新列表
+- [x] 三個對話框整合至 App.tsx，可透過 toolbar 按鈕開啟
+- [x] 設定可儲存/重設/重新載入（透過 ConfigService）
+- [x] 回滾流程可執行並更新列表（RollbackConfirmModal + RollbackOperation binding）
 
 ---
 

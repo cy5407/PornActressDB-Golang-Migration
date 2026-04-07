@@ -5,12 +5,15 @@ import { VideoList } from '@/components/VideoList';
 import { SearchPanel } from '@/components/SearchPanel';
 import { ProgressBar } from '@/components/ProgressBar';
 import { StatusBar } from '@/components/StatusBar';
+import { SearchResultDialog } from '@/components/SearchResultDialog';
+import { OperationHistoryDialog } from '@/components/OperationHistoryDialog';
+import { PreferencesDialog } from '@/components/PreferencesDialog';
 import { Button } from '@/components/ui/button';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
 import { ScanDirectory, PythonSearch, BatchMove } from '../wailsjs/go/backend/App';
 import { backend } from '../wailsjs/go/models';
-import { Scan, Search, FolderOutput, RotateCcw, ChevronDown } from 'lucide-react';
+import { Scan, Search, FolderOutput, RotateCcw, ChevronDown, History, Settings } from 'lucide-react';
 
 type ScanResult = backend.ScanResult;
 
@@ -201,10 +204,8 @@ function ConflictStrategySelect() {
 
 /**
  * App — 主應用程式元件。
-
  */
 export default function App() {
-  // 串接 Wails Events
   useWailsEvents();
 
   const {
@@ -217,6 +218,13 @@ export default function App() {
     setRecursive,
     scanWorkers,
     setScanWorkers,
+    searchResults,
+    showPreferences,
+    showOperationHistory,
+    showSearchResults,
+    setShowPreferences,
+    setShowOperationHistory,
+    setShowSearchResults,
   } = useTaskStore();
 
   const isRunning = status !== 'idle' && status !== 'error';
@@ -232,8 +240,24 @@ export default function App() {
           女優分類系統
         </span>
         <ActionToolbar />
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
           <ConflictStrategySelect />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowOperationHistory(true)}
+            title="操作歷史"
+          >
+            <History className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowPreferences(true)}
+            title="偏好設定"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
         </div>
       </header>
 
@@ -247,7 +271,7 @@ export default function App() {
           disabled={isRunning}
         />
         <DirectoryPicker
-          label="輸"
+          label="輸出目錄"
           value={outputDir}
           onChange={setOutputDir}
           placeholder="移動後的目的目錄…"
@@ -291,6 +315,21 @@ export default function App() {
 
       {/* Status bar */}
       <StatusBar />
+
+      {/* Dialogs */}
+      <SearchResultDialog
+        open={showSearchResults}
+        onClose={() => setShowSearchResults(false)}
+        results={searchResults}
+      />
+      <OperationHistoryDialog
+        open={showOperationHistory}
+        onClose={() => setShowOperationHistory(false)}
+      />
+      <PreferencesDialog
+        open={showPreferences}
+        onClose={() => setShowPreferences(false)}
+      />
     </MainLayout>
   );
 }
