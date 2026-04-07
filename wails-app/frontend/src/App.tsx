@@ -1,80 +1,296 @@
-import { useState } from 'react';
-import logo from './assets/images/logo-universal.png';
-import './App.css';
-import { ScanDirectory } from '../wailsjs/go/backend/App';
+import React from 'react';
+import { MainLayout } from '@/components/MainLayout';
+import { DirectoryPicker } from '@/components/DirectoryPicker';
+import { VideoList } from '@/components/VideoList';
+import { SearchPanel } from '@/components/SearchPanel';
+import { ProgressBar } from '@/components/ProgressBar';
+import { StatusBar } from '@/components/StatusBar';
+import { Button } from '@/components/ui/button';
+import { useTaskStore } from '@/stores/taskStore';
+import { useWailsEvents } from '@/lib/wailsEvents';
+import { ScanDirectory, PythonSearch, BatchMove } from '../wailsjs/go/backend/App';
 import { backend } from '../wailsjs/go/models';
+import { Scan, Search, FolderOutput, RotateCcw, ChevronDown } from 'lucide-react';
 
 type ScanResult = backend.ScanResult;
 
-function App() {
-    const [dirPath, setDirPath] = useState('');
-    const [results, setResults] = useState<ScanResult[]>([]);
-    const [scanning, setScanning] = useState(false);
-    const [error, setError] = useState('');
+function ActionToolbar() {
+  const {
+    inputDir,
+    outputDir,
+    status,
+    scanResults,
+    selectedCodes,
+    conflictStrategy,
+    scanWorkers,
+    recursive,
+    setScanResults,
+    setStatus,
+    setStatusMessage,
+    pushEvent,
+    resetProgress,
+    setProgress,
+    addSearchResult,
+    clearSearchResults,
+    setLastBatchResult,
+    setShowSearchResults,
+  } = useTaskStore();
 
-    function handleScan() {
-        if (!dirPath.trim()) {
-            setError('請輸入目錄路徑');
-            return;
+  const isRunning = status !== 'idle' && status !== 'error';
+
+  async function handleScan() {
+    if (!inputDir.trim()) {
+      setStatusMessage('請先選擇輸入目錄', 'warning');
+      return;
+    }
+    setStatus('scanning');
+    setStatusMessage('🚀 開始掃描…', 'info');
+    pushEvent('info', `🚀 掃描目錄：${inputDir}`);
+    resetProgress();
+    try {
+      const results: ScanResult[] = await ScanDirectory(inputDir, scanWorkers, recursive);
+      setScanResults(results ?? []);
+      const msg = `✅ 掃描完成，找到 ${results?.length ?? 0} 筆結果`;
+      setStatusMessage(msg, 'success');
+      pushEvent('success', msg);
+    } catch (err) {
+      const msg = `❌ 掃描失敗：${err}`;
+      setStatusMessage(msg, 'error');
+      pushEvent('error', msg);
+      setStatus('error');
+      return;
+    }
+    setStatus('idle');
+  }
+
+  async function handleSearch() {
+    const targets = scanResults.filter(
+      (r) => selectedCodes.size === 0 || selectedCodes.has(r.code)
+    );
+    if (targets.length === 0) {
+      setStatusMessage('沒有可搜尋的項目', 'warning');
+      return;
+    }
+    setStatus('searching');
+    clearSearchResults();
+    resetProgress();
+    pushEvent('info', `🔍 開始搜尋 ${targets.length} 筆番號…`);
+
+    let success = 0;
+    let failed = 0;
+
+    for (let i = 0; i < targets.length; i++) {
+      const item = targets[i];
+      setProgress(i + 1, targets.length);
+      setStatusMessage(`搜尋中 (${i + 1}/${targets.length})：${item.code}`, 'info');
+      try {
+        const result = await PythonSearch(item.code);
+        if (result) {
+          addSearchResult(result);
+          if (result.error) {
+            pushEvent('warning', `⚠ ${item.code}: ${result.error}`);
+            failed++;
+          } else {
+            pushEvent('success', `✔ ${item.code}: ${result.title || '找到結果'}`);
+            success++;
+          }
         }
-        setScanning(true);
-        setError('');
-        setResults([]);
-        ScanDirectory(dirPath)
-            .then((res) => {
-                setResults(res ?? []);
-            })
-            .catch((err) => {
-                setError(String(err));
-            })
-            .finally(() => {
-                setScanning(false);
-            });
+      } catch (err) {
+        pushEvent('error', `❌ ${item.code}: ${err}`);
+        failed++;
+      }
     }
 
-    return (
-        <div id="App">
-            <img src={logo} id="logo" alt="logo" />
-            <h1>女優分類系統 — Wails PoC</h1>
-            <div className="input-box">
-                <input
-                    className="input"
-                    type="text"
-                    value={dirPath}
-                    onChange={(e) => setDirPath(e.target.value)}
-                    placeholder="輸入目錄路徑，例如 /videos"
-                    autoComplete="off"
-                />
-                <button className="btn" onClick={handleScan} disabled={scanning}>
-                    {scanning ? '掃描中…' : '掃描目錄'}
-                </button>
-            </div>
-            {error && <p style={{ color: 'red' }}>{error}</p>}
-            <div id="result" className="result">
-                {results.length > 0 ? (
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr>
-                                <th style={{ textAlign: 'left', padding: '4px 8px' }}>番號</th>
-                                <th style={{ textAlign: 'left', padding: '4px 8px' }}>檔案路徑</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {results.map((r, i) => (
-                                <tr key={i} style={{ borderTop: '1px solid #333' }}>
-                                    <td style={{ padding: '4px 8px', fontWeight: 'bold' }}>{r.code}</td>
-                                    <td style={{ padding: '4px 8px', wordBreak: 'break-all' }}>{r.path}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                ) : (
-                    !scanning && <p>尚無結果</p>
-                )}
-            </div>
-        </div>
+    const summary = `搜尋完成：${success} 成功 / ${failed} 失敗`;
+    setStatusMessage(summary, failed > 0 ? 'warning' : 'success');
+    pushEvent(failed > 0 ? 'warning' : 'success', summary);
+    setStatus('idle');
+    resetProgress();
+    if (success > 0) setShowSearchResults(true);
+  }
+
+  async function handleMove() {
+    const targets = scanResults.filter(
+      (r) => selectedCodes.size === 0 || selectedCodes.has(r.code)
     );
+    if (targets.length === 0) {
+      setStatusMessage('沒有可移動的項目', 'warning');
+      return;
+    }
+    if (!outputDir.trim()) {
+      setStatusMessage('請先設定輸出目錄', 'warning');
+      return;
+    }
+    setStatus('moving');
+    resetProgress();
+    pushEvent('info', `📦 開始移動 ${targets.length} 個檔案 → ${outputDir}`);
+
+    const items = targets.map((r) => ({
+      source: r.path,
+      destination: `${outputDir}/${r.code}`,
+      on_conflict: conflictStrategy,
+    }));
+
+    try {
+      const result = await BatchMove(items, conflictStrategy);
+      setLastBatchResult(result);
+      const summary = `移動完成：${result.success_count} 成功 / ${result.failed_count} 失敗 / ${result.skipped_count} 略過`;
+      setStatusMessage(summary, result.failed_count > 0 ? 'warning' : 'success');
+      pushEvent(result.failed_count > 0 ? 'warning' : 'success', summary);
+    } catch (err) {
+      const msg = `❌ 移動失敗：${err}`;
+      setStatusMessage(msg, 'error');
+      pushEvent('error', msg);
+      setStatus('error');
+      return;
+    }
+    setStatus('idle');
+    resetProgress();
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <Button onClick={handleScan} disabled={isRunning} size="sm">
+        <Scan className="h-4 w-4 mr-1" />
+        掃描
+      </Button>
+      <Button
+        onClick={handleSearch}
+        disabled={isRunning || scanResults.length === 0}
+        variant="secondary"
+        size="sm"
+      >
+        <Search className="h-4 w-4 mr-1" />
+        搜尋{selectedCodes.size > 0 ? ` (${selectedCodes.size})` : '全部'}
+      </Button>
+      <Button
+        onClick={handleMove}
+        disabled={isRunning || scanResults.length === 0}
+        variant="outline"
+        size="sm"
+      >
+        <FolderOutput className="h-4 w-4 mr-1" />
+        移動{selectedCodes.size > 0 ? ` (${selectedCodes.size})` : '全部'}
+      </Button>
+    </div>
+  );
 }
 
-export default App;
+function ConflictStrategySelect() {
+  const { conflictStrategy, setConflictStrategy } = useTaskStore();
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-slate-400">衝突策略：</span>
+      <div className="relative">
+        <select
+          value={conflictStrategy}
+          onChange={(e) =>
+            setConflictStrategy(e.target.value as 'skip' | 'overwrite' | 'rename')
+          }
+          className="bg-slate-800 border border-slate-600 text-slate-200 text-xs rounded px-2 py-1 pr-6 appearance-none focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        >
+          <option value="skip">略過</option>
+          <option value="overwrite">覆蓋</option>
+          <option value="rename">重新命名</option>
+        </select>
+        <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
+      </div>
+    </div>
+  );
+}
 
+/**
+ * App — 主應用程式元件。
+
+ */
+export default function App() {
+  // 串接 Wails Events
+  useWailsEvents();
+
+  const {
+    inputDir,
+    outputDir,
+    setInputDir,
+    setOutputDir,
+    status,
+    recursive,
+    setRecursive,
+    scanWorkers,
+    setScanWorkers,
+  } = useTaskStore();
+
+  const isRunning = status !== 'idle' && status !== 'error';
+
+  return (
+    <MainLayout>
+      {/* Top toolbar */}
+      <header
+        data-wails-drag
+        className="flex items-center gap-3 px-4 py-2 bg-slate-900 border-b border-slate-700 shrink-0 flex-wrap"
+      >
+        <span className="text-sm font-bold text-indigo-400 mr-1 whitespace-nowrap">
+          女優分類系統
+        </span>
+        <ActionToolbar />
+        <div className="ml-auto">
+          <ConflictStrategySelect />
+        </div>
+      </header>
+
+      {/* Directory pickers */}
+      <section className="px-4 py-3 bg-slate-900/50 border-b border-slate-700 shrink-0 space-y-2">
+        <DirectoryPicker
+          label="輸入目錄"
+          value={inputDir}
+          onChange={setInputDir}
+          placeholder="要掃描的影片目錄…"
+          disabled={isRunning}
+        />
+        <DirectoryPicker
+          label="輸"
+          value={outputDir}
+          onChange={setOutputDir}
+          placeholder="移動後的目的目錄…"
+          disabled={isRunning}
+        />
+        {/* Scan options */}
+        <div className="flex items-center gap-4 text-xs text-slate-400">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={recursive}
+              onChange={(e) => setRecursive(e.target.checked)}
+              disabled={isRunning}
+              className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+            />
+            遞迴
+          </label>
+          <label className="flex items-center gap-1.5">
+            並行數：
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={scanWorkers}
+              onChange={(e) => setScanWorkers(Number(e.target.value))}
+              disabled={isRunning}
+              className="w-14 bg-slate-800 border border-slate-600 text-slate-200 text-xs rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </label>
+        </div>
+      </section>
+
+      {/* Progress bar */}
+      <ProgressBar />
+
+      {/* Main content: VideoList + SearchPanel */}
+      <div className="flex flex-1 min-h-0 divide-x divide-slate-700">
+        <VideoList className="w-1/2" />
+        <SearchPanel className="w-1/2" />
+      </div>
+
+      {/* Status bar */}
+      <StatusBar />
+    </MainLayout>
+  );
+}

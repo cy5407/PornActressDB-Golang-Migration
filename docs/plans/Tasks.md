@@ -60,25 +60,25 @@
 
 ## W3. 核心 UI 元件
 
-- [ ] 設定 Tailwind CSS
-- [ ] 整合 shadcn/ui
-- [ ] 建立 `<MainLayout>`（側邊欄 + 主內容區）
-- [ ] 建立 `<DirectoryPicker>`
-- [ ] 建立 `<VideoList>` + `<VideoCard>`
-- [ ] 建立 `<SearchPanel>`
-- [ ] 建立 `<ProgressBar>`
-- [ ] 建立 `<StatusBar>`
-- [ ] 建立共用 Modal 基底（`<DialogShell>` 或採用 shadcn/ui Dialog）
-- [ ] 建立 `src/stores/taskStore.ts`（Zustand）
-- [ ] 串接 Wails events
-- [ ] 用 React state 顯示進度
+- [x] 設定 Tailwind CSS
+- [x] 整合 shadcn/ui
+- [x] 建立 `<MainLayout>`（側邊欄 + 主內容區）
+- [x] 建立 `<DirectoryPicker>`
+- [x] 建立 `<VideoList>` + `<VideoCard>`
+- [x] 建立 `<SearchPanel>`
+- [x] 建立 `<ProgressBar>`
+- [x] 建立 `<StatusBar>`
+- [x] 建立共用 Modal 基底（`<DialogShell>` 或採用 shadcn/ui Dialog）
+- [x] 建立 `src/stores/taskStore.ts`（Zustand）
+- [x] 串接 Wails events
+- [x] 用 React state 顯示進度
 
 **W3 驗收**
-- [ ] 能瀏覽主畫面
-- [ ] 能選目錄
-- [ ] 能顯示掃描清單
-- [ ] 能顯示進度事件
-- [ ] 共用 Modal 可在所有對話框複用
+- [x] 能瀏覽主畫面
+- [x] 能選目錄
+- [x] 能顯示掃描清單
+- [x] 能顯示進度事件
+- [x] 共用 Modal 可在所有對話框複用
 
 ---
 
