@@ -30,6 +30,10 @@ export function DbUpdateVideo(arg1, arg2) {
   return window['go']['backend']['App']['DbUpdateVideo'](arg1, arg2);
 }
 
+export function GetActressPrimaryStudios(arg1) {
+  return window['go']['backend']['App']['GetActressPrimaryStudios'](arg1);
+}
+
 export function GetOperation(arg1) {
   return window['go']['backend']['App']['GetOperation'](arg1);
 }

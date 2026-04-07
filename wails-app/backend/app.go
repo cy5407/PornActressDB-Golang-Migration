@@ -35,6 +35,7 @@ type App struct {
 	dbMu       sync.Mutex // 取代 dbOnce，支援設定變更後重置
 	cancelScan context.CancelFunc // 取消掃描/搜尋用
 	cancelMu   sync.Mutex
+	majorStudios map[string]bool // 從 major_studios.json 載入
 }
 
 // NewApp creates a new App instance.
@@ -48,13 +49,15 @@ func NewApp() *App {
 	// Determine log directory from config
 	logDir := resolveLogDir(cfgPath)
 
-	return &App{
+	app := &App{
 		extractor: extractor.NewCodeExtractor(),
 		mover:     mover.NewMover(logDir),
 		studio:    si,
 		cfgSvc:    cfgSvc,
 		cfgPath:   cfgPath,
 	}
+	app.majorStudios = app.loadMajorStudios()
+	return app
 }
 
 // ============================================================================
@@ -555,6 +558,38 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 }
 
 // ============================================================================
+// Studio Classification
+// ============================================================================
+
+// GetActressPrimaryStudios 批次查詢女優的主要片商資料夾名稱。
+//
+// 返回 map[女優名] → 片商資料夾：
+//   - 大片商（major_studios.json 內）→ 片商名（如 "S1"）
+//   - 非大片商或跨多片商（作品最多但不是大片商）→ "單體企劃女優"
+//   - 無任何 studio 記錄 → ""（前端應歸入「未分類」）
+func (a *App) GetActressPrimaryStudios(actressNames []string) map[string]string {
+	a.ensureDB()
+	result := make(map[string]string, len(actressNames))
+	seen := map[string]bool{}
+	for _, name := range actressNames {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		studio := a.db.GetActressPrimaryStudio(name)
+		switch {
+		case studio == "":
+			result[name] = "" // 無資料，前端決定路徑
+		case a.majorStudios[studio]:
+			result[name] = studio // 大片商
+		default:
+			result[name] = "單體企劃女優" // 非大片商
+		}
+	}
+	return result
+}
+
+// ============================================================================
 // Internal helpers
 // ============================================================================
 
@@ -604,6 +639,37 @@ func resolveStudiosPath() string {
 		}
 	}
 	return "studios.json"
+}
+
+// resolveMajorStudiosPath 以與 resolveStudiosPath 相同邏輯尋找 major_studios.json。
+func resolveMajorStudiosPath() string {
+	exe, err := os.Executable()
+	if err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "major_studios.json")
+		if _, err2 := os.Stat(candidate); err2 == nil {
+			return candidate
+		}
+	}
+	return "major_studios.json"
+}
+
+// loadMajorStudios 載入 major_studios.json，返回片商名稱 set。
+// 若檔案不存在或解析失敗，返回空 map（不 fatal）。
+func (a *App) loadMajorStudios() map[string]bool {
+	path := resolveMajorStudiosPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]bool{}
+	}
+	var names []string
+	if err := json.Unmarshal(data, &names); err != nil {
+		return map[string]bool{}
+	}
+	result := make(map[string]bool, len(names))
+	for _, name := range names {
+		result[name] = true
+	}
+	return result
 }
 
 func resolveDataDir(cfgPath string) string {

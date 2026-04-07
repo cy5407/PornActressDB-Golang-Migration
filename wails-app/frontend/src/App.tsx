@@ -11,7 +11,7 @@ import { PreferencesDialog } from '@/components/PreferencesDialog';
 import { Button } from '@/components/ui/button';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
-import { ScanDirectory, BatchSearch, BatchMove, CancelOperation } from '../wailsjs/go/backend/App';
+import { ScanDirectory, BatchSearch, BatchMove, CancelOperation, GetActressPrimaryStudios } from '../wailsjs/go/backend/App';
 import { backend } from '../wailsjs/go/models';
 import { Scan, Search, FolderOutput, RotateCcw, ChevronDown, History, Settings, StopCircle } from 'lucide-react';
 
@@ -178,6 +178,89 @@ function ActionToolbar() {
     resetProgress();
   }
 
+  async function handleStudioMove() {
+    if (!outputDir.trim()) {
+      setStatusMessage('請先設定輸出目錄', 'warning');
+      return;
+    }
+    const targets = scanResults.filter(
+      (r) => selectedCodes.size === 0 || selectedCodes.has(r.code)
+    );
+    if (targets.length === 0) {
+      setStatusMessage('沒有可移動的項目', 'warning');
+      return;
+    }
+    setStatus('moving');
+
+    const pathExt = (p: string): string => {
+      const lastDot = p.lastIndexOf('.');
+      const lastSep = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+      return lastDot > lastSep ? p.slice(lastDot) : '';
+    };
+
+    // code → 第一位女優名（從 searchResults）
+    const codeToActress = new Map<string, string>(
+      searchResults.map((sr) => [sr.code, sr.actresses?.[0] ?? ''])
+    );
+
+    // 批次查詢女優主片商（去重）
+    const actressNames = [
+      ...new Set(
+        targets.map((r) => codeToActress.get(r.code) ?? '').filter(Boolean)
+      ),
+    ];
+    const studioMap: Record<string, string> =
+      actressNames.length > 0
+        ? await GetActressPrimaryStudios(actressNames)
+        : {};
+
+    const items = targets.map((r) => {
+      const actress = codeToActress.get(r.code) ?? '';
+      let studioFolder = actress ? (studioMap[actress] ?? '') : '';
+      if (!actress || studioFolder === '') {
+        studioFolder = '未分類';
+      }
+
+      const dst =
+        studioFolder === '未分類'
+          ? `${outputDir}\\未分類\\${r.code}${pathExt(r.path)}`
+          : `${outputDir}\\${studioFolder}\\${actress}\\${r.code}${pathExt(r.path)}`;
+
+      return { source: r.path, destination: dst, on_conflict: conflictStrategy };
+    });
+
+    const folderSet = new Set(
+      items.map((i) => i.destination.split('\\').slice(0, -1).join('\\'))
+    );
+    pushEvent(
+      'info',
+      `🏢 片商分類移動 ${targets.length} 個檔案 → ${folderSet.size} 個資料夾`
+    );
+
+    try {
+      const result = await BatchMove(items, conflictStrategy);
+      setLastBatchResult(result);
+      const summary = `移動完成：${result.success_count} 成功 / ${result.failed_count} 失敗 / ${result.skipped_count} 略過`;
+      setStatusMessage(summary, result.failed_count > 0 ? 'warning' : 'success');
+      pushEvent(result.failed_count > 0 ? 'warning' : 'success', summary);
+
+      if (result.results) {
+        const movedSources = new Set(
+          result.results.filter((mv) => mv.success).map((mv) => mv.source)
+        );
+        setScanResults(scanResults.filter((r) => !movedSources.has(r.path)));
+      }
+    } catch (err) {
+      const msg = `❌ 片商分類移動失敗：${err}`;
+      setStatusMessage(msg, 'error');
+      pushEvent('error', msg);
+      setStatus('error');
+      return;
+    }
+    setStatus('idle');
+    resetProgress();
+  }
+
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <Button onClick={handleScan} disabled={isRunning} size="sm">
@@ -201,6 +284,14 @@ function ActionToolbar() {
       >
         <FolderOutput className="h-4 w-4 mr-1" />
         移動{selectedCodes.size > 0 ? ` (${selectedCodes.size})` : '全部'}
+      </Button>
+      <Button
+        onClick={handleStudioMove}
+        disabled={isRunning || scanResults.length === 0}
+        size="sm"
+        variant="outline"
+      >
+        🏢 片商分類{selectedCodes.size > 0 ? ` (${selectedCodes.size})` : '全部'}
       </Button>
       {isRunning && (
         <Button
