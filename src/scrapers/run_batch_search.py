@@ -88,9 +88,9 @@ def _normalize(raw: dict, code: str) -> dict:
     }
 
 
-def search_one(args: tuple) -> dict:
-    code, searcher = args
+def search_one(code: str) -> dict:
     try:
+        searcher = _get_searcher()
         stop_event = threading.Event()
         raw = searcher.search_info(code, stop_event)
         if not raw:
@@ -102,18 +102,6 @@ def search_one(args: tuple) -> dict:
                 "url": "", "actresses": [], "method": "", "error": str(exc)}
 
 
-def _make_searcher():
-    """建立一個已停用 rate limiter 的 WebSearcher。"""
-    from models.config import ConfigManager
-    from services.web_searcher import WebSearcher
-    searcher = WebSearcher(ConfigManager(_resolve_config_path()))
-    searcher.japanese_searcher.config.min_interval = 0.0
-    searcher.japanese_searcher.config.max_interval = 0.0
-    searcher.safe_searcher.config.min_interval = 0.0
-    searcher.safe_searcher.config.max_interval = 0.0
-    return searcher
-
-
 def main() -> None:
     raw_input = sys.stdin.read()
     try:
@@ -123,20 +111,21 @@ def main() -> None:
         sys.exit(1)
 
     codes: list[str] = data.get("codes", [])
-    workers: int = max(1, int(data.get("workers", 15)))
+    workers: int = max(1, int(data.get("workers", 20)))
 
     if not codes:
         sys.exit(0)
 
-    # 在主 thread 預先建立所有 searcher，避免 threads 競爭 GIL 做初始化
-    # 每個 searcher 對應一個 worker thread（round-robin 分配）
-    from models.config import ConfigManager  # noqa: F401 — 觸發 import cache
-    from services.web_searcher import WebSearcher  # noqa: F401
     actual_workers = min(workers, len(codes))
-    searchers = [_make_searcher() for _ in range(actual_workers)]
 
-    # 將 codes 與對應的 searcher 配對（round-robin）
-    args = [(code, searchers[i % actual_workers]) for i, code in enumerate(codes)]
+    # 串流輸出：每筆完成即立即 print，Go 端逐行讀取並發送 Wails 事件
+    # thread-local _get_searcher() 讓各 thread 並行初始化（GIL 在 I/O 段自動讓步）
+    with ThreadPoolExecutor(max_workers=actual_workers) as executor:
+        futures = {executor.submit(search_one, c): c for c in codes}
+        for future in as_completed(futures):
+            result = future.result()
+            print(json.dumps(result, ensure_ascii=False), flush=True)
+
 
     # 串流輸出：每筆完成即立即 print，Go 端逐行讀取並發送 Wails 事件
     with ThreadPoolExecutor(max_workers=actual_workers) as executor:
