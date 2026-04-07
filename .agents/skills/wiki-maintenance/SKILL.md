@@ -30,8 +30,8 @@ wiki/
 2. 若發生了可預防的 Bug → 在 `wiki/pitfalls/` 新增頁面
 3. 更新 `wiki/index.md` 的對應表格
 4. 在 `wiki/log.md` 末尾追加一筆記錄
-5. **同步 `wiki/viewer.html` 的 `WIKI` 物件**（見下方規則）
-6. **重新產生 `wiki/wiki-data.js`**（讓 viewer.html 不需要 server）
+5. **⚠️ 必做：同步 `wiki/viewer.html` 的 nav 陣列**（見下方規則；遺漏會導致頁面在選單消失）
+6. **必做：重新產生 `wiki/wiki-data.js`**（讓 viewer.html 不需要 server）
 
 ```powershell
 python wiki/gen_data.py
@@ -64,7 +64,7 @@ log 格式：
 | root | — | `index`→🏠 `log`→📋 |
 | architecture | 🗺️ | go-cli→⚙️ go-bridge→🌉 database→🗄️ search→🔍 |
 | patterns | 📄 | add-*→➕ gui→🖱️ naming→📝 pkg→📦 retry→🔄 remove→🗑️ |
-| pitfalls | ❌ | 全部 ❌ |
+| pitfalls | ❌ | 效能優化→⚡、其餘全部 ❌ |
 
 **格式（每行一個 item）：**
 ```js
@@ -110,6 +110,7 @@ log 格式：
 3. 更新 `wiki/index.md` 踩坑紀錄表格（加入 Issue 編號）
 4. 若此 Bug 有預防模式，在 `wiki/patterns/` 新增或更新對應頁面
 5. 在 `wiki/log.md` 追加 `pitfall` 類型記錄
+6. **⚠️ 必做：同步 viewer.html nav + 重新產生 wiki-data.js**（同 Ingest 步驟 5-6）
 
 ---
 

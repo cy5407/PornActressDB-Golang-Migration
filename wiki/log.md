@@ -5,6 +5,17 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-07] pitfall | Wiki Viewer 導覽選單與 wiki-data.js 脫鉤
+
+**涉及檔案**：
+- `wiki/pitfalls/wiki-viewer-nav-out-of-sync.md` — 新建踩坑文件
+- `wiki/viewer.html` — 補入 3 個遺漏的 Wails 條目
+- `.agents/skills/wiki-maintenance/SKILL.md` — 強化 Step 5 警示
+
+**問題**：`gen_data.py` 自動產生 `wiki-data.js`（含頁面內容），但 `viewer.html` 的導覽選單是獨立手動維護的 JS 陣列，兩者脫鉤——新增 `.md` 後忘了同步 viewer.html，導致 3 個 Wails 踩坑頁面在選單消失。
+
+**修法**：手動補入 viewer.html nav 陣列；SKILL.md Ingest/Pitfall 步驟加 ⚠️ 提示。
+
 ## [2026-04-07] perf | Wails 批次搜尋效能優化 75s→10s（7.5x）
 
 **涉及檔案**：
