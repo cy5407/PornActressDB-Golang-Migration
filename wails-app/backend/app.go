@@ -581,14 +581,7 @@ func (a *App) GetActressPrimaryStudios(actressNames []string) map[string]string 
 		case studio == "":
 			result[name] = "" // 無資料，前端決定路徑
 		case matchesMajorStudio(studio, a.majorStudios):
-			upper := strings.ToUpper(strings.TrimSpace(studio))
-			canonical := upper
-			for major := range a.majorStudios {
-				if upper == major || strings.HasPrefix(upper, major+" ") {
-					canonical = major
-					break
-				}
-			}
+			canonical, _ := canonicalMajorStudio(studio, a.majorStudios)
 			result[name] = canonical
 		default:
 			result[name] = "單體企劃女優" // 非大片商
@@ -649,27 +642,19 @@ func resolveStudiosPath() string {
 	return "studios.json"
 }
 
-// resolveMajorStudiosPath 尋找 major_studios.json：exe 同目錄 → 專案根目錄 → CWD。
+// resolveMajorStudiosPath 以與 resolveStudiosPath 相同邏輯尋找 major_studios.json。
 func resolveMajorStudiosPath() string {
 	exe, err := os.Executable()
 	if err == nil {
-		exeDir := filepath.Dir(exe)
-		candidates := []string{
-			filepath.Join(exeDir, "major_studios.json"),
-			filepath.Join(exeDir, "..", "..", "..", "major_studios.json"), // wails-app/build/bin → project root
-		}
-		for _, c := range candidates {
-			if abs, err2 := filepath.Abs(c); err2 == nil {
-				if _, err3 := os.Stat(abs); err3 == nil {
-					return abs
-				}
-			}
+		candidate := filepath.Join(filepath.Dir(exe), "major_studios.json")
+		if _, err2 := os.Stat(candidate); err2 == nil {
+			return candidate
 		}
 	}
 	return "major_studios.json"
 }
 
-// loadMajorStudios 載入 major_studios.json，返回片商名稱 set（keys 大寫）。
+// loadMajorStudios 載入 major_studios.json，返回片商名稱 set。
 // 若檔案不存在或解析失敗，返回空 map（不 fatal）。
 func (a *App) loadMajorStudios() map[string]bool {
 	path := resolveMajorStudiosPath()
@@ -688,25 +673,36 @@ func (a *App) loadMajorStudios() map[string]bool {
 	return result
 }
 
-// matchesMajorStudio 判斷 studio 是否屬於大片商，支援：
-//   - 大小寫不敏感完全比對（"s1" → "S1"）
-//   - 前綴比對（"SOD star" → "SOD"）
-//
-// majorStudios 的 key 必須已為大寫（由 loadMajorStudios 保證）。
-func matchesMajorStudio(studio string, majorStudios map[string]bool) bool {
+// canonicalMajorStudio returns the normalized key from majorStudios if studio
+// matches (case-insensitive exact or prefix-with-space).
+// Returns ("", false) if not matched.
+// majorStudios keys must already be uppercase (guaranteed by loadMajorStudios).
+func canonicalMajorStudio(studio string, majorStudios map[string]bool) (string, bool) {
 	upper := strings.ToUpper(strings.TrimSpace(studio))
 	if upper == "" {
-		return false
+		return "", false
 	}
 	if majorStudios[upper] {
-		return true
+		return upper, true
 	}
+	best := ""
 	for major := range majorStudios {
 		if strings.HasPrefix(upper, major+" ") {
-			return true
+			if len(major) > len(best) { // longest (most specific) match wins
+				best = major
+			}
 		}
 	}
-	return false
+	if best != "" {
+		return best, true
+	}
+	return "", false
+}
+
+// matchesMajorStudio returns true if studio belongs to any major studio.
+func matchesMajorStudio(studio string, majorStudios map[string]bool) bool {
+	_, ok := canonicalMajorStudio(studio, majorStudios)
+	return ok
 }
 
 func resolveDataDir(cfgPath string) string {

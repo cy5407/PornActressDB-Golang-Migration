@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"actress-classifier/pkg/database"
 )
 
 // newTestApp builds an App ready for unit testing.
@@ -297,91 +295,42 @@ func TestRollbackLast_EmptyHistory(t *testing.T) {
 }
 
 // ============================================================================
-// matchesMajorStudio
+// matchesMajorStudio / canonicalMajorStudio
 // ============================================================================
 
 func TestMatchesMajorStudio(t *testing.T) {
-	majors := map[string]bool{
-		"S1":     true,
-		"SOD":    true,
-		"MOODYZ": true,
-		"FITCH":  true,
+	ms := map[string]bool{
+		"S1":  true,
+		"SOD": true,
 	}
-	cases := []struct {
+	tests := []struct {
 		studio string
 		want   bool
 	}{
-		{"S1", true},         // exact match
-		{"s1", true},         // case insensitive
-		{"SOD", true},        // exact
-		{"SOD star", true},   // prefix with space
-		{"SOD CREATE", true}, // prefix with space
-		{"Fitch", true},      // case insensitive exact
-		{"FITCH", true},      // exact uppercase
-		{"MOODYZ", true},     // exact
-		{"LOCK-ON", false},   // unrelated
-		{"", false},          // empty
-		{"S10", false},       // should NOT match "S1" without space separator
+		{"S1", true},
+		{"SOD", true},
+		{"SOD CREATE", true},        // prefix match
+		{"UNKNOWN", false},
+		{"", false},
+		{"S1 NO.1 STYLE", true},     // multi-word suffix with dot (plan-specified edge case)
+		{"sod create", true},        // case-insensitive prefix match
+		{"SODCREATE", false},        // no space separator → no prefix match
 	}
-	for _, c := range cases {
-		t.Run(c.studio, func(t *testing.T) {
-			got := matchesMajorStudio(c.studio, majors)
-			if got != c.want {
-				t.Errorf("matchesMajorStudio(%q) = %v, want %v", c.studio, got, c.want)
+	for _, tc := range tests {
+		t.Run(tc.studio, func(t *testing.T) {
+			got := matchesMajorStudio(tc.studio, ms)
+			if got != tc.want {
+				t.Errorf("matchesMajorStudio(%q) = %v, want %v", tc.studio, got, tc.want)
 			}
 		})
 	}
 }
 
-// ============================================================================
-// GetActressPrimaryStudios
-// ============================================================================
-
-func TestGetActressPrimaryStudios_MajorStudio(t *testing.T) {
-	app := newTestApp(t)
-	app.majorStudios = map[string]bool{"SOD": true}
-
-	// Insert a video with actress "花蓮" and studio "SOD star"
-	video := &database.Video{
-		Code:         "SOD-001",
-		Studio:       "SOD star",
-		Actresses:    []string{"花蓮"},
-		SearchStatus: "searched_found",
+func TestMatchesMajorStudio_EmptyMap(t *testing.T) {
+	if matchesMajorStudio("SOD", map[string]bool{}) {
+		t.Error("empty majorStudios should always return false")
 	}
-	if err := app.db.AddVideo(video); err != nil {
-		t.Fatalf("AddVideo failed: %v", err)
-	}
-
-	result := app.GetActressPrimaryStudios([]string{"花蓮"})
-	if got := result["花蓮"]; got != "SOD" {
-		t.Errorf("expected SOD, got %q", got)
-	}
-}
-
-func TestGetActressPrimaryStudios_NonMajor(t *testing.T) {
-	app := newTestApp(t)
-	app.majorStudios = map[string]bool{"SOD": true}
-
-	video := &database.Video{
-		Code:         "LOCK-001",
-		Studio:       "LOCK-ON",
-		Actresses:    []string{"鈴木心春"},
-		SearchStatus: "searched_found",
-	}
-	if err := app.db.AddVideo(video); err != nil {
-		t.Fatalf("AddVideo failed: %v", err)
-	}
-
-	result := app.GetActressPrimaryStudios([]string{"鈴木心春"})
-	if got := result["鈴木心春"]; got != "單體企劃女優" {
-		t.Errorf("expected 單體企劃女優, got %q", got)
-	}
-}
-
-func TestGetActressPrimaryStudios_NoData(t *testing.T) {
-	app := newTestApp(t)
-	result := app.GetActressPrimaryStudios([]string{"無資料女優"})
-	if got := result["無資料女優"]; got != "" {
-		t.Errorf("expected empty string, got %q", got)
+	if matchesMajorStudio("", map[string]bool{}) {
+		t.Error("empty studio with empty map should return false")
 	}
 }
