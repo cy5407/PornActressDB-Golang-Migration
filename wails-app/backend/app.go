@@ -421,6 +421,7 @@ func (a *App) PythonSearch(code string) (*SearchResult, error) {
 // BatchSearch invokes run_batch_search.py with ALL codes at once (single Python process).
 // Results are streamed line-by-line (JSON Lines) so the frontend receives real-time updates.
 // This eliminates N×Python-startup overhead; estimated 10-20x faster than the old per-code approach.
+// DB integration: codes already in DB (search_status=success) are served from cache; new results are persisted.
 func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 	if workers <= 0 {
 		workers = 20
@@ -431,11 +432,44 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 		return nil
 	}
 
+	// --- DB 快取過濾：已有記錄的 code 直接回傳，不重複搜尋 ---
+	a.ensureDB()
+	results := make([]SearchResult, 0, total)
+	codesToSearch := make([]string, 0, len(codes))
+	done := 0
+	for _, code := range codes {
+		video, err := a.db.GetVideo(code)
+		if err == nil && (video.SearchStatus == database.SearchStatusSuccess || video.SearchStatus == "searched_found") {
+			done++
+			cached := SearchResult{
+				Code:      video.Code,
+				Title:     video.Title,
+				Studio:    video.Studio,
+				Release:   video.ReleaseDate,
+				URL:       video.URL,
+				Actresses: video.Actresses,
+				Method:    video.SearchMethod,
+			}
+			results = append(results, cached)
+			wailsRuntime.EventsEmit(a.ctx, "search:progress", done, total, code)
+			wailsRuntime.EventsEmit(a.ctx, "search:result", &cached)
+		} else {
+			codesToSearch = append(codesToSearch, code)
+		}
+	}
+
+	// 全部都在快取中
+	if len(codesToSearch) == 0 {
+		success := len(results)
+		wailsRuntime.EventsEmit(a.ctx, "search:done", fmt.Sprintf("%d 成功 / 0 失敗（已快取）", success))
+		return results
+	}
+
 	scriptPath := resolveRunBatchSearchScript()
 	pythonExe := resolvePythonExe()
 
 	input, _ := json.Marshal(map[string]interface{}{
-		"codes":   codes,
+		"codes":   codesToSearch,
 		"workers": workers,
 	})
 
@@ -457,9 +491,7 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 		return nil
 	}
 
-	results := make([]SearchResult, 0, total)
 	var mu sync.Mutex
-	done := 0
 
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 支援長標題
@@ -474,6 +506,26 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 
 			wailsRuntime.EventsEmit(a.ctx, "search:progress", current, total, res.Code)
 			wailsRuntime.EventsEmit(a.ctx, "search:result", &res)
+
+			// 搜尋結果寫入 DB（僅成功結果）
+			if res.Error == "" {
+				now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+				video := &database.VideoData{
+					Code:           res.Code,
+					Title:          res.Title,
+					Studio:         res.Studio,
+					ReleaseDate:    res.Release,
+					URL:            res.URL,
+					Actresses:      res.Actresses,
+					SearchStatus:   database.SearchStatusSuccess,
+					SearchMethod:   res.Method,
+					LastSearchDate: now,
+				}
+				// 先嘗試新增，若已存在則更新
+				if err3 := a.db.AddVideo(video); err3 != nil {
+					_ = a.db.UpdateVideo(res.Code, video)
+				}
+			}
 		}
 	}
 

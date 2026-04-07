@@ -127,13 +127,5 @@ def main() -> None:
             print(json.dumps(result, ensure_ascii=False), flush=True)
 
 
-    # 串流輸出：每筆完成即立即 print，Go 端逐行讀取並發送 Wails 事件
-    with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-        futures = {executor.submit(search_one, arg): arg[0] for arg in args}
-        for future in as_completed(futures):
-            result = future.result()
-            print(json.dumps(result, ensure_ascii=False), flush=True)
-
-
 if __name__ == "__main__":
     main()
