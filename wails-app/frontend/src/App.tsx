@@ -11,9 +11,9 @@ import { PreferencesDialog } from '@/components/PreferencesDialog';
 import { Button } from '@/components/ui/button';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
-import { ScanDirectory, BatchSearch, BatchMove } from '../wailsjs/go/backend/App';
+import { ScanDirectory, BatchSearch, BatchMove, CancelOperation } from '../wailsjs/go/backend/App';
 import { backend } from '../wailsjs/go/models';
-import { Scan, Search, FolderOutput, RotateCcw, ChevronDown, History, Settings } from 'lucide-react';
+import { Scan, Search, FolderOutput, RotateCcw, ChevronDown, History, Settings, StopCircle } from 'lucide-react';
 
 type ScanResult = backend.ScanResult;
 
@@ -172,6 +172,20 @@ function ActionToolbar() {
         <FolderOutput className="h-4 w-4 mr-1" />
         移動{selectedCodes.size > 0 ? ` (${selectedCodes.size})` : '全部'}
       </Button>
+      {isRunning && (
+        <Button
+          onClick={() => {
+            CancelOperation();
+            setStatus('idle');
+            setStatusMessage('⛔ 已取消操作', 'warning');
+          }}
+          variant="destructive"
+          size="sm"
+        >
+          <StopCircle className="h-4 w-4 mr-1" />
+          取消
+        </Button>
+      )}
     </div>
   );
 }
@@ -276,7 +290,7 @@ export default function App() {
         />
         {/* Scan options */}
         <div className="flex items-center gap-4 text-xs text-slate-400">
-          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none" title="掃描所有子目錄（建議保持開啟）">
             <input
               type="checkbox"
               checked={recursive}
@@ -284,7 +298,7 @@ export default function App() {
               disabled={isRunning}
               className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
             />
-            遞迴
+            含子目錄{recursive ? '（全部深度）' : '（僅第一層）'}
           </label>
           <label className="flex items-center gap-1.5">
             並行數：

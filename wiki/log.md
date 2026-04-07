@@ -5,6 +5,21 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-07] pitfall | Wails 掃描重複番號 & E2E 效能記錄
+
+**涉及檔案**：
+- `wails-app/backend/app.go` — `ScanDirectory()` 加入 `seen map` 去重
+- `wiki/pitfalls/wails-scan-duplicate.md` — 新建踩坑文件
+- `docs/茶包射手/wails-e2e-scan.md` — E2E 實測記錄
+
+**問題**：`filepath.WalkDir` 不去重，同番號（`EBON-004`、`CEMD-818`）出現兩次，導致重複搜尋。
+
+**修法**：`seen map` 在 Go 端去重，progress counter 改為顯示有效番號序號。
+
+**E2E 效能（2026-04-07 實測）**：掃描 99 個檔案 <1 秒；搜尋 65 筆約 75 秒（1.15 秒/筆，5 workers）；成功率 100%。
+
+---
+
 ## [2026-04-07] feature | Wails W1~W6 全部實作完成（Nova agent）
 
 **涉及檔案**：

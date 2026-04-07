@@ -43,6 +43,7 @@
 | [JAVDB False Positive](pitfalls/javdb-false-positive.md) | 搜尋無精確匹配時 fallback 第一筆造成誤匹配 | Issue 12 |
 | [PyInstaller 路徑問題](pitfalls/pyinstaller-path.md) | studios.json 在打包環境下應從 sys._MEIPASS 讀取 | dist 測試 |
 | [GitHub Actions 故障](pitfalls/github-actions-issues.md) | schedule/scope guard/Go API/Node.js Issue 1-15 全紀錄 | CI/CD |
+| [Wails 掃描重複番號](pitfalls/wails-scan-duplicate.md) | WalkDir 無去重導致同番號多次出現並浪費搜尋請求 | E2E 實測 |
 
 ---
 
@@ -55,4 +56,4 @@
 - **Rebuild EXE** → [patterns/pyinstaller.md](patterns/pyinstaller.md)
 - **命名規範檢查** → [patterns/naming-conventions.md](patterns/naming-conventions.md)
 - **搜尋架構理解** → [architecture/search-engine.md](architecture/search-engine.md)
-- **完整茶包射手** → [docs/茶包射手/github-actions-workflow.md](../docs/茶包射手/github-actions-workflow.md)
+- **完整茶包射手** → [docs/茶包射手/github-actions-workflow.md](../docs/茶包射手/github-actions-workflow.md) | [wails-e2e-scan.md](../docs/茶包射手/wails-e2e-scan.md)

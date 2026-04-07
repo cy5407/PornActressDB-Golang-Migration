@@ -14,6 +14,10 @@ export function BatchSearch(arg1, arg2) {
   return window['go']['backend']['App']['BatchSearch'](arg1, arg2);
 }
 
+export function CancelOperation() {
+  return window['go']['backend']['App']['CancelOperation']();
+}
+
 export function DbGetVideo(arg1) {
   return window['go']['backend']['App']['DbGetVideo'](arg1);
 }
@@ -72,6 +76,10 @@ export function RollbackOperation(arg1) {
 
 export function ScanDirectory(arg1, arg2, arg3) {
   return window['go']['backend']['App']['ScanDirectory'](arg1, arg2, arg3);
+}
+
+export function SelectDirectory(arg1) {
+  return window['go']['backend']['App']['SelectDirectory'](arg1);
 }
 
 export function UpdatePreferences(arg1) {

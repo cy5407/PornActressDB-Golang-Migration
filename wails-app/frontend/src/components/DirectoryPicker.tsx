@@ -3,6 +3,7 @@ import { FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { SelectDirectory } from '../../wailsjs/go/backend/App';
 
 interface DirectoryPickerProps {
   label: string;
@@ -15,8 +16,7 @@ interface DirectoryPickerProps {
 
 /**
  * DirectoryPicker — 目錄選擇器。
- * 因為 Wails WebView 不支援原生 <input type="file" webkitdirectory>，
- * 使用者可直接在文字框中輸入路徑，或未來擴充為呼叫 Wails runtime.OpenDirectoryDialog。
+ * 呼叫 Go binding SelectDirectory() 開啟原生目錄選擇對話框。
  */
 export function DirectoryPicker({
   label,
@@ -30,20 +30,11 @@ export function DirectoryPicker({
 
   async function handleBrowse() {
     try {
-      // Wails v2: runtime.OpenDirectoryDialog is exposed via window runtime
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const win = window as any;
-      if (win.runtime?.OpenDirectoryDialog) {
-        const dir: string = await win.runtime.OpenDirectoryDialog({
-          Title: label,
-        });
-        if (dir) onChange(dir);
-      } else {
-        // Fallback: focus input so user can type
-        inputRef.current?.focus();
-      }
+      const dir = await SelectDirectory(label);
+      if (dir) onChange(dir);
     } catch {
-      // silently ignore
+      // 降級：讓使用者手動輸入
+      inputRef.current?.focus();
     }
   }
 

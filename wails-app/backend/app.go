@@ -24,14 +24,16 @@ import (
 
 // App is the main application struct exposed as Wails bindings.
 type App struct {
-	ctx       context.Context
-	extractor *extractor.CodeExtractor
-	mover     *mover.Mover
-	db        *database.JSONDatabase
-	studio    *studio.StudioIdentifier
-	cfgSvc    *services.ConfigService
-	cfgPath   string
-	dbOnce    sync.Once
+	ctx        context.Context
+	extractor  *extractor.CodeExtractor
+	mover      *mover.Mover
+	db         *database.JSONDatabase
+	studio     *studio.StudioIdentifier
+	cfgSvc     *services.ConfigService
+	cfgPath    string
+	dbOnce     sync.Once
+	cancelScan context.CancelFunc // 取消掃描/搜尋用
+	cancelMu   sync.Mutex
 }
 
 // NewApp creates a new App instance.
@@ -95,28 +97,62 @@ type ScanResult struct {
 }
 
 // ScanDirectory scans the given directory for video files and extracts their codes.
-// workers is unused in the pure-Go walk implementation but kept for API symmetry with the CLI.
+// When recursive=true (default), scans all subdirectories to any depth.
+// Duplicate codes are deduplicated: first occurrence wins.
+// Supports cancellation via CancelOperation. Emits "scan:progress" events during walk.
 func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResult {
-	var results []ScanResult
+	scanCtx, cancel := context.WithCancel(a.ctx)
+	a.cancelMu.Lock()
+	a.cancelScan = cancel
+	a.cancelMu.Unlock()
+	defer func() {
+		a.cancelMu.Lock()
+		a.cancelScan = nil
+		a.cancelMu.Unlock()
+	}()
 
-	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	var results []ScanResult
+	seen := make(map[string]bool) // 去重：相同番號只保留第一個路徑
+	scanned := 0
+
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		// 檢查取消訊號
+		select {
+		case <-scanCtx.Done():
+			return filepath.SkipAll
+		default:
+		}
 		if err != nil {
+			// 無法存取（權限不足等）：略過並繼續
 			return nil
 		}
-		if info.IsDir() {
+		if d.IsDir() {
 			if !recursive && path != dir {
 				return filepath.SkipDir
 			}
 			return nil
 		}
+		scanned++
 		code := a.extractor.ExtractCode(filepath.Base(path))
-		if code != "" {
+		if code != "" && !seen[code] {
+			seen[code] = true
 			results = append(results, ScanResult{Path: path, Code: code})
+			wailsRuntime.EventsEmit(a.ctx, "scan:progress", len(results), code)
 		}
 		return nil
 	})
 
 	return results
+}
+
+// CancelOperation cancels the current running scan or search.
+func (a *App) CancelOperation() {
+	a.cancelMu.Lock()
+	defer a.cancelMu.Unlock()
+	if a.cancelScan != nil {
+		a.cancelScan()
+		a.cancelScan = nil
+	}
 }
 
 // ============================================================================
@@ -284,8 +320,22 @@ func (a *App) ResetPreferences() error {
 }
 
 // ============================================================================
-// Python search bridge
+// Native dialogs
 // ============================================================================
+
+// SelectDirectory opens a native directory picker dialog and returns the chosen path.
+// Returns an empty string if the user cancels.
+func (a *App) SelectDirectory(title string) string {
+	dir, err := wailsRuntime.OpenDirectoryDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: title,
+	})
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+
 
 // SearchErrorKind classifies the failure reason from a Python subprocess call.
 // Values: "" (success), "timeout", "stderr", "json_parse", "not_found"
@@ -323,7 +373,10 @@ func (a *App) PythonSearch(code string) (*SearchResult, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, searchTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, pythonExe, scriptPath, code)
+	// -X utf8 強制 Python stdout/stderr 使用 UTF-8
+	cmd := exec.CommandContext(ctx, pythonExe, "-X", "utf8", scriptPath, code)
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
+	hideWindow(cmd) // Windows: 不彈出 CMD 視窗
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

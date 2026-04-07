@@ -7,11 +7,11 @@ import {
   UpdatePreferences,
   ResetPreferences,
 } from '../../wailsjs/go/backend/App';
-import { backend } from '../../wailsjs/go/models';
+import { services } from '../../wailsjs/go/models';
 import { RefreshCw, Save, RotateCcw, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type Preferences = backend.Preferences;
+type Preferences = services.Preferences;
 
 type TabId = 'search' | 'classification' | 'studio' | 'system';
 
