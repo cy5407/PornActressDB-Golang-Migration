@@ -216,11 +216,28 @@ tools/
 ├── analysis/         # 資料分析腳本 (analyze_actresses.py, analyze_names.py)
 ├── diagnostics/      # 診斷與修復腳本 (含 normalize_json_db_schema.py)
 ├── manual_tests/     # 手動測試腳本 (test_smart_search.py)
+├── session/          # Copilot session 清洗工具 (session_cleaner.py)
 ├── studio_updates/   # 片商資料維護 (update_s1_studio.py)
 └── verify/           # 驗證腳本 (含 verify_json_db_schema.py)
 ```
 
 **執行規則**: 工具腳本預設依賴 `data/json_db/data.json` 和 `config.ini`，建議從專案根目錄執行。
+
+### Session 清洗工具
+
+當 Copilot session 過長、需要壓縮後帶入新 session 作為上下文時，使用此工具：
+
+```bash
+# 清洗 session markdown（輸出 session.cleaned.md）
+python tools\session\session_cleaner.py session.md
+
+# 指定輸出路徑
+python tools\session\session_cleaner.py session.md -o output.md
+```
+
+**保留策略**：User / Copilot 對話全文保留；成功工具呼叫只留標題與參數；**失敗工具呼叫完整保留**（含 stderr / stack trace，是診斷撞牆原因的關鍵）；Reasoning 與 Info section 完全刪除。典型壓縮率 **67–70%**。
+
+詳細說明見 `tools/session/README.md`。
 
 ### JSON 資料庫 schema 維護工具
 
