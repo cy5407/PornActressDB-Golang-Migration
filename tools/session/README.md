@@ -2,7 +2,11 @@
 
 ## 用途
 
-將 Copilot CLI 匯出的 session markdown 壓縮，移除雜訊，保留對 AI 有診斷價值的內容，以便在新 session 中傳入作為上下文參考。
+專為 **GitHub Copilot CLI** 的 `/share` 指令輸出格式設計。
+
+在 Copilot CLI session 中執行 `/share` 後，會產生一份結構化的 markdown 記錄，其中包含 User、Copilot、工具呼叫、Reasoning 等 section。本工具將這份記錄壓縮，移除雜訊，保留對 AI 有診斷價值的內容，以便在新 session 中傳入作為上下文參考。
+
+> ⚠️ **注意**：本工具依賴 Copilot CLI `/share` 輸出的特定 section 格式（`### 👤 User`、`### 💬 Copilot`、`### ✅`、`### ❌` 等）。其他 AI CLI 工具（如 Claude Code、Gemini CLI）的輸出格式不同，**不適用**本工具。
 
 ## 保留 / 刪除規則
 
