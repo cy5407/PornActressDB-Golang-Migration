@@ -150,3 +150,9 @@ coverage_report.txt
 security_reports/_local_archives/
 
 .venv/
+
+# 資料庫備份（本地大型 JSON，不進版控）
+_db_backup/
+
+# Copilot session 紀錄
+copilot-session-*.md
