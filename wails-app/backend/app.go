@@ -593,7 +593,7 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 	done := 0
 	for _, code := range codes {
 		video, err := a.db.GetVideo(code)
-		if err == nil && (video.SearchStatus == database.SearchStatusSuccess || video.SearchStatus == "searched_found") {
+		if err == nil && video.SearchStatus == "searched_found" {
 			done++
 			cached := SearchResult{
 				Code:      video.Code,
@@ -675,7 +675,7 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 					ReleaseDate:    res.Release,
 					URL:            res.URL,
 					Actresses:      res.Actresses,
-					SearchStatus:   database.SearchStatusSuccess,
+					SearchStatus:   "searched_found", // 與 Python 定義一致
 					SearchMethod:   res.Method,
 					LastSearchDate: now,
 				}
