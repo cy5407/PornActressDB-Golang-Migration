@@ -190,7 +190,8 @@ func (a *App) PlanDirMergeMoves(items []DirMoveItem) ([]MoveItemRequest, error) 
 			return nil, fmt.Errorf("failed to validate source %q and destination %q: %w", item.Source, item.Destination, err)
 		}
 		if sameOrNested {
-			return nil, fmt.Errorf("destination %q must not be the same as or inside source %q", item.Destination, item.Source)
+			// 來源與目標相同（女優已在正確位置），略過該項目
+			continue
 		}
 
 		onConflict := mover.ConflictStrategy(item.OnConflict)

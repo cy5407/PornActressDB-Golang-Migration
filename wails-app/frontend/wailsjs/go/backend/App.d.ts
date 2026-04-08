@@ -7,17 +7,17 @@ import {services} from '../models';
 
 export function BatchMove(arg1:Array<mover.MoveItem>,arg2:string):Promise<mover.BatchResult>;
 
-export function BatchMoveDirs(arg1:Array<{source:string,destination:string,on_conflict?:string}>,arg2:string):Promise<mover.BatchResult>;
-
-export function CheckConflicts(arg1:Array<mover.MoveItem>):Promise<Array<backend.ConflictItem>>;
-
-export function CheckDirConflicts(arg1:Array<{source:string,destination:string,on_conflict?:string}>):Promise<Array<backend.ConflictItem>>;
+export function BatchMoveDirs(arg1:Array<backend.DirMoveItem>,arg2:string):Promise<mover.BatchResult>;
 
 export function BatchMoveJSON(arg1:string,arg2:string):Promise<mover.BatchResult>;
 
 export function BatchSearch(arg1:Array<string>,arg2:number):Promise<Array<backend.SearchResult>>;
 
 export function CancelOperation():Promise<void>;
+
+export function CheckConflicts(arg1:Array<mover.MoveItem>):Promise<Array<backend.ConflictItem>>;
+
+export function CheckDirConflicts(arg1:Array<backend.DirMoveItem>):Promise<Array<backend.ConflictItem>>;
 
 export function DbGetVideo(arg1:string):Promise<database.VideoData>;
 
@@ -27,13 +27,13 @@ export function DbUpdateVideo(arg1:string,arg2:string):Promise<void>;
 
 export function GetActressPrimaryStudios(arg1:Array<string>):Promise<Record<string, string>>;
 
-export function GetStudioByCode(arg1:string):Promise<string>;
-
-export function GetStudiosByCodes(arg1:Array<string>):Promise<Record<string, string>>;
-
 export function GetOperation(arg1:string):Promise<mover.OperationLog>;
 
 export function GetPreferences():Promise<services.Preferences>;
+
+export function GetStudioByCode(arg1:string):Promise<string>;
+
+export function GetStudiosByCodes(arg1:Array<string>):Promise<Record<string, string>>;
 
 export function IdentifyStudio(arg1:string):Promise<backend.StudioInfo>;
 
@@ -45,7 +45,7 @@ export function MoveDir(arg1:string,arg2:string,arg3:string):Promise<mover.Merge
 
 export function MoveFile(arg1:string,arg2:string,arg3:string):Promise<mover.MoveResult>;
 
-export function PlanDirMergeMoves(arg1:Array<{source:string,destination:string,on_conflict?:string}>):Promise<Array<mover.MoveItem>>;
+export function PlanDirMergeMoves(arg1:Array<backend.DirMoveItem>):Promise<Array<mover.MoveItem>>;
 
 export function PythonSearch(arg1:string):Promise<backend.SearchResult>;
 

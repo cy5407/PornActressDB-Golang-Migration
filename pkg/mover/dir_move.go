@@ -51,11 +51,40 @@ func (m *Mover) MoveDir(src, dst string, strategy ConflictStrategy) MergeResult 
 		return result
 	}
 	if dstInsideSrc {
-		result.Errors = append(result.Errors, MoveResult{Source: src, Destination: dst, Error: "目標目錄不能位於來源目錄內或與來源相同"})
+		// src == dst：已在正確位置，視為略過
+		if absResult, _ := filepath.Abs(src); absResult != "" {
+			if absDst, _ := filepath.Abs(dst); strings.EqualFold(absResult, absDst) {
+				result.Success = true
+				result.DeletedSrc = false
+				return result
+			}
+		}
+		result.Errors = append(result.Errors, MoveResult{Source: src, Destination: dst, Error: "目標目錄不能位於來源目錄內"})
 		return result
 	}
 
 	actualDst := dst
+
+	// 快速路徑：目標不存在時嘗試直接 Rename（同 filesystem 為原子操作）
+	if !m.DryRun {
+		if _, statErr := os.Stat(dst); os.IsNotExist(statErr) {
+			// 確保父目錄存在
+			if mkErr := safefile.MkdirAll(filepath.Dir(dst), 0700); mkErr == nil {
+				if renameErr := os.Rename(src, dst); renameErr == nil {
+					// 計算已搬移的檔案數量
+					_ = filepath.Walk(dst, func(_ string, info os.FileInfo, _ error) error {
+						if info != nil && !info.IsDir() {
+							result.FilesMoved++
+						}
+						return nil
+					})
+					result.DeletedSrc = true
+					result.Success = true
+					return result
+				}
+			}
+		}
+	}
 
 	err = filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
