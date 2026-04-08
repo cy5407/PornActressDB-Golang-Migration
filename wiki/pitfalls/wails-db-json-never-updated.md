@@ -32,10 +32,11 @@ DB 的三檔結構：
 
 ---
 
-## 修正做法
+## 修正做法（完整版）
 
-在 `BatchSearch()` 結束後強制呼叫 `Compact()`（不依賴閾值，直接合併）：
+**三個地方都需要補上 compact 呼叫**，缺一不可：
 
+### 1. `BatchSearch()` 結束後強制 compact
 ```go
 // wails-app/backend/app.go — BatchSearch() 末尾
 cmd.Wait()
@@ -44,12 +45,34 @@ cmd.Wait()
 if a.db != nil {
     _ = a.db.Compact()
 }
-
-success := 0
-// ...
 ```
 
-使用 `Compact()`（強制）而非 `CompactIfNeeded()`（條件），確保每次搜尋後 `data.json` 都是最新狀態。
+### 2. `BatchSearch()` 全快取命中早期返回路徑（原本缺少）
+```go
+// 全部都在快取中
+if len(codesToSearch) == 0 {
+    // journal 有未合併資料時，趁機寫入 data.json
+    if a.db != nil {
+        _, _ = a.db.CompactIfNeeded()
+    }
+    ...
+    return results
+}
+```
+
+### 3. `ensureDB()` 啟動時（原本缺少）
+```go
+func (a *App) ensureDB() {
+    ...
+    _ = a.db.Load(context.Background())
+    // 啟動時若 journal 有未合併資料，立即寫入 data.json
+    _, _ = a.db.CompactIfNeeded()
+}
+```
+
+> **修 1** 處理正常搜尋流程。  
+> **修 2** 處理「全部命中快取」的早期返回，這是原本 bug 的核心路徑。  
+> **修 3** 處理 App 啟動時 journal 有殘留資料的情況（防禦性）。
 
 ---
 
@@ -61,9 +84,11 @@ success := 0
   → BatchSearch 結束 → Compact() 強制執行
   → data.json 更新（含 63 筆記錄）✅
 
-第二次搜尋同 63 筆
-  → ensureDB() 讀取 data.json（63 筆在快取）
-  → 過濾：63 筆全部命中 → codesToSearch = []
+重啟 App，第二次搜尋同 63 筆
+  → ensureDB() Load() 讀取 data.json（63 筆已在 data.json）
+  → CompactIfNeeded()：journal 為空，無需 compact
+  → BatchSearch 過濾：63 筆全部命中 → codesToSearch = []
+  → CompactIfNeeded()（早期返回路徑）：journal 為空，略過
   → 0 筆 HTTP 請求，63 筆直接從快取回傳 ✅
 ```
 
@@ -72,11 +97,12 @@ success := 0
 ## 注意事項
 
 - `data.json` 的 1 小時計時器是**跨重啟保留**的（timestamp 存在 data.index），不是「程式開著一小時」
-- 但因為我們改為強制 compact，這個計時器已不再是主要觸發機制
+- 修 1 使用 `Compact()`（強制），修 2/3 使用 `CompactIfNeeded()`（條件）
+- commits: `ad7d278`（2026-04-08）
 
 ---
 
 ## 涉及檔案
 
-- `wails-app/backend/app.go`：`BatchSearch()` 末尾加入 `a.db.Compact()`
+- `wails-app/backend/app.go`：`BatchSearch()` 末尾 + 早期返回 + `ensureDB()`
 - `pkg/database/jsondb.go`：`CompactIfNeeded()` / `Compact()` / `CompactJournal()` 實作

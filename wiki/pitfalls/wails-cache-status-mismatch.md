@@ -29,21 +29,36 @@ function getStatus(r: SearchResult): 'success' | 'failed' {
 
 此外，`database.SearchStatusSuccess = "success"` 與 Python 版 `"searched_found"` 的雙值問題，雖然後端已同時處理，但新增資料時若未正確設定，可能只存入其中一種值。
 
-## 正確做法
+## 實際修正做法（2026-04-08）
 
-1. **統一後端寫入時使用 `database.SearchStatusSuccess`**（值為 `"success"`）
-2. **前端狀態判定改為看 `method` 或 `error` 欄位，而非 actresses 數量**
-3. **無女優作品的 `search_status` 應設為 `"success_no_actress"` 或在 title 有值時也算成功**
+**後端統一寫入 `"searched_found"`**（與資料庫現有 2840+ 筆標準一致）：
 
-暫行做法：前端把「有 title 或有 actresses」都算成功：
+```go
+// wails-app/backend/app.go — BatchSearch() 寫入 DB
+SearchStatus: "searched_found",  // 不使用 database.SearchStatusSuccess（值為 "success"）
+```
+
+快取命中判斷也同步簡化為單一條件：
+```go
+// 修正後（移除多餘的 SearchStatusSuccess 判斷）
+if err == nil && video.SearchStatus == "searched_found" {
+```
+
+**前端狀態判定** 則在 T1（2026-04-07）已修正，把「有 title 或有 actresses」都算成功：
 ```typescript
 function getStatus(r: SearchResult): 'success' | 'failed' {
   return !r.error && (r.title || (r.actresses?.length ?? 0) > 0) ? 'success' : 'failed';
 }
 ```
 
+> **注意**：`database.SearchStatusSuccess = "success"` 這個 Go 常數與資料庫實際使用的 `"searched_found"` 不同。
+> 詳見 [wails-db-format-migration.md](wails-db-format-migration.md)。
+
+commit: `33ed079`（2026-04-08）
+
 ## 參考
 
-- `wails-app/backend/app.go` — `BatchSearch()` 快取判定邏輯（約 L440-L458）
-- `wails-app/frontend/src/components/SearchResultDialog.tsx` — `getStatus()`（L121-L123）
-- `pkg/database/jsondb.go` — `SearchStatusSuccess` 常數定義
+- `wails-app/backend/app.go` — `BatchSearch()` 快取判定與寫入邏輯
+- `wails-app/frontend/src/components/SearchResultDialog.tsx` — `getStatus()`
+- `pkg/database/types.go` — `SearchStatusSuccess` 常數定義
+- [wails-db-format-migration.md](wails-db-format-migration.md) — 完整格式正規化紀錄

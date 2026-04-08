@@ -5,6 +5,40 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-08] fix | DB journal 未合併、資料格式不一致、資料庫合併
+
+**commits**：`ad7d278`（compact fix）、`33ed079`（search_status fix）
+
+### 問題一：journal 資料永遠不寫入 data.json（完整修正）
+
+原有修正只補了 `BatchSearch()` 末尾的 `Compact()`，但漏了兩個路徑：
+
+| 缺漏路徑 | 症狀 | 修正 |
+|---------|------|------|
+| `BatchSearch()` 全快取命中早期返回 | 63 筆全命中 → 跳過 compact → data.json 永遠空的 | 補 `CompactIfNeeded()` |
+| `ensureDB()` 啟動時 | App 重啟後 journal 仍殘留 | 補 `CompactIfNeeded()` |
+
+詳見：[pitfalls/wails-db-json-never-updated.md](pitfalls/wails-db-json-never-updated.md)
+
+### 問題二：search_status 格式不一致
+
+Go backend 寫入 `"success"`，資料庫標準為 `"searched_found"`，造成雙值並存。
+
+- `app.go` 寫入改為 `"searched_found"`
+- 快取判斷移除多餘的雙重條件
+- 一次性腳本修正現有資料：63 筆 `success`→`searched_found`、6 筆 `searched_multiple`→`searched_found`、47 筆 `JAVDB (安全增強版)`→`JAVDB`、63 筆空白 `search_method`→`cascade`
+
+詳見：[pitfalls/wails-db-format-migration.md](pitfalls/wails-db-format-migration.md)
+
+### 問題三：`data.json` 僅有 63 筆，原始資料未合併
+
+`dist/data/json_db/data.json`（2903 筆）合併進 `wails-app/build/bin/data/json_db/data.json`：
+- 63 筆重疊 → 保留較新版本（`updated_at` 較近）
+- 新增 2840 筆
+- 合併後 2903 筆，journal 清空
+
+---
+
 ## [2026-04-08] feature | W7 片商分類移動功能實作完成
 
 **branch**：`feature/w7-studio-classification`  

@@ -52,7 +52,8 @@
 | [Wails DB data.json 從未更新](pitfalls/wails-db-json-never-updated.md) | BatchSearch 缺少 Compact() 呼叫，快取永久失效 | 2026-04-07 |
 | [Wails 移動後路徑未更新](pitfalls/wails-move-stale-paths.md) | 移動成功後 scanResults 仍持有舊路徑，重複移動會失敗 | 2026-04-07 |
 | [Wails dbOnce 無法重置](pitfalls/wails-dbonce-no-reset.md) | sync.Once 初始化 DB，設定變更後 DB 路徑不生效需重啟 | 2026-04-07 |
-| [Wails 快取狀態判定不一致](pitfalls/wails-cache-status-mismatch.md) | Go 後端只看 search_status，前端還要 actresses.length > 0 | 2026-04-07 |
+| [Wails 快取狀態判定不一致](pitfalls/wails-cache-status-mismatch.md) | Go 後端只看 search_status，前端還要 actresses.length > 0；search_status 雙值問題 | 2026-04-07 |
+| [Wails DB 資料格式不一致](pitfalls/wails-db-format-migration.md) | Go 寫入 `"success"`、Python 標準 `"searched_found"`、`searched_multiple` 等非標準值；含資料合併紀錄 | 2026-04-08 |
 
 ---
 
