@@ -58,13 +58,14 @@
 | [**同路徑移動永久刪除檔案**](pitfalls/wails-move-same-path-delete.md) | 輸入==輸出目錄時二次移動觸發偽衝突，覆蓋策略下 `os.Remove(src==dst)` 永久刪除檔案；三層修復 + 垃圾桶 | 2026-04-08 |
 | [Extractor `[CODE]` 格式被清空](pitfalls/go-extractor-bracket-format.md) | `[SKMJ-310] 標題.mp4` 格式的番號被 bracketRe 誤清除；同時修正 PPV 位數判斷 | 2026-04-08 |
 | [Wails dist 缺少片商資料](pitfalls/wails-dist-missing-studio-data.md) | `studios.json` / `major_studios.json` 不會自動複製到 dist/，片商分類整體失效 | 2026-04-08 |
+| [**Wails 片商名稱正規化錯誤**](pitfalls/wails-studio-canonical-match.md) | `canonicalMajorStudio()` 大小寫不敏感缺失 → SOD star 歸錯資料夾；路徑解析需往上三層找專案根 | W8 |
 
 ---
 
 ## 快速查找
 
 - **Python Fallback 移除** → [patterns/remove-python-fallback.md](patterns/remove-python-fallback.md)（Phase 6 完整策略）
-- **CI/CD 故障排查** → [pitfalls/github-actions-issues.md](pitfalls/github-actions-issues.md)（Issue 1-19）
+- **CI/CD 故障排查** → [pitfalls/github-actions-issues.md](pitfalls/github-actions-issues.md)（Issue 1-22）
 - **新增 Go API 功能** → [patterns/add-go-api-function.md](patterns/add-go-api-function.md)
 - **新增 GUI 按鈕** → [patterns/add-gui-button.md](patterns/add-gui-button.md)
 - **Rebuild EXE** → [patterns/pyinstaller.md](patterns/pyinstaller.md)

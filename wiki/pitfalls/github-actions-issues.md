@@ -367,6 +367,33 @@ Test step:   pytest tests/
 
 ---
 
+## Issue 22：Workflow 缺少 Python 環境設定
+
+**症狀**：CI workflow 失敗，錯誤訊息為 `ModuleNotFoundError: No module named 'aiohttp'`（或 `orjson`、`httpx`、`bs4`），即使 Go 測試全部通過。
+
+**根本原因**：`copilot-refactor-go.yml` 設定了 Go 和 Node.js 環境，但**沒有設定 Python 環境**，直接執行 `pytest` 時找不到相依套件。
+
+**修復**：在 workflow 中明確加入以下步驟：
+
+```yaml
+- name: Set up Python
+  uses: actions/setup-python@v5
+  with:
+    python-version: '3.11'
+
+- name: Install Python dependencies
+  run: |
+    sudo apt-get install -y python3-tk  # tkinter（apt 安裝，pip 不含）
+    pip install -r requirements.txt
+
+- name: Set PYTHONPATH
+  run: echo "PYTHONPATH=${{ github.workspace }}/src" >> $GITHUB_ENV
+```
+
+**教訓**：混合語言 workflow（Python + Go）必須明確設定**每一種**語言的環境。Go 和 Node.js 的 setup action 不會自動帶上 Python；tkinter 需要透過 `apt-get` 安裝，無法用 `pip` 取得。
+
+---
+
 ## 附錄：GitHub Actions 觸發類型差異
 
 | 觸發類型 | 支援 `branches` 過濾 | 執行分支 |
