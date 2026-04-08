@@ -54,6 +54,7 @@
 | [Wails dbOnce 無法重置](pitfalls/wails-dbonce-no-reset.md) | sync.Once 初始化 DB，設定變更後 DB 路徑不生效需重啟 | 2026-04-07 |
 | [Wails 快取狀態判定不一致](pitfalls/wails-cache-status-mismatch.md) | Go 後端只看 search_status，前端還要 actresses.length > 0；search_status 雙值問題 | 2026-04-07 |
 | [Wails DB 資料格式不一致](pitfalls/wails-db-format-migration.md) | Go 寫入 `"success"`、Python 標準 `"searched_found"`、`searched_multiple` 等非標準值；含資料合併紀錄 | 2026-04-08 |
+| [**同路徑移動永久刪除檔案**](pitfalls/wails-move-same-path-delete.md) | 輸入==輸出目錄時二次移動觸發偽衝突，覆蓋策略下 `os.Remove(src==dst)` 永久刪除檔案；三層修復 + 垃圾桶 | 2026-04-08 |
 
 ---
 
