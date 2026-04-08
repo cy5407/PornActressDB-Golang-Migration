@@ -34,6 +34,9 @@ type CodeExtractor struct {
 	// validateCode 用正規表達式
 	hasLetterRe *regexp.Regexp
 	hasNumberRe *regexp.Regexp
+
+	// 括號內番號提取（最高優先）
+	bracketCodeRe *regexp.Regexp
 }
 
 type codePattern struct {
@@ -64,6 +67,9 @@ func NewCodeExtractor() *CodeExtractor {
 		// validateCode 用正規表達式
 		hasLetterRe: regexp.MustCompile(`[A-Z]`),
 		hasNumberRe: regexp.MustCompile(`\d`),
+
+		// 括號內番號提取：[CODE] 或 (CODE) 格式，最高優先
+		bracketCodeRe: regexp.MustCompile(`(?i)[\[（(]([A-Z]{2,6}[-_]?\d{3,5}[A-Z]?)[\]）)]`),
 	}
 
 	// Code patterns (in priority order)
@@ -83,12 +89,13 @@ func NewCodeExtractor() *CodeExtractor {
 	}
 
 	// Skip patterns for FC2/PPV files
+	// PPV 只 skip 6位數以上（FC2-PPV 業餘影片）；5位數以下為片商番號格式，不 skip
 	e.skipPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`^FC2[-_]`),
 		regexp.MustCompile(`^FC2PPV[-_]`),
 		regexp.MustCompile(`^FC2\d`),
-		regexp.MustCompile(`^PPV[-_]\d`),
-		regexp.MustCompile(`^PPV\d`),
+		regexp.MustCompile(`^PPV[-_]\d{6,}`),
+		regexp.MustCompile(`^PPV\d{6,}`),
 	}
 
 	return e
@@ -102,6 +109,15 @@ func (e *CodeExtractor) ExtractCode(filename string) string {
 	// Skip FC2/PPV files
 	if e.shouldSkip(baseName) {
 		return ""
+	}
+
+	// 優先嘗試從 [CODE] 或 (CODE) 括號內提取番號
+	if match := e.bracketCodeRe.FindStringSubmatch(baseName); match != nil {
+		code := strings.ToUpper(match[1])
+		code = e.normalizeCode(code)
+		if e.validateCode(code) {
+			return code
+		}
 	}
 
 	// Clean filename

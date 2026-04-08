@@ -34,7 +34,8 @@ func TestExtractCode(t *testing.T) {
 		{"abc123.com@STARS-001.mp4", "STARS-001"},
 		{"FC2-PPV-123456.mp4", ""},
 		{"FC2PPV-999999.mp4", ""},
-		{"PPV-555555.mp4", ""},
+		{"PPV-555555.mp4", ""},   // 6位數 PPV → FC2-PPV 業餘，skip
+		{"PPV-32184.mp4", "PPV-32184"}, // 5位數 PPV → 片商番號，不 skip
 		{"", ""},
 	}
 
@@ -56,7 +57,8 @@ func TestShouldSkip(t *testing.T) {
 		{"FC2-PPV-123456", true},
 		{"FC2PPV-999999", true},
 		{"FC2_PPV_888888", true},
-		{"PPV-777777", true},
+		{"PPV-777777", true},     // 6位數 → skip
+		{"PPV-32184", false},     // 5位數 → 片商番號，不 skip
 		{"STARS-707", false},
 		{"SSIS-999", false},
 	}
