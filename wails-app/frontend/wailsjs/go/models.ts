@@ -1,5 +1,35 @@
 export namespace backend {
 	
+	export class ConflictItem {
+	    source: string;
+	    destination: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConflictItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.destination = source["destination"];
+	    }
+	}
+	export class DirMoveItem {
+	    source: string;
+	    destination: string;
+	    on_conflict?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DirMoveItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.destination = source["destination"];
+	        this.on_conflict = source["on_conflict"];
+	    }
+	}
 	export class ScanResult {
 	    path: string;
 	    code: string;
@@ -210,6 +240,7 @@ export namespace mover {
 	    source_dir: string;
 	    dest_dir: string;
 	    files_moved: number;
+	    files_skipped: number;
 	    files_total: number;
 	    errors?: MoveResult[];
 	    success: boolean;
@@ -224,6 +255,7 @@ export namespace mover {
 	        this.source_dir = source["source_dir"];
 	        this.dest_dir = source["dest_dir"];
 	        this.files_moved = source["files_moved"];
+	        this.files_skipped = source["files_skipped"];
 	        this.files_total = source["files_total"];
 	        this.errors = this.convertValues(source["errors"], MoveResult);
 	        this.success = source["success"];

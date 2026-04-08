@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { MainLayout } from '@/components/MainLayout';
 import { DirectoryPicker } from '@/components/DirectoryPicker';
 import { VideoList } from '@/components/VideoList';
@@ -8,14 +8,79 @@ import { StatusBar } from '@/components/StatusBar';
 import { SearchResultDialog } from '@/components/SearchResultDialog';
 import { OperationHistoryDialog } from '@/components/OperationHistoryDialog';
 import { PreferencesDialog } from '@/components/PreferencesDialog';
+import { ConflictResolutionDialog, ConflictItem } from '@/components/ConflictResolutionDialog';
 import { Button } from '@/components/ui/button';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
-import { ScanDirectory, BatchSearch, BatchMove, CancelOperation } from '../wailsjs/go/backend/App';
-import { backend } from '../wailsjs/go/models';
+import { ScanDirectory, BatchSearch, BatchMove, BatchMoveDirs, CheckDirConflicts, CancelOperation, GetActressPrimaryStudios, GetStudiosByCodes, CheckConflicts, PlanDirMergeMoves } from '../wailsjs/go/backend/App';
+import { backend, mover } from '../wailsjs/go/models';
 import { Scan, Search, FolderOutput, RotateCcw, ChevronDown, History, Settings, StopCircle } from 'lucide-react';
 
 type ScanResult = backend.ScanResult;
+type ConflictStrategy = 'skip' | 'overwrite' | 'rename';
+type ConflictDialogMode = 'file' | 'directory';
+
+function emptyBatchResult(): mover.BatchResult {
+  return mover.BatchResult.createFrom({
+    operation_id: '',
+    total_items: 0,
+    success_count: 0,
+    failed_count: 0,
+    skipped_count: 0,
+    results: [],
+    status: '',
+    summary: '',
+    duration: '',
+  });
+}
+
+function normalizeDirKey(p: string): string {
+  return p.replace(/\//g, '\\').replace(/[\\]+$/, '').toLowerCase();
+}
+
+function parentDir(p: string): string {
+  const sep = p.includes('\\') ? '\\' : '/';
+  return p.split(sep).slice(0, -1).join(sep);
+}
+
+function dirName(p: string): string {
+  return p.split(/[/\\]/).filter(Boolean).pop() ?? '';
+}
+
+function mergeBatchResults(
+  totalItems: number,
+  first: mover.BatchResult,
+  second: mover.BatchResult
+): mover.BatchResult {
+  const successCount = (first.success_count ?? 0) + (second.success_count ?? 0);
+  const failedCount = (first.failed_count ?? 0) + (second.failed_count ?? 0);
+  const skippedCount = (first.skipped_count ?? 0) + (second.skipped_count ?? 0);
+  return mover.BatchResult.createFrom({
+    operation_id: second.operation_id || first.operation_id,
+    total_items: totalItems,
+    success_count: successCount,
+    failed_count: failedCount,
+    skipped_count: skippedCount,
+    results: [...(first.results ?? []), ...(second.results ?? [])],
+    status: second.status || first.status,
+    summary: `移動完成：${successCount} 個資料夾成功 / ${failedCount} 失敗 / ${skippedCount} 略過`,
+    duration: second.duration || first.duration,
+  });
+}
+
+function removeMovedDirectories(
+  allResults: ScanResult[],
+  movedDirs: Set<string>
+): ScanResult[] {
+  return allResults.filter((r) => !movedDirs.has(normalizeDirKey(parentDir(r.path))));
+}
+
+function removeMovedFiles(
+  allResults: ScanResult[],
+  movedFiles: Set<string>
+): ScanResult[] {
+  return allResults.filter((r) => !movedFiles.has(r.path));
+}
 
 function ActionToolbar() {
   const {
@@ -40,6 +105,128 @@ function ActionToolbar() {
 
   const isRunning = status !== 'idle' && status !== 'error';
 
+  // ── 衝突對話框狀態 ──────────────────────────────────────────────────────────
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictItems, setConflictItems] = useState<ConflictItem[]>([]);
+  const [movedCount, setMovedCount] = useState(0);
+  const [conflictDialogMode, setConflictDialogMode] = useState<ConflictDialogMode>('file');
+  // Promise resolve 函式，當使用者在對話框確認/取消後呼叫
+  const conflictResolveRef = useRef<((strategies: Record<string, ConflictStrategy> | null) => void) | null>(null);
+
+  const removeMovedDirectoriesFromStore = (batchResult: mover.BatchResult) => {
+    if (!batchResult.results) return;
+    const movedDirs = new Set(
+      batchResult.results
+        .filter((r) => r.success && !r.skipped)
+        .map((r) => normalizeDirKey(r.source))
+    );
+    if (movedDirs.size === 0) return;
+    const currentResults = useTaskStore.getState().scanResults;
+    setScanResults(removeMovedDirectories(currentResults, movedDirs));
+  };
+
+  const removeMovedFilesFromStore = (batchResult: mover.BatchResult) => {
+    if (!batchResult.results) return;
+    const movedFiles = new Set(
+      batchResult.results
+        .filter((r) => r.success && !r.skipped)
+        .map((r) => r.source)
+    );
+    if (movedFiles.size === 0) return;
+    const currentResults = useTaskStore.getState().scanResults;
+    setScanResults(removeMovedFiles(currentResults, movedFiles));
+  };
+
+  /** 顯示衝突對話框，返回使用者選擇的策略（null = 略過全部並取消）*/
+  function waitForConflictResolution(
+    items: ConflictItem[],
+    alreadyMoved: number,
+    mode: ConflictDialogMode = 'file'
+  ): Promise<Record<string, ConflictStrategy> | null> {
+    return new Promise((resolve) => {
+      conflictResolveRef.current = resolve;
+      setConflictDialogMode(mode);
+      setConflictItems(items);
+      setMovedCount(alreadyMoved);
+      setConflictDialogOpen(true);
+    });
+  }
+
+  function handleConflictConfirm(strategies: Record<string, ConflictStrategy>) {
+    setConflictDialogOpen(false);
+    conflictResolveRef.current?.(strategies);
+    conflictResolveRef.current = null;
+  }
+
+  function handleConflictCancel() {
+    setConflictDialogOpen(false);
+    conflictResolveRef.current?.(null);
+    conflictResolveRef.current = null;
+  }
+
+  // ── 核心：帶衝突處理的批次移動 ───────────────────────────────────────────────
+  async function executeMoveWithConflictHandling(
+    items: Array<{ source: string; destination: string; on_conflict: string }>
+  ): Promise<mover.BatchResult> {
+    // 1. 偵測衝突
+    const conflicts: ConflictItem[] = await CheckConflicts(
+      items.map((i) => ({ source: i.source, destination: i.destination, on_conflict: i.on_conflict }))
+    );
+
+    if (conflicts.length === 0) {
+      // 無衝突，直接移動全部
+      return BatchMove(items, conflictStrategy);
+    }
+
+    const conflictSources = new Set(conflicts.map((c) => c.source));
+    const nonConflictItems = items.filter((i) => !conflictSources.has(i.source));
+
+    // 2. 先移動無衝突的檔案
+    let partialResult = emptyBatchResult();
+    if (nonConflictItems.length > 0) {
+      pushEvent('info', `📦 先移動 ${nonConflictItems.length} 個無衝突檔案…`);
+      partialResult = await BatchMove(nonConflictItems, conflictStrategy);
+    }
+
+    // 3. 顯示衝突對話框，等使用者選擇
+    const strategies = await waitForConflictResolution(conflicts, partialResult.success_count, 'file');
+
+    if (strategies === null) {
+      // 使用者取消 → 略過所有衝突
+      pushEvent('warning', `⏭️ 略過 ${conflicts.length} 個衝突檔案`);
+      return mover.BatchResult.createFrom({
+        ...partialResult,
+        total_items: items.length,
+        skipped_count: (partialResult.skipped_count ?? 0) + conflicts.length,
+      });
+    }
+
+    // 4. 以使用者選擇的策略移動衝突項目
+    const conflictMoveItems = items
+      .filter((i) => conflictSources.has(i.source))
+      .map((i) => ({
+        source: i.source,
+        destination: i.destination,
+        on_conflict: strategies[i.source] ?? 'skip',
+      }));
+
+    const conflictResult = await BatchMove(conflictMoveItems, 'skip');
+
+    // 5. 合併兩次結果
+    return mover.BatchResult.createFrom({
+      operation_id: conflictResult.operation_id || partialResult.operation_id,
+      total_items: items.length,
+      success_count: (partialResult.success_count ?? 0) + (conflictResult.success_count ?? 0),
+      failed_count: (partialResult.failed_count ?? 0) + (conflictResult.failed_count ?? 0),
+      skipped_count: (partialResult.skipped_count ?? 0) + (conflictResult.skipped_count ?? 0),
+      results: [...(partialResult.results ?? []), ...(conflictResult.results ?? [])],
+      status: conflictResult.status,
+      summary: conflictResult.summary,
+      duration: conflictResult.duration,
+    });
+  }
+
+  // ── 掃描 ──────────────────────────────────────────────────────────────────
   async function handleScan() {
     if (!inputDir.trim()) {
       setStatusMessage('請先選擇輸入目錄', 'warning');
@@ -154,19 +341,14 @@ function ActionToolbar() {
     });
 
     try {
-      const result = await BatchMove(items, conflictStrategy);
+      const result = await executeMoveWithConflictHandling(items);
       setLastBatchResult(result);
       const summary = `移動完成：${result.success_count} 成功 / ${result.failed_count} 失敗 / ${result.skipped_count} 略過`;
       setStatusMessage(summary, result.failed_count > 0 ? 'warning' : 'success');
       pushEvent(result.failed_count > 0 ? 'warning' : 'success', summary);
 
       // T3 清除已成功移動的項目，避免 scanResults 殘留過期路徑
-      if (result.results) {
-        const movedSources = new Set(
-          result.results.filter((mv) => mv.success).map((mv) => mv.source)
-        );
-        setScanResults(scanResults.filter((r) => !movedSources.has(r.path)));
-      }
+      removeMovedFilesFromStore(result);
     } catch (err) {
       const msg = `❌ 移動失敗：${err}`;
       setStatusMessage(msg, 'error');
@@ -178,8 +360,161 @@ function ActionToolbar() {
     resetProgress();
   }
 
+  async function handleStudioMove() {
+    if (!outputDir.trim()) {
+      setStatusMessage('請先設定輸出目錄', 'warning');
+      return;
+    }
+    const targets = scanResults.filter(
+      (r) => selectedCodes.size === 0 || selectedCodes.has(r.code)
+    );
+    if (targets.length === 0) {
+      setStatusMessage('沒有可移動的項目', 'warning');
+      return;
+    }
+    setStatus('moving');
+    resetProgress();
+    const inputDirKey = normalizeDirKey(inputDir);
+
+    // code → 第一位女優名（從 searchResults）
+    const codeToActress = new Map<string, string>(
+      searchResults.map((sr) => [sr.code, sr.actresses?.[0] ?? ''])
+    );
+
+    // --- 以女優資料夾分組 ---
+    // 排除直接在 inputDir 根目錄下的檔案（parentDir === inputDir），避免移動整個 inputDir
+    const rootLevelCodes: string[] = [];
+    const folderToCodes = new Map<string, string[]>();
+    for (const r of targets) {
+      const folder = parentDir(r.path);
+      if (normalizeDirKey(folder) === inputDirKey) {
+        rootLevelCodes.push(r.code);
+        continue;
+      }
+      if (!folderToCodes.has(folder)) folderToCodes.set(folder, []);
+      folderToCodes.get(folder)!.push(r.code);
+    }
+    if (rootLevelCodes.length > 0) {
+      pushEvent('warning', `⚠️ 略過 ${rootLevelCodes.length} 個直接放在輸入目錄根目錄的檔案（${rootLevelCodes.join('、')}），請先整理進女優資料夾`);
+    }
+    if (folderToCodes.size === 0) {
+      setStatusMessage('沒有可移動的女優資料夾', 'warning');
+      setStatus('idle');
+      return;
+    }
+
+    // 每個資料夾取一個代表番號用於查片商
+    const repCodes = [...folderToCodes.values()].map((codes) => codes[0]);
+    const codeStudioMap: Record<string, string> = await GetStudiosByCodes(repCodes);
+
+    // fallback：對前綴未命中的番號，補查女優→DB 統計
+    const missingActresses = [
+      ...new Set(
+        repCodes
+          .filter((c) => !codeStudioMap[c])
+          .map((c) => codeToActress.get(c) ?? '')
+          .filter(Boolean)
+      ),
+    ];
+    const actressStudioMap: Record<string, string> =
+      missingActresses.length > 0
+        ? await GetActressPrimaryStudios(missingActresses)
+        : {};
+
+    // 建立資料夾移動清單
+    const studioCounts: Record<string, number> = {};
+    const dirItems: Array<{ source: string; destination: string; on_conflict?: string }> = [];
+
+    for (const [actressDir, codes] of folderToCodes) {
+      const repCode = codes[0];
+      const actress = codeToActress.get(repCode) ?? '';
+      const actressName = dirName(actressDir) || actress || '未知女優';
+
+      let studio = codeStudioMap[repCode] ?? '';
+      if (!studio && actress) studio = actressStudioMap[actress] ?? '';
+      if (!studio) studio = '未分類';
+
+      studioCounts[studio] = (studioCounts[studio] ?? 0) + 1;
+
+      const dst =
+        studio === '未分類'
+          ? `${outputDir}\\未分類\\${actressName}`
+          : `${outputDir}\\${studio}\\${actressName}`;
+
+      dirItems.push({ source: actressDir, destination: dst });
+    }
+
+    const studioSummary = Object.entries(studioCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([s, n]) => `${s}(${n})`)
+      .join('、');
+    pushEvent(
+      'info',
+      `🏢 片商分類：移動 ${dirItems.length} 個女優資料夾 → ${Object.keys(studioCounts).length} 個片商`
+    );
+    pushEvent('info', `📊 分類結果：${studioSummary}`);
+
+    // ── 目錄層級分流：全新目標直接搬移；同名目標先做 file-level merge，再 finalize ──
+    let cleanDirResult = emptyBatchResult();
+    let mergeFinalizeResult = emptyBatchResult();
+    try {
+      const dirConflicts = await CheckDirConflicts(dirItems);
+      const mergeDirKeys = new Set(dirConflicts.map((c) => normalizeDirKey(c.destination)));
+      const cleanDirItems = dirItems.filter((i) => !mergeDirKeys.has(normalizeDirKey(i.destination)));
+      const mergeDirItems = dirItems.filter((i) => mergeDirKeys.has(normalizeDirKey(i.destination)));
+
+      if (cleanDirItems.length > 0) {
+        pushEvent('info', `📦 先移動 ${cleanDirItems.length} 個全新目標女優資料夾…`);
+        cleanDirResult = await BatchMoveDirs(cleanDirItems, conflictStrategy);
+        removeMovedDirectoriesFromStore(cleanDirResult);
+      }
+
+      if (mergeDirItems.length > 0) {
+        pushEvent('info', `🧩 發現 ${mergeDirItems.length} 個同名女優資料夾，改以檔案層級合併處理…`);
+        const mergeMoveItems = await PlanDirMergeMoves(mergeDirItems);
+        const mergeFileResult = await executeMoveWithConflictHandling(
+          mergeMoveItems.map((item) => ({
+            source: item.source,
+            destination: item.destination,
+            on_conflict: item.on_conflict ?? conflictStrategy,
+          }))
+        );
+        removeMovedFilesFromStore(mergeFileResult);
+
+        pushEvent('info', '📂 檔案層級合併完成，開始同步空子目錄並清理已搬空來源資料夾…');
+        mergeFinalizeResult = await BatchMoveDirs(mergeDirItems, 'skip');
+      }
+    } catch (err) {
+      const msg = `❌ 片商分類移動失敗：${err}`;
+      setStatusMessage(msg, 'error');
+      pushEvent('error', msg);
+      setStatus('error');
+      return;
+    }
+
+    const finalResult = mergeBatchResults(dirItems.length, cleanDirResult, mergeFinalizeResult);
+    const summary = `移動完成：${finalResult.success_count} 個資料夾成功 / ${finalResult.failed_count} 失敗 / ${finalResult.skipped_count} 略過`;
+    setStatusMessage(summary, finalResult.failed_count > 0 ? 'warning' : 'success');
+    pushEvent(finalResult.failed_count > 0 ? 'warning' : 'success', summary);
+
+    // 移除已成功移動的女優資料夾下的所有 scanResults
+    removeMovedDirectoriesFromStore(finalResult);
+    setLastBatchResult(finalResult);
+    setStatus('idle');
+    resetProgress();
+  }
+
   return (
     <div className="flex items-center gap-2 flex-wrap">
+      {/* 衝突處理對話框（掛在此層，供 handleMove / handleStudioMove 共用）*/}
+      <ConflictResolutionDialog
+        open={conflictDialogOpen}
+        conflictItems={conflictItems}
+        movedCount={movedCount}
+        itemKind={conflictDialogMode}
+        onConfirm={handleConflictConfirm}
+        onCancel={handleConflictCancel}
+      />
       <Button onClick={handleScan} disabled={isRunning} size="sm">
         <Scan className="h-4 w-4 mr-1" />
         掃描
@@ -201,6 +536,14 @@ function ActionToolbar() {
       >
         <FolderOutput className="h-4 w-4 mr-1" />
         移動{selectedCodes.size > 0 ? ` (${selectedCodes.size})` : '全部'}
+      </Button>
+      <Button
+        onClick={handleStudioMove}
+        disabled={isRunning || scanResults.length === 0}
+        size="sm"
+        variant="outline"
+      >
+        🏢 片商分類{selectedCodes.size > 0 ? ` (${selectedCodes.size})` : '全部'}
       </Button>
       {isRunning && (
         <Button

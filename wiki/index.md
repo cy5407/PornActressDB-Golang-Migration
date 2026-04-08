@@ -16,7 +16,7 @@
 | [搜尋引擎](architecture/search-engine.md) | AV-WIKI → JAVDB 級聯搜尋架構 |
 | [技術選型決策](architecture/tech-stack-decisions.md) | 爬蟲/GUI 語言比較與 Wails 長期路線圖 |
 | [**Wails GUI 架構**](architecture/wails-gui.md) | Wails v2 + React 架構、Bindings 對照、W6 清理紀錄 |
-| [**片商分類架構**](architecture/studio-classification.md) | W7 片商分類邏輯、major_studios 判定、DB 統計流程 |
+| [**片商分類架構**](architecture/studio-classification.md) | W7/W8 番號前綴直查（studios.json）+ DB fallback + major_studios 雙層判定 |
 
 ---
 

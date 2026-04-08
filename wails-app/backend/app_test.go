@@ -162,6 +162,113 @@ func TestBatchMoveJSON_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestPlanDirMergeMoves(t *testing.T) {
+	app := newTestApp(t)
+	tmp := t.TempDir()
+
+	srcDir := filepath.Join(tmp, "src")
+	dstDir := filepath.Join(tmp, "dst")
+	subDir := filepath.Join(srcDir, "sub")
+
+	if err := os.MkdirAll(subDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "video.mp4"), []byte("video"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "note.txt"), []byte("note"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := app.PlanDirMergeMoves([]DirMoveItem{{
+		Source:      srcDir,
+		Destination: dstDir,
+		OnConflict:  "rename",
+	}})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 move items, got %d", len(items))
+	}
+
+	bySource := make(map[string]MoveItemRequest, len(items))
+	for _, item := range items {
+		bySource[item.Source] = item
+		if item.OnConflict != "rename" {
+			t.Errorf("expected on_conflict=rename for %q, got %q", item.Source, item.OnConflict)
+		}
+	}
+
+	videoSrc := filepath.Join(srcDir, "video.mp4")
+	videoItem, ok := bySource[videoSrc]
+	if !ok {
+		t.Fatalf("missing move item for %q", videoSrc)
+	}
+	if videoItem.Destination != filepath.Join(dstDir, "video.mp4") {
+		t.Errorf("unexpected video destination: got %q", videoItem.Destination)
+	}
+
+	noteSrc := filepath.Join(subDir, "note.txt")
+	noteItem, ok := bySource[noteSrc]
+	if !ok {
+		t.Fatalf("missing move item for %q", noteSrc)
+	}
+	if noteItem.Destination != filepath.Join(dstDir, "sub", "note.txt") {
+		t.Errorf("unexpected note destination: got %q", noteItem.Destination)
+	}
+}
+
+func TestPlanDirMergeMoves_DestinationInsideSource(t *testing.T) {
+	app := newTestApp(t)
+	tmp := t.TempDir()
+
+	srcDir := filepath.Join(tmp, "src")
+	dstDir := filepath.Join(srcDir, "nested-dst")
+
+	if err := os.MkdirAll(srcDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "video.mp4"), []byte("video"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := app.PlanDirMergeMoves([]DirMoveItem{{
+		Source:      srcDir,
+		Destination: dstDir,
+	}})
+	if err == nil {
+		t.Fatal("expected error when destination is inside source")
+	}
+}
+
+func TestIsSameOrNestedPath_DifferentVolumes(t *testing.T) {
+	sameOrNested, err := isSameOrNestedPath(`C:\source`, `D:\dest`)
+	if err != nil {
+		t.Fatalf("expected nil error for different volumes, got %v", err)
+	}
+	if sameOrNested {
+		t.Fatal("expected different volumes to not be treated as same or nested")
+	}
+}
+
+func TestPlanDirMergeMoves_SourceNotFound(t *testing.T) {
+	app := newTestApp(t)
+	tmp := t.TempDir()
+
+	srcDir := filepath.Join(tmp, "missing")
+	dstDir := filepath.Join(tmp, "dst")
+
+	_, err := app.PlanDirMergeMoves([]DirMoveItem{{
+		Source:      srcDir,
+		Destination: dstDir,
+	}})
+	if err == nil {
+		t.Fatal("expected error when source directory does not exist")
+	}
+}
+
 // ============================================================================
 // Preferences
 // ============================================================================
@@ -291,5 +398,46 @@ func TestRollbackLast_EmptyHistory(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "沒有可回滾") {
 		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// ============================================================================
+// matchesMajorStudio / canonicalMajorStudio
+// ============================================================================
+
+func TestMatchesMajorStudio(t *testing.T) {
+	ms := map[string]bool{
+		"S1":  true,
+		"SOD": true,
+	}
+	tests := []struct {
+		studio string
+		want   bool
+	}{
+		{"S1", true},
+		{"SOD", true},
+		{"SOD CREATE", true}, // prefix match
+		{"UNKNOWN", false},
+		{"", false},
+		{"S1 NO.1 STYLE", true}, // multi-word suffix with dot (plan-specified edge case)
+		{"sod create", true},    // case-insensitive prefix match
+		{"SODCREATE", false},    // no space separator → no prefix match
+	}
+	for _, tc := range tests {
+		t.Run(tc.studio, func(t *testing.T) {
+			got := matchesMajorStudio(tc.studio, ms)
+			if got != tc.want {
+				t.Errorf("matchesMajorStudio(%q) = %v, want %v", tc.studio, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMatchesMajorStudio_EmptyMap(t *testing.T) {
+	if matchesMajorStudio("SOD", map[string]bool{}) {
+		t.Error("empty majorStudios should always return false")
+	}
+	if matchesMajorStudio("", map[string]bool{}) {
+		t.Error("empty studio with empty map should return false")
 	}
 }

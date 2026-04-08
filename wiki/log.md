@@ -5,6 +5,28 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
 > **排序：最新在上**
 
+## [2026-04-08] feature | W7 片商分類移動功能實作完成
+
+**branch**：`feature/w7-studio-classification`  
+**commits**：55fd292 → 62b6747（6 commits）
+
+### 實作內容
+
+| Task | 說明 | 修改檔案 |
+|------|------|---------|
+| T1 | `GetActressPrimaryStudio(actressName)` TDD + 品質修復（db.loaded + nil check）| `pkg/database/jsondb.go`, `jsondb_test.go` |
+| T2 | `majorStudios` 欄位、`loadMajorStudios()`、`GetActressPrimaryStudios()` binding | `wails-app/backend/app.go` |
+| T3 | 手動新增 Wails stubs（build 後自動覆蓋生成）| `App.js`, `App.d.ts` |
+| T4 | `handleStudioMove()` + 「🏢 片商分類」按鈕 | `wails-app/frontend/src/App.tsx` |
+| T5 | `wails build` 驗證（build/bin/actress-classifier.exe）| — |
+
+### 路徑規則
+- 大片商（major_studios.json）→ `outputDir\片商名\女優名\番號.ext`
+- 非大片商 → `outputDir\單體企劃女優\女優名\番號.ext`
+- 無女優資料 → `outputDir\未分類\番號.ext`
+
+---
+
 ## [2026-04-07] docs | W7 片商分類設計完成
 
 **Wiki 新增**：[architecture/studio-classification.md](architecture/studio-classification.md)

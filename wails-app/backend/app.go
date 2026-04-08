@@ -25,16 +25,18 @@ import (
 
 // App is the main application struct exposed as Wails bindings.
 type App struct {
-	ctx        context.Context
-	extractor  *extractor.CodeExtractor
-	mover      *mover.Mover
-	db         *database.JSONDatabase
-	studio     *studio.StudioIdentifier
-	cfgSvc     *services.ConfigService
-	cfgPath    string
-	dbMu       sync.Mutex // 取代 dbOnce，支援設定變更後重置
-	cancelScan context.CancelFunc // 取消掃描/搜尋用
-	cancelMu   sync.Mutex
+	ctx           context.Context
+	extractor     *extractor.CodeExtractor
+	mover         *mover.Mover
+	db            *database.JSONDatabase
+	studio        *studio.StudioIdentifier
+	cfgSvc        *services.ConfigService
+	cfgPath       string
+	dbMu          sync.Mutex         // 取代 dbOnce，支援設定變更後重置
+	cancelScan    context.CancelFunc // 取消掃描/搜尋用
+	cancelMu      sync.Mutex
+	majorStudios  map[string]bool   // 從 major_studios.json 載入
+	codeStudioMap map[string]string // 番號前綴 → 片商名，從 studios.json 載入
 }
 
 // NewApp creates a new App instance.
@@ -48,13 +50,16 @@ func NewApp() *App {
 	// Determine log directory from config
 	logDir := resolveLogDir(cfgPath)
 
-	return &App{
+	app := &App{
 		extractor: extractor.NewCodeExtractor(),
 		mover:     mover.NewMover(logDir),
 		studio:    si,
 		cfgSvc:    cfgSvc,
 		cfgPath:   cfgPath,
 	}
+	app.majorStudios = app.loadMajorStudios()
+	app.codeStudioMap = loadCodeStudioMap(resolveStudiosPath())
+	return app
 }
 
 // ============================================================================
@@ -167,6 +172,149 @@ type BatchMoveResult = mover.BatchResult
 
 // MoveItemRequest is the input shape for BatchMove.
 type MoveItemRequest = mover.MoveItem
+
+// DirMoveItem 表示單一目錄移動請求。
+type DirMoveItem struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+	OnConflict  string `json:"on_conflict,omitempty"` // skip | overwrite | rename；空值使用全域 strategy
+}
+
+// PlanDirMergeMoves 將資料夾移動請求展開為檔案層級的移動清單。
+// 目的地會保留來源資料夾內的相對路徑，供前端直接交給 CheckConflicts / BatchMove 使用。
+func (a *App) PlanDirMergeMoves(items []DirMoveItem) ([]MoveItemRequest, error) {
+	moveItems := make([]MoveItemRequest, 0)
+	for _, item := range items {
+		sameOrNested, err := isSameOrNestedPath(item.Source, item.Destination)
+		if err != nil {
+			return nil, fmt.Errorf("failed to validate source %q and destination %q: %w", item.Source, item.Destination, err)
+		}
+		if sameOrNested {
+			// 來源與目標相同（女優已在正確位置），略過該項目
+			continue
+		}
+
+		onConflict := mover.ConflictStrategy(item.OnConflict)
+		itemMoves := make([]MoveItemRequest, 0)
+		err = filepath.Walk(item.Source, func(path string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return fmt.Errorf("failed to read %q: %w", path, walkErr)
+			}
+			if info == nil || info.IsDir() {
+				return nil
+			}
+
+			relPath, relErr := filepath.Rel(item.Source, path)
+			if relErr != nil {
+				return fmt.Errorf("failed to compute relative path for %q: %w", path, relErr)
+			}
+
+			itemMoves = append(itemMoves, MoveItemRequest{
+				Source:      path,
+				Destination: filepath.Join(item.Destination, relPath),
+				OnConflict:  onConflict,
+			})
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to plan directory merge from %q to %q: %w", item.Source, item.Destination, err)
+		}
+		moveItems = append(moveItems, itemMoves...)
+	}
+	return moveItems, nil
+}
+
+func isSameOrNestedPath(source, destination string) (bool, error) {
+	sourceAbs, err := filepath.Abs(source)
+	if err != nil {
+		return false, err
+	}
+	destinationAbs, err := filepath.Abs(destination)
+	if err != nil {
+		return false, err
+	}
+
+	sourceAbs = filepath.Clean(sourceAbs)
+	destinationAbs = filepath.Clean(destinationAbs)
+
+	sourceVolume := filepath.VolumeName(sourceAbs)
+	destinationVolume := filepath.VolumeName(destinationAbs)
+	if sourceVolume != "" || destinationVolume != "" {
+		if !strings.EqualFold(sourceVolume, destinationVolume) {
+			return false, nil
+		}
+	}
+
+	relPath, err := filepath.Rel(sourceAbs, destinationAbs)
+	if err != nil {
+		return false, err
+	}
+	if relPath == "." {
+		return true, nil
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+		return false, nil
+	}
+	return true, nil
+}
+
+// BatchMoveDirs 以資料夾為單位批次移動。
+// 每個 item.Source 為來源資料夾，item.Destination 為目標資料夾（含最終目錄名）。
+// 操作記錄會寫入 mover opLog，支援 RollbackOperation。
+// strategy 為全域預設衝突策略；可透過 item.OnConflict 覆蓋個別項目。
+func (a *App) BatchMoveDirs(items []DirMoveItem, strategy string) BatchMoveResult {
+	cs := mover.ConflictStrategy(strategy)
+	moveItems := make([]mover.MoveItem, len(items))
+	for i, item := range items {
+		oc := mover.ConflictStrategy(item.OnConflict)
+		if oc == "" {
+			oc = cs
+		}
+		moveItems[i] = mover.MoveItem{
+			Source:      item.Source,
+			Destination: item.Destination,
+			OnConflict:  oc,
+		}
+	}
+	return a.mover.BatchMoveDirs(a.ctx, moveItems)
+}
+
+// CheckDirConflicts 返回目的地目錄已存在（非空）的移動項目列表。
+// 前端可呼叫此方法在執行 BatchMoveDirs 前偵測衝突，讓使用者選擇處理方式。
+func (a *App) CheckDirConflicts(items []DirMoveItem) []ConflictItem {
+	conflicts := make([]ConflictItem, 0)
+	for _, item := range items {
+		entries, err := os.ReadDir(item.Destination)
+		if err == nil && len(entries) > 0 {
+			conflicts = append(conflicts, ConflictItem{
+				Source:      item.Source,
+				Destination: item.Destination,
+			})
+		}
+	}
+	return conflicts
+}
+
+// ConflictItem 代表一個目的地已存在的移動項目。
+type ConflictItem struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+}
+
+// CheckConflicts 返回目的地檔案已存在的移動項目列表。
+// 前端可呼叫此方法在執行批次移動前偵測衝突，讓使用者選擇處理方式。
+func (a *App) CheckConflicts(items []MoveItemRequest) []ConflictItem {
+	conflicts := make([]ConflictItem, 0)
+	for _, item := range items {
+		if _, err := os.Stat(item.Destination); err == nil {
+			conflicts = append(conflicts, ConflictItem{
+				Source:      item.Source,
+				Destination: item.Destination,
+			})
+		}
+	}
+	return conflicts
+}
 
 // MoveFile moves a single file from src to dst using the given conflict strategy.
 // strategy: "skip" | "overwrite" | "rename"
@@ -339,8 +487,6 @@ func (a *App) SelectDirectory(title string) string {
 	}
 	return dir
 }
-
-
 
 // SearchErrorKind classifies the failure reason from a Python subprocess call.
 // Values: "" (success), "timeout", "stderr", "json_parse", "not_found"
@@ -555,8 +701,96 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 }
 
 // ============================================================================
-// Internal helpers
+// Studio Classification
 // ============================================================================
+
+// GetActressPrimaryStudios 批次查詢女優的主要片商資料夾名稱。
+//
+// 返回 map[女優名] → 片商資料夾：
+//   - 大片商（major_studios.json 內）→ 片商名（如 "S1"）
+//   - 非大片商或跨多片商（作品最多但不是大片商）→ "單體企劃女優"
+//   - 無任何 studio 記錄 → ""（前端應歸入「未分類」）
+func (a *App) GetActressPrimaryStudios(actressNames []string) map[string]string {
+	a.ensureDB()
+	result := make(map[string]string, len(actressNames))
+	seen := map[string]bool{}
+	for _, name := range actressNames {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		studio := a.db.GetActressPrimaryStudio(name)
+		switch {
+		case studio == "":
+			result[name] = "" // 無資料，前端決定路徑
+		case matchesMajorStudio(studio, a.majorStudios):
+			canonical, _ := canonicalMajorStudio(studio, a.majorStudios)
+			result[name] = canonical
+		default:
+			result[name] = "單體企劃女優" // 非大片商
+		}
+	}
+	return result
+}
+
+// GetStudioByCode 依番號前綴查片商名稱（真實來源：studios.json）。
+// 返回值：大片商名稱（如 "MOODYZ"）、"單體企劃女優"（非大片商）或 ""（未知）。
+func (a *App) GetStudioByCode(code string) string {
+	prefix := extractCodePrefix(code)
+	if prefix == "" {
+		return ""
+	}
+	studioName, ok := a.codeStudioMap[strings.ToUpper(prefix)]
+	if !ok {
+		return ""
+	}
+	upper := strings.ToUpper(studioName)
+	if a.majorStudios[upper] {
+		return upper
+	}
+	return "單體企劃女優"
+}
+
+// GetStudiosByCodes 批次依番號前綴查片商（真實來源：studios.json）。
+// 回傳 map[code → studio]；未知前綴的 code 對應值為 ""。
+func (a *App) GetStudiosByCodes(codes []string) map[string]string {
+	result := make(map[string]string, len(codes))
+	for _, code := range codes {
+		result[code] = a.GetStudioByCode(code)
+	}
+	return result
+}
+
+// extractCodePrefix 從番號擷取字母前綴，例如 "MIDA-583" → "MIDA"。
+func extractCodePrefix(code string) string {
+	code = strings.TrimSpace(code)
+	for i, ch := range code {
+		if ch == '-' || (ch >= '0' && ch <= '9') {
+			return strings.ToUpper(code[:i])
+		}
+	}
+	return strings.ToUpper(code)
+}
+
+// loadCodeStudioMap 解析 studios.json（格式：{片商名: [前綴…]}），
+// 建立並返回反向映射 prefix(uppercase) → 片商名。
+func loadCodeStudioMap(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]string{}
+	}
+	var raw map[string][]string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return map[string]string{}
+	}
+	result := make(map[string]string)
+	for studioName, prefixes := range raw {
+		for _, p := range prefixes {
+			result[strings.ToUpper(strings.TrimSpace(p))] = studioName
+		}
+	}
+	return result
+}
 
 func (a *App) ensureDB() {
 	a.dbMu.Lock()
@@ -604,6 +838,69 @@ func resolveStudiosPath() string {
 		}
 	}
 	return "studios.json"
+}
+
+// resolveMajorStudiosPath 以與 resolveStudiosPath 相同邏輯尋找 major_studios.json。
+func resolveMajorStudiosPath() string {
+	exe, err := os.Executable()
+	if err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "major_studios.json")
+		if _, err2 := os.Stat(candidate); err2 == nil {
+			return candidate
+		}
+	}
+	return "major_studios.json"
+}
+
+// loadMajorStudios 載入 major_studios.json，返回片商名稱 set。
+// 若檔案不存在或解析失敗，返回空 map（不 fatal）。
+func (a *App) loadMajorStudios() map[string]bool {
+	path := resolveMajorStudiosPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]bool{}
+	}
+	var names []string
+	if err := json.Unmarshal(data, &names); err != nil {
+		return map[string]bool{}
+	}
+	result := make(map[string]bool, len(names))
+	for _, name := range names {
+		result[strings.ToUpper(strings.TrimSpace(name))] = true
+	}
+	return result
+}
+
+// canonicalMajorStudio returns the normalized key from majorStudios if studio
+// matches (case-insensitive exact or prefix-with-space).
+// Returns ("", false) if not matched.
+// majorStudios keys must already be uppercase (guaranteed by loadMajorStudios).
+func canonicalMajorStudio(studio string, majorStudios map[string]bool) (string, bool) {
+	upper := strings.ToUpper(strings.TrimSpace(studio))
+	if upper == "" {
+		return "", false
+	}
+	if majorStudios[upper] {
+		return upper, true
+	}
+	best := ""
+	for major := range majorStudios {
+		if strings.HasPrefix(upper, major+" ") {
+			if len(major) > len(best) { // longest (most specific) match wins
+				best = major
+			}
+		}
+	}
+	if best != "" {
+		return best, true
+	}
+	return "", false
+}
+
+// matchesMajorStudio returns true if studio belongs to any major studio.
+func matchesMajorStudio(studio string, majorStudios map[string]bool) bool {
+	_, ok := canonicalMajorStudio(studio, majorStudios)
+	return ok
 }
 
 func resolveDataDir(cfgPath string) string {

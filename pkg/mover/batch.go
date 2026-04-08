@@ -52,8 +52,77 @@ func (m *Mover) batchMoveWithType(ctx context.Context, items []MoveItem, opType 
 	} else {
 		opLog.Status = "failed"
 	}
-	opLog.TotalItems, opLog.SuccessCount = result.TotalItems, result.SuccessCount
-	opLog.FailedCount, opLog.SkippedCount = result.FailedCount, result.SkippedCount
+	return m.finalizeBatchResult(start, &result, opLog, "")
+}
+
+// BatchMoveDirs 批次移動目錄，每個 item 的 Source 為來源目錄，Destination 為目標目錄。
+// 操作記錄以 "batch_move_dirs" 類型寫入 opLog，支援 RollbackOperation。
+// 判斷完整成功（dirFullyMoved）的條件：mr.Success && mr.FilesSkipped == 0 && mr.DeletedSrc。
+// 只要來源目錄仍存在（例如有 skipped 檔案，或刪除來源目錄失敗），
+// 整個目錄即視為未完整移走，計入 SkippedCount。
+// 注意：directory batch 的 MoveResult.Destination 代表實際落點；若發生 rename，
+// MoveResult.Renamed 也會填入同一個實際路徑，供前端顯示實際改名結果。
+func (m *Mover) BatchMoveDirs(ctx context.Context, items []MoveItem) BatchResult {
+	return m.batchMoveDirsWithType(ctx, items, "batch_move_dirs")
+}
+
+func (m *Mover) batchMoveDirsWithType(ctx context.Context, items []MoveItem, opType string) BatchResult {
+	start := time.Now()
+	result := BatchResult{TotalItems: len(items), Results: make([]MoveResult, 0, len(items))}
+	opLog := m.createOperationLog(opType, items)
+
+	for i, item := range items {
+		select {
+		case <-ctx.Done():
+			opLog.Status = "cancelled"
+			return m.finalizeBatchResult(start, &result, opLog, "批次目錄移動已取消")
+		default:
+		}
+
+		strategy := item.OnConflict
+		if strategy == "" {
+			strategy = m.DefaultStrategy
+		}
+		mr := m.MoveDir(item.Source, item.Destination, strategy)
+		moveResult := MoveResult{
+			Source:      item.Source,
+			Destination: mr.DestDir,
+			Success:     mr.Success,
+			// Renamed 維持零值：合併語意下整個目錄不更名，衝突由內部檔案層級 Rename 處理
+		}
+		if !mr.Success {
+			if len(mr.Errors) > 0 {
+				moveResult.Error = mr.Errors[0].Error
+			} else {
+				moveResult.Error = fmt.Sprintf("移動 %d/%d 個檔案後失敗", mr.FilesMoved, mr.FilesTotal)
+			}
+		}
+
+		dirFullyMoved := mr.Success && mr.FilesSkipped == 0 && mr.DeletedSrc
+		opLog.Items[i].Destination = mr.DestDir
+
+		if !mr.Success {
+			result.FailedCount++
+			opLog.Items[i].Status = "failed"
+			opLog.Items[i].Error = moveResult.Error
+		} else if dirFullyMoved {
+			result.SuccessCount++
+			opLog.Items[i].Status = "success"
+		} else {
+			result.SkippedCount++
+			moveResult.Skipped = true
+			opLog.Items[i].Status = "skipped"
+		}
+		result.Results = append(result.Results, moveResult)
+	}
+
+	if result.FailedCount == 0 && result.SkippedCount == 0 {
+		opLog.Status = "completed"
+	} else if result.SuccessCount > 0 || result.SkippedCount > 0 {
+		opLog.Status = "partial"
+	} else {
+		opLog.Status = "failed"
+	}
 	return m.finalizeBatchResult(start, &result, opLog, "")
 }
 

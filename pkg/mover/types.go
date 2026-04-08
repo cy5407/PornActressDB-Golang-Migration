@@ -32,13 +32,14 @@ type MoveResult struct {
 
 // MergeResult 表示資料夾合併結果
 type MergeResult struct {
-	SourceDir  string       `json:"source_dir"`
-	DestDir    string       `json:"dest_dir"`
-	FilesMoved int          `json:"files_moved"`
-	FilesTotal int          `json:"files_total"`
-	Errors     []MoveResult `json:"errors,omitempty"`
-	Success    bool         `json:"success"`
-	DeletedSrc bool         `json:"deleted_src"`
+	SourceDir    string       `json:"source_dir"`
+	DestDir      string       `json:"dest_dir"`
+	FilesMoved   int          `json:"files_moved"`
+	FilesSkipped int          `json:"files_skipped"`
+	FilesTotal   int          `json:"files_total"`
+	Errors       []MoveResult `json:"errors,omitempty"`
+	Success      bool         `json:"success"`
+	DeletedSrc   bool         `json:"deleted_src"`
 }
 
 // BatchResult 表示批次移動結果

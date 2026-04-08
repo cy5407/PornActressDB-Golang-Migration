@@ -6,6 +6,10 @@ export function BatchMove(arg1, arg2) {
   return window['go']['backend']['App']['BatchMove'](arg1, arg2);
 }
 
+export function BatchMoveDirs(arg1, arg2) {
+  return window['go']['backend']['App']['BatchMoveDirs'](arg1, arg2);
+}
+
 export function BatchMoveJSON(arg1, arg2) {
   return window['go']['backend']['App']['BatchMoveJSON'](arg1, arg2);
 }
@@ -16,6 +20,14 @@ export function BatchSearch(arg1, arg2) {
 
 export function CancelOperation() {
   return window['go']['backend']['App']['CancelOperation']();
+}
+
+export function CheckConflicts(arg1) {
+  return window['go']['backend']['App']['CheckConflicts'](arg1);
+}
+
+export function CheckDirConflicts(arg1) {
+  return window['go']['backend']['App']['CheckDirConflicts'](arg1);
 }
 
 export function DbGetVideo(arg1) {
@@ -30,12 +42,24 @@ export function DbUpdateVideo(arg1, arg2) {
   return window['go']['backend']['App']['DbUpdateVideo'](arg1, arg2);
 }
 
+export function GetActressPrimaryStudios(arg1) {
+  return window['go']['backend']['App']['GetActressPrimaryStudios'](arg1);
+}
+
 export function GetOperation(arg1) {
   return window['go']['backend']['App']['GetOperation'](arg1);
 }
 
 export function GetPreferences() {
   return window['go']['backend']['App']['GetPreferences']();
+}
+
+export function GetStudioByCode(arg1) {
+  return window['go']['backend']['App']['GetStudioByCode'](arg1);
+}
+
+export function GetStudiosByCodes(arg1) {
+  return window['go']['backend']['App']['GetStudiosByCodes'](arg1);
 }
 
 export function IdentifyStudio(arg1) {
@@ -56,6 +80,10 @@ export function MoveDir(arg1, arg2, arg3) {
 
 export function MoveFile(arg1, arg2, arg3) {
   return window['go']['backend']['App']['MoveFile'](arg1, arg2, arg3);
+}
+
+export function PlanDirMergeMoves(arg1) {
+  return window['go']['backend']['App']['PlanDirMergeMoves'](arg1);
 }
 
 export function PythonSearch(arg1) {

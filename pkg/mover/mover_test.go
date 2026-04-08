@@ -236,12 +236,222 @@ func TestMoveDir_Basic(t *testing.T) {
 	if !fileExists(filepath.Join(dstDir, "subdir", "file2.txt")) {
 		t.Error("subdir/file2.txt 應該存在於目標")
 	}
-	if result.DeletedSrc && fileExists(srcDir) {
-		t.Error("來源目錄應該被刪除")
+	if !result.DeletedSrc {
+		t.Error("來源目錄應該被刪除 (DeletedSrc = false)")
+	}
+	if fileExists(srcDir) {
+		t.Error("來源目錄應該被刪除（檔案系統上仍存在）")
+	}
+}
+
+func TestMoveDir_PartialSkipKeepsSource(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcDir := filepath.Join(tempDir, "source")
+	dstDir := filepath.Join(tempDir, "dest")
+
+	createTestFile(t, filepath.Join(srcDir, "a.txt"), "A")
+	createTestFile(t, filepath.Join(srcDir, "b.txt"), "B-src")
+	createTestFile(t, filepath.Join(dstDir, "b.txt"), "B-dst")
+
+	m := NewMover("")
+	result := m.MoveDir(srcDir, dstDir, Skip)
+
+	if !result.Success {
+		t.Fatalf("MoveDir 應成功，errors=%v", result.Errors)
+	}
+	if result.FilesMoved != 1 {
+		t.Fatalf("FilesMoved = %d, want 1", result.FilesMoved)
+	}
+	if result.FilesSkipped != 1 {
+		t.Fatalf("FilesSkipped = %d, want 1", result.FilesSkipped)
+	}
+	if result.DeletedSrc {
+		t.Fatal("來源目錄不應被刪除，因為仍有 skipped 檔案留在來源")
+	}
+	if !fileExists(filepath.Join(srcDir, "b.txt")) {
+		t.Fatal("skipped 的來源檔案必須保留")
+	}
+}
+
+func TestMoveDir_PreservesEmptySubdirs(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcDir := filepath.Join(tempDir, "source")
+	dstDir := filepath.Join(tempDir, "dest")
+
+	if err := os.MkdirAll(filepath.Join(srcDir, "empty", "nested"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	createTestFile(t, filepath.Join(srcDir, "has-file", "video.txt"), "ok")
+
+	m := NewMover("")
+	result := m.MoveDir(srcDir, dstDir, Skip)
+
+	if !result.Success {
+		t.Fatalf("MoveDir 應成功，errors=%v", result.Errors)
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "empty", "nested")); err != nil {
+		t.Fatalf("空子目錄應該被保留到目標: %v", err)
+	}
+}
+
+func TestMoveDir_ConflictRenameMergesIntoExistingDirectory(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcDir := filepath.Join(tempDir, "Julia")
+	dstDir := filepath.Join(tempDir, "studio", "Julia")
+
+	createTestFile(t, filepath.Join(srcDir, "same.txt"), "src")
+	createTestFile(t, filepath.Join(srcDir, "nested", "keep.txt"), "nested-src")
+	if err := os.MkdirAll(filepath.Join(srcDir, "empty", "nested"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	createTestFile(t, filepath.Join(dstDir, "same.txt"), "dst")
+	createTestFile(t, filepath.Join(dstDir, "existing.txt"), "dst")
+
+	m := NewMover("")
+	result := m.MoveDir(srcDir, dstDir, Rename)
+
+	if !result.Success {
+		t.Fatalf("Rename 應成功，errors=%v", result.Errors)
+	}
+	if result.DestDir != dstDir {
+		t.Fatalf("DestDir = %s, want %s", result.DestDir, dstDir)
+	}
+	if !fileExists(filepath.Join(dstDir, "same_1.txt")) {
+		t.Fatal("同名衝突檔案應在既有目標資料夾內重新命名")
+	}
+	if content := readFile(t, filepath.Join(dstDir, "same_1.txt")); content != "src" {
+		t.Fatalf("same_1.txt 內容錯誤，got %q", content)
+	}
+	if !fileExists(filepath.Join(dstDir, "same.txt")) {
+		t.Fatal("原本目標中的 same.txt 應保留不變")
+	}
+	if content := readFile(t, filepath.Join(dstDir, "same.txt")); content != "dst" {
+		t.Fatalf("原本目標 same.txt 內容錯誤，got %q", content)
+	}
+	if !fileExists(filepath.Join(dstDir, "existing.txt")) {
+		t.Fatal("原本已存在的目標檔案應保留不變")
+	}
+	if !fileExists(filepath.Join(dstDir, "nested", "keep.txt")) {
+		t.Fatal("非衝突檔案應直接 merge 到既有目標資料夾")
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "empty", "nested")); err != nil {
+		t.Fatalf("空子目錄應保留在 merge 後的目標資料夾: %v", err)
+	}
+	if fileExists(filepath.Join(tempDir, "studio", "Julia_1")) {
+		t.Fatal("不應把整個目標資料夾改名成 Julia_1")
+	}
+}
+
+func TestMoveDir_DestinationInsideSource(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcDir := filepath.Join(tempDir, "source")
+	dstDir := filepath.Join(srcDir, "nested-dest")
+
+	createTestFile(t, filepath.Join(srcDir, "video.txt"), "source-video")
+	createTestFile(t, filepath.Join(dstDir, "keep.txt"), "keep")
+
+	m := NewMover("")
+	m.DryRun = true
+	result := m.MoveDir(srcDir, dstDir, Skip)
+
+	if result.Success {
+		t.Fatal("當目標位於來源目錄內時應安全失敗")
+	}
+	if result.DeletedSrc {
+		t.Fatal("拒絕危險路徑時不應刪除來源目錄")
+	}
+	if len(result.Errors) == 0 {
+		t.Fatal("應回傳明確錯誤")
+	}
+	if !strings.Contains(result.Errors[0].Error, "目標目錄不能位於來源目錄內") {
+		t.Fatalf("錯誤訊息應說明目標在來源內，got %q", result.Errors[0].Error)
+	}
+	if !fileExists(srcDir) {
+		t.Fatal("來源目錄應保持存在")
+	}
+	if !fileExists(filepath.Join(srcDir, "video.txt")) {
+		t.Fatal("來源檔案不應被搬移")
+	}
+	if !fileExists(dstDir) {
+		t.Fatal("既有目標子目錄不應被刪除")
+	}
+	if content := readFile(t, filepath.Join(dstDir, "keep.txt")); content != "keep" {
+		t.Fatalf("既有目標子目錄內容應保持不變，got %q", content)
 	}
 }
 
 // === 批次移動測試 ===
+
+func TestBatchMoveDirs_PartialDirectoryMarkedSkipped(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcDir := filepath.Join(tempDir, "Julia")
+	dstDir := filepath.Join(tempDir, "studio", "Julia")
+
+	createTestFile(t, filepath.Join(srcDir, "a.txt"), "A")
+	createTestFile(t, filepath.Join(srcDir, "b.txt"), "B-src")
+	createTestFile(t, filepath.Join(dstDir, "b.txt"), "B-dst")
+
+	m := NewMover(tempDir)
+	result := m.BatchMoveDirs(context.Background(), []MoveItem{
+		{Source: srcDir, Destination: dstDir, OnConflict: Skip},
+	})
+
+	if result.SuccessCount != 0 {
+		t.Fatalf("SuccessCount = %d, want 0", result.SuccessCount)
+	}
+	if result.SkippedCount != 1 {
+		t.Fatalf("SkippedCount = %d, want 1", result.SkippedCount)
+	}
+	if len(result.Results) != 1 || !result.Results[0].Skipped {
+		t.Fatalf("目錄項目應標記為 skipped/incomplete")
+	}
+	if result.Status != "partial" {
+		t.Fatalf("Status = %s, want partial", result.Status)
+	}
+}
+
+func TestBatchMoveDirs_RenameStoresMergedDestination(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcDir := filepath.Join(tempDir, "Julia")
+	dstDir := filepath.Join(tempDir, "studio", "Julia")
+
+	createTestFile(t, filepath.Join(srcDir, "same.txt"), "src")
+	createTestFile(t, filepath.Join(dstDir, "existing.txt"), "dst")
+	createTestFile(t, filepath.Join(dstDir, "same.txt"), "dst-same")
+
+	m := NewMover(tempDir)
+	result := m.BatchMoveDirs(context.Background(), []MoveItem{
+		{Source: srcDir, Destination: dstDir, OnConflict: Rename},
+	})
+
+	if len(result.Results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(result.Results))
+	}
+	if result.Results[0].Destination != dstDir {
+		t.Fatalf("Destination = %s, want %s", result.Results[0].Destination, dstDir)
+	}
+	if result.Results[0].Renamed != "" {
+		t.Fatalf("整個資料夾不應標記為 renamed，got %s", result.Results[0].Renamed)
+	}
+	if !fileExists(filepath.Join(dstDir, "same_1.txt")) {
+		t.Fatal("批次目錄移動應在 merge 目標內對衝突檔案重新命名")
+	}
+	if fileExists(filepath.Join(tempDir, "studio", "Julia_1")) {
+		t.Fatal("批次目錄移動不應建立 Julia_1 目錄")
+	}
+}
 
 func TestBatchMove_Basic(t *testing.T) {
 	tempDir, cleanup := setupTestEnv(t)
