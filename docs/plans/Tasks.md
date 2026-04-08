@@ -4,6 +4,30 @@
 
 ---
 
+## W8 同名女優資料夾合併語意修正（待實作）
+
+> 2026-04-08 新澄清：同名女優資料夾應比照 Windows 直接合併，不應整個資料夾 rename 成 `ABC_1`。  
+> 完整計畫見：`docs/superpowers/plans/2026-04-08-w8-folder-merge-semantics.md`
+
+- [x] 同名女優資料夾不再整個 rename，改為直接合併
+- [x] `rename` 僅套用在資料夾內部的同名檔案
+- [x] Wails backend 新增 `PlanDirMergeMoves()` binding，提供 file-level merge move items
+- [x] 片商分類的同名資料夾改走 file-level conflict flow
+- [x] `summary` / `lastBatchResult` / `scanResults` 在 merge 模式下維持正確
+
+---
+
+## W8 片商分類後續修復
+
+- [x] D1：`MoveDir` 在部分 moved + skipped 時不再刪除來源資料夾
+- [x] D8：`MoveDir` 改為保留空子目錄，一起搬移整個女優資料夾結構
+- [x] D9：`BatchMoveDirs` 僅在資料夾完整搬走時才算 success；部分完成不再提前自列表移除
+- [x] D10：`handleStudioMove` 以正規化路徑比較 `inputDir`，避免誤搬整個輸入根目錄
+- [x] D11：directory `rename` 改為整個資料夾改名，衝突對話框文案同步
+- [x] D12：片商分類兩階段目錄移動結果已合併到最終 summary / `lastBatchResult`
+
+---
+
 ## 前置準備
 
 - [x] 確認 Go 環境可用

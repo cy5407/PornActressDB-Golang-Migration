@@ -95,7 +95,8 @@ func (m *Mover) generateUniqueName(path string) string {
 		f, err := os.OpenFile(candidatePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
 		if err == nil {
 			f.Close()
-			os.Remove(candidatePath)
+			// 保留佔位檔，以原子方式鎖定路徑，避免 TOCTOU。
+			// 後續 copyFile（O_TRUNC）或 os.Rename（Linux atomic replace）會覆寫此佔位檔。
 			return candidatePath
 		}
 		if !os.IsExist(err) {

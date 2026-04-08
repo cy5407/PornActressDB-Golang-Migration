@@ -1,7 +1,76 @@
 # 專案程式碼巡檢持續追蹤報告
 
-最後更新：2026-04-06 17:41 (Asia/Taipei)
+最後更新：2026-04-08 巡檢第二輪（P1/P2/P3 修復完成）
 基準提交：`da535ca` `fix(extractor): siteRe 通用化`
+
+---
+
+## 本輪巡檢（2026-04-08 第二輪）— P1/P2/P3 修復驗證
+
+### 本輪已修復
+
+| ID | 位置 | 問題 | 修復內容 |
+|----|------|------|----------|
+| P1 | `pkg/mover/file_move.go` `generateUniqueName` | TOCTOU：建立佔位檔後立即 `os.Remove`，造成競爭窗口 | 移除 `os.Remove`，保留佔位檔以原子方式鎖定路徑；後續 `copyFile(O_TRUNC)` 或 Linux `os.Rename` 原子覆寫 |
+| P2 | `pkg/mover/file_move.go` Rename case | DryRun 模式下仍呼叫 `generateUniqueName` 觸碰檔案系統，建立後立即刪除暫存佔位檔 | 在 Rename case 加 `if m.DryRun` guard，乾跑時合成 `_1` 後綴路徑，完全不觸碰檔案系統 |
+| P3 | `pkg/mover/batch.go` `batchMoveDirsWithType` | 合併語意後 `mr.DestDir != item.Destination` 永不成立，`moveResult.Renamed = mr.DestDir` 為死碼 | 移除整個 `if` block，並加註說明 Renamed 維持零值的原因 |
+
+### 本輪驗證結果
+
+- `go test ./pkg/mover -v -count=1`：**20/20 PASS** ✅
+- `go test ./backend/... -run "PlanDirMerge|IsSameOrNested"`：**4/4 PASS** ✅
+
+### 本輪狀態
+
+- P1 / P2 / P3 修復完成，測試全通過
+- 所有 Remove 操作均為搬移語意，無使用者資料刪除操作
+
+---
+
+## 本輪巡檢（2026-04-08）— Wails 片商分類 / 目錄移動追查
+
+### 本輪先讀取的歷史來源
+- `git log --oneline -20`
+- `AGENTS.md`：「已修復問題紀錄」「已知未解決問題」
+- `security_reports/code_review_tracking.md`
+- 目前工作樹未提交變更（`pkg/mover/*`、`wails-app/backend/app.go`、`wails-app/frontend/src/App.tsx`）
+
+### 已驗證不再成立的舊問題
+- D2 `Rollback(batch_move_dirs)` 完全失效：**已修**
+- D3 `append` 後才設 `Skipped`：**已修**
+- D5 `handleStudioMove` stale closure：**已修**
+- D6 缺少 `setLastBatchResult`：**已修**
+- D7 `batchMoveWithType` 冗餘統計欄位：**已修**
+
+### 本輪已修復
+
+| ID | 位置 | 修復內容 |
+|----|------|----------|
+| D1 | `pkg/mover/dir_move.go` | 只有在無 error、無 skipped、來源可完整清空時才刪除來源資料夾，避免 skipped 檔案被連帶刪掉 |
+| D8 | `pkg/mover/dir_move.go` | `MoveDir` 改為逐層建立目標子目錄，空子目錄也會一起搬移 |
+| D9 | `pkg/mover/batch.go`、`wails-app/frontend/src/App.tsx` | `BatchMoveDirs` 以 `FilesSkipped == 0 && DeletedSrc` 判定完整成功；前端只移除真正完整搬走的女優資料夾 |
+| D10 | `wails-app/frontend/src/App.tsx` | 新增 `normalizeDirKey()` 後再比較 `inputDir` / `parentDir()`，避免 `/` 與 `\` 混用時誤搬根目錄 |
+| D11 | `pkg/mover/dir_move.go`、`ConflictResolutionDialog.tsx` | directory `rename` 改為整個目標資料夾改名（如 `Julia_1`），UI 說明同步對齊真實行為 |
+| D12 | `wails-app/frontend/src/App.tsx` | 片商分類的 non-conflict / conflict 兩批 `BatchMoveDirs` 結果會合併後再更新 summary、`scanResults`、`lastBatchResult` |
+
+### 本輪驗證方式
+- 定向閱讀：
+  - `pkg/mover/batch.go`
+  - `pkg/mover/dir_move.go`
+  - `pkg/mover/rollback.go`
+  - `wails-app/backend/app.go`
+  - `wails-app/frontend/src/App.tsx`
+  - `wails-app/frontend/src/components/ConflictResolutionDialog.tsx`
+- 補充使用 code-review agent 檢查目前未提交變更
+
+### 本輪驗證結果
+- `go test ./pkg/mover -v`：通過
+- `cd wails-app && go build ./backend/...`：通過
+- `cd wails-app/frontend && npx tsc --noEmit`：通過
+
+### 本輪狀態
+- D1 / D8 / D9 / D10 / D11 / D12 已在目前工作樹修復完成
+- 已同步更新 SQL `issues` / `todos` 追蹤表
 
 ---
 

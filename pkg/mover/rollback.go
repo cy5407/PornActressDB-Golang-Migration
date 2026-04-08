@@ -13,6 +13,8 @@ func (m *Mover) Rollback(operationID string) (BatchResult, error) {
 		return BatchResult{}, fmt.Errorf("無法載入操作日誌: %v", err)
 	}
 
+	isDirOp := opLog.Type == "batch_move_dirs"
+
 	var items []MoveItem
 	var originalIndices []int
 	for i, item := range opLog.Items {
@@ -22,7 +24,14 @@ func (m *Mover) Rollback(operationID string) (BatchResult, error) {
 		}
 	}
 
-	result := m.batchMoveWithType(context.Background(), items, "rollback")
+	var result BatchResult
+	if isDirOp {
+		// 目錄級回滾：反向移動整個目錄
+		result = m.batchMoveDirsWithType(context.Background(), items, "rollback")
+	} else {
+		result = m.batchMoveWithType(context.Background(), items, "rollback")
+	}
+
 	for ri, origIdx := range originalIndices {
 		if ri >= len(result.Results) {
 			continue

@@ -1,5 +1,19 @@
 export namespace backend {
 	
+	export class ConflictItem {
+	    source: string;
+	    destination: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConflictItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.destination = source["destination"];
+	    }
+	}
 	export class ScanResult {
 	    path: string;
 	    code: string;
