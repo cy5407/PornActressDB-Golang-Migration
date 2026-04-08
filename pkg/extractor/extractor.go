@@ -89,11 +89,9 @@ func NewCodeExtractor() *CodeExtractor {
 	}
 
 	// Skip patterns for FC2/PPV files
-	// PPV 只 skip 6位數以上（FC2-PPV 業餘影片）；5位數以下為片商番號格式，不 skip
+	// FC2 開頭全部放棄；PPV 只 skip 6位數以上（FC2-PPV 業餘影片）；5位數以下為片商番號格式，不 skip
 	e.skipPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`^FC2[-_]`),
-		regexp.MustCompile(`^FC2PPV[-_]`),
-		regexp.MustCompile(`^FC2\d`),
+		regexp.MustCompile(`^FC2`),
 		regexp.MustCompile(`^PPV[-_]\d{6,}`),
 		regexp.MustCompile(`^PPV\d{6,}`),
 	}
