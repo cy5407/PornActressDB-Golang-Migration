@@ -92,9 +92,9 @@ func (m *Mover) generateUniqueName(path string) string {
 	name := base[:len(base)-len(fileExt)]
 	for i := 1; i <= generateUniqueNameMaxAttempts; i++ {
 		candidatePath := filepath.Join(dir, fmt.Sprintf("%s_%d%s", name, i, fileExt))
-		f, err := os.OpenFile(candidatePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
+		f, err := os.OpenFile(candidatePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600) // #nosec G304 -- path is program-constructed via filepath.Join, not from user input
 		if err == nil {
-			f.Close()
+			_ = f.Close()
 			// 保留佔位檔，以原子方式鎖定路徑，避免 TOCTOU。
 			// 後續 copyFile（O_TRUNC）或 os.Rename（Linux atomic replace）會覆寫此佔位檔。
 			return candidatePath
