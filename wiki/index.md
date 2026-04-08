@@ -31,6 +31,7 @@
 | [零女優二次搜尋](patterns/zero-actress-retry.md) | 零女優自動清快取 + 第二輪 JAVDB 搜尋流程 |
 | [命名規範](patterns/naming-conventions.md) | Python/Go/JSON/CLI API 動詞與跨語言對應規則 |
 | [Python Fallback 移除](patterns/remove-python-fallback.md) | Phase 6 策略：寫入→RuntimeError、讀取→記憶體、整刪包裝類別 |
+| [Session Cleaner 工作流](patterns/session-cleaner-workflow.md) | 壓縮 Copilot CLI /share session 紀錄、保留策略、使用情境 |
 
 ---
 
@@ -55,6 +56,8 @@
 | [Wails 快取狀態判定不一致](pitfalls/wails-cache-status-mismatch.md) | Go 後端只看 search_status，前端還要 actresses.length > 0；search_status 雙值問題 | 2026-04-07 |
 | [Wails DB 資料格式不一致](pitfalls/wails-db-format-migration.md) | Go 寫入 `"success"`、Python 標準 `"searched_found"`、`searched_multiple` 等非標準值；含資料合併紀錄 | 2026-04-08 |
 | [**同路徑移動永久刪除檔案**](pitfalls/wails-move-same-path-delete.md) | 輸入==輸出目錄時二次移動觸發偽衝突，覆蓋策略下 `os.Remove(src==dst)` 永久刪除檔案；三層修復 + 垃圾桶 | 2026-04-08 |
+| [Extractor `[CODE]` 格式被清空](pitfalls/go-extractor-bracket-format.md) | `[SKMJ-310] 標題.mp4` 格式的番號被 bracketRe 誤清除；同時修正 PPV 位數判斷 | 2026-04-08 |
+| [Wails dist 缺少片商資料](pitfalls/wails-dist-missing-studio-data.md) | `studios.json` / `major_studios.json` 不會自動複製到 dist/，片商分類整體失效 | 2026-04-08 |
 
 ---
 
