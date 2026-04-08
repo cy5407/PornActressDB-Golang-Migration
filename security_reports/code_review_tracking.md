@@ -1,7 +1,46 @@
 # 專案程式碼巡檢持續追蹤報告
 
-最後更新：2026-04-08 巡檢第二輪（P1/P2/P3 修復完成）
-基準提交：`da535ca` `fix(extractor): siteRe 通用化`
+最後更新：2026-04-08 靜態安全巡檢第三輪（gosec + bandit 全清零）
+基準提交：`12ed533` `fix(security): 收緊 generateUniqueName 佔位檔權限`
+
+---
+
+## 本輪巡檢（2026-04-08 第三輪）— gosec + bandit 靜態掃描
+
+### 工具與範圍
+- **Go**：`gosec ./...`（所有 pkg/ 與 cmd/）
+- **Python**：`bandit -r src`
+
+### 本輪已修復
+
+| ID | 嚴重度 | 位置 | 問題 | 修復內容 |
+|----|--------|------|------|----------|
+| S1 | MEDIUM | `pkg/mover/file_move.go:95` G302 | `os.OpenFile` 佔位檔使用 `0666` 權限過寬 | 改為 `0600` |
+| S2 | LOW | `pkg/mover/file_move.go:97` G104 | `f.Close()` 回傳值未處理 | 改為 `_ = f.Close()` |
+| S3 | LOW | `src/utils/scanner.py:5` B404 | `import subprocess` 存在但從未使用 | 移除無用 import |
+
+### 本輪確認為誤報（suppress）
+
+| ID | 嚴重度 | 規則 | 理由 |
+|----|--------|------|------|
+| FP1 | MEDIUM | G304 `file_move.go:95` | 路徑由程式內部 `filepath.Join(dir, fmt.Sprintf(...))` 生成，非使用者直接輸入；加 `// #nosec G304` |
+
+### 本輪確認為可接受（不修）
+
+| ID | 嚴重度 | 規則 | 位置 | 理由 |
+|----|--------|------|------|------|
+| A1 | LOW | B404/B603 | `src/utils/go_cli.py`、`src/utils/scanner.py` | 受控本機 CLI 呼叫，`shell=False`，參數列表傳入 |
+| A2 | LOW | B110 | `src/models/extractor.py:22` | try/except/pass 用於 import fallback，已有 logger.debug 記錄 |
+
+### 本輪驗證結果
+
+- `gosec ./...`：**0 issues** ✅（修正後）
+- `bandit -r src`：**0 Medium / 0 High**（LOW 4 項均為可接受）✅
+- `go test ./pkg/mover/...`：**PASS** ✅
+- `python -m py_compile src/utils/scanner.py`：**OK** ✅
+
+### git 提交
+- `12ed533` push 到 `main`
 
 ---
 
