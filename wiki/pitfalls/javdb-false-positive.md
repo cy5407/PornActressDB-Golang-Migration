@@ -1,3 +1,7 @@
+---
+category: Python
+date: 2026-04-06
+---
 # Issue 12：JAVDB False Positive（搜尋結果寫入錯誤番號）
 
 **日期**：2026-04-06  

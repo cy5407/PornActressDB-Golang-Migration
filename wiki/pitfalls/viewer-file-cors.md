@@ -1,3 +1,7 @@
+---
+category: 工具
+date: 2026-04-06
+---
 # Chrome file:// CORS 封鎖 wiki fetch
 
 ## 問題描述

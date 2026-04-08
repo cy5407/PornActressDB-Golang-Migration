@@ -85,6 +85,12 @@ aside {
   font-size: 11px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .08em; color: var(--muted); padding: 4px 8px 6px;
 }
+.nav-sublabel {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--accent2);
+  padding: 8px 8px 2px 16px; display: flex; align-items: center; gap: 4px;
+}
+.nav-sublabel::before { content: ''; display: inline-block; width: 14px; height: 1px; background: var(--accent2); }
 .nav-item {
   display: block; padding: 5px 12px; border-radius: 6px; cursor: pointer;
   font-size: 13px; color: var(--muted); transition: all .12s;
@@ -488,11 +494,20 @@ const SECTION_META = [
   { key: 'root',         title: '📖 索引',     match: f => !f.includes('/'),       order: ['index.md','log.md'] },
   { key: 'architecture', title: '🏛️ 架構',     match: f => f.startsWith('architecture/') },
   { key: 'patterns',     title: '📐 開發模式',  match: f => f.startsWith('patterns/')     },
-  { key: 'pitfalls',     title: '🪲 踩坑紀錄',  match: f => f.startsWith('pitfalls/')     },
+  { key: 'pitfalls',     title: '🪲 踩坑紀錄',  match: f => f.startsWith('pitfalls/'), grouped: true },
+];
+
+const PITFALL_GROUPS = [
+  { key: 'Wails',  label: 'Wails GUI' },
+  { key: 'Go',     label: 'Go / CLI'  },
+  { key: 'Python', label: 'Python'    },
+  { key: 'CI/CD',  label: 'CI / CD'  },
+  { key: '工具',   label: '工具環境'  },
 ];
 
 function buildSidebar() {
   const data = window.WIKI_DATA || {};
+  const wikiMeta = window.WIKI_META || {};
   const aside = document.getElementById('sidebar');
   aside.innerHTML = '';
 
@@ -500,39 +515,80 @@ function buildSidebar() {
     let files = Object.keys(data).filter(sec.match);
     if (!files.length) continue;
 
-    // Sort: predefined order first, then alphabetical by title
-    if (sec.order) {
-      files.sort((a, b) => {
-        const ia = sec.order.indexOf(a), ib = sec.order.indexOf(b);
-        if (ia !== -1 && ib !== -1) return ia - ib;
-        if (ia !== -1) return -1;
-        if (ib !== -1) return  1;
-        return a.localeCompare(b);
-      });
-    } else {
-      files.sort((a, b) => {
-        const ta = extractTitle(data[a]) || a;
-        const tb = extractTitle(data[b]) || b;
-        return ta.localeCompare(tb, 'zh-TW');
-      });
-    }
-
     const secEl = document.createElement('div');
     secEl.className = 'nav-section';
     secEl.innerHTML = `<div class="nav-label">${sec.title}</div>`;
 
-    for (const file of files) {
-      const title = extractTitle(data[file]) || file;
-      const el = document.createElement('div');
-      el.className = 'nav-item';
-      el.dataset.file = file;
-      el.title = title;
-      el.textContent = title;
-      el.onclick = () => loadPage(file);
-      secEl.appendChild(el);
+    if (sec.grouped) {
+      // Group pitfalls by category, sort each group by date desc
+      const grouped = {};
+      const ungrouped = [];
+      for (const file of files) {
+        const m = wikiMeta[file];
+        if (m && m.category) {
+          (grouped[m.category] = grouped[m.category] || []).push(file);
+        } else {
+          ungrouped.push(file);
+        }
+      }
+      // Sort within each group: newest first
+      const sortByDate = arr => arr.sort((a, b) => {
+        const da = (wikiMeta[a] && wikiMeta[a].date) || '0000-00-00';
+        const db = (wikiMeta[b] && wikiMeta[b].date) || '0000-00-00';
+        return db.localeCompare(da);
+      });
+
+      for (const grp of PITFALL_GROUPS) {
+        const grpFiles = sortByDate(grouped[grp.key] || []);
+        if (!grpFiles.length) continue;
+        const subLabel = document.createElement('div');
+        subLabel.className = 'nav-sublabel';
+        subLabel.textContent = grp.label;
+        secEl.appendChild(subLabel);
+        for (const file of grpFiles) {
+          appendNavItem(secEl, file, data[file]);
+        }
+      }
+      // uncategorized fallback
+      for (const file of sortByDate(ungrouped)) {
+        appendNavItem(secEl, file, data[file]);
+      }
+    } else {
+      // Sort: predefined order first, then alphabetical by title
+      if (sec.order) {
+        files.sort((a, b) => {
+          const ia = sec.order.indexOf(a), ib = sec.order.indexOf(b);
+          if (ia !== -1 && ib !== -1) return ia - ib;
+          if (ia !== -1) return -1;
+          if (ib !== -1) return  1;
+          return a.localeCompare(b);
+        });
+      } else {
+        files.sort((a, b) => {
+          const ta = extractTitle(data[a]) || a;
+          const tb = extractTitle(data[b]) || b;
+          return ta.localeCompare(tb, 'zh-TW');
+        });
+      }
+      for (const file of files) {
+        appendNavItem(secEl, file, data[file]);
+      }
     }
+
     aside.appendChild(secEl);
   }
+}
+
+function appendNavItem(parent, file, mdContent) {
+  const title = extractTitle(mdContent) || file;
+  const el = document.createElement('div');
+  el.className = 'nav-item';
+  el.dataset.file = file;
+  el.title = title;
+  el.textContent = title;
+  el.onclick = () => loadPage(file);
+  parent.appendChild(el);
+}
 }
 
 // ═══════════════════════════════════════════════════

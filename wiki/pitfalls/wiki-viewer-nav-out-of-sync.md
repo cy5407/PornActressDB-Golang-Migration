@@ -1,3 +1,7 @@
+---
+category: 工具
+date: 2026-04-08
+---
 # Wiki Viewer 導覽選單與 wiki-data.js 脫鉤
 
 ## 問題描述

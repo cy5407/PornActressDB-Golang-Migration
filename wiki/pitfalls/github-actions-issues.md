@@ -1,3 +1,7 @@
+---
+category: CI/CD
+date: 2026-04-06
+---
 # GitHub Actions 故障排除紀錄
 
 > 來源：`docs/茶包射手/github-actions-workflow.md`  

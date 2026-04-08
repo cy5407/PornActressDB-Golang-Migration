@@ -1,3 +1,7 @@
+---
+category: Wails
+date: 2026-04-08
+---
 # Wails 掃描重複番號問題
 
 ## 問題描述

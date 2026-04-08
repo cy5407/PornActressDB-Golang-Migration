@@ -1,3 +1,7 @@
+---
+category: Wails
+date: 2026-04-08
+---
 # Wails dbOnce 無法重置：設定變更後 DB 路徑不生效
 
 ## 症狀
