@@ -9,6 +9,12 @@ import { SearchResultDialog } from '@/components/SearchResultDialog';
 import { OperationHistoryDialog } from '@/components/OperationHistoryDialog';
 import { PreferencesDialog } from '@/components/PreferencesDialog';
 import { ConflictResolutionDialog, ConflictItem } from '@/components/ConflictResolutionDialog';
+import {
+  MultiActressDialog,
+  MultiActressItem,
+  MultiActressResolution,
+  ActressChoice,
+} from '@/components/MultiActressDialog';
 import { Button } from '@/components/ui/button';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
@@ -112,6 +118,34 @@ function ActionToolbar() {
   const [conflictDialogMode, setConflictDialogMode] = useState<ConflictDialogMode>('file');
   // Promise resolve 函式，當使用者在對話框確認/取消後呼叫
   const conflictResolveRef = useRef<((strategies: Record<string, ConflictStrategy> | null) => void) | null>(null);
+
+  // ── 多女優選擇對話框狀態 ────────────────────────────────────────────────────
+  const [multiActressDialogOpen, setMultiActressDialogOpen] = useState(false);
+  const [multiActressItems, setMultiActressItems] = useState<MultiActressItem[]>([]);
+  const multiActressResolveRef = useRef<((resolutions: MultiActressResolution[] | null) => void) | null>(null);
+
+  /** 顯示多女優選擇對話框，返回使用者的選擇（null = 取消） */
+  function waitForMultiActressResolution(
+    items: MultiActressItem[]
+  ): Promise<MultiActressResolution[] | null> {
+    return new Promise((resolve) => {
+      multiActressResolveRef.current = resolve;
+      setMultiActressItems(items);
+      setMultiActressDialogOpen(true);
+    });
+  }
+
+  function handleMultiActressConfirm(resolutions: MultiActressResolution[]) {
+    setMultiActressDialogOpen(false);
+    multiActressResolveRef.current?.(resolutions);
+    multiActressResolveRef.current = null;
+  }
+
+  function handleMultiActressCancel() {
+    setMultiActressDialogOpen(false);
+    multiActressResolveRef.current?.(null);
+    multiActressResolveRef.current = null;
+  }
 
   const removeMovedDirectoriesFromStore = (batchResult: mover.BatchResult) => {
     if (!batchResult.results) return;
@@ -318,9 +352,53 @@ function ActionToolbar() {
       return lastDot > lastSep ? p.slice(lastDot) : '';
     };
 
-    // code → 女優名映射（用第一位女優；無搜尋結果則放到「未分類」）
+    // code → 女優名映射
+    // 若番號有多位女優，先詢問使用者要分到哪裡
+    const multiActressSearchResults = searchResults.filter(
+      (sr) => (sr.actresses?.length ?? 0) > 1
+    );
+    // 只保留本次移動目標中有多女優的項目
+    const targetCodes = new Set(targets.map((r) => r.code));
+    const multiActressTargets = multiActressSearchResults.filter((sr) =>
+      targetCodes.has(sr.code)
+    );
+
+    // 若有多女優項目，彈出選擇對話框
+    let multiActressChoices = new Map<string, string>();
+    if (multiActressTargets.length > 0) {
+      const dialogItems: MultiActressItem[] = multiActressTargets.map((sr) => ({
+        code: sr.code,
+        path: targets.find((r) => r.code === sr.code)?.path ?? sr.code,
+        actresses: sr.actresses ?? [],
+      }));
+      const resolutions = await waitForMultiActressResolution(dialogItems);
+      if (resolutions === null) {
+        // 使用者取消
+        setStatus('idle');
+        resetProgress();
+        return;
+      }
+      for (const r of resolutions) {
+        const choice: ActressChoice = r.choice;
+        if (choice.type === 'actress') {
+          multiActressChoices.set(r.code, choice.name);
+        } else if (choice.type === 'multi') {
+          multiActressChoices.set(r.code, choice.label);
+        } else {
+          multiActressChoices.set(r.code, '未分類');
+        }
+      }
+    }
+
     const codeToActress = new Map<string, string>(
-      searchResults.map((sr) => [sr.code, sr.actresses?.[0] ?? '未分類'])
+      searchResults.map((sr) => {
+        // 多女優項目使用使用者選擇的結果
+        if (multiActressChoices.has(sr.code)) {
+          return [sr.code, multiActressChoices.get(sr.code)!];
+        }
+        // 單女優或無結果
+        return [sr.code, sr.actresses?.[0] ?? '未分類'];
+      })
     );
 
     // T6 預覽：計算實際資料夾分配並顯示
@@ -514,6 +592,13 @@ function ActionToolbar() {
         itemKind={conflictDialogMode}
         onConfirm={handleConflictConfirm}
         onCancel={handleConflictCancel}
+      />
+      {/* 多女優分類選擇對話框 */}
+      <MultiActressDialog
+        open={multiActressDialogOpen}
+        items={multiActressItems}
+        onConfirm={handleMultiActressConfirm}
+        onCancel={handleMultiActressCancel}
       />
       <Button onClick={handleScan} disabled={isRunning} size="sm">
         <Scan className="h-4 w-4 mr-1" />

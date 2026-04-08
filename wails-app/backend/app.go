@@ -303,9 +303,16 @@ type ConflictItem struct {
 
 // CheckConflicts 返回目的地檔案已存在的移動項目列表。
 // 前端可呼叫此方法在執行批次移動前偵測衝突，讓使用者選擇處理方式。
+// 注意：source == destination 的項目不視為衝突（會被 MoveFile 直接略過）。
 func (a *App) CheckConflicts(items []MoveItemRequest) []ConflictItem {
 	conflicts := make([]ConflictItem, 0)
 	for _, item := range items {
+		absSrc, errSrc := filepath.Abs(item.Source)
+		absDst, errDst := filepath.Abs(item.Destination)
+		if errSrc == nil && errDst == nil && absSrc == absDst {
+			// source == destination：MoveFile 會視為 skip，不是真正衝突
+			continue
+		}
 		if _, err := os.Stat(item.Destination); err == nil {
 			conflicts = append(conflicts, ConflictItem{
 				Source:      item.Source,

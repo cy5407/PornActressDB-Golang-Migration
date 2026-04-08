@@ -18,6 +18,14 @@ const generateUniqueNameMaxAttempts = 10000
 func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult {
 	result := MoveResult{Source: src, Destination: dst, Success: false}
 
+	// 同路徑保護：source == destination 視為已完成（skip），避免覆蓋策略觸發時刪除自身
+	absSrc, errSrc := filepath.Abs(src)
+	absDst, errDst := filepath.Abs(dst)
+	if errSrc == nil && errDst == nil && absSrc == absDst {
+		result.Skipped, result.Success = true, true
+		return result
+	}
+
 	srcInfo, err := os.Stat(src)
 	if os.IsNotExist(err) {
 		result.Error = "來源檔案不存在"
@@ -77,7 +85,8 @@ func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult 
 		result.Error = fmt.Sprintf("複製檔案失敗: %v", err)
 		return result
 	}
-	if err := os.Remove(src); err != nil {
+	// 複製成功後刪除來源：送入資源回收筒（Windows），非 Windows 則永久刪除
+	if err := recycleFile(src); err != nil {
 		result.Error = fmt.Sprintf("刪除來源失敗: %v", err)
 		return result
 	}
@@ -149,7 +158,8 @@ func (m *Mover) replaceFileSafely(src, dst string) error {
 		_ = os.Remove(tmpDst)
 		return fmt.Errorf("無法以暫存檔替換目標: %w", err)
 	}
-	if err := os.Remove(src); err != nil {
+	// 覆蓋完成後刪除來源：送入資源回收筒（Windows），非 Windows 則永久刪除
+	if err := recycleFile(src); err != nil {
 		return fmt.Errorf("目標已替換但刪除來源失敗: %w", err)
 	}
 	return nil

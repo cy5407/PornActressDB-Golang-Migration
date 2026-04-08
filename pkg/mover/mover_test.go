@@ -208,6 +208,33 @@ func TestMoveFile_DryRun(t *testing.T) {
 	}
 }
 
+// TestMoveFile_SameSourceAndDestination 防止 source==destination 時在覆蓋/重新命名策略下刪除自身
+func TestMoveFile_SameSourceAndDestination(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	file := filepath.Join(tempDir, "same.txt")
+	createTestFile(t, file, "Original Content")
+
+	m := NewMover("")
+
+	for _, strategy := range []ConflictStrategy{Skip, Overwrite, Rename} {
+		result := m.MoveFile(file, file, strategy)
+		if !result.Success {
+			t.Errorf("策略 %s：source==dst 應該成功（略過），但得到錯誤: %s", strategy, result.Error)
+		}
+		if !result.Skipped {
+			t.Errorf("策略 %s：source==dst 應該標記為 Skipped", strategy)
+		}
+		if !fileExists(file) {
+			t.Errorf("策略 %s：source==dst 時檔案不應該被刪除或移走", strategy)
+		}
+		if content := readFile(t, file); content != "Original Content" {
+			t.Errorf("策略 %s：source==dst 後檔案內容應保持不變，得到 '%s'", strategy, content)
+		}
+	}
+}
+
 // === 目錄移動測試 ===
 
 func TestMoveDir_Basic(t *testing.T) {
