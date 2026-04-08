@@ -615,6 +615,10 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 	// 全部都在快取中
 	if len(codesToSearch) == 0 {
 		success := len(results)
+		// journal 有未合併資料時，趁機寫入 data.json
+		if a.db != nil {
+			_, _ = a.db.CompactIfNeeded()
+		}
 		wailsRuntime.EventsEmit(a.ctx, "search:done", fmt.Sprintf("%d 成功 / 0 失敗（已快取）", success))
 		return results
 	}
@@ -801,6 +805,9 @@ func (a *App) ensureDB() {
 	dataDir := resolveDataDir(a.cfgPath)
 	a.db = database.NewJSONDatabase(dataDir)
 	_ = a.db.Load(context.Background())
+	// 啟動時若 journal 有未合併資料，立即寫入 data.json，
+	// 避免下次搜尋因全部命中快取（早期返回）而永遠跳過 Compact。
+	_, _ = a.db.CompactIfNeeded()
 }
 
 func (a *App) resetDB() {
