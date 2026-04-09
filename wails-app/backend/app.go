@@ -123,6 +123,10 @@ func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResul
 
 	var results []ScanResult
 	seen := make(map[string]bool) // 去重：相同番號只保留第一個路徑
+	supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
+	for _, ext := range extractor.SupportedFormats {
+		supportedFormats[ext] = true
+	}
 	scanned := 0
 
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -140,6 +144,9 @@ func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResul
 			if !recursive && path != dir {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if !supportedFormats[strings.ToLower(filepath.Ext(path))] {
 			return nil
 		}
 		scanned++
@@ -269,6 +276,11 @@ func (a *App) BatchMoveDirs(items []DirMoveItem, strategy string) BatchMoveResul
 func (a *App) CheckDirConflicts(items []DirMoveItem) []ConflictItem {
 	conflicts := make([]ConflictItem, 0)
 	for _, item := range items {
+		absSrc, errSrc := filepath.Abs(item.Source)
+		absDst, errDst := filepath.Abs(item.Destination)
+		if errSrc == nil && errDst == nil && strings.EqualFold(absSrc, absDst) {
+			continue
+		}
 		entries, err := os.ReadDir(item.Destination)
 		if err == nil && len(entries) > 0 {
 			conflicts = append(conflicts, ConflictItem{

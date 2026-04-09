@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -105,6 +107,9 @@ func (m *Mover) batchMoveDirsWithType(ctx context.Context, items []MoveItem, opT
 			result.FailedCount++
 			opLog.Items[i].Status = "failed"
 			opLog.Items[i].Error = moveResult.Error
+		} else if sameSourceAndDestination(item.Source, item.Destination) {
+			result.SuccessCount++
+			opLog.Items[i].Status = "success"
 		} else if dirFullyMoved {
 			result.SuccessCount++
 			opLog.Items[i].Status = "success"
@@ -144,4 +149,10 @@ func (m *Mover) finalizeBatchResult(start time.Time, result *BatchResult, opLog 
 	}
 	result.Duration = time.Since(start).String()
 	return *result
+}
+
+func sameSourceAndDestination(src, dst string) bool {
+	absSrc, errSrc := filepath.Abs(src)
+	absDst, errDst := filepath.Abs(dst)
+	return errSrc == nil && errDst == nil && strings.EqualFold(absSrc, absDst)
 }
