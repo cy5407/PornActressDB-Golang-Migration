@@ -2,28 +2,17 @@
 測試 JSON 資料庫核心模組（基礎功能）
 """
 
-import tempfile
+import json
 from pathlib import Path
 
 import pytest
 
 from src.models.json_database import JSONDBManager
-from src.models.json_types import VideoDict
+from src.models.json_types import JSONDatabaseError, VideoDict, get_empty_json_database
 
 
 class TestJSONDatabase:
     """測試 JSON 資料庫管理器"""
-
-    @pytest.fixture
-    def temp_db_dir(self):
-        """建立臨時資料庫目錄"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            yield tmpdir
-
-    @pytest.fixture
-    def db_manager(self, temp_db_dir):
-        """建立資料庫管理器實例"""
-        return JSONDBManager(temp_db_dir)
 
     def test_create_database(self, db_manager):
         """測試建立資料庫"""
@@ -157,3 +146,65 @@ class TestJSONDatabase:
         # 驗證全部新增成功
         for i in range(5):
             assert db_manager.get_video_info(f"BATCH-{i:03d}") is not None
+
+    def test_restore_from_backup_uses_backup_file_keyword(self, db_manager, monkeypatch):
+        """還原備份應傳遞 backup_file 參數給 Go CLI 包裝層"""
+        captured = {}
+
+        def fake_restore(*, backup_file, data_dir):
+            captured["backup_file"] = backup_file
+            captured["data_dir"] = data_dir
+            return {"success": True}
+
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_backup_restore",
+            fake_restore,
+        )
+
+        assert db_manager.restore_from_backup("demo-backup.json") is True
+        assert captured["backup_file"] == "demo-backup.json"
+        assert Path(captured["data_dir"]) == Path(db_manager.data_dir)
+
+    def test_create_backup_returns_backup_path(self, db_manager, monkeypatch):
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_backup_create",
+            lambda **_kwargs: {"success": True, "path": "backup/demo.json"},
+        )
+
+        assert db_manager.create_backup() == "backup/demo.json"
+
+    def test_get_backup_list_returns_backups_array(self, db_manager, monkeypatch):
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_backup_list",
+            lambda **_kwargs: ["backup/a.json", "backup/b.json"],
+        )
+
+        assert db_manager.get_backup_list() == ["backup/a.json", "backup/b.json"]
+
+    def test_cleanup_old_backups_returns_deleted_count(self, db_manager, monkeypatch):
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_backup_cleanup",
+            lambda **_kwargs: 4,
+        )
+
+        assert db_manager.cleanup_old_backups(days=5, max_count=8) == 4
+
+    def test_legacy_video_actress_links_is_rejected(self, temp_db_dir):
+        payload = get_empty_json_database()
+        payload["video_actress_links"] = {"TEST-001": ["actress-1"]}
+        data_file = Path(temp_db_dir) / "data.json"
+        data_file.parent.mkdir(parents=True, exist_ok=True)
+        data_file.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(JSONDatabaseError, match="video_actress_links"):
+            JSONDBManager(temp_db_dir)
+
+    def test_dict_links_is_rejected(self, temp_db_dir):
+        payload = get_empty_json_database()
+        payload["links"] = {"TEST-001": ["actress-1"]}
+        data_file = Path(temp_db_dir) / "data.json"
+        data_file.parent.mkdir(parents=True, exist_ok=True)
+        data_file.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(JSONDatabaseError, match="'links' 必須是清單"):
+            JSONDBManager(temp_db_dir)

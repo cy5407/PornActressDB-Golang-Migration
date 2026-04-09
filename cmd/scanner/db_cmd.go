@@ -26,6 +26,10 @@ func dbCmd(args []string) {
 		dbFixStudiosCmd(args[1:])
 		return
 	}
+	if subCmd == "merge" {
+		dbMergeCmd(args[1:])
+		return
+	}
 	fs := flag.NewFlagSet("db "+subCmd, flag.ExitOnError)
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
 	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
@@ -153,25 +157,6 @@ func dbCmd(args []string) {
 			return
 		}
 		printSuccess("Journal 合併成功")
-	case "merge":
-		mergeFS := flag.NewFlagSet("db merge", flag.ExitOnError)
-		sourceFile := mergeFS.String("source", "", "來源 data.json 檔案路徑")
-		overwrite := mergeFS.Bool("overwrite", false, "若番號已存在，是否覆蓋現有資料")
-		parseFlagsOrExit(mergeFS, args[1:])
-		if strings.TrimSpace(*sourceFile) == "" {
-			fmt.Fprintln(os.Stderr, "用法: classifier.exe db merge -source <來源data.json> [-overwrite]")
-			os.Exit(1)
-		}
-		stats, err := db.MergeFromFile(*sourceFile, *overwrite)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "合併資料庫失敗: %v\n", err)
-			os.Exit(1)
-		}
-		if err := db.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
-			os.Exit(1)
-		}
-		outputJSON(stats)
 	case "actress-get":
 		if len(remaining) < 1 {
 			fmt.Fprintln(os.Stderr, "用法: classifier.exe db actress-get <女優ID>")
@@ -285,6 +270,36 @@ func dbCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)
 		os.Exit(1)
 	}
+}
+
+func dbMergeCmd(args []string) {
+	fs := flag.NewFlagSet("db merge", flag.ExitOnError)
+	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
+	sourceFile := fs.String("source", "", "來源 data.json 檔案路徑")
+	overwrite := fs.Bool("overwrite", false, "若番號已存在，是否覆蓋現有資料")
+	parseFlagsOrExit(fs, args)
+
+	if strings.TrimSpace(*sourceFile) == "" {
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe db merge -source <來源data.json> [-overwrite] [-data-dir <目錄>]")
+		os.Exit(1)
+	}
+
+	db := database.NewJSONDatabase(*dataDir)
+	if err := db.Load(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
+		os.Exit(1)
+	}
+
+	stats, err := db.MergeFromFile(*sourceFile, *overwrite)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "合併資料庫失敗: %v\n", err)
+		os.Exit(1)
+	}
+	if err := db.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
+		os.Exit(1)
+	}
+	outputJSON(stats)
 }
 
 // dbFixStudiosCmd 批次修正資料庫內的片商欄位

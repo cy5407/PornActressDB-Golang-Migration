@@ -13,6 +13,7 @@ from urllib.parse import quote, urljoin
 import httpx
 from bs4 import BeautifulSoup
 
+from src.utils.log_sanitizer import sanitize_url_for_log
 logger = logging.getLogger(__name__)
 
 
@@ -108,7 +109,9 @@ class ShiroutoWikiScraper:
                 make_request, url, headers=self.headers
             )
         except Exception as e:
-            logger.warning(f"⚠️ shiroutowiki 取得頁面失敗 {url}: {e}")
+            logger.warning(
+                f"⚠️ shiroutowiki 取得頁面失敗 {sanitize_url_for_log(url)}: {e}"
+            )
             return None
 
     def _parse_search_rows(self, soup: BeautifulSoup) -> list[dict[str, Any]]:

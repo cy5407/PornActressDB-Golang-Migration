@@ -13,6 +13,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import pytest
+
 from src.utils.scanner import UnifiedFileScanner
 
 logging.basicConfig(
@@ -197,6 +199,28 @@ def test_performance_comparison():
         logger.info(f"   每檔案: {avg_time / total_files * 1000:.3f}ms")
 
     logger.info("✅ 效能測試完成")
+
+
+def test_scanner_uses_explicit_go_exe_path(monkeypatch):
+    captured = {}
+
+    def fake_is_available(exe_path=None):
+        captured["is_available_exe_path"] = exe_path
+        return True
+
+    def fake_run(args, *, timeout=30, exe_path=None):
+        captured["run_exe_path"] = exe_path
+        return [{"path": r"C:\videos\SONE-001.mp4", "code": "SONE-001"}]
+
+    monkeypatch.setattr("src.services.go_cli.is_available", fake_is_available)
+    monkeypatch.setattr("src.services.go_cli.run", fake_run)
+
+    scanner = UnifiedFileScanner(use_go=True, go_exe_path=r"C:\custom\classifier.exe")
+    results = scanner.scan_directory(r"C:\videos")
+
+    assert len(results) == 1
+    assert captured["is_available_exe_path"] == r"C:\custom\classifier.exe"
+    assert captured["run_exe_path"] == r"C:\custom\classifier.exe"
 
 
 def run_all_tests():

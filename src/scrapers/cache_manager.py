@@ -18,28 +18,15 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
-try:
-    from utils.json_utils import dump as json_dump
-    from utils.json_utils import load as json_load
-except ImportError:  # pragma: no cover
-    from src.utils.json_utils import dump as json_dump
-    from src.utils.json_utils import load as json_load
-
-try:
-    from src.services.go_cli import (
-        GoError as _GoBridgeError,
-        GoNotFoundError as _GoBridgeNotFoundError,
-        cache_delete as _go_cache_delete,
-        cache_get as _go_cache_get,
-        cache_set as _go_cache_set,
-    )
-except ImportError:
-    def _go_cache_delete(key, cache_dir="cache"): return False  # noqa: E731
-    def _go_cache_get(key, cache_dir="cache"): return None  # noqa: E731
-    def _go_cache_set(key, value, ttl_hours=24, cache_dir="cache"): return False  # noqa: E731
-
-    class _GoBridgeError(Exception): pass  # noqa: E701
-    class _GoBridgeNotFoundError(_GoBridgeError): pass  # noqa: E701
+from src.services.go_cli import (
+    GoError as _GoBridgeError,
+    GoNotFoundError as _GoBridgeNotFoundError,
+    cache_delete as _go_cache_delete,
+    cache_get as _go_cache_get,
+    cache_set as _go_cache_set,
+)
+from src.utils.json_utils import dump as json_dump
+from src.utils.json_utils import load as json_load
 
 logger = logging.getLogger(__name__)
 

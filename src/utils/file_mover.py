@@ -2,6 +2,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from src.services import go_cli
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,11 +31,7 @@ class FileMover:
             return None
         if self._go_available is None:
             try:
-                try:
-                    from services.go_cli import is_available
-                except ImportError:
-                    from src.services.go_cli import is_available
-                self._go_available = is_available()
+                self._go_available = go_cli.is_available(self.go_exe_path)
             except Exception:
                 self._go_available = False
             if not self._go_available:
@@ -42,17 +40,15 @@ class FileMover:
         return self if self._go_available else None
 
     def _go_cli(self):
-        try:
-            import services.go_cli as go_cli
-        except ImportError:
-            import src.services.go_cli as go_cli
         return go_cli
 
     def move_file(self, source: str | Path, destination: str | Path, create_dirs: bool = True) -> dict:
         src, dst = str(source), str(destination)
         if not self.go_bridge:
             return {"success": False, "source": src, "destination": dst, "error": "Go CLI 不可用，無法搬移檔案", "skipped": False, "renamed": None}
-        result = self._go_cli().move_file(src, dst, self.conflict_strategy)
+        result = self._go_cli().move_file(
+            src, dst, self.conflict_strategy, exe_path=self.go_exe_path
+        )
         self._last_operation_id = result.get("operation_id") or self._last_operation_id
         return result
 
@@ -60,7 +56,9 @@ class FileMover:
         src, dst = str(source), str(destination)
         if not self.go_bridge:
             return {"success": False, "source": src, "destination": dst, "error": "Go CLI 不可用，無法搬移目錄", "skipped": False}
-        return self._go_cli().move_dir(src, dst, self.conflict_strategy)
+        return self._go_cli().move_dir(
+            src, dst, self.conflict_strategy, exe_path=self.go_exe_path
+        )
 
     def batch_move(self, moves: list[tuple[str | Path, str | Path]]) -> dict:
         if not self.go_bridge:
@@ -70,7 +68,12 @@ class FileMover:
             }
         if len(moves) > 1:
             items = [{"source": str(s), "destination": str(d)} for s, d in moves]
-            result = self._go_cli().batch_move(items, self.conflict_strategy, self.log_dir)
+            result = self._go_cli().batch_move(
+                items,
+                self.conflict_strategy,
+                self.log_dir,
+                exe_path=self.go_exe_path,
+            )
             self._last_operation_id = result.get("operation_id") or self._last_operation_id
             return result
         results = [self.move_file(s, d) for s, d in moves]
@@ -88,12 +91,16 @@ class FileMover:
         op_id = operation_id or self._last_operation_id
         if not op_id:
             return {"success": False, "error": "沒有可回滾的操作"}
-        return self._go_cli().rollback(op_id, self.log_dir)
+        return self._go_cli().rollback(
+            op_id, self.log_dir, exe_path=self.go_exe_path
+        )
 
     def list_operations(self, limit: int = 10) -> list[dict]:
         if not self.go_bridge:
             return []
-        return self._go_cli().list_operations(limit=limit, log_dir=self.log_dir)
+        return self._go_cli().list_operations(
+            limit=limit, log_dir=self.log_dir, exe_path=self.go_exe_path
+        )
 
     @classmethod
     def from_config(cls, config) -> "FileMover":
@@ -104,4 +111,3 @@ class FileMover:
             log_dir=config.get("go_integration", "log_dir", fallback="logs"),
             go_exe_path=config.get("go_integration", "exe_path", fallback=None) or None,
         )
-

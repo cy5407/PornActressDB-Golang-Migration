@@ -6,6 +6,8 @@ import builtins
 import contextlib
 import hashlib
 import logging
+import os
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -23,6 +25,7 @@ except ImportError:  # pragma: no cover
     from src.utils.json_utils import dump as json_dump
     from src.utils.json_utils import dumps as json_dumps
     from src.utils.json_utils import load as json_load
+from src.utils.log_sanitizer import sanitize_url_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +59,7 @@ class SafeSearcher:
     def __init__(self, config: RequestConfig = None, cache_file: str = None):
         self.config = config or RequestConfig()
         self.last_request_time = 0.0
-        self._request_lock = threading.Lock()
+        self._request_lock = threading.RLock()
 
         # 初始化快取系統
         self.cache_file = cache_file or str(
@@ -232,6 +235,18 @@ class SafeSearcher:
             logger.warning(f"載入快取失敗: {e}")
             self.cache = {}
 
+    @staticmethod
+    def _contains_beautifulsoup(data: Any) -> bool:
+        from bs4 import BeautifulSoup
+
+        if isinstance(data, BeautifulSoup):
+            return True
+        if isinstance(data, dict):
+            return any(SafeSearcher._contains_beautifulsoup(value) for value in data.values())
+        if isinstance(data, (list, tuple, set)):
+            return any(SafeSearcher._contains_beautifulsoup(item) for item in data)
+        return False
+
     def _save_cache(self):
         """保存快取資料"""
         if not self.config.enable_cache:
@@ -241,27 +256,38 @@ class SafeSearcher:
             cache_path = Path(self.cache_file)
             cache_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # 轉換為可序列化的格式，過濾掉 BeautifulSoup 物件
-            from bs4 import BeautifulSoup
-
             cache_data = {}
 
             for key, entry in self.cache.items():
-                # 檢查資料是否為 BeautifulSoup 物件
-                if isinstance(entry.data, BeautifulSoup):
-                    logger.debug(f"跳過 BeautifulSoup 物件快取: {entry.url}")
+                if self._contains_beautifulsoup(entry.data):
+                    logger.debug(
+                        f"跳過 BeautifulSoup 物件快取: {sanitize_url_for_log(entry.url)}"
+                    )
                     continue
 
                 try:
-                    # 測試是否可序列化
                     json_dumps(entry.data, ensure_ascii=False)
                     cache_data[key] = asdict(entry)
                 except (TypeError, ValueError):
-                    logger.debug(f"跳過不可序列化資料: {entry.url}")
+                    logger.debug(
+                        f"跳過不可序列化資料: {sanitize_url_for_log(entry.url)}"
+                    )
                     continue
 
-            with open(cache_path, "w", encoding="utf-8") as f:
-                json_dump(cache_data, f, ensure_ascii=False, indent=2)
+            temp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    "w",
+                    delete=False,
+                    dir=cache_path.parent,
+                    encoding="utf-8",
+                ) as temp_file:
+                    temp_path = temp_file.name
+                    json_dump(cache_data, temp_file, ensure_ascii=False, indent=2)
+                os.replace(temp_path, cache_path)
+            finally:
+                if temp_path and os.path.exists(temp_path):
+                    os.unlink(temp_path)
 
             logger.debug(
                 f"💾 已儲存 {len(cache_data)} 個快取項目 (跳過 {len(self.cache) - len(cache_data)} 個不可序列化項目)"
@@ -296,7 +322,7 @@ class SafeSearcher:
         entry = self.cache.get(cache_key)
 
         if entry and self._is_cache_valid(entry):
-            logger.debug(f"📋 從快取獲取: {url}")
+            logger.debug(f"📋 從快取獲取: {sanitize_url_for_log(url)}")
             return entry.data
 
         return None
@@ -308,19 +334,18 @@ class SafeSearcher:
 
         # 檢查資料是否可序列化
         try:
-            # 嘗試序列化測試
-            from bs4 import BeautifulSoup
-
-            # 如果是 BeautifulSoup 物件，則不快取
-            if isinstance(data, BeautifulSoup):
-                logger.debug(f"🚫 BeautifulSoup 物件不可快取: {url}")
+            if self._contains_beautifulsoup(data):
+                logger.debug(
+                    f"🚫 BeautifulSoup 物件不可快取: {sanitize_url_for_log(url)}"
+                )
                 return
 
-            # 測試是否可以序列化為 JSON
             json_dumps(data, ensure_ascii=False)
 
         except (TypeError, ValueError) as e:
-            logger.debug(f"🚫 資料不可序列化，跳過快取: {url} - {e}")
+            logger.debug(
+                f"🚫 資料不可序列化，跳過快取: {sanitize_url_for_log(url)} - {e}"
+            )
             return
 
         cache_key = self._generate_cache_key(url, params)
@@ -329,57 +354,52 @@ class SafeSearcher:
         )
 
         self.cache[cache_key] = entry
-        logger.debug(f"💾 已快取: {url}")
+        logger.debug(f"💾 已快取: {sanitize_url_for_log(url)}")
 
     def safe_request(
         self, request_func: Callable, url: str, *args, **kwargs
     ) -> Any | None:
         """安全請求包裝器 - 包含間隔控制、快取和重試機制"""
-
-        # 檢查快取
         params = kwargs.get("params", {})
-        cached_result = self.get_from_cache(url, params)
-        if cached_result is not None:
-            return cached_result
-
-        # 控制請求間隔
-        self._wait_for_next_request()
-
-        # 設置請求標頭
-        if "headers" not in kwargs:
-            kwargs["headers"] = self.get_headers()
-
-        # 實施重試機制
         last_exception = None
-        for attempt in range(self.config.max_retries + 1):
-            try:
-                logger.debug(
-                    f"🌐 發送請求 (嘗試 {attempt + 1}/{self.config.max_retries + 1}): {url}"
-                )
+        log_url = sanitize_url_for_log(url)
 
-                result = request_func(url, *args, **kwargs)
+        with self._request_lock:
+            cached_result = self.get_from_cache(url, params)
+            if cached_result is not None:
+                return cached_result
 
-                # 保存到快取
-                if result is not None:
-                    self.save_to_cache(url, result, params)
+            self._wait_for_next_request()
 
-                return result
+            if "headers" not in kwargs:
+                kwargs["headers"] = self.get_headers()
+            if "timeout" not in kwargs:
+                kwargs["timeout"] = 30
 
-            except Exception as e:
-                last_exception = e
-                logger.warning(f"⚠️ 請求失敗 (嘗試 {attempt + 1}): {e}")
+            for attempt in range(self.config.max_retries + 1):
+                try:
+                    logger.debug(
+                        f"🌐 發送請求 (嘗試 {attempt + 1}/{self.config.max_retries + 1}): {log_url}"
+                    )
 
-                if attempt < self.config.max_retries:
-                    # 指數退避延遲
-                    wait_time = self.config.backoff_factor**attempt
-                    logger.info(f"⏳ 等待 {wait_time:.1f} 秒後重試...")
-                    time.sleep(wait_time)
+                    result = request_func(url, *args, **kwargs)
+                    if result is not None:
+                        self.save_to_cache(url, result, params)
+                    return result
 
-                    # 輪替標頭
-                    if self.config.rotate_headers:
-                        kwargs["headers"] = self.get_headers()
+                except Exception as e:
+                    last_exception = e
+                    logger.warning(f"⚠️ 請求失敗 (嘗試 {attempt + 1}): {e}")
 
-        logger.error(f"❌ 所有重試都失敗了: {url}")
+                    if attempt < self.config.max_retries:
+                        wait_time = self.config.backoff_factor**attempt
+                        logger.info(f"⏳ 等待 {wait_time:.1f} 秒後重試...")
+                        time.sleep(wait_time)
+
+                        if self.config.rotate_headers:
+                            kwargs["headers"] = self.get_headers()
+
+        logger.error(f"❌ 所有重試都失敗了: {log_url}")
         if last_exception:
             raise last_exception
 

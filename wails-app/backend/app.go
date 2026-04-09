@@ -19,6 +19,7 @@ import (
 	"actress-classifier/pkg/database"
 	"actress-classifier/pkg/extractor"
 	"actress-classifier/pkg/mover"
+	"actress-classifier/pkg/pathutil"
 	"actress-classifier/pkg/studio"
 	"wails-app/backend/services"
 )
@@ -88,6 +89,13 @@ func (a *App) Startup(ctx context.Context) {
 	a.ensureDB()
 }
 
+func (a *App) emitEvent(eventName string, optionalData ...interface{}) {
+	if a.ctx == nil || a.ctx.Value("events") == nil {
+		return
+	}
+	wailsRuntime.EventsEmit(a.ctx, eventName, optionalData...)
+}
+
 // ============================================================================
 // Scan
 // ============================================================================
@@ -139,7 +147,7 @@ func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResul
 		if code != "" && !seen[code] {
 			seen[code] = true
 			results = append(results, ScanResult{Path: path, Code: code})
-			wailsRuntime.EventsEmit(a.ctx, "scan:progress", len(results), code)
+			a.emitEvent("scan:progress", len(results), code)
 		}
 		return nil
 	})
@@ -185,13 +193,24 @@ type DirMoveItem struct {
 func (a *App) PlanDirMergeMoves(items []DirMoveItem) ([]MoveItemRequest, error) {
 	moveItems := make([]MoveItemRequest, 0)
 	for _, item := range items {
-		sameOrNested, err := isSameOrNestedPath(item.Source, item.Destination)
+		sameOrNested, err := pathutil.IsSameOrNestedPath(item.Source, item.Destination)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate source %q and destination %q: %w", item.Source, item.Destination, err)
 		}
 		if sameOrNested {
-			// 來源與目標相同（女優已在正確位置），略過該項目
-			continue
+			sourceAbs, absErr := filepath.Abs(item.Source)
+			if absErr != nil {
+				return nil, fmt.Errorf("failed to resolve source %q: %w", item.Source, absErr)
+			}
+			destinationAbs, absErr := filepath.Abs(item.Destination)
+			if absErr != nil {
+				return nil, fmt.Errorf("failed to resolve destination %q: %w", item.Destination, absErr)
+			}
+			if strings.EqualFold(filepath.Clean(sourceAbs), filepath.Clean(destinationAbs)) {
+				// 來源與目標相同（女優已在正確位置），略過該項目
+				continue
+			}
+			return nil, fmt.Errorf("destination %q cannot be inside source %q", item.Destination, item.Source)
 		}
 
 		onConflict := mover.ConflictStrategy(item.OnConflict)
@@ -222,40 +241,6 @@ func (a *App) PlanDirMergeMoves(items []DirMoveItem) ([]MoveItemRequest, error) 
 		moveItems = append(moveItems, itemMoves...)
 	}
 	return moveItems, nil
-}
-
-func isSameOrNestedPath(source, destination string) (bool, error) {
-	sourceAbs, err := filepath.Abs(source)
-	if err != nil {
-		return false, err
-	}
-	destinationAbs, err := filepath.Abs(destination)
-	if err != nil {
-		return false, err
-	}
-
-	sourceAbs = filepath.Clean(sourceAbs)
-	destinationAbs = filepath.Clean(destinationAbs)
-
-	sourceVolume := filepath.VolumeName(sourceAbs)
-	destinationVolume := filepath.VolumeName(destinationAbs)
-	if sourceVolume != "" || destinationVolume != "" {
-		if !strings.EqualFold(sourceVolume, destinationVolume) {
-			return false, nil
-		}
-	}
-
-	relPath, err := filepath.Rel(sourceAbs, destinationAbs)
-	if err != nil {
-		return false, err
-	}
-	if relPath == "." {
-		return true, nil
-	}
-	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
-		return false, nil
-	}
-	return true, nil
 }
 
 // BatchMoveDirs 以資料夾為單位批次移動。
@@ -589,7 +574,7 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 	}
 	total := len(codes)
 	if total == 0 {
-		wailsRuntime.EventsEmit(a.ctx, "search:done", "0 成功 / 0 失敗")
+		a.emitEvent("search:done", "0 成功 / 0 失敗")
 		return nil
 	}
 
@@ -612,8 +597,8 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 				Method:    video.SearchMethod,
 			}
 			results = append(results, cached)
-			wailsRuntime.EventsEmit(a.ctx, "search:progress", done, total, code)
-			wailsRuntime.EventsEmit(a.ctx, "search:result", &cached)
+			a.emitEvent("search:progress", done, total, code)
+			a.emitEvent("search:result", &cached)
 		} else {
 			codesToSearch = append(codesToSearch, code)
 		}
@@ -626,7 +611,7 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 		if a.db != nil {
 			_, _ = a.db.CompactIfNeeded()
 		}
-		wailsRuntime.EventsEmit(a.ctx, "search:done", fmt.Sprintf("%d 成功 / 0 失敗（已快取）", success))
+		a.emitEvent("search:done", fmt.Sprintf("%d 成功 / 0 失敗（已快取）", success))
 		return results
 	}
 
@@ -645,14 +630,14 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		wailsRuntime.EventsEmit(a.ctx, "search:done", "0 成功 / 0 失敗（啟動失敗）")
+		a.emitEvent("search:done", "0 成功 / 0 失敗（啟動失敗）")
 		return nil
 	}
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
-		wailsRuntime.EventsEmit(a.ctx, "search:done", fmt.Sprintf("0 成功 / %d 失敗（%s）", total, err))
+		a.emitEvent("search:done", fmt.Sprintf("0 成功 / %d 失敗（%s）", total, err))
 		return nil
 	}
 
@@ -669,8 +654,8 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 			current := done
 			mu.Unlock()
 
-			wailsRuntime.EventsEmit(a.ctx, "search:progress", current, total, res.Code)
-			wailsRuntime.EventsEmit(a.ctx, "search:result", &res)
+			a.emitEvent("search:progress", current, total, res.Code)
+			a.emitEvent("search:result", &res)
 
 			// 搜尋結果寫入 DB（僅成功結果）
 			if res.Error == "" {
@@ -707,7 +692,7 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 			success++
 		}
 	}
-	wailsRuntime.EventsEmit(a.ctx, "search:done", fmt.Sprintf("%d 成功 / %d 失敗", success, total-success))
+	a.emitEvent("search:done", fmt.Sprintf("%d 成功 / %d 失敗", success, total-success))
 	return results
 }
 

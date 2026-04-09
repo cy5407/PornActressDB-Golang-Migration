@@ -20,9 +20,14 @@ _EXE_SEARCH_DONE = False
 _EXE_PATH: Optional[str] = None
 
 
-def _resolve_exe() -> Optional[str]:
+def _resolve_exe(exe_path: str | None = None) -> Optional[str]:
     """尋找 classifier 執行檔路徑（快取結果）。"""
     global _EXE_SEARCH_DONE, _EXE_PATH
+    if exe_path:
+        if os.path.isfile(exe_path) and os.access(exe_path, os.X_OK):
+            return exe_path
+        return None
+
     if _EXE_SEARCH_DONE:
         return _EXE_PATH
 
@@ -52,9 +57,9 @@ def _resolve_exe() -> Optional[str]:
     return None
 
 
-def is_available() -> bool:
+def is_available(exe_path: str | None = None) -> bool:
     """回傳 classifier 是否可用。"""
-    return _resolve_exe() is not None
+    return _resolve_exe(exe_path) is not None
 
 
 class GoError(Exception):
@@ -65,7 +70,9 @@ class GoNotFoundError(GoError):
     """classifier 執行檔不存在。"""
 
 
-def run(args: list[str], *, timeout: int = 30) -> dict[str, Any]:
+def run(
+    args: list[str], *, timeout: int = 30, exe_path: str | None = None
+) -> dict[str, Any]:
     """
     執行 classifier 指令，回傳解析後的 JSON 輸出。
 
@@ -73,7 +80,7 @@ def run(args: list[str], *, timeout: int = 30) -> dict[str, Any]:
         GoNotFoundError: 找不到 classifier。
         GoError: 執行失敗或 JSON 解析錯誤。
     """
-    exe = _resolve_exe()
+    exe = _resolve_exe(exe_path)
     if not exe:
         raise GoNotFoundError("找不到 classifier 執行檔")
 
@@ -208,16 +215,17 @@ def db_get_all_videos(data_dir: str = "data/json_db") -> list[dict]:
         return []
 
 
-def db_compact_journal(data_dir: str = "data/json_db") -> dict:
+def db_compact_journal(data_dir: str = "data/json_db") -> bool:
     """合併 journal 到主資料庫。"""
     try:
-        cmd = ["db", "merge"]
+        cmd = ["db", "compact", "-json"]
         if data_dir != "data/json_db":
             cmd.extend(["-data-dir", data_dir])
-        return run(cmd)
+        data = run(cmd)
+        return bool(data.get("success", True)) if isinstance(data, dict) else True
     except GoError as e:
         logger.error(f"db_compact_journal 失敗: {e}")
-        return {}
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +328,7 @@ def cache_clear(cache_dir: str = "cache", dry_run: bool = False) -> dict:
 
 def db_backup_create(data_dir: str = "data/json_db") -> dict:
     try:
-        cmd = ["db", "backup"]
+        cmd = ["db", "backup-create"]
         if data_dir != "data/json_db":
             cmd.extend(["-data-dir", data_dir])
         return run(cmd)
@@ -331,10 +339,13 @@ def db_backup_create(data_dir: str = "data/json_db") -> dict:
 
 def db_backup_list(data_dir: str = "data/json_db") -> list:
     try:
-        cmd = ["db", "backup", "list"]
+        cmd = ["db", "backup-list"]
         if data_dir != "data/json_db":
             cmd.extend(["-data-dir", data_dir])
         data = run(cmd)
+        if isinstance(data, dict):
+            backups = data.get("backups")
+            return backups if isinstance(backups, list) else []
         return data if isinstance(data, list) else []
     except GoError as e:
         logger.error(f"db_backup_list 失敗: {e}")
@@ -343,7 +354,7 @@ def db_backup_list(data_dir: str = "data/json_db") -> list:
 
 def db_backup_restore(backup_file: str, data_dir: str = "data/json_db") -> dict:
     try:
-        cmd = ["db", "backup", "restore", backup_file]
+        cmd = ["db", "backup-restore", "-backup-path", backup_file]
         if data_dir != "data/json_db":
             cmd.extend(["-data-dir", data_dir])
         return run(cmd)
@@ -352,15 +363,20 @@ def db_backup_restore(backup_file: str, data_dir: str = "data/json_db") -> dict:
         return {}
 
 
-def db_backup_cleanup(data_dir: str = "data/json_db", **kwargs) -> dict:
+def db_backup_cleanup(data_dir: str = "data/json_db", **kwargs) -> int:
     try:
-        cmd = ["db", "backup", "cleanup"]
+        cmd = ["db", "backup-cleanup"]
         if data_dir != "data/json_db":
             cmd.extend(["-data-dir", data_dir])
-        return run(cmd)
+        if "days" in kwargs:
+            cmd.extend(["-days", str(kwargs["days"])])
+        if "max_count" in kwargs:
+            cmd.extend(["-max-count", str(kwargs["max_count"])])
+        data = run(cmd)
+        return int(data.get("deleted", 0)) if isinstance(data, dict) else 0
     except GoError as e:
         logger.error(f"db_backup_cleanup 失敗: {e}")
-        return {}
+        return 0
 
 
 def db_get_actress(name: str, data_dir: str = "data/json_db") -> Optional[dict]:
@@ -414,10 +430,18 @@ def db_delete_actress(name: str, data_dir: str = "data/json_db") -> bool:
 # 檔案移動操作
 # ---------------------------------------------------------------------------
 
-def move_file(source: str, destination: str, strategy: str = "skip") -> dict:
+def move_file(
+    source: str,
+    destination: str,
+    strategy: str = "skip",
+    exe_path: str | None = None,
+) -> dict:
     """移動單個檔案，回傳操作結果 dict。"""
     try:
-        data = run(["move", "-src", source, "-dst", destination, "-strategy", strategy])
+        data = run(
+            ["move", "-src", source, "-dst", destination, "-strategy", strategy],
+            exe_path=exe_path,
+        )
         if isinstance(data, dict):
             return data
         return {"success": True, "source": source, "destination": destination, "error": None, "skipped": False, "renamed": None}
@@ -425,10 +449,18 @@ def move_file(source: str, destination: str, strategy: str = "skip") -> dict:
         return {"success": False, "source": source, "destination": destination, "error": str(e), "skipped": False, "renamed": None}
 
 
-def move_dir(source: str, destination: str, strategy: str = "skip") -> dict:
+def move_dir(
+    source: str,
+    destination: str,
+    strategy: str = "skip",
+    exe_path: str | None = None,
+) -> dict:
     """移動整個目錄，回傳操作結果 dict。"""
     try:
-        data = run(["move", "-src", source, "-dst", destination, "-strategy", strategy, "-dir"])
+        data = run(
+            ["move", "-src", source, "-dst", destination, "-strategy", strategy, "-dir"],
+            exe_path=exe_path,
+        )
         if isinstance(data, dict):
             return data
         return {"success": True, "source": source, "destination": destination, "error": None, "skipped": False}
@@ -436,7 +468,12 @@ def move_dir(source: str, destination: str, strategy: str = "skip") -> dict:
         return {"success": False, "source": source, "destination": destination, "error": str(e), "skipped": False}
 
 
-def batch_move(items: list[dict], strategy: str = "skip", log_dir: str = "logs") -> dict:
+def batch_move(
+    items: list[dict],
+    strategy: str = "skip",
+    log_dir: str = "logs",
+    exe_path: str | None = None,
+) -> dict:
     """批次移動檔案，items 為 [{"source": ..., "destination": ...}, ...]。"""
     temp_file = None
     try:
@@ -445,7 +482,10 @@ def batch_move(items: list[dict], strategy: str = "skip", log_dir: str = "logs")
         ) as f:
             json.dump(items, f, ensure_ascii=False)
             temp_file = f.name
-        data = run(["move", "-batch", temp_file, "-strategy", strategy, "-log-dir", log_dir])
+        data = run(
+            ["move", "-batch", temp_file, "-strategy", strategy, "-log-dir", log_dir],
+            exe_path=exe_path,
+        )
         if isinstance(data, dict):
             return data
         return {"total": len(items), "success": 0, "failed": len(items), "skipped": 0, "results": []}
@@ -456,30 +496,42 @@ def batch_move(items: list[dict], strategy: str = "skip", log_dir: str = "logs")
             os.unlink(temp_file)
 
 
-def rollback(operation_id: str, log_dir: str = "logs") -> dict:
+def rollback(
+    operation_id: str, log_dir: str = "logs", exe_path: str | None = None
+) -> dict:
     """回滾指定操作 ID。"""
     try:
-        data = run(["history", "rollback", operation_id, "-log-dir", log_dir])
+        data = run(
+            ["history", "rollback", operation_id, "-log-dir", log_dir],
+            exe_path=exe_path,
+        )
         return data if isinstance(data, dict) else {}
     except GoError as e:
         return {"success": False, "error": str(e)}
 
 
-def rollback_last(log_dir: str = "logs") -> dict:
+def rollback_last(log_dir: str = "logs", exe_path: str | None = None) -> dict:
     """回滾最近一次操作。"""
     try:
-        data = run(["history", "rollback", "--last", "-log-dir", log_dir])
+        data = run(
+            ["history", "rollback", "--last", "-log-dir", log_dir],
+            exe_path=exe_path,
+        )
         return data if isinstance(data, dict) else {}
     except GoError as e:
         return {"success": False, "error": str(e)}
 
 
-def list_operations(limit: int = 10, log_dir: str = "logs") -> list[dict]:
+def list_operations(
+    limit: int = 10, log_dir: str = "logs", exe_path: str | None = None
+) -> list[dict]:
     """列出最近操作記錄。"""
     try:
-        data = run(["history", "list", "-log-dir", log_dir, "-limit", str(limit)])
+        data = run(
+            ["history", "list", "-log-dir", log_dir, "-limit", str(limit)],
+            exe_path=exe_path,
+        )
         return data if isinstance(data, list) else []
     except GoError as e:
         logger.debug(f"list_operations 失敗: {e}")
         return []
-

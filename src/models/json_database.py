@@ -32,41 +32,24 @@ from src.models.json_types import (
     get_empty_json_database,
     get_empty_video,
 )
+from src.services.go_cli import (
+    GoError as _GoBridgeError,
+    GoNotFoundError as _GoBridgeNotFoundError,
+    db_backup_cleanup as _go_db_backup_cleanup,
+    db_backup_create as _go_db_backup_create,
+    db_backup_list as _go_db_backup_list,
+    db_backup_restore as _go_db_backup_restore,
+    db_delete_actress as _go_db_delete_actress,
+    db_delete_video as _go_db_delete_video,
+    db_get_actress as _go_db_get_actress,
+    db_get_all_videos as _go_db_get_all_videos,
+    db_get_video as _go_db_get_video,
+    db_update_actress as _go_db_update_actress,
+    db_update_video as _go_db_update_video,
+)
 
 # 設定日誌
 logger = logging.getLogger(__name__)
-
-try:
-    from src.services.go_cli import (
-        GoError as _GoBridgeError,
-        GoNotFoundError as _GoBridgeNotFoundError,
-        db_backup_cleanup as _go_db_backup_cleanup,
-        db_backup_create as _go_db_backup_create,
-        db_backup_list as _go_db_backup_list,
-        db_backup_restore as _go_db_backup_restore,
-        db_delete_actress as _go_db_delete_actress,
-        db_delete_video as _go_db_delete_video,
-        db_get_actress as _go_db_get_actress,
-        db_get_all_videos as _go_db_get_all_videos,
-        db_get_video as _go_db_get_video,
-        db_update_actress as _go_db_update_actress,
-        db_update_video as _go_db_update_video,
-    )
-except ImportError:
-    def _go_db_backup_cleanup(*a, **kw): return {}  # noqa: E731
-    def _go_db_backup_create(*a, **kw): return {}  # noqa: E731
-    def _go_db_backup_list(*a, **kw): return []  # noqa: E731
-    def _go_db_backup_restore(*a, **kw): return {}  # noqa: E731
-    def _go_db_delete_actress(*a, **kw): return {}  # noqa: E731
-    def _go_db_delete_video(*a, **kw): return {}  # noqa: E731
-    def _go_db_get_actress(*a, **kw): return {}  # noqa: E731
-    def _go_db_get_all_videos(*a, **kw): return []  # noqa: E731
-    def _go_db_get_video(*a, **kw): return {}  # noqa: E731
-    def _go_db_update_actress(*a, **kw): return {}  # noqa: E731
-    def _go_db_update_video(*a, **kw): return {}  # noqa: E731
-
-    class _GoBridgeError(Exception): pass  # noqa: E701
-    class _GoBridgeNotFoundError(_GoBridgeError): pass  # noqa: E701
 
 
 class JSONDBManager:
@@ -206,20 +189,22 @@ class JSONDBManager:
         將舊版資料結構補齊為目前 schema。
 
         支援缺少 `schema_version` / `links` / `statistics` 的舊資料，
-        並將早期的 `video_actress_links` 轉為目前使用的 `links` 清單。
+        但不再接受舊版 `video_actress_links` 或 dict 型別的 `links`。
         """
         if not isinstance(loaded_data, dict):
             raise ValidationError("根層必須是字典")
+
+        if "video_actress_links" in loaded_data:
+            raise ValidationError(
+                "已不再支援舊版 video_actress_links，請先遷移資料後再載入"
+            )
 
         default_data = get_empty_json_database()
         normalized: JSONDatabaseDict = default_data.copy()
         normalized.update(loaded_data)
 
-        legacy_links = loaded_data.get("video_actress_links")
-        if "links" not in loaded_data and legacy_links is not None:
-            normalized["links"] = self._normalize_legacy_links(legacy_links)
-        elif isinstance(normalized.get("links"), dict):
-            normalized["links"] = self._normalize_legacy_links(normalized["links"])
+        if isinstance(normalized.get("links"), dict):
+            raise ValidationError("'links' 必須是清單")
 
         statistics = normalized.get("statistics")
         if not isinstance(statistics, dict):
@@ -230,33 +215,6 @@ class JSONDBManager:
             normalized["statistics"] = merged_statistics
 
         return normalized
-
-    @staticmethod
-    def _normalize_legacy_links(legacy_links: Any) -> list[dict[str, Any]]:
-        """將舊版 link 結構統一為目前的 list 格式。"""
-        if legacy_links is None:
-            return []
-
-        if isinstance(legacy_links, list):
-            return legacy_links
-
-        if not isinstance(legacy_links, dict):
-            raise ValidationError("'links' 必須是清單")
-
-        normalized_links: list[dict[str, Any]] = []
-        for video_code, actress_ids in legacy_links.items():
-            if not isinstance(actress_ids, list):
-                continue
-            for actress_id in actress_ids:
-                if isinstance(actress_id, str):
-                    normalized_links.append(
-                        {
-                            "video_code": video_code,
-                            "actress_id": actress_id,
-                        }
-                    )
-
-        return normalized_links
 
     def _save_all_data(self, data: JSONDatabaseDict) -> None:
         """
@@ -425,8 +383,8 @@ class JSONDBManager:
             BackupError: 若備份失敗
         """
         result = _go_db_backup_create(data_dir=str(self.data_dir))
-        if result:
-            return result
+        if isinstance(result, dict) and result.get("path"):
+            return result["path"]
         raise RuntimeError("Go backup-create 回傳空結果")
 
     def restore_from_backup(self, backup_path: str) -> bool:
@@ -444,7 +402,10 @@ class JSONDBManager:
         Raises:
             BackupError: 若還原失敗
         """
-        result = _go_db_backup_restore(backup_path=backup_path, data_dir=str(self.data_dir))
+        result = _go_db_backup_restore(
+            backup_file=backup_path,
+            data_dir=str(self.data_dir),
+        )
         if result:
             # 重新載入記憶體
             self._load_data_internal()
@@ -495,7 +456,7 @@ class JSONDBManager:
         self, code: str | VideoDict, info: dict[str, Any] | None = None
     ) -> str:
         """
-        新增或更新影片（優先委派至 Go CLI，不可用時 fallback 到 Python）。
+        新增或更新影片（委派至 Go CLI）。
 
         Args:
             code: 影片番號，或直接傳入包含 `code` 的影片資訊字典
@@ -545,7 +506,7 @@ class JSONDBManager:
 
     def get_video_info(self, code: str) -> VideoDict | None:
         """
-        查詢影片資訊（優先委派至 Go CLI，不可用時 fallback 到 Python）。
+        查詢影片資訊（委派至 Go CLI）。
 
         Args:
             code: 影片番號
@@ -570,7 +531,7 @@ class JSONDBManager:
         self, filter_dict: dict[str, Any] | None = None
     ) -> list[VideoDict]:
         """
-        取得所有影片清單（優先委派至 Go CLI，不可用時 fallback 到 Python）。
+        取得所有影片清單（委派至 Go CLI）。
 
         Args:
             filter_dict: 過濾條件 (例如: {'studio': 'ABC'})
@@ -590,20 +551,11 @@ class JSONDBManager:
             logger.debug(f"✅ 取得 {len(videos)} 個影片 (Go)")
             return videos
         except Exception as e:
-            logger.warning(f"⚠️ Go 委派 get_all_videos 失敗，從記憶體返回: {e}")
-
-        videos = self.data.get("videos", {})
-        video_list = [
-            {**v, "code": v.get("code") or v.get("id") or k}
-            for k, v in videos.items()
-        ]
-        if filter_dict:
-            video_list = self._apply_video_filters(video_list, filter_dict)
-        return video_list
+            raise RuntimeError(f"Go get_all_videos 失敗: {e}") from e
 
     def delete_video(self, code: str) -> bool:
         """
-        刪除影片（優先委派至 Go CLI，不可用時 fallback 到 Python）。
+        刪除影片（委派至 Go CLI）。
 
         同時刪除相關的影片-女優關聯記錄。
 

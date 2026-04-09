@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"actress-classifier/pkg/pathutil"
 )
 
 // newTestApp builds an App ready for unit testing.
@@ -244,7 +246,7 @@ func TestPlanDirMergeMoves_DestinationInsideSource(t *testing.T) {
 }
 
 func TestIsSameOrNestedPath_DifferentVolumes(t *testing.T) {
-	sameOrNested, err := isSameOrNestedPath(`C:\source`, `D:\dest`)
+	sameOrNested, err := pathutil.IsSameOrNestedPath(`C:\source`, `D:\dest`)
 	if err != nil {
 		t.Fatalf("expected nil error for different volumes, got %v", err)
 	}
