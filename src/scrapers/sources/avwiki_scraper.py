@@ -26,6 +26,8 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+_AV_ACTRESS_PATH = "/av-actress/"
+
 
 class AVWikiScraper(BaseScraper):
     """AV-WIKI 專用爬蟲類"""
@@ -136,7 +138,7 @@ class AVWikiScraper(BaseScraper):
             text = link.get_text(strip=True)
 
             # 只提取女優標籤（href 包含 /av-actress/）
-            if "/av-actress/" in href and text and text not in seen_actresses:
+            if _AV_ACTRESS_PATH in href and text and text not in seen_actresses:
                 actress_elements.append(
                     {"name": text, "href": href, "source": "tag_link"}
                 )
@@ -156,7 +158,7 @@ class AVWikiScraper(BaseScraper):
 
                         # 優先使用帶有 /av-actress/ 連結的
                         if (
-                            "/av-actress/" in href
+                            _AV_ACTRESS_PATH in href
                             and text
                             and text not in seen_actresses
                         ):
@@ -195,7 +197,7 @@ class AVWikiScraper(BaseScraper):
                             href = tag.get("href", "")
                             text = tag.get_text(strip=True)
 
-                            if "/av-actress/" in href and text not in seen_actresses:
+                            if _AV_ACTRESS_PATH in href and text not in seen_actresses:
                                 actress_elements.append(
                                     {
                                         "name": text,
@@ -267,7 +269,7 @@ class AVWikiScraper(BaseScraper):
             text = link.get_text(strip=True)
 
             # 只提取女優標籤（href 包含 /av-actress/）
-            if "/av-actress/" in href and text and text not in actresses:
+            if _AV_ACTRESS_PATH in href and text and text not in actresses:
                 actresses.append(text)
 
         # 方法2: 如果沒找到，嘗試從 actress-name class 提取
@@ -280,7 +282,7 @@ class AVWikiScraper(BaseScraper):
                     href = link.get("href", "")
                     text = link.get_text(strip=True)
 
-                    if "/av-actress/" in href and text and text not in actresses:
+                    if _AV_ACTRESS_PATH in href and text and text not in actresses:
                         actresses.append(text)
 
                 # 如果沒找到連結，則使用元素的完整文本

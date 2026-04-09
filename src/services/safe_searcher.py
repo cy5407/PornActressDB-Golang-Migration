@@ -26,6 +26,11 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+_ACCEPT_HTML = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+_ACCEPT_LANG_ZH = "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6"
+_ACCEPT_ENCODING = "gzip, deflate, br"
+_SEC_CH_UA_CHROME = '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"'
+
 
 @dataclass
 class RequestConfig:
@@ -78,9 +83,9 @@ class SafeSearcher:
         return [
             {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8,ja;q=0.7",
-                "Accept-Encoding": "gzip, deflate, br",
+                "Accept": _ACCEPT_HTML,
+                "Accept-Language": _ACCEPT_LANG_ZH,
+                "Accept-Encoding": _ACCEPT_ENCODING,
                 "DNT": "1",
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
@@ -88,7 +93,7 @@ class SafeSearcher:
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
                 "Sec-Fetch-User": "?1",
-                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                "Sec-Ch-Ua": _SEC_CH_UA_CHROME,
                 "Sec-Ch-Ua-Mobile": "?0",
                 "Sec-Ch-Ua-Platform": '"Windows"',
             },
@@ -96,7 +101,7 @@ class SafeSearcher:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "zh-TW,zh;q=0.8,en-US;q=0.5,en;q=0.3,ja;q=0.2",
-                "Accept-Encoding": "gzip, deflate, br",
+                "Accept-Encoding": _ACCEPT_ENCODING,
                 "DNT": "1",
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
@@ -107,9 +112,9 @@ class SafeSearcher:
             },
             {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8,ja;q=0.7",
-                "Accept-Encoding": "gzip, deflate, br",
+                "Accept": _ACCEPT_HTML,
+                "Accept-Language": _ACCEPT_LANG_ZH,
+                "Accept-Encoding": _ACCEPT_ENCODING,
                 "DNT": "1",
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
@@ -117,15 +122,15 @@ class SafeSearcher:
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
                 "Sec-Fetch-User": "?1",
-                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                "Sec-Ch-Ua": _SEC_CH_UA_CHROME,
                 "Sec-Ch-Ua-Mobile": "?0",
                 "Sec-Ch-Ua-Platform": '"macOS"',
             },
             {
                 "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8,ja;q=0.7",
-                "Accept-Encoding": "gzip, deflate, br",
+                "Accept": _ACCEPT_HTML,
+                "Accept-Language": _ACCEPT_LANG_ZH,
+                "Accept-Encoding": _ACCEPT_ENCODING,
                 "DNT": "1",
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
@@ -133,15 +138,15 @@ class SafeSearcher:
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
                 "Sec-Fetch-User": "?1",
-                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                "Sec-Ch-Ua": _SEC_CH_UA_CHROME,
                 "Sec-Ch-Ua-Mobile": "?0",
                 "Sec-Ch-Ua-Platform": '"Linux"',
             },
             {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8,ja;q=0.7",
-                "Accept-Encoding": "gzip, deflate, br",
+                "Accept-Language": _ACCEPT_LANG_ZH,
+                "Accept-Encoding": _ACCEPT_ENCODING,
                 "DNT": "1",
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",

@@ -15,6 +15,8 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_RULES_FILE = "studios.json"
+
 
 def _resolve_resource_path(relative_path: str) -> Path:
     """解析資源檔路徑，相容 PyInstaller 打包環境與一般執行環境。"""
@@ -26,11 +28,11 @@ def _resolve_resource_path(relative_path: str) -> Path:
 class StudioIdentifier:
     """片商識別器"""
 
-    def __init__(self, rules_file: str = "studios.json"):
+    def __init__(self, rules_file: str = _DEFAULT_RULES_FILE):
         # 預設規則檔支援 PyInstaller 打包路徑；自訂路徑直接使用
         self.rules_file = (
             _resolve_resource_path(rules_file)
-            if rules_file == "studios.json"
+            if rules_file == _DEFAULT_RULES_FILE
             else Path(rules_file)
         )
         self.studio_patterns = self._load_rules()
@@ -147,7 +149,7 @@ class StudioIdentifier:
         if go_result is not None:
             return go_result
         # 自訂規則檔：Go 不處理，從本機 code_to_studio 查詢前綴
-        if code and self.rules_file.name != "studios.json":
+        if code and self.rules_file.name != _DEFAULT_RULES_FILE:
             prefix = code.upper().split('-')[0]
             return self.code_to_studio.get(prefix, "UNKNOWN")
         return "UNKNOWN"
@@ -155,7 +157,7 @@ class StudioIdentifier:
     def _identify_studio_via_go(self, code: str) -> str | None:
         """嘗試透過 Go CLI 識別片商；若 Go 不可用或使用自訂規則檔則回傳 None。"""
         # 若使用自訂規則檔（非預設 studios.json），Go CLI 規則可能不一致，直接用 Python
-        if self.rules_file.name != "studios.json":
+        if self.rules_file.name != _DEFAULT_RULES_FILE:
             return None
 
         try:

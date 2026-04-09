@@ -24,6 +24,8 @@ var (
 	ErrDatabaseNotLoaded = errors.New("database not loaded")
 )
 
+const warnSaveIndex = "Warning: failed to save index: %v\n"
+
 // Video 是 VideoData 的別名（向後相容）
 type Video = VideoData
 
@@ -315,7 +317,7 @@ func (db *JSONDatabase) UpdateVideo(code string, video *Video) error {
 			db.dirtyVideos[code] = true
 			db.journalSize++
 			if err := db.saveIndex(); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+				fmt.Fprintf(os.Stderr, warnSaveIndex, err)
 			}
 		}
 	}
@@ -359,7 +361,7 @@ func (db *JSONDatabase) UpdateVideoFields(code string, updates map[string]any) e
 	db.dirtyVideos[code] = true
 	db.journalSize++
 	if err := db.saveIndex(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+		fmt.Fprintf(os.Stderr, warnSaveIndex, err)
 	}
 
 	return nil
@@ -401,7 +403,7 @@ func (db *JSONDatabase) AddVideo(video *Video) error {
 	db.dirtyVideos[code] = true
 	db.journalSize++
 	if err := db.saveIndex(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+		fmt.Fprintf(os.Stderr, warnSaveIndex, err)
 	}
 
 	return nil
@@ -442,7 +444,7 @@ func (db *JSONDatabase) DeleteVideo(code string) error {
 			db.deletedVideos[code] = true
 			db.journalSize++
 			if err := db.saveIndex(); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+				fmt.Fprintf(os.Stderr, warnSaveIndex, err)
 			}
 		}
 	}
@@ -539,7 +541,7 @@ func (db *JSONDatabase) BatchUpdate(updates map[string]*Video) error {
 
 	// 儲存索引
 	if err := db.saveIndex(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+		fmt.Fprintf(os.Stderr, warnSaveIndex, err)
 	}
 
 	return nil
@@ -934,7 +936,7 @@ func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*Merge
 	db.journalSize += stats.VideosAdded + stats.VideosUpdated + stats.ActressesAdded + stats.ActressesUpdated + stats.LinksAdded
 
 	if err := db.saveIndex(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to save index: %v\n", err)
+		fmt.Fprintf(os.Stderr, warnSaveIndex, err)
 	}
 
 	return stats, nil

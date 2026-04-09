@@ -44,6 +44,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 CACHE_PAYLOAD_VERSION = 1
+_ERR_CACHE_PRUNE_EMPTY = "cache_dir must not be empty"
 
 
 @dataclass
@@ -572,7 +573,7 @@ class CacheManager:
                     "freed_bytes": int(go_result.get("freed_bytes", 0)),
                     "remaining_files": go_result.get("remaining_count", 0),
                 }
-            raise RuntimeError("Go cache_prune 回傳空結果")
+            raise RuntimeError(_ERR_CACHE_PRUNE_EMPTY)
         except Exception as e:
             logger.warning(f"⚠️ Go 快取清理失敗: {e}")
             raise RuntimeError(f"Go CLI 不可用，無法清理過期快取 (cleanup_expired): {e}") from e
@@ -606,7 +607,7 @@ class CacheManager:
                     "remaining_files": go_result.get("remaining_count", 0),
                     "current_size_mb": go_result.get("current_size_mb", 0.0),
                 }
-            raise RuntimeError("Go cache_prune 回傳空結果")
+            raise RuntimeError(_ERR_CACHE_PRUNE_EMPTY)
         except Exception as e:
             logger.warning(f"⚠️ Go 大小清理失敗: {e}")
             raise RuntimeError(f"Go CLI 不可用，無法根據大小清理快取 (cleanup_by_size): {e}") from e
@@ -699,7 +700,7 @@ class CacheManager:
                         f"釋放 {result['total_freed_mb']:.2f} MB"
                     )
                 return result
-            raise RuntimeError("Go cache_prune 回傳空結果")
+            raise RuntimeError(_ERR_CACHE_PRUNE_EMPTY)
         except Exception as e:
             logger.warning(f"⚠️ Go 自動清理失敗: {e}")
             raise RuntimeError(f"Go CLI 不可用，無法執行自動清理 (auto_cleanup): {e}") from e

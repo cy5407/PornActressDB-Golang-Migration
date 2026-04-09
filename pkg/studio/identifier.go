@@ -11,6 +11,8 @@ import (
 	"actress-classifier/pkg/safefile"
 )
 
+const majorStudiosFile = "major_studios.json"
+
 // StudioIdentifier 片商識別器
 type StudioIdentifier struct {
 	// StudioPatterns 片商前綴對應表 (studio_name -> prefixes)
@@ -89,12 +91,12 @@ func (si *StudioIdentifier) loadMajorStudios(rulesFile string) string {
 		dir = "."
 	}
 
-	majorFile := filepath.Join(dir, "major_studios.json")
+	majorFile := filepath.Join(dir, majorStudiosFile)
 	paths := []string{
 		majorFile,
-		"major_studios.json",
-		filepath.Join("..", "major_studios.json"),
-		filepath.Join("..", "..", "major_studios.json"),
+		majorStudiosFile,
+		filepath.Join("..", majorStudiosFile),
+		filepath.Join("..", "..", majorStudiosFile),
 	}
 
 	for _, path := range paths {
