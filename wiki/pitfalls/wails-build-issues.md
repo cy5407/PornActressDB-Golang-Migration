@@ -1,3 +1,7 @@
+---
+category: Wails
+date: 2026-04-08
+---
 # Wails v2 建置踩坑全記錄
 
 ## 問題 A：npm 版本衝突（@tailwindcss/vite peer dependency）

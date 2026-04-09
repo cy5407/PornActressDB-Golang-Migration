@@ -480,6 +480,29 @@ func TestBatchMoveDirs_RenameStoresMergedDestination(t *testing.T) {
 	}
 }
 
+func TestBatchMoveDirs_SameSourceAndDestinationMarkedSuccess(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	dir := filepath.Join(tempDir, "SOD", "天羽りりか")
+	createTestFile(t, filepath.Join(dir, "OFSD-040.mp4"), "video")
+
+	m := NewMover(tempDir)
+	result := m.BatchMoveDirs(context.Background(), []MoveItem{
+		{Source: dir, Destination: dir, OnConflict: Skip},
+	})
+
+	if result.SuccessCount != 1 {
+		t.Fatalf("SuccessCount = %d, want 1", result.SuccessCount)
+	}
+	if result.SkippedCount != 0 {
+		t.Fatalf("SkippedCount = %d, want 0", result.SkippedCount)
+	}
+	if len(result.Results) != 1 || result.Results[0].Skipped {
+		t.Fatal("same source/destination directory should not be marked skipped")
+	}
+}
+
 func TestBatchMove_Basic(t *testing.T) {
 	tempDir, cleanup := setupTestEnv(t)
 	defer cleanup()

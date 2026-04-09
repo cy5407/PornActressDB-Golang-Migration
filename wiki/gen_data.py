@@ -8,6 +8,7 @@
     python wiki/gen_data.py --watch   (監聽模式，存檔後自動重新產生)
 """
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -15,24 +16,42 @@ from pathlib import Path
 WIKI_DIR = Path(__file__).parent
 OUT_FILE = WIKI_DIR / "wiki-data.js"
 
+FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+FM_FIELD_RE = re.compile(r"^(\w+):\s*(.+)$", re.MULTILINE)
 
-def build_data(wiki_dir: Path) -> dict[str, str]:
+
+def parse_frontmatter(text: str) -> tuple[dict, str]:
+    """回傳 (metadata_dict, content_without_frontmatter)"""
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return {}, text
+    fields = {k: v.strip() for k, v in FM_FIELD_RE.findall(m.group(1))}
+    return fields, text[m.end():]
+
+
+def build_data(wiki_dir: Path) -> tuple[dict[str, str], dict[str, dict]]:
     data = {}
+    meta = {}
     for md in sorted(wiki_dir.rglob("*.md")):
         rel = md.relative_to(wiki_dir)
         if len(rel.parts) > 2:
             continue  # 不支援三層以上
         key = str(rel).replace("\\", "/")
-        data[key] = md.read_text(encoding="utf-8")
-    return data
+        raw = md.read_text(encoding="utf-8")
+        fm, content = parse_frontmatter(raw)
+        data[key] = content
+        if fm:
+            meta[key] = fm
+    return data, meta
 
 
 def generate(wiki_dir: Path = WIKI_DIR):
-    data = build_data(wiki_dir)
+    data, meta = build_data(wiki_dir)
     js = "// 自動產生，請勿手動編輯。執行 python wiki/gen_data.py 更新。\n"
     js += f"window.WIKI_DATA = {json.dumps(data, ensure_ascii=False, indent=2)};\n"
+    js += f"window.WIKI_META = {json.dumps(meta, ensure_ascii=False, indent=2)};\n"
     OUT_FILE.write_text(js, encoding="utf-8")
-    print(f"✅ 已產生 wiki-data.js（{len(data)} 個頁面）")
+    print(f"✅ 已產生 wiki-data.js（{len(data)} 個頁面，{len(meta)} 個含 frontmatter）")
 
 
 def watch(wiki_dir: Path = WIKI_DIR):

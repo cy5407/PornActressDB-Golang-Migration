@@ -485,13 +485,21 @@ function ActionToolbar() {
     const repCodes = [...folderToCodes.values()].map((codes) => codes[0]);
     const codeStudioMap: Record<string, string> = await GetStudiosByCodes(repCodes);
 
+    const actressLookupByCode = new Map<string, string>();
+    for (const [actressDir, codes] of folderToCodes) {
+      const repCode = codes[0];
+      const actress = codeToActress.get(repCode) ?? '';
+      const actressName = dirName(actressDir) || actress || '未知女優';
+      actressLookupByCode.set(repCode, actress || actressName);
+    }
+
     // fallback：對前綴未命中的番號，補查女優→DB 統計
     const missingActresses = [
       ...new Set(
         repCodes
           .filter((c) => !codeStudioMap[c])
-          .map((c) => codeToActress.get(c) ?? '')
-          .filter(Boolean)
+          .map((c) => actressLookupByCode.get(c) ?? '')
+          .filter((name) => Boolean(name) && name !== '未分類' && name !== '未知女優')
       ),
     ];
     const actressStudioMap: Record<string, string> =
@@ -507,9 +515,10 @@ function ActionToolbar() {
       const repCode = codes[0];
       const actress = codeToActress.get(repCode) ?? '';
       const actressName = dirName(actressDir) || actress || '未知女優';
+      const actressLookupName = actressLookupByCode.get(repCode) ?? '';
 
       let studio = codeStudioMap[repCode] ?? '';
-      if (!studio && actress) studio = actressStudioMap[actress] ?? '';
+      if (!studio && actressLookupName) studio = actressStudioMap[actressLookupName] ?? '';
       if (!studio) studio = '未分類';
 
       studioCounts[studio] = (studioCounts[studio] ?? 0) + 1;

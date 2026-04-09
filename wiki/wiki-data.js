@@ -40,3 +40,89 @@ window.WIKI_DATA = {
   "pitfalls/wails-studio-canonical-match.md": "# Wails 片商名稱正規化與路徑解析錯誤\n\n**日期**：2026-04-09（W8 任務）  \n**嚴重度**：🟠 高（片商分類歸錯資料夾，影響大量檔案）\n\n---\n\n## 問題 A：`canonicalMajorStudio()` 大小寫不敏感匹配缺失\n\n### 症狀\n\n片商分類時，「SOD star」系列的影片被歸入 `単体企劃女優\\` 而非 `SOD\\` 資料夾，\n即使 `major_studios.json` 中明確列有 `\"SOD\"` 條目。\n\n### 根本原因\n\n`canonicalMajorStudio()` 使用 `strings.HasPrefix` 進行精確匹配：\n\n```go\n// ❌ 修復前：大小寫敏感，前綴空格干擾\nfor _, major := range majors {\n    if strings.HasPrefix(studio, major) {\n        return major\n    }\n}\n```\n\n`studio` 值可能為 `\"SOD star\"`，而 `major` 為 `\"SOD\"`，\n若 `studio` 有前綴空格（` SOD star`）或大小寫不同（`Sod`），比對直接失敗。\n\n### 修復\n\n```go\n// ✅ 修復後：大小寫不敏感 + 前綴空格修剪 + longest-match-wins\nfunc canonicalMajorStudio(studio string, majors []string) string {\n    studio = strings.TrimSpace(studio)\n    studioLower := strings.ToLower(studio)\n    best := \"\"\n    for _, major := range majors {\n        majorLower := strings.ToLower(major)\n        if strings.HasPrefix(studioLower, majorLower) {\n            if len(major) > len(best) {\n                best = major  // longest match wins\n            }\n        }\n    }\n    return best\n}\n```\n\n**教訓**：片商名稱比對必須使用 `strings.ToLower` 正規化雙方，並用 longest-match-wins 避免 `\"SOD\"` 比 `\"SOD Create\"` 短而優先匹配的問題。\n\n---\n\n## 問題 B：`resolveMajorStudiosPath()` 找不到專案根目錄\n\n### 症狀\n\nWails app 執行時找不到 `major_studios.json`，即使檔案已存在於專案根目錄，\n導致所有影片都無法套用 major studio 分類。\n\n### 根本原因\n\n`resolveMajorStudiosPath()` 搜尋順序未涵蓋「從 EXE 往上三層到專案根目錄」：\n\n```\nwails-app/build/bin/actress-classifier.exe\n                 ↑ EXE 位置\n../../../major_studios.json  ← 需要往上三層才能到達\n```\n\n原本的搜尋路徑只查了：\n1. EXE 同目錄（`build/bin/`）→ ❌ 沒有\n2. 當前工作目錄 → ❌ 依啟動方式不同\n\n### 修復\n\n加入 `exe/../../../` 的搜尋路徑：\n\n```go\nfunc resolveMajorStudiosPath() string {\n    candidates := []string{}\n    \n    if exePath, err := os.Executable(); err == nil {\n        exeDir := filepath.Dir(exePath)\n        candidates = append(candidates,\n            filepath.Join(exeDir, \"major_studios.json\"),                   // build/bin/\n            filepath.Join(exeDir, \"..\", \"..\", \"..\", \"major_studios.json\"), // 專案根目錄 ← 新增\n        )\n    }\n    // ... cwd, 硬式路徑等 fallback\n}\n```\n\n**教訓**：Wails build 產生的 EXE 在 `wails-app/build/bin/`，距離專案根目錄三層。路徑解析函式必須明確處理這個相對關係，尤其是開發期（`go run`）和 build 後（`*.exe`）的工作目錄不同。\n\n---\n\n## 副作用警告\n\nW8 修復後，原本被誤分到 `単体企劃女優\\` 的 63 個檔案需要手動處理：\n- 方案 A（推薦）：使用「操作歷史 → 回滾」還原移動操作\n- 方案 B：手動將檔案移回輸入目錄，再重新點「片商分類」\n\n---\n\n## 相關檔案\n\n- `wails-app/backend/app.go` — `canonicalMajorStudio()`、`resolveMajorStudiosPath()`\n- `major_studios.json` — 大片商名稱清單\n",
   "pitfalls/wiki-viewer-nav-out-of-sync.md": "# Wiki Viewer 導覽選單與 wiki-data.js 脫鉤\n\n## 問題描述\n\n新增 `wiki/pitfalls/*.md` 後，`viewer.html` 的左側導覽選單沒有出現新頁面。\n\n```\n# 症狀：viewer.html 顯示「找不到頁面」或選單根本沒有新條目\n# 但 wiki-data.js 已包含對應內容（搜尋可以找到）\n```\n\n## 根本原因\n\n`wiki/` 目錄有**兩套獨立系統**，各需單獨維護：\n\n| 系統 | 產生方式 | 包含什麼 |\n|------|---------|---------|\n| `wiki-data.js` | `python wiki/gen_data.py` 自動產生 | 所有 `.md` 的**內容** |\n| `viewer.html` nav | **手動**維護 JS 陣列（~行 118）| 左側選單**導覽項目** |\n\n`gen_data.py` 掃描所有 `.md` 並寫入 `wiki-data.js`，但 **不會修改 `viewer.html`** 的 nav 陣列。  \n兩者脫鉤：wiki-data.js 有內容，但選單沒有入口。\n\n## 實際踩坑\n\n2026-04-07 新增三個 Wails 踩坑頁面後，執行了 `gen_data.py`（26 個頁面），  \n但忘記同步 `viewer.html`，導致左側選單缺少三個條目：\n- `wails-scan-duplicate.md`\n- `wails-build-issues.md`\n- `wails-search-perf.md`\n\n## 正確做法\n\n每次新增 `.md` 後，**必須執行兩個步驟**（缺一不可）：\n\n### Step A：重新產生 wiki-data.js（自動）\n```powershell\npython wiki/gen_data.py\n```\n\n### Step B：同步更新 viewer.html nav 陣列（手動）\n\n在 `viewer.html` 找到對應 section 的 `items` 陣列，插入新項目：\n\n```js\n// pitfalls section 範例\n{ label: \"Wails 掃描重複番號\", icon: \"❌\", file: \"pitfalls/wails-scan-duplicate.md\", path: \"pitfalls/wails-scan-duplicate\" },\n{ label: \"Wails 搜尋效能優化 75s→10s\", icon: \"⚡\", file: \"pitfalls/wails-search-perf.md\", path: \"pitfalls/wails-search-perf\" },\n```\n\n**Icon 選擇**：\n- 踩坑（錯誤/Bug）→ `❌`\n- 效能優化 → `⚡`\n- 架構說明 → `🏛️` / `🗺️`\n- 開發模式 → `📄`\n\n## 驗證方法\n\n用瀏覽器開啟 `wiki/viewer.html`，確認左側選單有新頁面，點擊後能正確顯示內容。\n\n## 相關文件\n\n- [wiki-maintenance Skill](../../.agents/skills/wiki-maintenance/SKILL.md)\n- [Chrome file:// CORS 封鎖](./viewer-file-cors.md)\n"
 };
+window.WIKI_META = {
+  "pitfalls/github-actions-issues.md": {
+    "category": "CI/CD",
+    "date": "2026-04-06"
+  },
+  "pitfalls/go-api-export-missing.md": {
+    "category": "Go",
+    "date": "2026-04-06"
+  },
+  "pitfalls/go-cli-json-flag-missing.md": {
+    "category": "Go",
+    "date": "2026-04-06"
+  },
+  "pitfalls/go-extractor-bracket-format.md": {
+    "category": "Go",
+    "date": "2026-04-08"
+  },
+  "pitfalls/gui-bridge-wrong-access.md": {
+    "category": "Python",
+    "date": "2026-04-06"
+  },
+  "pitfalls/javdb-false-positive.md": {
+    "category": "Python",
+    "date": "2026-04-06"
+  },
+  "pitfalls/pyinstaller-path.md": {
+    "category": "Python",
+    "date": "2026-04-06"
+  },
+  "pitfalls/viewer-file-cors.md": {
+    "category": "工具",
+    "date": "2026-04-06"
+  },
+  "pitfalls/wails-build-issues.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-cache-status-mismatch.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-db-format-migration.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-db-json-never-updated.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-db-path-wrong-dir.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-dbonce-no-reset.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-dist-missing-studio-data.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-move-same-path-delete.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-move-stale-paths.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-scan-duplicate.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-search-perf.md": {
+    "category": "Wails",
+    "date": "2026-04-08"
+  },
+  "pitfalls/wails-studio-canonical-match.md": {
+    "category": "Wails",
+    "date": "2026-04-09"
+  },
+  "pitfalls/wiki-viewer-nav-out-of-sync.md": {
+    "category": "工具",
+    "date": "2026-04-08"
+  }
+};

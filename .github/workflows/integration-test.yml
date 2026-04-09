@@ -34,7 +34,7 @@ jobs:
           go build -o classifier.exe ./cmd/scanner
           chmod +x classifier.exe
           echo "✅ classifier.exe 建置成功"
-          ./classifier.exe help || true
+          ./classifier.exe help
 
       # ─── 執行 Go 測試（含覆蓋率）───
       - name: Run Go tests
@@ -57,8 +57,8 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # ─── 驗證 Go Bridge 連線 ───
-      - name: Verify Go Bridge connectivity
+      # ─── 驗證 Go CLI 可用性 ───
+      - name: Verify Go CLI availability
         env:
           PYTHONPATH: ${{ github.workspace }}
           CLASSIFIER_EXE: ${{ github.workspace }}/classifier.exe
@@ -67,17 +67,11 @@ jobs:
           import os, sys
           sys.path.insert(0, '.')
           os.environ['CLASSIFIER_EXE'] = './classifier.exe'
-          try:
-              from src.services.go_bridge import GoBridge
-              bridge = GoBridge()
-              print(f'Go Bridge 可用: {bridge.is_available}')
-              if bridge.is_available:
-                  print('✅ Go Bridge 連線成功')
-              else:
-                  print('⚠️ Go Bridge 不可用，但 Python fallback 應正常運作')
-          except Exception as e:
-              print(f'❌ Go Bridge 初始化錯誤: {e}')
-              sys.exit(1)
+          from src.services.go_cli import is_available
+          available = is_available()
+          print(f'Go CLI 可用: {available}')
+          if not available:
+              raise SystemExit(1)
           "
 
       # ─── 執行 e2e 整合測試（真實呼叫 classifier.exe）───
@@ -91,21 +85,17 @@ jobs:
             --tb=short \
             --timeout=120
 
-      # ─── 執行含 Go CLI 的整合測試 ───
-      - name: Run integration tests (with Go CLI)
+      # ─── 執行聚焦 Go CLI 契約測試 ───
+      - name: Run focused Go CLI tests
         env:
           PYTHONPATH: ${{ github.workspace }}
           CLASSIFIER_EXE: ${{ github.workspace }}/classifier.exe
         run: |
-          python -m pytest tests/ \
+          python -m pytest tests/integration/test_go_cli_smoke.py tests/integration/test_db_cli_contract.py tests/test_go_cli_contracts.py tests/test_incremental_db.py tests/test_json_database.py \
             -v \
-            --tb=long \
-            -m "integration or go_bridge" \
-            --cov=src \
-            --cov-report=xml:coverage-integration.xml \
-            --cov-report=term-missing \
+            --tb=short \
             --timeout=120 \
-            || echo "⚠️ 部分整合測試失敗（可能需要特定環境）"
+            -p no:cacheprovider
 
       # ─── 執行完整測試套件（Go CLI 可用時）───
       - name: Run full test suite
@@ -163,5 +153,4 @@ jobs:
               -v \
               --tb=short \
               --timeout=60 \
-              -x \
-              || echo "⚠️ Docker 內部測試部分失敗"
+              -x

@@ -36,6 +36,7 @@ try:
 except ImportError:  # pragma: no cover
     from src.utils.json_utils import dump as json_dump
     from src.utils.json_utils import load as json_load
+from src.utils.log_sanitizer import sanitize_url_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ class SafeJAVDBSearcher:
         # 檢查當日統計
         self._check_daily_reset()
 
-        # safe_request 會在重試時遞迴呼叫自己，因此需要可重入鎖避免自我死鎖
+        # safe_request 會在多執行緒下共用 session / stats，因此用鎖保護狀態更新
         self._lock = threading.RLock()
 
         # 初始化會話
@@ -238,78 +239,92 @@ class SafeJAVDBSearcher:
 
     def safe_request(self, url: str, retry_count: int = 0) -> Any | None:
         """安全的 HTTP 請求方法（支援 curl_cffi 和 httpx 雙引擎）"""
-        with self._lock:
-            # 檢查每日限制
-            self._check_daily_reset()
-            if self.stats["today_count"] >= self.daily_limit:
-                logger.warning(f"⚠️ 已達每日 JAVDB 請求限制 ({self.daily_limit})")
-                return None
+        current_retry = retry_count
 
-            # 檢查 session 請求次數
-            if self.request_count >= self.max_requests_per_session:
-                logger.info("🔄 重新建立 JAVDB session")
-                self.create_session()
-
+        while True:
             try:
-                if self.consecutive_errors >= 5:
+                with self._lock:
+                    self._check_daily_reset()
+                    if self.stats["today_count"] >= self.daily_limit:
+                        logger.warning(f"⚠️ 已達每日 JAVDB 請求限制 ({self.daily_limit})")
+                        return None
+
+                    if self.request_count >= self.max_requests_per_session:
+                        logger.info("🔄 重新建立 JAVDB session")
+                        self.create_session()
+
+                    session = self.session
+                    consecutive_errors = self.consecutive_errors
+
+                if consecutive_errors >= 5:
                     cooldown = 300
                     logger.warning(
-                        f"🧊 連續 {self.consecutive_errors} 次失敗，冷卻 {cooldown} 秒後重建 session"
+                        f"🧊 連續 {consecutive_errors} 次失敗，冷卻 {cooldown} 秒後重建 session"
                     )
                     time.sleep(cooldown)
-                    self.create_session()
-                    self.consecutive_errors = 0
+                    with self._lock:
+                        self.create_session()
+                        self.consecutive_errors = 0
+                        session = self.session
+                        consecutive_errors = self.consecutive_errors
 
-                adaptive_multiplier = 2 ** min(self.consecutive_errors, 5)
+                adaptive_multiplier = 2 ** min(consecutive_errors, 5)
                 base_delay = (
                     _random_delay(self.min_delay, self.max_delay) * adaptive_multiplier
                 )
-                if retry_count > 0:
-                    base_delay += retry_count * 2.0
+                if current_retry > 0:
+                    base_delay += current_retry * 2.0
 
                 logger.debug(f"⏱️ 等待 {base_delay:.1f} 秒...")
                 time.sleep(base_delay)
 
-                # 執行請求
-                response = self.session.get(url)
-                self.request_count += 1
-                self.stats["today_count"] += 1
-                self.stats["total_requests"] += 1
+                response = session.get(url)
+                with self._lock:
+                    self.request_count += 1
+                    self.stats["today_count"] += 1
+                    self.stats["total_requests"] += 1
 
                 status = response.status_code
 
                 if status == 200:
-                    self.consecutive_errors = 0
+                    with self._lock:
+                        self.consecutive_errors = 0
                     logger.debug("✅ JAVDB 請求成功: %s", status)
                     return response
 
                 if status == 403:
-                    self.consecutive_errors += 1
+                    with self._lock:
+                        self.consecutive_errors += 1
+                        consecutive_errors = self.consecutive_errors
                     logger.warning(
-                        f"⚠️ 收到 403，連續錯誤 {self.consecutive_errors} 次"
+                        f"⚠️ 收到 403，連續錯誤 {consecutive_errors} 次"
                     )
-                    if retry_count < 2:
-                        self.create_session()
+                    if current_retry < 2:
+                        with self._lock:
+                            self.create_session()
                         wait_time = 30 + _random_delay(15, 45)
                         if wait_time <= self.max_retry_wait_seconds:
                             logger.info(
                                 f"🔄 更換瀏覽器指紋，等待 {wait_time:.1f} 秒後重試..."
                             )
                             time.sleep(wait_time)
-                            return self.safe_request(url, retry_count + 1)
+                            current_retry += 1
+                            continue
                     logger.error("❌ 403 重試失敗，JAVDB 可能需要更強的反爬蟲策略")
                     return None
 
                 if status == 429:
-                    self.consecutive_errors += 1
-                    if retry_count < 3:
+                    with self._lock:
+                        self.consecutive_errors += 1
+                    if current_retry < 3:
                         wait_time = 20 + _random_delay(10, 30)
                         if wait_time <= self.max_retry_wait_seconds:
                             logger.warning(
                                 f"⚠️ 收到 429，等待 {wait_time:.1f} 秒後重試..."
                             )
                             time.sleep(wait_time)
-                            return self.safe_request(url, retry_count + 1)
+                            current_retry += 1
+                            continue
                     logger.error("❌ 429 重試次數過多，放棄請求")
                     return None
 
@@ -317,26 +332,32 @@ class SafeJAVDBSearcher:
                 return None
 
             except httpx.TimeoutException:
-                self.consecutive_errors += 1
+                with self._lock:
+                    self.consecutive_errors += 1
                 logger.warning("⏰ JAVDB 請求超時")
-                if retry_count < 2:
-                    return self.safe_request(url, retry_count + 1)
+                if current_retry < 2:
+                    current_retry += 1
+                    continue
                 return None
 
             except httpx.ConnectError:
-                self.consecutive_errors += 1
+                with self._lock:
+                    self.consecutive_errors += 1
                 logger.warning("🔌 JAVDB 連線失敗")
-                if retry_count < 2:
-                    time.sleep(10 + retry_count * 5)
-                    return self.safe_request(url, retry_count + 1)
+                if current_retry < 2:
+                    time.sleep(10 + current_retry * 5)
+                    current_retry += 1
+                    continue
                 return None
 
             except Exception as e:
-                self.consecutive_errors += 1
+                with self._lock:
+                    self.consecutive_errors += 1
                 logger.error(f"❌ JAVDB 請求過程中出錯: {e}")
-                if retry_count < 1:
+                if current_retry < 1:
                     time.sleep(5)
-                    return self.safe_request(url, retry_count + 1)
+                    current_retry += 1
+                    continue
                 return None
 
     def clear_cache_for_code(self, video_id: str) -> bool:
@@ -518,7 +539,7 @@ class SafeJAVDBSearcher:
             soup = BeautifulSoup(response.text, "html.parser")
 
             if soup is None:
-                logger.warning(f"無法解析 JAVDB 詳情頁面: {url}")
+                logger.warning(f"無法解析 JAVDB 詳情頁面: {sanitize_url_for_log(url)}")
                 return None
 
             page_text = soup.get_text(" ", strip=True)

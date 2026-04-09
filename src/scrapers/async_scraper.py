@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 
+from src.utils.log_sanitizer import sanitize_url_for_log
 from .cache_manager import CacheManager, get_global_cache_manager
 from .encoding_utils import EncodingDetector, install_encoding_warning_filter
 from .rate_limiter import RateLimiter, get_global_rate_limiter
@@ -128,7 +129,7 @@ class AsyncWebScraper:
                 cached_result = await self.cache_manager.get_async(url)
                 if cached_result:
                     self.stats["cache_hits"] += 1
-                    logger.debug(f"📋 從快取獲取: {url}")
+                    logger.debug(f"📋 從快取獲取: {sanitize_url_for_log(url)}")
                     return ScrapingResult(
                         url=url,
                         success=True,
@@ -156,7 +157,7 @@ class AsyncWebScraper:
                 response_time = time.time() - start_time
 
                 if response.status >= 400:
-                    error_msg = f"HTTP {response.status}: {url}"
+                    error_msg = f"HTTP {response.status}: {sanitize_url_for_log(url)}"
                     logger.warning(f"🌐 {error_msg}")
                     self._update_stats(domain, False, response_time)
                     return ScrapingResult(
@@ -192,20 +193,20 @@ class AsyncWebScraper:
                 )
 
         except TimeoutError:
-            error_msg = f"請求超時: {url}"
+            error_msg = f"請求超時: {sanitize_url_for_log(url)}"
             logger.warning(f"⏰ {error_msg}")
             self._update_stats(domain, False, time.time() - start_time)
             return ScrapingResult(url=url, success=False, error=error_msg)
 
         except aiohttp.ClientError as e:
             error_msg = f"客戶端錯誤: {e}"
-            logger.warning(f"🌐 {error_msg} - {url}")
+            logger.warning(f"🌐 {error_msg} - {sanitize_url_for_log(url)}")
             self._update_stats(domain, False, time.time() - start_time)
             return ScrapingResult(url=url, success=False, error=error_msg)
 
         except Exception as e:
             error_msg = f"未知錯誤: {e}"
-            logger.error(f"❌ {error_msg} - {url}")
+            logger.error(f"❌ {error_msg} - {sanitize_url_for_log(url)}")
             self._update_stats(domain, False, time.time() - start_time)
             return ScrapingResult(url=url, success=False, error=error_msg)
 
@@ -231,7 +232,7 @@ class AsyncWebScraper:
                 if attempt < self.config.max_retries:
                     wait_time = self.config.backoff_factor**attempt
                     logger.info(
-                        f"⏳ 第 {attempt + 1} 次嘗試失敗，等待 {wait_time:.1f} 秒後重試: {url}"
+                        f"⏳ 第 {attempt + 1} 次嘗試失敗，等待 {wait_time:.1f} 秒後重試: {sanitize_url_for_log(url)}"
                     )
                     await asyncio.sleep(wait_time)
 
@@ -240,7 +241,7 @@ class AsyncWebScraper:
                 logger.error(f"❌ {error_msg}")
                 last_result = ScrapingResult(url=url, success=False, error=error_msg)
 
-        logger.error(f"❌ 所有重試都失敗了: {url}")
+        logger.error(f"❌ 所有重試都失敗了: {sanitize_url_for_log(url)}")
         return last_result or ScrapingResult(
             url=url, success=False, error="所有重試都失敗"
         )

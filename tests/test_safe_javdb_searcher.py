@@ -4,6 +4,7 @@
 
 import httpx
 import pytest
+import threading
 from unittest.mock import MagicMock
 
 from src.services import safe_javdb_searcher as searcher_module
@@ -132,6 +133,42 @@ def test_consecutive_errors_trigger_cooldown_and_reset(tmp_path, monkeypatch):
     assert sleep_calls == [300, 0.0]
 
 
+def test_safe_request_does_not_hold_lock_during_cooldown_sleep(tmp_path, monkeypatch):
+    """冷卻等待期間不應長時間持有 lock，避免其他搜尋整串卡住。"""
+    searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path), warmup_enabled=False)
+    searcher.min_delay = 0.0
+    searcher.max_delay = 0.0
+    searcher.consecutive_errors = 5
+    searcher.session = _DummySession(200)
+
+    cooldown_started = threading.Event()
+    release_cooldown = threading.Event()
+
+    def fake_sleep(seconds: float):
+        if seconds == 300:
+            cooldown_started.set()
+            release_cooldown.wait(timeout=1)
+
+    monkeypatch.setattr(searcher_module.time, "sleep", fake_sleep)
+    monkeypatch.setattr(searcher_module, "_random_delay", lambda _a, _b: 0.0)
+    monkeypatch.setattr(searcher, "create_session", lambda: None)
+
+    worker = threading.Thread(
+        target=lambda: searcher.safe_request("https://javdb.com/search?q=TEST&f=all")
+    )
+    worker.start()
+
+    assert cooldown_started.wait(timeout=1), "safe_request 應進入 cooldown 分支"
+    acquired = searcher._lock.acquire(timeout=0.05)
+    if acquired:
+        searcher._lock.release()
+
+    release_cooldown.set()
+    worker.join(timeout=1)
+
+    assert acquired is True
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 測試：搜尋結果番號不匹配時不應 fallback 使用第一筆
 # ──────────────────────────────────────────────────────────────────────────────
@@ -203,4 +240,3 @@ def test_search_javdb_detail_page_code_mismatch_returns_none(tmp_path, monkeypat
     result = searcher._parse_detail_page(fake_response, "WTB-045", "https://javdb.com/v/AWTB005")
 
     assert result is None, "詳情頁番號不符時應回傳 None"
-

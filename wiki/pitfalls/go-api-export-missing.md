@@ -1,3 +1,7 @@
+---
+category: Go
+date: 2026-04-06
+---
 # Issue 14：go_api 匯出遺漏 → AttributeError
 
 **日期**：2026-04-06  

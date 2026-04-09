@@ -14,6 +14,7 @@ from urllib.parse import quote
 import aiohttp
 from bs4 import BeautifulSoup
 
+from src.utils.log_sanitizer import sanitize_url_for_log
 from ..base_scraper import BaseScraper, ErrorType, ScrapingException
 from ..encoding_utils import create_safe_soup, validate_japanese_content
 
@@ -500,17 +501,14 @@ class AVWikiScraper(BaseScraper):
             maximum=max_concurrent,
         )
         backoff = ExponentialBackoff(base_delay=0.5, max_delay=10.0)
+        shared_semaphore = asyncio.Semaphore(max_concurrent)
 
         async def search_single_video(code: str) -> tuple[str, dict[str, Any]]:
             """直接搜尋單個影片（繞過 rate_limiter）"""
             nonlocal started_count
 
-            # 動態建立 semaphore（每次取得併發控制器的最新值）
-            current_semaphore = asyncio.Semaphore(
-                concurrency_controller.get_concurrency()
-            )
-
-            async with current_semaphore:
+            # 所有 task 共用同一個 semaphore，避免每個 task 各自放大實際併發數
+            async with shared_semaphore:
                 # 在開始搜尋時就更新進度（而非完成後）
                 async with count_lock:
                     started_count += 1
@@ -528,7 +526,9 @@ class AVWikiScraper(BaseScraper):
                     search_url = f"{self.base_url}/?s={quote(code)}&post_type=product"
 
                     # 記錄開始搜尋
-                    logger.debug(f"[批次搜尋] 開始搜尋番號 {code}, URL: {search_url}")
+                    logger.debug(
+                        f"[批次搜尋] 開始搜尋番號 {code}, URL: {sanitize_url_for_log(search_url)}"
+                    )
 
                     result = await self.scrape_url(search_url)
 

@@ -1,3 +1,7 @@
+---
+category: Go
+date: 2026-04-06
+---
 # Issue 15：Go CLI 未定義 -json flag → ExitOnError 靜默退出
 
 **日期**：2026-04-06  

@@ -6,27 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"actress-classifier/pkg/pathutil"
 	"actress-classifier/pkg/safefile"
 )
-
-func isSameOrNestedPath(base, target string) (bool, error) {
-	absBase, err := filepath.Abs(base)
-	if err != nil {
-		return false, err
-	}
-	absTarget, err := filepath.Abs(target)
-	if err != nil {
-		return false, err
-	}
-
-	rel, err := filepath.Rel(absBase, absTarget)
-	if err != nil {
-		return false, nil
-	}
-	rel = filepath.Clean(rel)
-
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))), nil
-}
 
 // MoveDir 移動整個目錄
 func (m *Mover) MoveDir(src, dst string, strategy ConflictStrategy) MergeResult {
@@ -45,7 +27,7 @@ func (m *Mover) MoveDir(src, dst string, strategy ConflictStrategy) MergeResult 
 		result.Errors = append(result.Errors, MoveResult{Source: src, Error: "來源不是目錄"})
 		return result
 	}
-	dstInsideSrc, err := isSameOrNestedPath(src, dst)
+	dstInsideSrc, err := pathutil.IsSameOrNestedPath(src, dst)
 	if err != nil {
 		result.Errors = append(result.Errors, MoveResult{Source: src, Error: fmt.Sprintf("無法驗證目標目錄: %v", err)})
 		return result

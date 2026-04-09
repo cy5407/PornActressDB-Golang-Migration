@@ -1,3 +1,7 @@
+---
+category: Python
+date: 2026-04-06
+---
 # Issue 13：GUI Bridge 取法錯誤 → Go CLI 不可用警告
 
 **日期**：2026-04-06  

@@ -1,3 +1,7 @@
+---
+category: Python
+date: 2026-04-06
+---
 # PyInstaller 打包路徑問題
 
 **日期**：2026-04-06

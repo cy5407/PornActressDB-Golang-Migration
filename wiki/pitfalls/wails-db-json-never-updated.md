@@ -1,3 +1,7 @@
+---
+category: Wails
+date: 2026-04-08
+---
 # Wails DB data.json 從未更新
 
 > 歸檔日期：2026-04-07

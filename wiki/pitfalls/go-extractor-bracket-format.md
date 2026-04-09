@@ -1,3 +1,7 @@
+---
+category: Go
+date: 2026-04-08
+---
 # Extractor：`[CODE] 格式`番號被 bracketRe 清空
 
 **日期**：2026-04-08  

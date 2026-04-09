@@ -1,3 +1,7 @@
+---
+category: Wails
+date: 2026-04-08
+---
 # Wails 移動後 scanResults 路徑未更新
 
 ## 症狀

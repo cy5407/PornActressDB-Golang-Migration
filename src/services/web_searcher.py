@@ -19,6 +19,7 @@ from models.config import ConfigManager
 from models.studio import StudioIdentifier
 from scrapers.sources.avwiki_scraper import AVWikiScraper  # noqa: E402
 from scrapers.sources.shiroutowiki_scraper import ShiroutoWikiScraper  # noqa: E402
+from src.utils.log_sanitizer import sanitize_url_for_log
 
 from .safe_javdb_searcher import SafeJAVDBSearcher  # noqa: E402
 from .safe_searcher import RequestConfig, SafeSearcher  # noqa: E402
@@ -335,7 +336,9 @@ class WebSearcher:
             if not studio_info.get("studio") and not stop_event.is_set():
                 detail_url = self._extract_avwiki_detail_url(soup, code)
                 if detail_url:
-                    logger.debug(f"🔍 AV-WIKI 詳情頁補抓片商: {code} -> {detail_url}")
+                    logger.debug(
+                        f"🔍 AV-WIKI 詳情頁補抓片商: {code} -> {sanitize_url_for_log(detail_url)}"
+                    )
 
                     def make_detail_request(url, **kwargs):
                         with httpx.Client(timeout=self.timeout, **kwargs) as client:

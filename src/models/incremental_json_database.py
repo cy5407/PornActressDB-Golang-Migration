@@ -34,24 +34,15 @@ from src.models.json_types import (
     JSONDatabaseError,
     VideoDict,
 )
+from src.services.go_cli import (
+    GoError as _GoBridgeError,
+    db_compact_journal as _go_db_compact_journal,
+    db_delete_video as _go_db_delete_video,
+    db_get_video as _go_db_get_video,
+    db_update_video as _go_db_update_video,
+)
 
 logger = logging.getLogger(__name__)
-
-try:
-    from src.services.go_cli import (
-        GoError as _GoBridgeError,
-        db_compact_journal as _go_db_compact_journal,
-        db_delete_video as _go_db_delete_video,
-        db_get_video as _go_db_get_video,
-        db_update_video as _go_db_update_video,
-    )
-except ImportError:
-    def _go_db_compact_journal(*_args, **_kwargs): return {}  # noqa: E731
-    def _go_db_delete_video(*_args, **_kwargs): return {}  # noqa: E731
-    def _go_db_get_video(*_args, **_kwargs): return {}  # noqa: E731
-    def _go_db_update_video(*_args, **_kwargs): return {}  # noqa: E731
-
-    class _GoBridgeError(Exception): pass  # noqa: E701
 
 # 合併閾值設定（與 Go pkg/database/types.go 中的常數保持一致）
 JOURNAL_SIZE_THRESHOLD = 1000  # 當 journal 超過 1000 條記錄時觸發合併
@@ -256,14 +247,13 @@ class IncrementalJSONDB:
 
     def get_video_info(self, code: str) -> VideoDict | None:
         """
-        取得影片資訊。優先使用 Go CLI，失敗時從記憶體快取查詢。
+        取得影片資訊（委派至 Go CLI）。
         """
         try:
             result = _go_db_get_video(code, str(self.data_dir))
             return result  # None 表示影片不存在
         except Exception as e:
-            logger.warning(f"⚠️ Go get_video_info 失敗，從記憶體查詢 ({code}): {e}")
-        return self.base_db.get_video_info(code)
+            raise RuntimeError(f"Go get_video_info 失敗: {code}: {e}") from e
 
     def add_or_update_video(self, code: str, info: dict) -> str:
         """

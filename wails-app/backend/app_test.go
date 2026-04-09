@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"actress-classifier/pkg/pathutil"
 )
 
 // newTestApp builds an App ready for unit testing.
@@ -58,6 +60,26 @@ func TestScanDirectory_FindsCode(t *testing.T) {
 	}
 	if results[0].Code == "" {
 		t.Error("expected non-empty Code")
+	}
+}
+
+func TestScanDirectory_IgnoresNonVideoFiles(t *testing.T) {
+	app := newTestApp(t)
+	tmp := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmp, "STARS-707.mp4"), []byte("video"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "IMAGE-001.jpg"), []byte("image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	results := app.ScanDirectory(tmp, 4, true)
+	if len(results) != 1 {
+		t.Fatalf("expected only video files to be scanned, got %d results", len(results))
+	}
+	if results[0].Code != "STARS-707" {
+		t.Fatalf("expected STARS-707, got %q", results[0].Code)
 	}
 }
 
@@ -244,7 +266,7 @@ func TestPlanDirMergeMoves_DestinationInsideSource(t *testing.T) {
 }
 
 func TestIsSameOrNestedPath_DifferentVolumes(t *testing.T) {
-	sameOrNested, err := isSameOrNestedPath(`C:\source`, `D:\dest`)
+	sameOrNested, err := pathutil.IsSameOrNestedPath(`C:\source`, `D:\dest`)
 	if err != nil {
 		t.Fatalf("expected nil error for different volumes, got %v", err)
 	}
@@ -266,6 +288,73 @@ func TestPlanDirMergeMoves_SourceNotFound(t *testing.T) {
 	}})
 	if err == nil {
 		t.Fatal("expected error when source directory does not exist")
+	}
+}
+
+func TestCheckConflicts_DetectsExistingMergeTargets(t *testing.T) {
+	app := newTestApp(t)
+	tmp := t.TempDir()
+
+	srcDir := filepath.Join(tmp, "天羽りりか")
+	dstDir := filepath.Join(tmp, "SOD", "天羽りりか")
+
+	if err := os.MkdirAll(srcDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dstDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	srcFile := filepath.Join(srcDir, "OFSD-040.mp4")
+	dstFile := filepath.Join(dstDir, "OFSD-040.mp4")
+	if err := os.WriteFile(srcFile, []byte("src"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dstFile, []byte("dst"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := app.PlanDirMergeMoves([]DirMoveItem{{
+		Source:      srcDir,
+		Destination: dstDir,
+	}})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 move item, got %d", len(items))
+	}
+
+	conflicts := app.CheckConflicts(items)
+	if len(conflicts) != 1 {
+		t.Fatalf("expected 1 conflict, got %d", len(conflicts))
+	}
+	if conflicts[0].Source != srcFile {
+		t.Fatalf("unexpected conflict source: got %q", conflicts[0].Source)
+	}
+	if conflicts[0].Destination != dstFile {
+		t.Fatalf("unexpected conflict destination: got %q", conflicts[0].Destination)
+	}
+}
+
+func TestCheckDirConflicts_IgnoresSameSourceAndDestination(t *testing.T) {
+	app := newTestApp(t)
+	tmp := t.TempDir()
+
+	dir := filepath.Join(tmp, "SOD", "天羽りりか")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "OFSD-040.mp4"), []byte("video"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	conflicts := app.CheckDirConflicts([]DirMoveItem{{
+		Source:      dir,
+		Destination: dir,
+	}})
+	if len(conflicts) != 0 {
+		t.Fatalf("expected same source and destination to be ignored, got %d conflicts", len(conflicts))
 	}
 }
 
