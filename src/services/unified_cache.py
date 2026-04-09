@@ -198,7 +198,7 @@ class UnifiedCacheManager:
         return results
 
     def _cleanup_single_source(
-        self, name: str, cache: Any, ttl_days: int, max_size_mb: int
+        self, _name: str, cache: Any, ttl_days: int, max_size_mb: int
     ) -> dict[str, Any]:
         """清理單一快取來源"""
         result = {"deleted": 0, "freed_mb": 0.0}

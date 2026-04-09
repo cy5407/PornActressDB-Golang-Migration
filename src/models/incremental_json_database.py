@@ -46,10 +46,10 @@ try:
         db_update_video as _go_db_update_video,
     )
 except ImportError:
-    def _go_db_compact_journal(*a, **kw): return {}  # noqa: E731
-    def _go_db_delete_video(*a, **kw): return {}  # noqa: E731
-    def _go_db_get_video(*a, **kw): return {}  # noqa: E731
-    def _go_db_update_video(*a, **kw): return {}  # noqa: E731
+    def _go_db_compact_journal(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_delete_video(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_get_video(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_update_video(*_args, **_kwargs): return {}  # noqa: E731
 
     class _GoBridgeError(Exception): pass  # noqa: E701
 

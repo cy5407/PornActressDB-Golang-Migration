@@ -34,9 +34,9 @@ try:
         cache_set as _go_cache_set,
     )
 except ImportError:
-    def _go_cache_delete(key, cache_dir="cache"): return False  # noqa: E731
-    def _go_cache_get(key, cache_dir="cache"): return None  # noqa: E731
-    def _go_cache_set(key, value, ttl_hours=24, cache_dir="cache"): return False  # noqa: E731
+    def _go_cache_delete(key, cache_dir="cache"): return False  # noqa: E731  # NOSONAR
+    def _go_cache_get(key, cache_dir="cache"): return None  # noqa: E731  # NOSONAR
+    def _go_cache_set(key, value, ttl_hours=24, cache_dir="cache"): return False  # noqa: E731  # NOSONAR
 
     class _GoBridgeError(Exception): pass  # noqa: E701
     class _GoBridgeNotFoundError(_GoBridgeError): pass  # noqa: E701

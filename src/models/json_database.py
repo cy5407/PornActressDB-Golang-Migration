@@ -53,17 +53,17 @@ try:
         db_update_video as _go_db_update_video,
     )
 except ImportError:
-    def _go_db_backup_cleanup(*a, **kw): return {}  # noqa: E731
-    def _go_db_backup_create(*a, **kw): return {}  # noqa: E731
-    def _go_db_backup_list(*a, **kw): return []  # noqa: E731
-    def _go_db_backup_restore(*a, **kw): return {}  # noqa: E731
-    def _go_db_delete_actress(*a, **kw): return {}  # noqa: E731
-    def _go_db_delete_video(*a, **kw): return {}  # noqa: E731
-    def _go_db_get_actress(*a, **kw): return {}  # noqa: E731
-    def _go_db_get_all_videos(*a, **kw): return []  # noqa: E731
-    def _go_db_get_video(*a, **kw): return {}  # noqa: E731
-    def _go_db_update_actress(*a, **kw): return {}  # noqa: E731
-    def _go_db_update_video(*a, **kw): return {}  # noqa: E731
+    def _go_db_backup_cleanup(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_backup_create(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_backup_list(*_args, **_kwargs): return []  # noqa: E731
+    def _go_db_backup_restore(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_delete_actress(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_delete_video(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_get_actress(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_get_all_videos(*_args, **_kwargs): return []  # noqa: E731
+    def _go_db_get_video(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_update_actress(*_args, **_kwargs): return {}  # noqa: E731
+    def _go_db_update_video(*_args, **_kwargs): return {}  # noqa: E731
 
     class _GoBridgeError(Exception): pass  # noqa: E701
     class _GoBridgeNotFoundError(_GoBridgeError): pass  # noqa: E701
