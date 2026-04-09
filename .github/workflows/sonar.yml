@@ -51,13 +51,19 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      - name: Build classifier CLI
+        run: |
+          go build -o classifier ./cmd/scanner
+          go build -o classifier.exe ./cmd/scanner
+          chmod +x classifier classifier.exe
+
       - name: Run Go tests with coverage
         run: go test ./pkg/... -coverprofile=coverage-go.out
 
       - name: Run Python tests with coverage
         env:
           PYTHONPATH: ${{ github.workspace }}
-          CLASSIFIER_EXE: ""
+          CLASSIFIER_EXE: ${{ github.workspace }}/classifier
         run: |
           python -m pytest tests/ \
             -v \
