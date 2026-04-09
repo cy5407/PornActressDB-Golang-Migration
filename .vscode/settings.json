@@ -87,5 +87,9 @@
             "strings": "on",
             "other": "on"
         }
+    },
+    "sonarlint.connectedMode.project": {
+        "connectionId": "cy5407",
+        "projectKey": "cy5407_PornActressDB-Golang-Migration"
     }
 }
