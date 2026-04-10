@@ -31,6 +31,12 @@ for _path in (_SRC_DIR, _PROJECT_ROOT):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+from scrapers.run_search import (  # noqa: E402
+    DEFAULT_SOURCE_MODE,
+    _normalize_source_mode,
+    _search_with_mode,
+)
+
 
 def _resolve_config_path() -> str:
     candidates = [
@@ -85,21 +91,40 @@ def _normalize(raw: dict, code: str) -> dict:
         "actresses": actresses,
         "method": raw.get("search_method") or raw.get("method") or "",
         "error": "",
+        "error_kind": raw.get("error_kind") or "",
     }
 
 
-def search_one(code: str) -> dict:
+def _build_error_result(code: str, message: str, error_kind: str) -> dict:
+    return {
+        "code": code,
+        "title": "",
+        "studio": "",
+        "release_date": "",
+        "url": "",
+        "actresses": [],
+        "method": "",
+        "error": message,
+        "error_kind": error_kind,
+    }
+
+
+def search_one(code: str, source_mode: str = DEFAULT_SOURCE_MODE) -> dict:
     try:
         searcher = _get_searcher()
         stop_event = threading.Event()
-        raw = searcher.search_info(code, stop_event)
+        raw = _search_with_mode(searcher, code, stop_event, source_mode)
         if not raw:
-            return {"code": code, "title": "", "studio": "", "release_date": "",
-                    "url": "", "actresses": [], "method": "", "error": "未找到結果"}
+            return _build_error_result(code, "未找到結果", "not_found")
+        if raw.get("search_status") == "search_error":
+            return _build_error_result(
+                code,
+                raw.get("search_error_reason") or "搜尋來源發生錯誤",
+                "error",
+            )
         return _normalize(raw, code)
     except Exception as exc:  # noqa: BLE001
-        return {"code": code, "title": "", "studio": "", "release_date": "",
-                "url": "", "actresses": [], "method": "", "error": str(exc)}
+        return _build_error_result(code, str(exc), "error")
 
 
 def main() -> None:
@@ -112,6 +137,11 @@ def main() -> None:
 
     codes: list[str] = data.get("codes", [])
     workers: int = max(1, int(data.get("workers", 20)))
+    try:
+        source_mode = _normalize_source_mode(data.get("source_mode"))
+    except ValueError as e:
+        sys.stderr.write(f"{e}\n")
+        sys.exit(1)
 
     if not codes:
         sys.exit(0)
@@ -121,7 +151,9 @@ def main() -> None:
     # 串流輸出：每筆完成即立即 print，Go 端逐行讀取並發送 Wails 事件
     # thread-local _get_searcher() 讓各 thread 並行初始化（GIL 在 I/O 段自動讓步）
     with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-        futures = {executor.submit(search_one, c): c for c in codes}
+        futures = {
+            executor.submit(search_one, c, source_mode): c for c in codes
+        }
         for future in as_completed(futures):
             result = future.result()
             print(json.dumps(result, ensure_ascii=False), flush=True)

@@ -52,7 +52,7 @@ class RetryConfig:
     max_delay: float = 60.0  # 最大延遲(秒)
     backoff_factor: float = 2.0  # 指數退避因子
     jitter: bool = True  # 添加隨機抖動
-    retry_on_errors: list[ErrorType] = None  # 需要重試的錯誤類型
+    retry_on_errors: list[ErrorType] | None = None  # 需要重試的錯誤類型
 
     def __post_init__(self):
         if self.retry_on_errors is None:
@@ -130,97 +130,94 @@ class RetryManager:
 
     async def retry_async(self, func: Callable, *args, **kwargs) -> Any:
         """非同步重試執行"""
-        last_exception = None
-
-        for attempt in range(self.config.max_retries + 1):
-            self.stats["total_attempts"] += 1
-
-            try:
-                result = await func(*args, **kwargs)
-
-                if attempt > 0:
-                    self.stats["successful_retries"] += 1
-                    logger.info(f"✅ 重試成功 (第 {attempt + 1} 次嘗試)")
-
-                return result
-
-            except Exception as e:
-                last_exception = e
-
-                # 記錄錯誤類型統計
-                error_type = (
-                    e.error_type
-                    if isinstance(e, ScrapingException)
-                    else ErrorType.UNKNOWN_ERROR
-                )
-                if error_type not in self.stats["retry_reasons"]:
-                    self.stats["retry_reasons"][error_type] = 0
-                self.stats["retry_reasons"][error_type] += 1
-
-                # 判斷是否重試
-                if not self.should_retry(e, attempt):
-                    self.stats["failed_retries"] += 1
-                    logger.error(f"❌ 重試失敗，不再重試: {e}")
-                    break
-
-                if attempt < self.config.max_retries:
-                    delay = self.calculate_delay(attempt)
-                    logger.warning(f"⚠️ 第 {attempt + 1} 次嘗試失敗: {e}")
-                    logger.info(f"⏳ 等待 {delay:.2f} 秒後重試...")
-                    await asyncio.sleep(delay)
-
-        # 所有重試都失敗了
-        if last_exception:
-            raise last_exception
-        else:
-            raise ScrapingException("所有重試都失敗", ErrorType.UNKNOWN_ERROR)
+        return await self._retry_loop(
+            lambda: func(*args, **kwargs), asyncio.sleep
+        )
 
     def retry_sync(self, func: Callable, *args, **kwargs) -> Any:
         """同步重試執行"""
+        return self._retry_loop_sync(lambda: func(*args, **kwargs))
+
+    async def _retry_loop(self, operation: Callable, sleeper: Callable) -> Any:
         last_exception = None
 
         for attempt in range(self.config.max_retries + 1):
             self.stats["total_attempts"] += 1
-
             try:
-                result = func(*args, **kwargs)
-
-                if attempt > 0:
-                    self.stats["successful_retries"] += 1
-                    logger.info(f"✅ 重試成功 (第 {attempt + 1} 次嘗試)")
-
+                result = operation()
+                if asyncio.iscoroutine(result):
+                    result = await result
+                self._record_retry_success(attempt)
                 return result
-
-            except Exception as e:
-                last_exception = e
-
-                # 記錄錯誤類型統計
-                error_type = (
-                    e.error_type
-                    if isinstance(e, ScrapingException)
-                    else ErrorType.UNKNOWN_ERROR
-                )
-                if error_type not in self.stats["retry_reasons"]:
-                    self.stats["retry_reasons"][error_type] = 0
-                self.stats["retry_reasons"][error_type] += 1
-
-                # 判斷是否重試
-                if not self.should_retry(e, attempt):
-                    self.stats["failed_retries"] += 1
-                    logger.error(f"❌ 重試失敗，不再重試: {e}")
+            except Exception as error:
+                last_exception = error
+                self._record_retry_error(error)
+                if not self.should_retry(error, attempt):
+                    self._record_retry_failure(error)
                     break
-
                 if attempt < self.config.max_retries:
-                    delay = self.calculate_delay(attempt)
-                    logger.warning(f"⚠️ 第 {attempt + 1} 次嘗試失敗: {e}")
-                    logger.info(f"⏳ 等待 {delay:.2f} 秒後重試...")
-                    time.sleep(delay)
+                    await self._sleep_before_retry(sleeper, attempt, error)
 
-        # 所有重試都失敗了
         if last_exception:
             raise last_exception
-        else:
-            raise ScrapingException("所有重試都失敗", ErrorType.UNKNOWN_ERROR)
+        raise ScrapingException("所有重試都失敗", ErrorType.UNKNOWN_ERROR)
+
+    def _retry_loop_sync(self, operation: Callable) -> Any:
+        last_exception = None
+
+        for attempt in range(self.config.max_retries + 1):
+            self.stats["total_attempts"] += 1
+            try:
+                result = operation()
+                self._record_retry_success(attempt)
+                return result
+            except Exception as error:
+                last_exception = error
+                self._record_retry_error(error)
+                if not self.should_retry(error, attempt):
+                    self._record_retry_failure(error)
+                    break
+                if attempt < self.config.max_retries:
+                    self._sleep_before_retry_sync(attempt, error)
+
+        if last_exception:
+            raise last_exception
+        raise ScrapingException("所有重試都失敗", ErrorType.UNKNOWN_ERROR)
+
+    def _record_retry_success(self, attempt: int) -> None:
+        if attempt > 0:
+            self.stats["successful_retries"] += 1
+            logger.info(f"✅ 重試成功 (第 {attempt + 1} 次嘗試)")
+
+    def _record_retry_error(self, error: Exception) -> None:
+        error_type = (
+            error.error_type
+            if isinstance(error, ScrapingException)
+            else ErrorType.UNKNOWN_ERROR
+        )
+        self.stats["retry_reasons"][error_type] = (
+            self.stats["retry_reasons"].get(error_type, 0) + 1
+        )
+
+    def _record_retry_failure(self, error: Exception) -> None:
+        self.stats["failed_retries"] += 1
+        logger.error(f"❌ 重試失敗，不再重試: {error}")
+
+    async def _sleep_before_retry(
+        self, sleeper: Callable, attempt: int, error: Exception
+    ) -> None:
+        delay = self.calculate_delay(attempt)
+        logger.warning(f"⚠️ 第 {attempt + 1} 次嘗試失敗: {error}")
+        logger.info(f"⏳ 等待 {delay:.2f} 秒後重試...")
+        result = sleeper(delay)
+        if asyncio.iscoroutine(result):
+            await result
+
+    def _sleep_before_retry_sync(self, attempt: int, error: Exception) -> None:
+        delay = self.calculate_delay(attempt)
+        logger.warning(f"⚠️ 第 {attempt + 1} 次嘗試失敗: {error}")
+        logger.info(f"⏳ 等待 {delay:.2f} 秒後重試...")
+        time.sleep(delay)
 
     def get_stats(self) -> dict[str, Any]:
         """獲取重試統計"""
@@ -329,7 +326,7 @@ class HealthChecker:
                     await asyncio.sleep(self.config.check_interval)
 
                     # 檢查所有已知域名
-                    for domain in list(self.domain_health.keys()):
+                    for domain in tuple(self.domain_health):
                         is_healthy = await self.check_domain_health(domain)
                         await self.update_domain_health(domain, is_healthy)
 

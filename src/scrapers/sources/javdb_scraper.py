@@ -208,79 +208,12 @@ class JAVDBScraper(BaseScraper):
         if cover_element:
             result["cover_url"] = cover_element.get("src")
 
-        # 提取詳細資訊
-        info_panels = soup.find_all("div", class_="panel-block")
-
-        for panel in info_panels:
-            try:
-                label_element = panel.find("strong")
-                if not label_element:
-                    continue
-
-                label = label_element.text.strip()
-
-                if "演員" in label or "Actor" in label:
-                    # 提取演員
-                    actor_links = panel.find_all("a", href=re.compile(r"/actors/"))
-                    for link in actor_links:
-                        actress_name = link.text.strip()
-                        if self._is_valid_actress_name(actress_name):
-                            result["actresses"].append(actress_name)
-
-                elif "片商" in label or "Maker" in label:
-                    # 提取片商
-                    studio_link = panel.find("a", href=re.compile(r"/makers/"))
-                    if studio_link:
-                        result["studio"] = studio_link.text.strip()
-
-                elif "發行日期" in label or "Release Date" in label:
-                    # 提取發行日期
-                    date_text = panel.text
-                    date_match = re.search(r"(\d{4}-\d{2}-\d{2})", date_text)
-                    if date_match:
-                        result["release_date"] = date_match.group(1)
-
-                elif "時長" in label or "Duration" in label:
-                    # 提取時長
-                    duration_text = panel.text
-                    duration_match = re.search(r"(\d+)", duration_text)
-                    if duration_match:
-                        result["duration"] = f"{duration_match.group(1)}分鐘"
-
-                elif "導演" in label or "Director" in label:
-                    # 提取導演
-                    director_link = panel.find("a")
-                    if director_link:
-                        result["director"] = director_link.text.strip()
-
-                elif "系列" in label or "Series" in label:
-                    # 提取系列
-                    series_link = panel.find("a")
-                    if series_link:
-                        result["series"] = series_link.text.strip()
-
-                elif "類別" in label or "Genre" in label:
-                    # 提取類別
-                    category_links = panel.find_all("a", href=re.compile(r"/genres/"))
-                    for link in category_links:
-                        category = link.text.strip()
-                        if category:
-                            result["categories"].append(category)
-
-            except Exception as e:
-                logger.warning(f"解析詳情面板失敗: {e}")
-                continue
+        result.update(
+            self._extract_detail_panel_data(soup.find_all("div", class_="panel-block"))
+        )
 
         # 提取評分
-        rating_element = soup.find("span", class_="score")
-        if rating_element:
-            try:
-                rating_text = rating_element.text.strip()
-                rating_match = re.search(r"([\d.]+)", rating_text)
-                if rating_match:
-                    result["rating"] = float(rating_match.group(1))
-            except (TypeError, ValueError) as e:
-                logger.debug(f"JAVDB 評分解析失敗，略過 rating 欄位: {e}")
+        result["rating"] = self._extract_rating(soup.find("span", class_="score"))
 
         # 從標題中提取片商代碼
         if result["title"]:
@@ -289,6 +222,106 @@ class JAVDBScraper(BaseScraper):
                 result["studio_code"] = code_match.group(1)
 
         return result
+
+    def _extract_detail_panel_data(
+        self, info_panels: list[BeautifulSoup]
+    ) -> dict[str, Any]:
+        detail = {
+            "actresses": [],
+            "studio": None,
+            "release_date": None,
+            "duration": None,
+            "director": None,
+            "series": None,
+            "categories": [],
+        }
+
+        for panel in info_panels:
+            try:
+                label_element = panel.find("strong")
+                if not label_element:
+                    continue
+
+                label = label_element.text.strip()
+                self._apply_detail_panel(detail, label, panel)
+            except Exception as e:
+                logger.warning(f"解析詳情面板失敗: {e}")
+
+        return detail
+
+    def _apply_detail_panel(
+        self, detail: dict[str, Any], label: str, panel: BeautifulSoup
+    ) -> None:
+        if "演員" in label or "Actor" in label:
+            detail["actresses"].extend(self._extract_panel_actresses(panel))
+        elif "片商" in label or "Maker" in label:
+            detail["studio"] = self._extract_first_link_text(panel, r"/makers/")
+        elif "發行日期" in label or "Release Date" in label:
+            detail["release_date"] = self._extract_panel_date(panel.text)
+        elif "時長" in label or "Duration" in label:
+            detail["duration"] = self._extract_panel_duration(panel.text)
+        elif "導演" in label or "Director" in label:
+            detail["director"] = self._extract_first_link_text(panel)
+        elif "系列" in label or "Series" in label:
+            detail["series"] = self._extract_first_link_text(panel)
+        elif "類別" in label or "Genre" in label:
+            detail["categories"].extend(
+                self._extract_panel_categories(panel, r"/genres/")
+            )
+
+    def _extract_panel_actresses(self, panel: BeautifulSoup) -> list[str]:
+        actresses = []
+        for link in panel.find_all("a", href=re.compile(r"/actors/")):
+            actress_name = link.text.strip()
+            if self._is_valid_actress_name(actress_name):
+                actresses.append(actress_name)
+        return actresses
+
+    @staticmethod
+    def _extract_first_link_text(
+        panel: BeautifulSoup, href_pattern: str | None = None
+    ) -> str | None:
+        link = (
+            panel.find("a", href=re.compile(href_pattern))
+            if href_pattern
+            else panel.find("a")
+        )
+        return link.text.strip() if link else None
+
+    @staticmethod
+    def _extract_panel_date(date_text: str) -> str | None:
+        date_match = re.search(r"(\d{4}-\d{2}-\d{2})", date_text)
+        return date_match.group(1) if date_match else None
+
+    @staticmethod
+    def _extract_panel_duration(duration_text: str) -> str | None:
+        duration_match = re.search(r"(\d+)", duration_text)
+        return f"{duration_match.group(1)}分鐘" if duration_match else None
+
+    @staticmethod
+    def _extract_panel_categories(
+        panel: BeautifulSoup, href_pattern: str
+    ) -> list[str]:
+        return [
+            link.text.strip()
+            for link in panel.find_all("a", href=re.compile(href_pattern))
+            if link.text.strip()
+        ]
+
+    @staticmethod
+    def _extract_rating(rating_element: BeautifulSoup | None) -> float | None:
+        if not rating_element:
+            return None
+
+        try:
+            rating_text = rating_element.text.strip()
+            rating_match = re.search(r"([\d.]+)", rating_text)
+            if rating_match:
+                return float(rating_match.group(1))
+        except (TypeError, ValueError) as e:
+            logger.debug(f"JAVDB 評分解析失敗，略過 rating 欄位: {e}")
+
+        return None
 
     def _is_valid_actress_name(self, name: str) -> bool:
         """驗證是否為有效的女優名稱（使用增強過濾器）"""

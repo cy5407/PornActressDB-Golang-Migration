@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"actress-classifier/pkg/database"
 	"actress-classifier/pkg/pathutil"
 )
 
@@ -99,6 +100,284 @@ func TestScanDirectory_NonRecursive(t *testing.T) {
 	results := app.ScanDirectory(tmp, 4, false)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results with recursive=false, got %d", len(results))
+	}
+}
+
+// ============================================================================
+// BatchSearch
+// ============================================================================
+
+func TestBatchSearch_UsesLegacyCacheWhenSourceEmpty(t *testing.T) {
+	app := newTestApp(t)
+	if err := app.db.AddVideo(&database.VideoData{
+		Code:         "ABP-001",
+		Title:        "cached-title",
+		Studio:       "cached-studio",
+		ReleaseDate:  "2024-01-01",
+		URL:          "https://cached.example",
+		Actresses:    []string{"cached-actress"},
+		SearchStatus: "searched_found",
+		SearchMethod: "cached-method",
+	}); err != nil {
+		t.Fatalf("failed to seed cached video: %v", err)
+	}
+
+	runnerCalled := false
+	app.batchSearchRunner = func(codes []string, workers int, source string) []SearchResult {
+		runnerCalled = true
+		return []SearchResult{{
+			Code:   "ABP-001",
+			Title:  "fresh-title",
+			Method: "runner",
+		}}
+	}
+
+	results := app.batchSearch([]string{"ABP-001"}, 3, "")
+	if runnerCalled {
+		t.Fatal("expected empty-source BatchSearch to use legacy cache instead of runner")
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 cached result, got %d", len(results))
+	}
+	if results[0].Title != "cached-title" {
+		t.Fatalf("expected cached title, got %q", results[0].Title)
+	}
+	if results[0].Method != "cached-method" {
+		t.Fatalf("expected cached method, got %q", results[0].Method)
+	}
+}
+
+func TestBatchSearchAVWiki_BypassesLegacyCache(t *testing.T) {
+	app := newTestApp(t)
+	if err := app.db.AddVideo(&database.VideoData{
+		Code:         "ABP-001",
+		Title:        "cached-title",
+		Studio:       "cached-studio",
+		ReleaseDate:  "2024-01-01",
+		URL:          "https://cached.example",
+		Actresses:    []string{"cached-actress"},
+		SearchStatus: "searched_found",
+		SearchMethod: "cached-method",
+	}); err != nil {
+		t.Fatalf("failed to seed cached video: %v", err)
+	}
+
+	runnerCalled := false
+	var capturedCodes []string
+	var capturedSource string
+	app.batchSearchRunner = func(codes []string, workers int, source string) []SearchResult {
+		runnerCalled = true
+		capturedCodes = append([]string(nil), codes...)
+		capturedSource = source
+		return []SearchResult{{
+			Code:   "ABP-001",
+			Title:  "fresh-title",
+			Method: "avwiki",
+		}}
+	}
+
+	results := app.BatchSearchAVWiki([]string{"ABP-001"}, 3)
+	if !runnerCalled {
+		t.Fatal("expected source-specific BatchSearchAVWiki to bypass legacy cache and call runner")
+	}
+	if len(capturedCodes) != 1 || capturedCodes[0] != "ABP-001" {
+		t.Fatalf("expected runner to receive cached code, got %+v", capturedCodes)
+	}
+	if capturedSource != batchSearchSourceAVWiki {
+		t.Fatalf("expected source=%q, got %q", batchSearchSourceAVWiki, capturedSource)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 fresh result, got %d", len(results))
+	}
+	if results[0].Title != "fresh-title" {
+		t.Fatalf("expected fresh title from runner, got %q", results[0].Title)
+	}
+	if results[0].Method != "avwiki" {
+		t.Fatalf("expected fresh method from runner, got %q", results[0].Method)
+	}
+}
+
+func TestBatchSearchJAVDB_BypassesLegacyCache(t *testing.T) {
+	app := newTestApp(t)
+	if err := app.db.AddVideo(&database.VideoData{
+		Code:         "ABP-001",
+		Title:        "cached-title",
+		Studio:       "cached-studio",
+		ReleaseDate:  "2024-01-01",
+		URL:          "https://cached.example",
+		Actresses:    []string{"cached-actress"},
+		SearchStatus: "searched_found",
+		SearchMethod: "cached-method",
+	}); err != nil {
+		t.Fatalf("failed to seed cached video: %v", err)
+	}
+
+	runnerCalled := false
+	var capturedCodes []string
+	var capturedSource string
+	app.batchSearchRunner = func(codes []string, workers int, source string) []SearchResult {
+		runnerCalled = true
+		capturedCodes = append([]string(nil), codes...)
+		capturedSource = source
+		return []SearchResult{{
+			Code:   "ABP-001",
+			Title:  "fresh-title",
+			Method: "javdb",
+		}}
+	}
+
+	results := app.BatchSearchJAVDB([]string{"ABP-001"}, 3)
+	if !runnerCalled {
+		t.Fatal("expected source-specific BatchSearchJAVDB to bypass legacy cache and call runner")
+	}
+	if len(capturedCodes) != 1 || capturedCodes[0] != "ABP-001" {
+		t.Fatalf("expected runner to receive cached code, got %+v", capturedCodes)
+	}
+	if capturedSource != batchSearchSourceJAVDB {
+		t.Fatalf("expected source=%q, got %q", batchSearchSourceJAVDB, capturedSource)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 fresh result, got %d", len(results))
+	}
+	if results[0].Title != "fresh-title" {
+		t.Fatalf("expected fresh title from runner, got %q", results[0].Title)
+	}
+	if results[0].Method != "javdb" {
+		t.Fatalf("expected fresh method from runner, got %q", results[0].Method)
+	}
+}
+
+func TestBatchSearchAVWiki_NotFoundCreatesMinimalSourceStatusRecord(t *testing.T) {
+	app := newTestApp(t)
+	app.batchSearchRunner = func(codes []string, workers int, source string) []SearchResult {
+		return []SearchResult{{
+			Code:      "NEW-001",
+			Error:     "未找到結果",
+			ErrorKind: "not_found",
+		}}
+	}
+
+	results := app.BatchSearchAVWiki([]string{"NEW-001"}, 1)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	video, err := app.db.GetVideo("NEW-001")
+	if err != nil {
+		t.Fatalf("expected not_found result to create db record: %v", err)
+	}
+	if video.AVWikiActressStatus != "not_found" {
+		t.Fatalf("expected avwiki_actress_status=not_found, got %q", video.AVWikiActressStatus)
+	}
+	if video.AVWikiLastSearchDate == "" {
+		t.Fatal("expected avwiki_last_search_date to be recorded")
+	}
+	if video.CreatedAt == "" {
+		t.Fatal("expected created_at to be initialized for brand-new record")
+	}
+	if video.UpdatedAt == "" {
+		t.Fatal("expected updated_at to be initialized for brand-new record")
+	}
+	if video.LastSearchDate == "" {
+		t.Fatal("expected last_search_date to use NewVideo defaults")
+	}
+	if video.SearchStatus != "searched_not_found" {
+		t.Fatalf("expected search_status=%q for not-found result, got %q", "searched_not_found", video.SearchStatus)
+	}
+	if video.Actresses == nil {
+		t.Fatal("expected actresses slice to be initialized, got nil")
+	}
+}
+
+func TestBatchSearchJAVDB_NotFoundPreservesExistingOverallSuccess(t *testing.T) {
+	app := newTestApp(t)
+	if err := app.db.AddVideo(&database.VideoData{
+		Code:                 "KEEP-001",
+		Title:                "Existing Title",
+		Studio:               "S1",
+		ReleaseDate:          "2024-01-01",
+		URL:                  "https://example.com/keep-001",
+		Actresses:            []string{"A"},
+		SearchStatus:         "searched_found",
+		SearchMethod:         "avwiki",
+		LastSearchDate:       "2026-04-10T00:00:00Z",
+		AVWikiActressStatus:  "found",
+		AVWikiLastSearchDate: "2026-04-10T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("failed to seed existing video: %v", err)
+	}
+	app.batchSearchRunner = func(codes []string, workers int, source string) []SearchResult {
+		return []SearchResult{{
+			Code:      "KEEP-001",
+			Error:     "未找到結果",
+			ErrorKind: "not_found",
+		}}
+	}
+
+	_ = app.BatchSearchJAVDB([]string{"KEEP-001"}, 1)
+
+	video, err := app.db.GetVideo("KEEP-001")
+	if err != nil {
+		t.Fatalf("expected existing video to remain in db: %v", err)
+	}
+	if video.SearchStatus != "searched_found" {
+		t.Fatalf("expected search_status to stay searched_found, got %q", video.SearchStatus)
+	}
+	if video.SearchMethod != "avwiki" {
+		t.Fatalf("expected search_method to stay avwiki, got %q", video.SearchMethod)
+	}
+	if video.JAVDBActressStatus != "not_found" {
+		t.Fatalf("expected javdb_actress_status=not_found, got %q", video.JAVDBActressStatus)
+	}
+	if video.AVWikiActressStatus != "found" {
+		t.Fatalf("expected avwiki_actress_status to stay found, got %q", video.AVWikiActressStatus)
+	}
+}
+
+func TestBatchSearchAVWiki_SuccessPreservesOtherSourceStatusAndUpdatesOverallSummary(t *testing.T) {
+	app := newTestApp(t)
+	if err := app.db.AddVideo(&database.VideoData{
+		Code:                "MERGE-001",
+		SearchStatus:        "imported",
+		SearchMethod:        "legacy-import",
+		LastSearchDate:      "2026-04-09T00:00:00Z",
+		JAVDBActressStatus:  "not_found",
+		JAVDBLastSearchDate: "2026-04-09T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("failed to seed existing video: %v", err)
+	}
+	app.batchSearchRunner = func(codes []string, workers int, source string) []SearchResult {
+		return []SearchResult{{
+			Code:      "MERGE-001",
+			Title:     "Merged Title",
+			Studio:    "MOODYZ",
+			Release:   "2024-02-02",
+			URL:       "https://example.com/merge-001",
+			Actresses: []string{"Merged Actress"},
+			Method:    "avwiki",
+		}}
+	}
+
+	_ = app.BatchSearchAVWiki([]string{"MERGE-001"}, 1)
+
+	video, err := app.db.GetVideo("MERGE-001")
+	if err != nil {
+		t.Fatalf("expected merged video to remain in db: %v", err)
+	}
+	if video.JAVDBActressStatus != "not_found" {
+		t.Fatalf("expected javdb_actress_status to stay not_found, got %q", video.JAVDBActressStatus)
+	}
+	if video.AVWikiActressStatus != "found" {
+		t.Fatalf("expected avwiki_actress_status=found, got %q", video.AVWikiActressStatus)
+	}
+	if video.SearchStatus != "searched_found" {
+		t.Fatalf("expected overall search_status to become searched_found, got %q", video.SearchStatus)
+	}
+	if video.SearchMethod != "avwiki" {
+		t.Fatalf("expected overall search_method to become avwiki, got %q", video.SearchMethod)
+	}
+	if video.Title != "Merged Title" {
+		t.Fatalf("expected title to update from source-specific success, got %q", video.Title)
 	}
 }
 

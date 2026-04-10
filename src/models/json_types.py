@@ -34,6 +34,10 @@ class VideoDict(TypedDict, total=False):
     search_status: str  # "imported" | "searched_found" | "searched_not_found" | "search_error"
     search_method: str  # "legacy-import" | "AV-WIKI" | "JAVDB" | "cascade"
     last_search_date: str  # 最後搜尋日期 (ISO 8601)
+    avwiki_actress_status: str  # AV-WIKI 女優搜尋狀態
+    avwiki_last_search_date: str  # AV-WIKI 最後女優搜尋日期 (ISO 8601)
+    javdb_actress_status: str  # JAVDB 女優搜尋狀態
+    javdb_last_search_date: str  # JAVDB 最後女優搜尋日期 (ISO 8601)
     created_at: str  # 建立時間 (ISO 8601)
     updated_at: str  # 更新時間 (ISO 8601)
     original_filename: str  # 原始檔名
@@ -145,6 +149,10 @@ VIDEO_ALLOWED_FIELDS = {
     "search_status",
     "search_method",
     "last_search_date",
+    "avwiki_actress_status",
+    "avwiki_last_search_date",
+    "javdb_actress_status",
+    "javdb_last_search_date",
     "created_at",
     "updated_at",
     "original_filename",
@@ -274,6 +282,10 @@ def get_empty_video() -> VideoDict:
         "search_status": SEARCH_STATUSES["IMPORTED"],
         "search_method": SEARCH_METHODS["LEGACY_IMPORT"],
         "last_search_date": now,
+        "avwiki_actress_status": "",
+        "avwiki_last_search_date": "",
+        "javdb_actress_status": "",
+        "javdb_last_search_date": "",
         "created_at": now,
         "updated_at": now,
         "original_filename": "",

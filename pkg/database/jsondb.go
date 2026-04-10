@@ -348,7 +348,8 @@ func (db *JSONDatabase) UpdateVideoFields(code string, updates map[string]any) e
 	db.applyVideoUpdates(video, updates)
 
 	// 寫入 journal（僅記錄更新的欄位，與 Python 相容）
-	entry, err := NewJournalEntry(OpUpdate, TypeVideo, code, updates)
+	journalUpdates := copyVideoUpdatesForJournal(updates, video.UpdatedAt)
+	entry, err := NewJournalEntry(OpUpdate, TypeVideo, code, journalUpdates)
 	if err != nil {
 		return err
 	}
@@ -365,6 +366,17 @@ func (db *JSONDatabase) UpdateVideoFields(code string, updates map[string]any) e
 	}
 
 	return nil
+}
+
+func copyVideoUpdatesForJournal(updates map[string]any, updatedAt string) map[string]any {
+	journalUpdates := make(map[string]any, len(updates)+1)
+	for key, value := range updates {
+		journalUpdates[key] = value
+	}
+	if _, exists := journalUpdates["updated_at"]; !exists {
+		journalUpdates["updated_at"] = updatedAt
+	}
+	return journalUpdates
 }
 
 // AddVideo 新增影片（與 Python add_video 相容）
@@ -511,33 +523,8 @@ func (db *JSONDatabase) BatchUpdate(updates map[string]*Video) error {
 	}
 
 	now := time.Now().UTC().Format(ISODateTimeFormat)
-
-	for code, video := range updates {
-		if code == "" || video == nil {
-			continue
-		}
-
-		// 更新時間戳
-		video.UpdatedAt = now
-		if _, exists := db.root.Videos[code]; !exists {
-			video.CreatedAt = now
-		}
-
-		db.root.Videos[code] = video
-	}
-
-	// 批次寫入 journal，同時更新 dirty tracking
-	for code, video := range updates {
-		if code == "" || video == nil {
-			continue
-		}
-		if err := db.appendJournal("update", code, video); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to write journal entry: %v\n", err)
-		} else {
-			db.dirtyVideos[code] = true
-			db.journalSize++
-		}
-	}
+	db.applyBatchUpdateRecords(updates, now)
+	db.appendBatchUpdateJournalEntries(updates)
 
 	// 儲存索引
 	if err := db.saveIndex(); err != nil {
@@ -545,6 +532,35 @@ func (db *JSONDatabase) BatchUpdate(updates map[string]*Video) error {
 	}
 
 	return nil
+}
+
+func (db *JSONDatabase) applyBatchUpdateRecords(updates map[string]*Video, now string) {
+	for code, video := range updates {
+		if code == "" || video == nil {
+			continue
+		}
+
+		video.UpdatedAt = now
+		if _, exists := db.root.Videos[code]; !exists {
+			video.CreatedAt = now
+		}
+
+		db.root.Videos[code] = video
+	}
+}
+
+func (db *JSONDatabase) appendBatchUpdateJournalEntries(updates map[string]*Video) {
+	for code, video := range updates {
+		if code == "" || video == nil {
+			continue
+		}
+		if err := db.appendJournal("update", code, video); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to write journal entry: %v\n", err)
+			continue
+		}
+		db.dirtyVideos[code] = true
+		db.journalSize++
+	}
 }
 
 // CompactJournal 合併 journal 到主資料庫（與 Python compact() 相容）
@@ -745,7 +761,7 @@ func (db *JSONDatabase) UpsertActress(actress *ActressData) error {
 	}
 	entry, err := NewJournalEntry(op, TypeActress, actress.ID, actress)
 	if err == nil {
-		if err2 := db.appendJournalEntry(entry); err2 == nil {
+		if db.appendJournalEntry(entry) == nil {
 			db.dirtyActresses[actress.ID] = true
 			db.journalSize++
 			_ = db.saveIndex()
@@ -770,7 +786,7 @@ func (db *JSONDatabase) DeleteActress(id string) error {
 	delete(db.root.Actresses, id)
 	entry, err := NewJournalEntry(OpDelete, TypeActress, id, nil)
 	if err == nil {
-		if err2 := db.appendJournalEntry(entry); err2 == nil {
+		if db.appendJournalEntry(entry) == nil {
 			db.dirtyActresses[id] = true
 			db.journalSize++
 			_ = db.saveIndex()
@@ -799,25 +815,9 @@ func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*Merge
 		return nil, errors.New("source file path cannot be empty")
 	}
 
-	// 安全驗證：清理路徑並防止路徑穿越攻擊
-	cleanedPath := filepath.Clean(sourceFile) // 正規化路徑，移除 .. 等相對路徑元素
-	absPath, err := filepath.Abs(cleanedPath) // 轉換為絕對路徑
+	sourceRoot, err := loadMergeSourceData(sourceFile)
 	if err != nil {
-		return nil, fmt.Errorf("invalid source file path: %w", err)
-	}
-	// 確保解析後的路徑與清理後的路徑一致（防止 symlink 繞過）
-	if filepath.Clean(absPath) != absPath {
-		return nil, fmt.Errorf("suspicious source file path detected: %s", sourceFile)
-	}
-
-	sourceData, err := safefile.ReadFile(absPath) // 使用驗證後的絕對路徑
-	if err != nil {
-		return nil, fmt.Errorf("failed to read source file: %w", err)
-	}
-
-	var sourceRoot DatabaseData
-	if err := json.Unmarshal(sourceData, &sourceRoot); err != nil {
-		return nil, fmt.Errorf("failed to parse source JSON: %w", err)
+		return nil, err
 	}
 
 	db.mu.Lock()
@@ -841,89 +841,156 @@ func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*Merge
 	now := time.Now().UTC().Format(ISODateTimeFormat)
 
 	for mapCode, video := range sourceRoot.Videos {
-		if video == nil {
+		code, videoCopy, ok := prepareVideoForMerge(mapCode, video, now)
+		if !ok {
 			continue
 		}
-
-		code := strings.TrimSpace(video.GetCode())
-		if code == "" {
-			code = strings.TrimSpace(mapCode)
-		}
-		if code == "" {
-			continue
-		}
-
-		videoCopy := *video
-		videoCopy.Code = code
-		// 向後相容：若 code 欄位為空但 id 欄位有值（舊版資料），
-		// 將 id 遷移到 code，避免識別符遺失
-		if videoCopy.Code == "" && videoCopy.ID != "" {
-			videoCopy.Code = videoCopy.ID
-		}
-		// 只在確認 code 有效時才清空舊版 id 欄位，
-		// 防止邊界情況下因 id 清空而遺失識別符
-		if videoCopy.Code != "" {
-			videoCopy.ID = ""
-		}
-		videoCopy.UpdatedAt = now
-
-		if existing, exists := db.root.Videos[code]; exists {
-			if !overwrite {
-				stats.VideosSkipped++
-				continue
-			}
-			videoCopy.CreatedAt = existing.CreatedAt
-			db.root.Videos[code] = &videoCopy
-			stats.VideosUpdated++
-		} else {
-			if videoCopy.CreatedAt == "" {
-				videoCopy.CreatedAt = now
-			}
-			db.root.Videos[code] = &videoCopy
-			stats.VideosAdded++
-		}
-
-		db.dirtyVideos[code] = true
+		db.mergeVideoRecord(code, videoCopy, overwrite, now, stats)
 	}
 
 	for id, actress := range sourceRoot.Actresses {
-		if actress == nil {
-			continue
-		}
-		if strings.TrimSpace(id) == "" {
-			continue
-		}
-
-		actressCopy := *actress
-		actressCopy.ID = id
-		actressCopy.UpdatedAt = now
-
-		if existing, exists := db.root.Actresses[id]; exists {
-			if !overwrite {
-				continue
-			}
-			actressCopy.CreatedAt = existing.CreatedAt
-			db.root.Actresses[id] = &actressCopy
-			stats.ActressesUpdated++
-		} else {
-			if actressCopy.CreatedAt == "" {
-				actressCopy.CreatedAt = now
-			}
-			db.root.Actresses[id] = &actressCopy
-			stats.ActressesAdded++
-		}
-
-		db.dirtyActresses[id] = true
+		db.mergeActressRecord(id, actress, overwrite, now, stats)
 	}
 
-	linkSet := make(map[string]bool, len(db.root.Links)+len(sourceRoot.Links))
+	db.mergeLinkRecords(sourceRoot.Links, stats)
+	db.finalizeMerge(now, stats)
+
+	if err := db.saveIndex(); err != nil {
+		fmt.Fprintf(os.Stderr, warnSaveIndex, err)
+	}
+
+	return stats, nil
+}
+
+func loadMergeSourceData(sourceFile string) (*DatabaseData, error) {
+	absPath, err := resolveMergeSourcePath(sourceFile)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceData, err := safefile.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read source file: %w", err)
+	}
+
+	var sourceRoot DatabaseData
+	if err := json.Unmarshal(sourceData, &sourceRoot); err != nil {
+		return nil, fmt.Errorf("failed to parse source JSON: %w", err)
+	}
+
+	normalizeMergeSourceData(&sourceRoot)
+	return &sourceRoot, nil
+}
+
+func resolveMergeSourcePath(sourceFile string) (string, error) {
+	cleanedPath := filepath.Clean(sourceFile)
+	absPath, err := filepath.Abs(cleanedPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid source file path: %w", err)
+	}
+	if filepath.Clean(absPath) != absPath {
+		return "", fmt.Errorf("suspicious source file path detected: %s", sourceFile)
+	}
+	return absPath, nil
+}
+
+func normalizeMergeSourceData(sourceRoot *DatabaseData) {
+	if sourceRoot.Videos == nil {
+		sourceRoot.Videos = make(map[string]*VideoData)
+	}
+	if sourceRoot.Actresses == nil {
+		sourceRoot.Actresses = make(map[string]*ActressData)
+	}
+	if sourceRoot.Links == nil {
+		sourceRoot.Links = []VideoActressLink{}
+	}
+}
+
+func prepareVideoForMerge(mapCode string, video *VideoData, now string) (string, *VideoData, bool) {
+	if video == nil {
+		return "", nil, false
+	}
+
+	code := strings.TrimSpace(video.GetCode())
+	if code == "" {
+		code = strings.TrimSpace(mapCode)
+	}
+	if code == "" {
+		return "", nil, false
+	}
+
+	videoCopy := *video
+	videoCopy.Code = code
+	if videoCopy.Code == "" && videoCopy.ID != "" {
+		videoCopy.Code = videoCopy.ID
+	}
+	if videoCopy.Code != "" {
+		videoCopy.ID = ""
+	}
+	videoCopy.UpdatedAt = now
+	return code, &videoCopy, true
+}
+
+func (db *JSONDatabase) mergeVideoRecord(code string, video *VideoData, overwrite bool, now string, stats *MergeStats) {
+	if existing, exists := db.root.Videos[code]; exists {
+		if !overwrite {
+			stats.VideosSkipped++
+			return
+		}
+		video.CreatedAt = existing.CreatedAt
+		db.root.Videos[code] = video
+		stats.VideosUpdated++
+	} else {
+		if video.CreatedAt == "" {
+			video.CreatedAt = now
+		}
+		db.root.Videos[code] = video
+		stats.VideosAdded++
+	}
+
+	db.dirtyVideos[code] = true
+}
+
+func (db *JSONDatabase) mergeActressRecord(id string, actress *ActressData, overwrite bool, now string, stats *MergeStats) {
+	if actress == nil {
+		return
+	}
+
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+
+	actressCopy := *actress
+	actressCopy.ID = id
+	actressCopy.UpdatedAt = now
+
+	if existing, exists := db.root.Actresses[id]; exists {
+		if !overwrite {
+			return
+		}
+		actressCopy.CreatedAt = existing.CreatedAt
+		db.root.Actresses[id] = &actressCopy
+		stats.ActressesUpdated++
+	} else {
+		if actressCopy.CreatedAt == "" {
+			actressCopy.CreatedAt = now
+		}
+		db.root.Actresses[id] = &actressCopy
+		stats.ActressesAdded++
+	}
+
+	db.dirtyActresses[id] = true
+}
+
+func (db *JSONDatabase) mergeLinkRecords(links []VideoActressLink, stats *MergeStats) {
+	linkSet := make(map[string]bool, len(db.root.Links)+len(links))
 	for _, link := range db.root.Links {
-		key := link.VideoCode + "|" + link.ActressID + "|" + link.RoleType + "|" + link.Timestamp
-		linkSet[key] = true
+		linkSet[mergeLinkKey(link)] = true
 	}
 
-	for _, link := range sourceRoot.Links {
-		key := link.VideoCode + "|" + link.ActressID + "|" + link.RoleType + "|" + link.Timestamp
+	for _, link := range links {
+		key := mergeLinkKey(link)
 		if linkSet[key] {
 			continue
 		}
@@ -931,15 +998,15 @@ func (db *JSONDatabase) MergeFromFile(sourceFile string, overwrite bool) (*Merge
 		linkSet[key] = true
 		stats.LinksAdded++
 	}
+}
 
+func mergeLinkKey(link VideoActressLink) string {
+	return link.VideoCode + "|" + link.ActressID + "|" + link.RoleType + "|" + link.Timestamp
+}
+
+func (db *JSONDatabase) finalizeMerge(now string, stats *MergeStats) {
 	db.root.UpdatedAt = now
 	db.journalSize += stats.VideosAdded + stats.VideosUpdated + stats.ActressesAdded + stats.ActressesUpdated + stats.LinksAdded
-
-	if err := db.saveIndex(); err != nil {
-		fmt.Fprintf(os.Stderr, warnSaveIndex, err)
-	}
-
-	return stats, nil
 }
 
 // GetActressStats 取得女優統計資訊（影片數排序）
@@ -1012,16 +1079,71 @@ func (db *JSONDatabase) BackupRestore(backupPath string) error {
 
 	// 在寫鎖下覆寫 data.json
 	db.mu.Lock()
-	err = safefile.WriteFile(db.dataFile, content, 0600)
-	if err != nil {
+	if err := restoreBackupDataFile(db.dataFile, content, db.journalFile, db.indexFile); err != nil {
 		db.mu.Unlock()
-		return fmt.Errorf("寫入資料庫失敗: %w", err)
+		return err
 	}
+	db.dirtyVideos = make(map[string]bool)
+	db.dirtyActresses = make(map[string]bool)
+	db.dirtyLinks = make(map[string]bool)
+	db.deletedVideos = make(map[string]bool)
+	db.journalSize = 0
 	db.loaded = false
 	db.mu.Unlock()
 
 	// 重新載入（Load 自行取鎖）
 	return db.Load(context.Background())
+}
+
+func restoreBackupDataFile(dataFile string, content []byte, sidecarPaths ...string) error {
+	tempPath := dataFile + ".restore.tmp"
+	backupPath := dataFile + ".restore.bak"
+
+	if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("清理暫存還原檔案失敗: %w", err)
+	}
+	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("清理舊還原備份檔案失敗: %w", err)
+	}
+
+	if err := safefile.WriteFile(tempPath, content, 0600); err != nil {
+		return fmt.Errorf("寫入還原暫存檔失敗: %w", err)
+	}
+	if err := os.Rename(dataFile, backupPath); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("備份現有資料檔失敗: %w", err)
+	}
+	if err := os.Rename(tempPath, dataFile); err != nil {
+		_ = os.Remove(tempPath)
+		_ = os.Rename(backupPath, dataFile)
+		return fmt.Errorf("切換還原資料檔失敗: %w", err)
+	}
+	if err := clearBackupRestoreSidecars(sidecarPaths...); err != nil {
+		if rollbackErr := rollbackRestoredDataFile(dataFile, backupPath); rollbackErr != nil {
+			return fmt.Errorf("清理還原附屬檔案失敗: %w；回復原資料檔也失敗: %v", err, rollbackErr)
+		}
+		return err
+	}
+	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("清理舊資料備份失敗: %w", err)
+	}
+	return nil
+}
+
+func rollbackRestoredDataFile(dataFile, backupPath string) error {
+	if err := os.Remove(dataFile); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(backupPath, dataFile)
+}
+
+func clearBackupRestoreSidecars(paths ...string) error {
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("清理還原附屬檔案失敗: %w", err)
+		}
+	}
+	return nil
 }
 
 // BackupList 列出備份檔案路徑（按名稱排序）
@@ -1037,7 +1159,7 @@ func (db *JSONDatabase) BackupList() ([]string, error) {
 
 	var paths []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), "backup_") && strings.HasSuffix(e.Name(), ".json") {
+		if !e.IsDir() && isBackupJSONFileName(e.Name()) {
 			paths = append(paths, filepath.Join(backupDir, e.Name()))
 		}
 	}
@@ -1046,7 +1168,7 @@ func (db *JSONDatabase) BackupList() ([]string, error) {
 }
 
 // BackupCleanup 清理過期與超量備份，回傳刪除數量
-func (db *JSONDatabase) BackupCleanup(days int, maxCount int) (int, error) {
+func (db *JSONDatabase) BackupCleanup(days, maxCount int) (int, error) {
 	backupDir := filepath.Join(db.dataDir, "backup")
 	entries, err := os.ReadDir(backupDir)
 	if err != nil {
@@ -1057,44 +1179,62 @@ func (db *JSONDatabase) BackupCleanup(days int, maxCount int) (int, error) {
 	}
 
 	cutoff := time.Now().AddDate(0, 0, -days)
-	deleted := 0
-
-	// 按日期刪除過期備份
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasPrefix(name, "backup_") || !strings.HasSuffix(name, ".json") {
-			continue
-		}
-		// 從檔名解析日期：backup_YYYY-MM-DD_HH-MM-SS.json
-		stem := strings.TrimSuffix(strings.TrimPrefix(name, "backup_"), ".json")
-		parts := strings.SplitN(stem, "_", 2)
-		if len(parts) == 0 {
-			continue
-		}
-		t, parseErr := time.Parse("2006-01-02", parts[0])
-		if parseErr != nil {
-			continue
-		}
-		if t.Before(cutoff) {
-			if removeErr := os.Remove(filepath.Join(backupDir, name)); removeErr == nil {
-				deleted++
-			}
-		}
-	}
+	deleted := deleteExpiredBackups(backupDir, entries, cutoff)
 
 	// 重新讀取剩餘備份，若超過 maxCount 則刪除最舊的
 	remaining, err := db.BackupList()
 	if err != nil {
 		return deleted, nil
 	}
-	for len(remaining) > maxCount {
-		if removeErr := os.Remove(remaining[0]); removeErr == nil {
-			deleted++
-		}
-		remaining = remaining[1:]
-	}
+	deleted += removeOldestBackups(remaining, maxCount)
 
 	return deleted, nil
+}
+
+func isBackupJSONFileName(name string) bool {
+	return strings.HasPrefix(name, "backup_") && strings.HasSuffix(name, ".json")
+}
+
+func deleteExpiredBackups(backupDir string, entries []os.DirEntry, cutoff time.Time) int {
+	deleted := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !isBackupJSONFileName(name) {
+			continue
+		}
+		backupDate, ok := parseBackupDate(name)
+		if !ok || !backupDate.Before(cutoff) {
+			continue
+		}
+		if os.Remove(filepath.Join(backupDir, name)) == nil {
+			deleted++
+		}
+	}
+	return deleted
+}
+
+func parseBackupDate(name string) (time.Time, bool) {
+	stem := strings.TrimSuffix(strings.TrimPrefix(name, "backup_"), ".json")
+	parts := strings.SplitN(stem, "_", 2)
+	if len(parts) == 0 {
+		return time.Time{}, false
+	}
+	backupDate, err := time.Parse("2006-01-02", parts[0])
+	if err != nil {
+		return time.Time{}, false
+	}
+	return backupDate, true
+}
+
+func removeOldestBackups(paths []string, maxCount int) int {
+	deleted := 0
+	for len(paths) > maxCount {
+		if os.Remove(paths[0]) == nil {
+			deleted++
+		}
+		paths = paths[1:]
+	}
+	return deleted
 }
 
 // GetStudioStats 取得片商統計資訊（影片數排序）

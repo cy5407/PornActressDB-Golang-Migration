@@ -243,67 +243,31 @@ class SafeJAVDBSearcher:
 
         while True:
             try:
-                with self._lock:
-                    self._check_daily_reset()
-                    if self.stats["today_count"] >= self.daily_limit:
-                        logger.warning(f"⚠️ 已達每日 JAVDB 請求限制 ({self.daily_limit})")
-                        return None
-
-                    if self.request_count >= self.max_requests_per_session:
-                        logger.info("🔄 重新建立 JAVDB session")
-                        self.create_session()
-
-                    session = self.session
-                    consecutive_errors = self.consecutive_errors
-
-                if consecutive_errors >= 5:
-                    cooldown = 300
-                    logger.warning(
-                        f"🧊 連續 {consecutive_errors} 次失敗，冷卻 {cooldown} 秒後重建 session"
-                    )
-                    time.sleep(cooldown)
-                    with self._lock:
-                        self.create_session()
-                        self.consecutive_errors = 0
-                        session = self.session
-                        consecutive_errors = self.consecutive_errors
-
-                adaptive_multiplier = 2 ** min(consecutive_errors, 5)
-                base_delay = (
-                    _random_delay(self.min_delay, self.max_delay) * adaptive_multiplier
-                )
-                if current_retry > 0:
-                    base_delay += current_retry * 2.0
-
-                logger.debug(f"⏱️ 等待 {base_delay:.1f} 秒...")
-                time.sleep(base_delay)
+                session, consecutive_errors = self._prepare_request_context()
+                if session is None:
+                    return None
+                session = self._apply_cooldown_if_needed(session, consecutive_errors)
+                time.sleep(self._calculate_request_delay(consecutive_errors, current_retry))
 
                 response = session.get(url)
-                with self._lock:
-                    self.request_count += 1
-                    self.stats["today_count"] += 1
-                    self.stats["total_requests"] += 1
+                self._record_request_sent()
 
                 status = response.status_code
 
                 if status == 200:
-                    with self._lock:
-                        self.consecutive_errors = 0
+                    self._reset_consecutive_errors()
                     logger.debug("✅ JAVDB 請求成功: %s", status)
                     return response
 
                 if status == 403:
-                    with self._lock:
-                        self.consecutive_errors += 1
-                        consecutive_errors = self.consecutive_errors
+                    consecutive_errors = self._increment_consecutive_errors()
                     logger.warning(
                         f"⚠️ 收到 403，連續錯誤 {consecutive_errors} 次"
                     )
                     if current_retry < 2:
-                        with self._lock:
-                            self.create_session()
                         wait_time = 30 + _random_delay(15, 45)
                         if wait_time <= self.max_retry_wait_seconds:
+                            self._recreate_session()
                             logger.info(
                                 f"🔄 更換瀏覽器指紋，等待 {wait_time:.1f} 秒後重試..."
                             )
@@ -314,8 +278,7 @@ class SafeJAVDBSearcher:
                     return None
 
                 if status == 429:
-                    with self._lock:
-                        self.consecutive_errors += 1
+                    self._increment_consecutive_errors()
                     if current_retry < 3:
                         wait_time = 20 + _random_delay(10, 30)
                         if wait_time <= self.max_retry_wait_seconds:
@@ -332,18 +295,16 @@ class SafeJAVDBSearcher:
                 return None
 
             except httpx.TimeoutException:
-                with self._lock:
-                    self.consecutive_errors += 1
                 logger.warning("⏰ JAVDB 請求超時")
+                self._increment_consecutive_errors()
                 if current_retry < 2:
                     current_retry += 1
                     continue
                 return None
 
             except httpx.ConnectError:
-                with self._lock:
-                    self.consecutive_errors += 1
                 logger.warning("🔌 JAVDB 連線失敗")
+                self._increment_consecutive_errors()
                 if current_retry < 2:
                     time.sleep(10 + current_retry * 5)
                     current_retry += 1
@@ -351,14 +312,68 @@ class SafeJAVDBSearcher:
                 return None
 
             except Exception as e:
-                with self._lock:
-                    self.consecutive_errors += 1
                 logger.error(f"❌ JAVDB 請求過程中出錯: {e}")
+                self._increment_consecutive_errors()
                 if current_retry < 1:
                     time.sleep(5)
                     current_retry += 1
                     continue
                 return None
+
+    def _prepare_request_context(self) -> tuple[Any | None, int]:
+        with self._lock:
+            self._check_daily_reset()
+            if self.stats["today_count"] >= self.daily_limit:
+                logger.warning(f"⚠️ 已達每日 JAVDB 請求限制 ({self.daily_limit})")
+                return None, self.consecutive_errors
+            if self.request_count >= self.max_requests_per_session:
+                logger.info("🔄 重新建立 JAVDB session")
+                self.create_session()
+            return self.session, self.consecutive_errors
+
+    def _apply_cooldown_if_needed(
+        self, session: Any | None, consecutive_errors: int
+    ) -> Any | None:
+        if session is None or consecutive_errors < 5:
+            return session
+        cooldown = 300
+        logger.warning(
+            f"🧊 連續 {consecutive_errors} 次失敗，冷卻 {cooldown} 秒後重建 session"
+        )
+        time.sleep(cooldown)
+        with self._lock:
+            self.create_session()
+            self.consecutive_errors = 0
+            return self.session
+
+    def _calculate_request_delay(
+        self, consecutive_errors: int, current_retry: int
+    ) -> float:
+        adaptive_multiplier = 2 ** min(consecutive_errors, 5)
+        delay = _random_delay(self.min_delay, self.max_delay) * adaptive_multiplier
+        if current_retry > 0:
+            delay += current_retry * 2.0
+        logger.debug(f"⏱️ 等待 {delay:.1f} 秒...")
+        return delay
+
+    def _record_request_sent(self) -> None:
+        with self._lock:
+            self.request_count += 1
+            self.stats["today_count"] += 1
+            self.stats["total_requests"] += 1
+
+    def _reset_consecutive_errors(self) -> None:
+        with self._lock:
+            self.consecutive_errors = 0
+
+    def _increment_consecutive_errors(self) -> int:
+        with self._lock:
+            self.consecutive_errors += 1
+            return self.consecutive_errors
+
+    def _recreate_session(self) -> None:
+        with self._lock:
+            self.create_session()
 
     def clear_cache_for_code(self, video_id: str) -> bool:
         """清除特定番號的快取 - 用於二次搜尋"""
@@ -438,14 +453,11 @@ class SafeJAVDBSearcher:
             )
 
         try:
-            # 構建搜尋 URL
             search_url = f"https://javdb.com/search?q={quote(video_id)}&f=all"
-            # 執行搜尋
             response = self.safe_request(search_url)
             if not response:
                 return None
 
-            # JAVDB 使用標準 UTF-8 編碼，不需要特殊處理
             soup = BeautifulSoup(response.text, "html.parser")
             page_text = soup.get_text(" ", strip=True)
 
@@ -457,9 +469,7 @@ class SafeJAVDBSearcher:
                     search_url,
                 )
 
-            # 尋找影片連結 - 使用實際的JAVDB結構
             video_links = soup.select('a[href*="/v/"]')
-
             if not video_links:
                 self._mark_suspected_page(video_id, "搜尋頁缺少影片結果連結")
                 return self._make_search_error_result(
@@ -469,58 +479,20 @@ class SafeJAVDBSearcher:
                 )
 
             logger.debug(f"🎬 找到 {len(video_links)} 個影片連結")
-
-            # 尋找最匹配的結果
-            best_match_url = None
-            normalized_video_id = self._normalize_code_for_match(video_id)
-
-            # 檢查每個連結對應的影片，看是否匹配番號
-            for link in video_links:
-                href = link.get("href")
-                if not href:
-                    continue
-
-                # 檢查連結周圍的文字或標題是否包含番號
-                link_text = link.get_text(strip=True)
-                title_attr = link.get("title", "")
-
-                # 檢查是否匹配
-                text_to_check = f"{link_text} {title_attr}".upper()
-                normalized_text = self._normalize_code_for_match(text_to_check)
-                if (
-                    video_id.upper() in text_to_check
-                    or normalized_video_id in normalized_text
-                ):
-                    best_match_url = href
-                    logger.debug(f"🎯 找到匹配的影片連結: {href} (文字: {link_text})")
-                    break
-            # 找不到精確匹配時，視為未找到（不 fallback 到第一筆以免錯誤匹配）
+            best_match_url = self._find_best_match_url(video_id, video_links)
             if not best_match_url:
                 logger.debug(f"🔍 JAVDB 未找到番號 {video_id} 的精確匹配結果，視為未找到")
                 return None
 
-            if not best_match_url:
-                logger.warning(f"⚠️ 無法獲取 {video_id} 的詳情頁面連結")
-                return None
-
             detail_url = urljoin("https://javdb.com", best_match_url)
-
-            # 訪問詳情頁面
             detail_response = self.safe_request(detail_url)
             if not detail_response:
                 return None
 
-            # 解析詳情頁面 - 使用編碼增強器
             info = self._parse_detail_page(detail_response, video_id, detail_url)
-
             if info:
                 self._reset_suspected_page_counter()
-                # 儲存到快取
-                self.cache[cache_key] = info
-                self.save_cache()
-                self.stats["successful_searches"] += 1
-                self.save_stats()
-
+                self._cache_successful_search(cache_key, info)
                 logger.info(f"✅ JAVDB 找到番號 {video_id} 的資料")
                 return info
 
@@ -530,6 +502,27 @@ class SafeJAVDBSearcher:
             logger.error(f"❌ 搜尋 {video_id} 時出錯: {e}")
             return None
 
+    def _find_best_match_url(self, video_id: str, video_links) -> str | None:
+        normalized_video_id = self._normalize_code_for_match(video_id)
+        for link in video_links:
+            href = link.get("href")
+            if not href:
+                continue
+            link_text = link.get_text(strip=True)
+            title_attr = link.get("title", "")
+            text_to_check = f"{link_text} {title_attr}".upper()
+            normalized_text = self._normalize_code_for_match(text_to_check)
+            if video_id.upper() in text_to_check or normalized_video_id in normalized_text:
+                logger.debug(f"🎯 找到匹配的影片連結: {href} (文字: {link_text})")
+                return href
+        return None
+
+    def _cache_successful_search(self, cache_key: str, info: dict[str, Any]) -> None:
+        self.cache[cache_key] = info
+        self.save_cache()
+        self.stats["successful_searches"] += 1
+        self.save_stats()
+
     def _parse_detail_page(
         self, response: httpx.Response, video_id: str, url: str
     ) -> dict[str, Any] | None:
@@ -537,10 +530,6 @@ class SafeJAVDBSearcher:
         try:
             # JAVDB 使用標準 UTF-8 編碼，不需要特殊處理
             soup = BeautifulSoup(response.text, "html.parser")
-
-            if soup is None:
-                logger.warning(f"無法解析 JAVDB 詳情頁面: {sanitize_url_for_log(url)}")
-                return None
 
             page_text = soup.get_text(" ", strip=True)
             if self._looks_like_age_gate_or_landing_page(page_text):
@@ -551,35 +540,9 @@ class SafeJAVDBSearcher:
                     url,
                 )
 
-            info = {
-                "code": video_id.upper(),
-                "source": "JAVDB (安全增強版)",
-                "actresses": [],
-                "studio": None,
-                "studio_code": None,
-                "release_date": None,
-                "title": None,
-                "duration": None,
-                "director": None,
-                "series": None,
-                "rating": None,
-                "categories": [],
-            }
-
-            # 提取標題
-            title_element = soup.select_one("h2.title")
-            if title_element:
-                info["title"] = title_element.text.strip()
-                # 二次驗證：確認詳情頁的番號與搜尋番號一致（防止錯誤跳轉）
-                title_code_match = re.match(r"^([A-Z0-9]+-\d+)", info["title"], re.IGNORECASE)
-                if title_code_match:
-                    page_code = title_code_match.group(1).upper()
-                    if page_code != video_id.upper():
-                        logger.warning(
-                            f"⚠️ JAVDB 詳情頁番號不符: 搜尋 {video_id}，頁面顯示 {page_code}，視為未找到"
-                        )
-                        return None
-            # 提取詳細資訊 - 適配新的 HTML 結構
+            info = self._create_empty_detail_info(video_id)
+            if not self._parse_detail_title(soup, info, video_id):
+                return None
             info_panels = soup.select(".panel-block")
 
             if not info_panels:
@@ -602,73 +565,14 @@ class SafeJAVDBSearcher:
                 # 對於演員資訊，直接在同一個 panel 中尋找
                 if label in {"演員", "Actor(s)"}:
                     actor_panel_found = True
-                    # 提取女優名稱（只取女性演員）
-                    actresses = []
-                    # 尋找演員連結和性別符號
-                    actress_links = panel.select('a[href*="/actors/"]')
-                    for link in actress_links:
-                        # 檢查緊跟著的性別符號
-                        next_element = link.find_next_sibling()
-                        if (
-                            next_element
-                            and next_element.name == "strong"
-                            and next_element.get("class")
-                            and "symbol" in next_element.get("class")
-                            and "female" in next_element.get("class")
-                        ) or (
-                            next_element
-                            and next_element.name == "strong"
-                            and "♀" in next_element.text
-                        ):
-                            actress_name = link.text.strip()
-                            # 使用過濾器驗證女優名字
-                            if actress_name and ActressNameFilter.is_valid_actress_name(
-                                actress_name, allow_single_latin_name=True
-                            ):
-                                actresses.append(actress_name)
-                    info["actresses"] = actresses
+                    info["actresses"] = self._extract_actresses_from_panel(panel)
                     continue
 
                 # 取得值容器（非演員欄位）
                 value_element = panel.select_one(".value")
                 if not value_element:
                     continue
-                if label in {"片商", "Maker"}:
-                    # 提取片商
-                    maker_link = value_element.select_one('a[href*="/makers/"]')
-                    if maker_link:
-                        info["studio"] = maker_link.text.strip()
-                elif label in {"日期", "Released Date"}:
-                    # 提取發行日期
-                    date_text = value_element.text.strip()
-                    if date_text:
-                        info["release_date"] = date_text
-                elif label in {"時長", "Duration"}:
-                    # 提取時長
-                    duration_text = value_element.text.strip()
-                    if duration_text:
-                        info["duration"] = duration_text
-                elif label in {"導演", "Director"}:
-                    # 提取導演
-                    director_link = value_element.select_one("a")
-                    if director_link:
-                        info["director"] = director_link.text.strip()
-                elif label in {"系列", "Series"}:
-                    # 提取系列
-                    series_link = value_element.select_one("a")
-                    if series_link:
-                        info["series"] = series_link.text.strip()
-                elif label in {"評分", "Rating"}:
-                    # 提取評分
-                    rating_text = value_element.text.strip()
-                    # 提取數字評分，如 "4.26分" 或 "4.26, by 564 users"
-                    rating_match = re.search(r"(\d+\.?\d*)", rating_text)
-                    if rating_match:
-                        info["rating"] = float(rating_match.group(1))
-                elif label in {"類別", "Tags"}:
-                    # 提取類別
-                    category_links = value_element.select("a")
-                    info["categories"] = [link.text.strip() for link in category_links]
+                self._apply_detail_panel_value(info, label, value_element)
 
             # 嘗試從番號推測片商代碼
             if not info["studio_code"] and video_id:
@@ -697,6 +601,101 @@ class SafeJAVDBSearcher:
                 f"JAVDB 詳情頁解析失敗: {e}",
                 url,
             )
+
+    @staticmethod
+    def _create_empty_detail_info(video_id: str) -> dict[str, Any]:
+        return {
+            "code": video_id.upper(),
+            "source": "JAVDB (安全增強版)",
+            "actresses": [],
+            "studio": None,
+            "studio_code": None,
+            "release_date": None,
+            "title": None,
+            "duration": None,
+            "director": None,
+            "series": None,
+            "rating": None,
+            "categories": [],
+        }
+
+    def _parse_detail_title(
+        self, soup: BeautifulSoup, info: dict[str, Any], video_id: str
+    ) -> bool:
+        title_element = soup.select_one("h2.title")
+        if not title_element:
+            return True
+        info["title"] = title_element.text.strip()
+        title_code_match = re.match(r"^([A-Z0-9]+-\d+)", info["title"], re.IGNORECASE)
+        if not title_code_match:
+            return True
+        page_code = title_code_match.group(1).upper()
+        if page_code == video_id.upper():
+            return True
+        logger.warning(
+            f"⚠️ JAVDB 詳情頁番號不符: 搜尋 {video_id}，頁面顯示 {page_code}，視為未找到"
+        )
+        return False
+
+    @staticmethod
+    def _extract_actresses_from_panel(panel) -> list[str]:
+        actresses: list[str] = []
+        for link in panel.select('a[href*="/actors/"]'):
+            next_element = link.find_next_sibling()
+            if not SafeJAVDBSearcher._is_female_actor_marker(next_element):
+                continue
+            actress_name = link.text.strip()
+            if actress_name and ActressNameFilter.is_valid_actress_name(
+                actress_name, allow_single_latin_name=True
+            ):
+                actresses.append(actress_name)
+        return actresses
+
+    @staticmethod
+    def _is_female_actor_marker(next_element) -> bool:
+        return bool(
+            (
+                next_element
+                and next_element.name == "strong"
+                and next_element.get("class")
+                and "symbol" in next_element.get("class")
+                and "female" in next_element.get("class")
+            )
+            or (
+                next_element
+                and next_element.name == "strong"
+                and "♀" in next_element.text
+            )
+        )
+
+    @staticmethod
+    def _apply_detail_panel_value(info: dict[str, Any], label: str, value_element) -> None:
+        if label in {"片商", "Maker"}:
+            maker_link = value_element.select_one('a[href*="/makers/"]')
+            if maker_link:
+                info["studio"] = maker_link.text.strip()
+        elif label in {"日期", "Released Date"}:
+            date_text = value_element.text.strip()
+            if date_text:
+                info["release_date"] = date_text
+        elif label in {"時長", "Duration"}:
+            duration_text = value_element.text.strip()
+            if duration_text:
+                info["duration"] = duration_text
+        elif label in {"導演", "Director"}:
+            director_link = value_element.select_one("a")
+            if director_link:
+                info["director"] = director_link.text.strip()
+        elif label in {"系列", "Series"}:
+            series_link = value_element.select_one("a")
+            if series_link:
+                info["series"] = series_link.text.strip()
+        elif label in {"評分", "Rating"}:
+            rating_match = re.search(r"(\d+\.?\d*)", value_element.text.strip())
+            if rating_match:
+                info["rating"] = float(rating_match.group(1))
+        elif label in {"類別", "Tags"}:
+            info["categories"] = [link.text.strip() for link in value_element.select("a")]
 
     def _extract_studio_code_from_number(self, code: str) -> str | None:
         """從番號中提取片商代碼"""

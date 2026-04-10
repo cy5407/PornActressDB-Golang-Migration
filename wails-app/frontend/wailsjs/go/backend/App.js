@@ -18,6 +18,14 @@ export function BatchSearch(arg1, arg2) {
   return window['go']['backend']['App']['BatchSearch'](arg1, arg2);
 }
 
+export function BatchSearchAVWiki(arg1, arg2) {
+  return window['go']['backend']['App']['BatchSearchAVWiki'](arg1, arg2);
+}
+
+export function BatchSearchJAVDB(arg1, arg2) {
+  return window['go']['backend']['App']['BatchSearchJAVDB'](arg1, arg2);
+}
+
 export function CancelOperation() {
   return window['go']['backend']['App']['CancelOperation']();
 }

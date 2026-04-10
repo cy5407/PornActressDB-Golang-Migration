@@ -133,41 +133,53 @@ class ConfigManager:
         """驗證配置項目的有效性"""
         needs_saving = False
 
-        for section, rules in self.VALIDATION_RULES.items():
-            if not self.config.has_section(section):
-                continue
-
-            for key, rule in rules.items():
-                if not self.config.has_option(section, key):
-                    continue
-
-                try:
-                    value_str = self.config.get(section, key)
-                    value = rule["type"](value_str)
-
-                    # 檢查範圍
-                    if "min" in rule and value < rule["min"]:
-                        logger.warning(
-                            f"配置 [{section}]{key}={value} 低於最小值 {rule['min']}，已重設為預設值 {rule['default']}"
-                        )
-                        self.config.set(section, key, str(rule["default"]))
-                        needs_saving = True
-                    elif "max" in rule and value > rule["max"]:
-                        logger.warning(
-                            f"配置 [{section}]{key}={value} 超過最大值 {rule['max']}，已重設為預設值 {rule['default']}"
-                        )
-                        self.config.set(section, key, str(rule["default"]))
-                        needs_saving = True
-
-                except (ValueError, TypeError) as e:
-                    logger.warning(
-                        f"配置 [{section}]{key} 格式錯誤: {e}，已重設為預設值 {rule['default']}"
-                    )
-                    self.config.set(section, key, str(rule["default"]))
-                    needs_saving = True
+        for section, key, rule in self._iter_validation_targets():
+            if self._apply_validation_rule(section, key, rule):
+                needs_saving = True
 
         if needs_saving:
             self.save_config()
+
+    def _iter_validation_targets(self):
+        for section, rules in self.VALIDATION_RULES.items():
+            if not self.config.has_section(section):
+                continue
+            for key, rule in rules.items():
+                if self.config.has_option(section, key):
+                    yield section, key, rule
+
+    def _apply_validation_rule(self, section: str, key: str, rule: dict[str, Any]) -> bool:
+        try:
+            value = self._coerce_config_value(section, key, rule)
+        except (ValueError, TypeError) as error:
+            self._reset_config_value(section, key, rule, f"格式錯誤: {error}")
+            return True
+
+        if "min" in rule and value < rule["min"]:
+            self._reset_config_value(
+                section, key, rule, f"{value} 低於最小值 {rule['min']}"
+            )
+            return True
+        if "max" in rule and value > rule["max"]:
+            self._reset_config_value(
+                section, key, rule, f"{value} 超過最大值 {rule['max']}"
+            )
+            return True
+        return False
+
+    def _coerce_config_value(
+        self, section: str, key: str, rule: dict[str, Any]
+    ) -> Any:
+        value_str = self.config.get(section, key)
+        return rule["type"](value_str)
+
+    def _reset_config_value(
+        self, section: str, key: str, rule: dict[str, Any], reason: str
+    ) -> None:
+        logger.warning(
+            f"配置 [{section}]{key} {reason}，已重設為預設值 {rule['default']}"
+        )
+        self.config.set(section, key, str(rule["default"]))
 
     def save_config(self):
         try:

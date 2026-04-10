@@ -13,6 +13,43 @@ import (
 // ScanFiles
 // ============================================================
 
+func TestShouldSkipScanDirectory(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	skip, err := shouldSkipScanDirectory(dir, false, absDir)
+	if err != nil {
+		t.Fatalf("unexpected error for root dir: %v", err)
+	}
+	if skip {
+		t.Fatal("root directory should not be skipped")
+	}
+
+	skip, err = shouldSkipScanDirectory(sub, false, absDir)
+	if err != nil {
+		t.Fatalf("unexpected error for subdir: %v", err)
+	}
+	if !skip {
+		t.Fatal("nested directory should be skipped when recursive is false")
+	}
+
+	skip, err = shouldSkipScanDirectory(sub, true, absDir)
+	if err != nil {
+		t.Fatalf("unexpected error for recursive scan: %v", err)
+	}
+	if skip {
+		t.Fatal("nested directory should not be skipped when recursive is true")
+	}
+}
+
 func TestScanFiles_NonExistentDir(t *testing.T) {
 	_, err := ScanFiles(ScanRequest{Dir: "/nonexistent/path", Workers: 1})
 	if err == nil {

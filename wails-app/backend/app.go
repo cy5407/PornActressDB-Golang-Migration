@@ -38,6 +38,8 @@ type App struct {
 	cancelMu      sync.Mutex
 	majorStudios  map[string]bool   // 從 major_studios.json 載入
 	codeStudioMap map[string]string // 番號前綴 → 片商名，從 studios.json 載入
+	// batchSearchRunner 僅供測試替換批次搜尋執行路徑，避免直接啟動 Python 子程序。
+	batchSearchRunner func(codes []string, workers int, source string) []SearchResult
 }
 
 // NewApp creates a new App instance.
@@ -501,6 +503,12 @@ const (
 	SearchErrorTimeout   SearchErrorKind = "timeout"
 	SearchErrorStderr    SearchErrorKind = "stderr"
 	SearchErrorJSONParse SearchErrorKind = "json_parse"
+
+	batchSearchSourceAVWiki = "avwiki"
+	batchSearchSourceJAVDB  = "javdb"
+	batchSearchResultFound  = "found"
+	batchSearchResultMiss   = "not_found"
+	batchSearchResultError  = "error"
 )
 
 // searchTimeout is the per-code subprocess execution deadline.
@@ -517,6 +525,20 @@ type SearchResult struct {
 	Method    string   `json:"method"`
 	Error     string   `json:"error,omitempty"`
 	ErrorKind string   `json:"error_kind,omitempty"`
+}
+
+type batchSearchRequest struct {
+	Codes   []string `json:"codes"`
+	Workers int      `json:"workers"`
+	Source  string   `json:"source_mode,omitempty"`
+}
+
+func buildBatchSearchInput(codes []string, workers int, source string) ([]byte, error) {
+	return json.Marshal(batchSearchRequest{
+		Codes:   codes,
+		Workers: workers,
+		Source:  source,
+	})
 }
 
 // PythonSearch invokes src/scrapers/run_search.py to search metadata for a video code.
@@ -577,6 +599,140 @@ func (a *App) PythonSearch(code string) (*SearchResult, error) {
 // This eliminates N×Python-startup overhead; estimated 10-20x faster than the old per-code approach.
 // DB integration: codes already in DB (search_status=success) are served from cache; new results are persisted.
 func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
+	return a.batchSearch(codes, workers, "")
+}
+
+// BatchSearchAVWiki 僅要求 Python 批次腳本搜尋 AV-WIKI。
+// source 欄位為 split-search-go-api 的最小契約；Python 端尚未消費時會安全忽略。
+func (a *App) BatchSearchAVWiki(codes []string, workers int) []SearchResult {
+	return a.batchSearch(codes, workers, batchSearchSourceAVWiki)
+}
+
+// BatchSearchJAVDB 僅要求 Python 批次腳本搜尋 JAVDB。
+// source 欄位為 split-search-go-api 的最小契約；Python 端尚未消費時會安全忽略。
+func (a *App) BatchSearchJAVDB(codes []string, workers int) []SearchResult {
+	return a.batchSearch(codes, workers, batchSearchSourceJAVDB)
+}
+
+func batchSearchSourceFields(source string) (statusField string, dateField string, ok bool) {
+	switch source {
+	case batchSearchSourceAVWiki:
+		return "avwiki_actress_status", "avwiki_last_search_date", true
+	case batchSearchSourceJAVDB:
+		return "javdb_actress_status", "javdb_last_search_date", true
+	default:
+		return "", "", false
+	}
+}
+
+func inferBatchSearchSourceStatus(res SearchResult) string {
+	if res.Error == "" {
+		return batchSearchResultFound
+	}
+	if strings.EqualFold(res.ErrorKind, batchSearchResultMiss) || strings.Contains(res.Error, "未找到結果") {
+		return batchSearchResultMiss
+	}
+	return batchSearchResultError
+}
+
+func applyBatchSearchSourceStatus(video *database.VideoData, source string, status string, timestamp string) {
+	switch source {
+	case batchSearchSourceAVWiki:
+		video.AVWikiActressStatus = status
+		video.AVWikiLastSearchDate = timestamp
+	case batchSearchSourceJAVDB:
+		video.JAVDBActressStatus = status
+		video.JAVDBLastSearchDate = timestamp
+	}
+}
+
+func (a *App) persistBatchSearchResult(res SearchResult, source string) {
+	if a.db == nil || res.Code == "" {
+		return
+	}
+
+	now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	_, err := a.db.GetVideo(res.Code)
+	if source == "" {
+		if res.Error != "" {
+			return
+		}
+		updates := map[string]any{
+			"title":            res.Title,
+			"studio":           res.Studio,
+			"release_date":     res.Release,
+			"url":              res.URL,
+			"actresses":        res.Actresses,
+			"search_status":    "searched_found",
+			"search_method":    res.Method,
+			"last_search_date": now,
+			"updated_at":       now,
+		}
+		if err == nil {
+			_ = a.db.UpdateVideoFields(res.Code, updates)
+			return
+		}
+		_ = a.db.AddVideo(&database.VideoData{
+			Code:           res.Code,
+			Title:          res.Title,
+			Studio:         res.Studio,
+			ReleaseDate:    res.Release,
+			URL:            res.URL,
+			Actresses:      res.Actresses,
+			SearchStatus:   "searched_found",
+			SearchMethod:   res.Method,
+			LastSearchDate: now,
+		})
+		return
+	}
+
+	statusField, dateField, ok := batchSearchSourceFields(source)
+	if !ok {
+		return
+	}
+
+	sourceStatus := inferBatchSearchSourceStatus(res)
+	updates := map[string]any{
+		statusField:  sourceStatus,
+		dateField:    now,
+		"updated_at": now,
+	}
+	if res.Error == "" {
+		updates["title"] = res.Title
+		updates["studio"] = res.Studio
+		updates["release_date"] = res.Release
+		updates["url"] = res.URL
+		updates["actresses"] = res.Actresses
+		updates["search_status"] = "searched_found"
+		updates["search_method"] = res.Method
+		updates["last_search_date"] = now
+	}
+
+	if err == nil {
+		_ = a.db.UpdateVideoFields(res.Code, updates)
+		return
+	}
+
+	newVideo := database.NewVideo(res.Code)
+	applyBatchSearchSourceStatus(newVideo, source, sourceStatus, now)
+	if res.Error == "" {
+		newVideo.Title = res.Title
+		newVideo.Studio = res.Studio
+		newVideo.ReleaseDate = res.Release
+		newVideo.URL = res.URL
+		newVideo.Actresses = res.Actresses
+		newVideo.SearchStatus = "searched_found"
+		newVideo.SearchMethod = res.Method
+		newVideo.LastSearchDate = now
+	} else if sourceStatus == batchSearchResultMiss {
+		newVideo.SearchStatus = "searched_not_found"
+	} else {
+		newVideo.SearchStatus = "search_error"
+	}
+	_ = a.db.AddVideo(newVideo)
+}
+
+func (a *App) batchSearch(codes []string, workers int, source string) []SearchResult {
 	if workers <= 0 {
 		if prefs, err := a.cfgSvc.Load(); err == nil && prefs.ThreadCount > 0 {
 			workers = prefs.ThreadCount
@@ -590,14 +746,15 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 		return nil
 	}
 
-	// --- DB 快取過濾：已有記錄的 code 直接回傳，不重複搜尋 ---
+	// --- DB 快取過濾：舊 BatchSearch 才使用整體 cache；source-specific API 必須重跑該來源 ---
 	a.ensureDB()
 	results := make([]SearchResult, 0, total)
 	codesToSearch := make([]string, 0, len(codes))
 	done := 0
+	useLegacyCache := source == ""
 	for _, code := range codes {
 		video, err := a.db.GetVideo(code)
-		if err == nil && video.SearchStatus == "searched_found" {
+		if useLegacyCache && err == nil && video.SearchStatus == "searched_found" {
 			done++
 			cached := SearchResult{
 				Code:      video.Code,
@@ -627,13 +784,44 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 		return results
 	}
 
+	var mu sync.Mutex
+	handleResult := func(res SearchResult) {
+		mu.Lock()
+		results = append(results, res)
+		done++
+		current := done
+		mu.Unlock()
+
+		a.emitEvent("search:progress", current, total, res.Code)
+		a.emitEvent("search:result", &res)
+		a.persistBatchSearchResult(res, source)
+	}
+
+	if a.batchSearchRunner != nil {
+		for _, res := range a.batchSearchRunner(codesToSearch, workers, source) {
+			handleResult(res)
+		}
+		if a.db != nil {
+			_ = a.db.Compact()
+		}
+		success := 0
+		for _, r := range results {
+			if r.Error == "" {
+				success++
+			}
+		}
+		a.emitEvent("search:done", fmt.Sprintf("%d 成功 / %d 失敗", success, total-success))
+		return results
+	}
+
 	scriptPath := resolveRunBatchSearchScript()
 	pythonExe := resolvePythonExe()
 
-	input, _ := json.Marshal(map[string]interface{}{
-		"codes":   codesToSearch,
-		"workers": workers,
-	})
+	input, err := buildBatchSearchInput(codesToSearch, workers, source)
+	if err != nil {
+		a.emitEvent("search:done", fmt.Sprintf("0 成功 / %d 失敗（輸入序列化失敗）", total))
+		return nil
+	}
 
 	cmd := exec.CommandContext(a.ctx, pythonExe, "-X", "utf8", scriptPath)
 	cmd.Stdin = bytes.NewReader(input)
@@ -653,41 +841,12 @@ func (a *App) BatchSearch(codes []string, workers int) []SearchResult {
 		return nil
 	}
 
-	var mu sync.Mutex
-
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 支援長標題
 	for scanner.Scan() {
 		var res SearchResult
 		if err2 := json.Unmarshal(scanner.Bytes(), &res); err2 == nil {
-			mu.Lock()
-			results = append(results, res)
-			done++
-			current := done
-			mu.Unlock()
-
-			a.emitEvent("search:progress", current, total, res.Code)
-			a.emitEvent("search:result", &res)
-
-			// 搜尋結果寫入 DB（僅成功結果）
-			if res.Error == "" {
-				now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-				video := &database.VideoData{
-					Code:           res.Code,
-					Title:          res.Title,
-					Studio:         res.Studio,
-					ReleaseDate:    res.Release,
-					URL:            res.URL,
-					Actresses:      res.Actresses,
-					SearchStatus:   "searched_found", // 與 Python 定義一致
-					SearchMethod:   res.Method,
-					LastSearchDate: now,
-				}
-				// 先嘗試新增，若已存在則更新
-				if err3 := a.db.AddVideo(video); err3 != nil {
-					_ = a.db.UpdateVideo(res.Code, video)
-				}
-			}
+			handleResult(res)
 		}
 	}
 

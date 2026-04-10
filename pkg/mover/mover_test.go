@@ -208,6 +208,37 @@ func TestMoveFile_DryRun(t *testing.T) {
 	}
 }
 
+func TestIsSameFilePath_TreatsRelativeAndAbsoluteAsSame(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	file := filepath.Join(tempDir, "same.txt")
+	createTestFile(t, file, "Original Content")
+
+	relativePath, err := filepath.Rel(tempDir, file)
+	if err != nil {
+		t.Fatalf("無法建立相對路徑: %v", err)
+	}
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("無法取得目前工作目錄: %v", err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(originalWD); chdirErr != nil {
+			t.Fatalf("無法還原工作目錄: %v", chdirErr)
+		}
+	}()
+
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("無法切換到測試目錄: %v", err)
+	}
+
+	if !isSameFilePath(file, relativePath) {
+		t.Fatal("相同檔案的絕對路徑與相對路徑應該被視為同一路徑")
+	}
+}
+
 // TestMoveFile_SameSourceAndDestination 防止 source==destination 時在覆蓋/重新命名策略下刪除自身
 func TestMoveFile_SameSourceAndDestination(t *testing.T) {
 	tempDir, cleanup := setupTestEnv(t)
@@ -503,6 +534,55 @@ func TestBatchMoveDirs_SameSourceAndDestinationMarkedSuccess(t *testing.T) {
 	}
 }
 
+func TestBuildBatchMoveDirOutcome(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcDir := filepath.Join(tempDir, "Julia")
+	dstDir := filepath.Join(tempDir, "studio", "Julia")
+
+	t.Run("partial move is marked skipped", func(t *testing.T) {
+		m := NewMover(tempDir)
+
+		moveResult, status := m.buildBatchMoveDirOutcome(
+			MoveItem{Source: srcDir, Destination: dstDir},
+			MergeResult{DestDir: dstDir, Success: true, FilesSkipped: 1},
+		)
+
+		if status != "skipped" {
+			t.Fatalf("status = %s, want skipped", status)
+		}
+		if !moveResult.Skipped {
+			t.Fatal("partial directory move should be marked skipped")
+		}
+	})
+
+	t.Run("failed move keeps first error", func(t *testing.T) {
+		m := NewMover(tempDir)
+
+		moveResult, status := m.buildBatchMoveDirOutcome(
+			MoveItem{Source: srcDir, Destination: dstDir},
+			MergeResult{
+				DestDir:    dstDir,
+				Success:    false,
+				FilesMoved: 2,
+				FilesTotal: 3,
+				Errors: []MoveResult{
+					{Error: "first error"},
+					{Error: "second error"},
+				},
+			},
+		)
+
+		if status != "failed" {
+			t.Fatalf("status = %s, want failed", status)
+		}
+		if moveResult.Error != "first error" {
+			t.Fatalf("Error = %q, want first error", moveResult.Error)
+		}
+	})
+}
+
 func TestBatchMove_Basic(t *testing.T) {
 	tempDir, cleanup := setupTestEnv(t)
 	defer cleanup()
@@ -532,6 +612,39 @@ func TestBatchMove_Basic(t *testing.T) {
 	}
 	if result.FailedCount != 0 {
 		t.Errorf("失敗數應該是 0，得到 %d", result.FailedCount)
+	}
+}
+
+func TestBatchMove_RenameStoresActualDestinationInLog(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	srcFile := filepath.Join(tempDir, "source.txt")
+	dstFile := filepath.Join(tempDir, "dest.txt")
+	createTestFile(t, srcFile, "source")
+	createTestFile(t, dstFile, "existing")
+
+	m := NewMover(tempDir)
+	result := m.BatchMove(context.Background(), []MoveItem{
+		{Source: srcFile, Destination: dstFile, OnConflict: Rename},
+	})
+
+	if len(result.Results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(result.Results))
+	}
+	if result.Results[0].Destination == dstFile {
+		t.Fatalf("rename 後結果 destination 不應仍是原始目標 %s", dstFile)
+	}
+
+	logs, err := m.ListOperations()
+	if err != nil {
+		t.Fatalf("列出日誌失敗: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("應該有 1 筆日誌，得到 %d", len(logs))
+	}
+	if logs[0].Items[0].Destination != result.Results[0].Destination {
+		t.Fatalf("日誌 destination = %s, want %s", logs[0].Items[0].Destination, result.Results[0].Destination)
 	}
 }
 
@@ -710,8 +823,9 @@ func TestRollback_SummaryAllSuccess(t *testing.T) {
 	if len(logs) == 0 {
 		t.Fatal("沒有操作日誌")
 	}
+	originalLogID := logs[0].ID
 
-	result, err := m.Rollback(logs[0].ID)
+	result, err := m.Rollback(originalLogID)
 	if err != nil {
 		t.Fatalf("回滾失敗: %v", err)
 	}
@@ -722,6 +836,14 @@ func TestRollback_SummaryAllSuccess(t *testing.T) {
 	}
 	if result.Status == "partial" {
 		t.Errorf("全部成功時 Status 不應為 partial，實際為：%s", result.Status)
+	}
+
+	updatedLog, err := m.loadOperationLog(originalLogID)
+	if err != nil {
+		t.Fatalf("讀取原始操作日誌失敗: %v", err)
+	}
+	if updatedLog.Status != "rolled_back" {
+		t.Errorf("全部回滾成功後原始日誌狀態應為 rolled_back，實際為：%s", updatedLog.Status)
 	}
 }
 
@@ -747,8 +869,9 @@ func TestRollback_SummarySkippedItems(t *testing.T) {
 	if len(logs) == 0 {
 		t.Fatal("沒有操作日誌")
 	}
+	originalLogID := logs[0].ID
 
-	result, err := m.Rollback(logs[0].ID)
+	result, err := m.Rollback(originalLogID)
 	if err != nil {
 		t.Fatalf("回滾執行出錯: %v", err)
 	}
@@ -760,6 +883,33 @@ func TestRollback_SummarySkippedItems(t *testing.T) {
 	// Status 應設為 partial
 	if result.Status != "partial" {
 		t.Errorf("有衝突跳過時 Status 應為 partial，實際為：%s", result.Status)
+	}
+
+	updatedLog, err := m.loadOperationLog(originalLogID)
+	if err != nil {
+		t.Fatalf("讀取原始操作日誌失敗: %v", err)
+	}
+	if updatedLog.Status != "partial" {
+		t.Errorf("部分回滾後原始日誌狀態應為 partial，實際為：%s", updatedLog.Status)
+	}
+}
+
+func TestBuildRollbackSummary_MixedResults(t *testing.T) {
+	result := BatchResult{
+		TotalItems:   5,
+		SuccessCount: 2,
+		SkippedCount: 2,
+		FailedCount:  1,
+	}
+
+	summary, status := buildRollbackSummary(result)
+
+	if status != "partial" {
+		t.Fatalf("混合結果時狀態應為 partial，實際為：%s", status)
+	}
+	expected := "回滾未完整：2 項成功，2 項因衝突跳過，1 項失敗（共 5 項）"
+	if summary != expected {
+		t.Fatalf("混合結果摘要不符，預期：%s，實際：%s", expected, summary)
 	}
 }
 

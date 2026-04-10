@@ -109,19 +109,8 @@ class AVWikiScraper(BaseScraper):
 
     def _parse_search_results(self, soup: BeautifulSoup) -> dict[str, Any]:
         """解析搜尋結果頁面"""
-        seen_actresses = set()
-        actress_elements = []
-
-        # 首先檢查是否為「沒有結果」頁面
         page_text = soup.get_text()
-        if any(
-            keyword in page_text
-            for keyword in [
-                "見つかりませんでした",  # 日文：未找到
-                "No results",
-                "検索ワードに一致する記事は見つかりませんでした",  # 沒有找到匹配的文章
-            ]
-        ):
+        if self._is_no_results_page(page_text):
             # 這是一個搜尋無結果頁面，直接返回空結果
             return {
                 "search_results": [],
@@ -131,102 +120,8 @@ class AVWikiScraper(BaseScraper):
                 "found": False,
             }
 
-        # 方法1: 使用 rel="tag" 且 href 包含 /av-actress/ 的連結（最可靠）
-        tag_links = soup.find_all("a", rel="tag")
-
-        for link in tag_links:
-            href = link.get("href", "")
-            text = link.get_text(strip=True)
-
-            # 只提取女優標籤（href 包含 /av-actress/）
-            if _AV_ACTRESS_PATH in href and text and text not in seen_actresses:
-                actress_elements.append(
-                    {"name": text, "href": href, "source": "tag_link"}
-                )
-                seen_actresses.add(text)
-
-        # 如果通過標籤沒找到女優，嘗試備選方法
-        if not actress_elements:
-            # 方法2: 尋找專用的女優名稱元素 (actress-name class 內的 <a> 標籤)
-            actress_name_elements = soup.find_all(class_="actress-name")
-            if actress_name_elements:
-                for element in actress_name_elements:
-                    # 首先嘗試從元素內的 <a> 標籤提取
-                    actress_links = element.find_all("a")
-                    for link in actress_links:
-                        href = link.get("href", "")
-                        text = link.get_text(strip=True)
-
-                        # 優先使用帶有 /av-actress/ 連結的
-                        if (
-                            _AV_ACTRESS_PATH in href
-                            and text
-                            and text not in seen_actresses
-                        ):
-                            actress_elements.append(
-                                {
-                                    "name": text,
-                                    "href": href,
-                                    "source": "actress-name-link",
-                                }
-                            )
-                            seen_actresses.add(text)
-
-                    # 如果沒找到連結，則使用元素的完整文本
-                    if not actress_elements:
-                        actress_name = element.text.strip()
-                        if (
-                            actress_name not in seen_actresses
-                            and self._is_valid_actress_name(actress_name)
-                        ):
-                            actress_elements.append(
-                                {"name": actress_name, "source": "actress-name-class"}
-                            )
-                            seen_actresses.add(actress_name)
-
-            # 方法3: 搜尋產品文章中的結構化女優資訊
-            if not actress_elements:
-                articles = soup.find_all("article") or soup.find_all(
-                    "div", class_="post"
-                )
-
-                for article in articles:
-                    try:
-                        # 只尋找帶有 tag 連結的女優
-                        article_tags = article.find_all("a", rel="tag")
-                        for tag in article_tags:
-                            href = tag.get("href", "")
-                            text = tag.get_text(strip=True)
-
-                            if _AV_ACTRESS_PATH in href and text not in seen_actresses:
-                                actress_elements.append(
-                                    {
-                                        "name": text,
-                                        "href": href,
-                                        "source": "article_tag",
-                                    }
-                                )
-                                seen_actresses.add(text)
-                    except Exception as e:
-                        logger.debug(f"解析 AV-WIKI 文章失敗: {e}")
-                        continue
-
-            # 方法4: 通用文本掃描（僅當其他方法都失敗時）
-            if not actress_elements:
-                # 使用改進的文本掃描，限制提取數量
-                extracted = self._extract_actresses_from_text(page_text)
-                for actress in extracted:
-                    if actress not in seen_actresses:
-                        actress_elements.append(
-                            {"name": actress, "source": "text_scan"}
-                        )
-                        seen_actresses.add(actress)
-                        # 限制最多 10 位（避免垃圾文本）
-                        if len(actress_elements) >= 10:
-                            break
-
-        # 轉換為結果格式
-        unique_actresses = list(seen_actresses)
+        actress_elements = self._extract_search_result_actress_elements(soup)
+        unique_actresses = [element["name"] for element in actress_elements]
 
         return {
             "search_results": unique_actresses,
@@ -235,6 +130,151 @@ class AVWikiScraper(BaseScraper):
             "actress_elements": actress_elements,
             "found": True,
         }
+
+    @staticmethod
+    def _is_no_results_page(page_text: str) -> bool:
+        return any(
+            keyword in page_text
+            for keyword in [
+                "見つかりませんでした",
+                "No results",
+                "検索ワードに一致する記事は見つかりませんでした",
+            ]
+        )
+
+    @staticmethod
+    def _append_unique_actress_element(
+        actress_elements: list[dict[str, Any]],
+        seen_actresses: set[str],
+        name: str | None,
+        source: str,
+        href: str | None = None,
+    ) -> None:
+        if not name or name in seen_actresses:
+            return
+
+        element: dict[str, Any] = {"name": name, "source": source}
+        if href:
+            element["href"] = href
+        actress_elements.append(element)
+        seen_actresses.add(name)
+
+    def _extract_search_result_actress_elements(
+        self, soup: BeautifulSoup
+    ) -> list[dict[str, Any]]:
+        page_text = soup.get_text()
+        actress_elements: list[dict[str, Any]] = []
+        seen_actresses: set[str] = set()
+
+        extraction_strategies = (
+            self._extract_tag_link_actresses,
+            self._extract_actress_name_elements,
+            self._extract_article_tag_actresses,
+            lambda s, _, seen: self._extract_text_scan_actresses(
+                page_text, actress_elements, seen
+            ),
+        )
+
+        for strategy in extraction_strategies:
+            strategy(soup, actress_elements, seen_actresses)
+            if actress_elements:
+                break
+
+        return actress_elements
+
+    def _extract_tag_link_actresses(
+        self,
+        soup: BeautifulSoup,
+        actress_elements: list[dict[str, Any]],
+        seen_actresses: set[str],
+    ) -> None:
+        for link in soup.find_all("a", rel="tag"):
+            href = link.get("href", "")
+            text = link.get_text(strip=True)
+            if _AV_ACTRESS_PATH in href:
+                self._append_unique_actress_element(
+                    actress_elements,
+                    seen_actresses,
+                    text,
+                    "tag_link",
+                    href,
+                )
+
+    def _extract_actress_name_elements(
+        self,
+        soup: BeautifulSoup,
+        actress_elements: list[dict[str, Any]],
+        seen_actresses: set[str],
+    ) -> None:
+        actress_name_elements = soup.find_all(class_="actress-name")
+
+        for element in actress_name_elements:
+            for link in element.find_all("a"):
+                href = link.get("href", "")
+                text = link.get_text(strip=True)
+                if _AV_ACTRESS_PATH not in href:
+                    continue
+
+                self._append_unique_actress_element(
+                    actress_elements,
+                    seen_actresses,
+                    text,
+                    "actress-name-link",
+                    href,
+                )
+
+        if actress_elements:
+            return
+
+        for element in actress_name_elements:
+            actress_name = element.text.strip()
+            if self._is_valid_actress_name(actress_name):
+                self._append_unique_actress_element(
+                    actress_elements,
+                    seen_actresses,
+                    actress_name,
+                    "actress-name-class",
+                )
+
+    def _extract_article_tag_actresses(
+        self,
+        soup: BeautifulSoup,
+        actress_elements: list[dict[str, Any]],
+        seen_actresses: set[str],
+    ) -> None:
+        articles = soup.find_all("article") or soup.find_all("div", class_="post")
+
+        for article in articles:
+            try:
+                for tag in article.find_all("a", rel="tag"):
+                    href = tag.get("href", "")
+                    text = tag.get_text(strip=True)
+                    if _AV_ACTRESS_PATH in href:
+                        self._append_unique_actress_element(
+                            actress_elements,
+                            seen_actresses,
+                            text,
+                            "article_tag",
+                            href,
+                        )
+            except Exception as e:
+                logger.debug(f"解析 AV-WIKI 文章失敗: {e}")
+
+    def _extract_text_scan_actresses(
+        self,
+        page_text: str,
+        actress_elements: list[dict[str, Any]],
+        seen_actresses: set[str],
+    ) -> None:
+        for actress in self._extract_actresses_from_text(page_text):
+            self._append_unique_actress_element(
+                actress_elements,
+                seen_actresses,
+                actress,
+                "text_scan",
+            )
+            if len(actress_elements) >= 10:
+                break
 
     def _parse_detail_page(self, soup: BeautifulSoup) -> dict[str, Any]:
         """解析詳情頁面"""
@@ -532,74 +572,14 @@ class AVWikiScraper(BaseScraper):
 
                     result = await self.scrape_url(search_url)
 
-                    # 詳細記錄返回的資料結構
-                    logger.debug(
-                        f"[批次搜尋] 番號 {code} 返回字段: {list(result.keys())}"
-                    )
-
-                    # 處理搜尋結果
-                    # 注意：_parse_search_results() 返回 'unique_actresses' 作為女優列表
-                    actresses = result.get("unique_actresses", []) or result.get(
-                        "actresses", []
-                    )
-
-                    # 記錄提取的女優
-                    if actresses:
-                        logger.debug(f"[批次搜尋] 番號 {code} 提取到女優: {actresses}")
-
-                    # 確保是列表且去重
-                    if actresses:
-                        actresses = list(set(actresses))
-                    else:
-                        actresses = []
-                        # 詳細記錄為何沒有女優
-                        logger.debug(
-                            f"[批次搜尋] 番號 {code} 未提取到女優 - unique_actresses: {result.get('unique_actresses')}, actresses: {result.get('actresses')}"
-                        )
-
-                    # 品質檢查：如果找到超過 10 位女優，很可能是錯誤解析
-                    search_status = "searched_found"
-
-                    # 檢查是否找到影片
-                    found = result.get("found", True)
-
-                    if not found:
-                        search_status = "video_not_found"
-                        logger.info(f"番號 {code} 在 AV-WIKI 上未找到")
-                    elif len(actresses) == 0:
-                        search_status = "no_actress_found"
-                        logger.warning(
-                            f"番號 {code} 已找到頁面但未提取到女優資訊 (返回字段: {list(result.keys())})"
-                        )
-                    elif len(actresses) > 10:
-                        logger.warning(
-                            f"番號 {code} 找到 {len(actresses)} 位女優，可能是解析錯誤: {actresses[:10]}..."
-                        )
-                        search_status = "search_error"
-                        # 清空結果，避免儲存錯誤資料
-                        actresses = []
-                    elif len(actresses) > 3:
-                        logger.info(
-                            f"番號 {code} 找到 {len(actresses)} 位女優，可能需要人工確認: {actresses}"
-                        )
-                        search_status = "searched_multiple"
-                    else:
-                        logger.debug(
-                            f"[批次搜尋] 番號 {code} 搜尋成功，找到 {len(actresses)} 位女優: {actresses}"
-                        )
-
                     # 搜尋成功，回報給併發控制器
                     concurrency_controller.report_success()
                     backoff.reset()
-
-                    return code, {
-                        "video_code": code,
-                        "actresses": actresses,
-                        "source": "AV-WIKI",
-                        "search_url": search_url,
-                        "search_status": search_status,
-                        "actress_count": len(actresses),
-                    }
+                    return code, self._build_batch_search_result(
+                        code=code,
+                        search_url=search_url,
+                        raw_result=result,
+                    )
 
                 except (
                     TimeoutError,
@@ -631,13 +611,9 @@ class AVWikiScraper(BaseScraper):
                         f"[批次搜尋] 番號 {code} 搜尋失敗 - 錯誤類型: {error_type}, 錯誤訊息: {error_detail}"
                     )
 
-                    return code, {
-                        "video_code": code,
-                        "actresses": [],
-                        "error": error_detail,
-                        "error_type": error_type,
-                        "source": "AV-WIKI",
-                    }
+                    return code, self._build_batch_error_result(
+                        code, error_detail, error_type
+                    )
 
                 except Exception as e:
                     error_type = type(e).__name__
@@ -655,13 +631,9 @@ class AVWikiScraper(BaseScraper):
                         f"[批次搜尋] 番號 {code} 完整錯誤堆疊:\n{traceback.format_exc()}"
                     )
 
-                    return code, {
-                        "video_code": code,
-                        "actresses": [],
-                        "error": error_detail,
-                        "error_type": error_type,
-                        "source": "AV-WIKI",
-                    }
+                    return code, self._build_batch_error_result(
+                        code, error_detail, error_type
+                    )
 
         # 建立所有任務
         tasks = [search_single_video(code) for code in video_codes]
@@ -707,6 +679,85 @@ class AVWikiScraper(BaseScraper):
         )
 
         return results
+
+    @staticmethod
+    def _deduplicate_actresses(actresses: list[str]) -> list[str]:
+        return list(dict.fromkeys(actresses))
+
+    def _extract_batch_actresses(self, raw_result: dict[str, Any]) -> list[str]:
+        actresses = raw_result.get("unique_actresses", []) or raw_result.get(
+            "actresses", []
+        )
+        if actresses:
+            logger.debug(f"[批次搜尋] 提取到女優: {actresses}")
+            return self._deduplicate_actresses(actresses)
+
+        logger.debug(
+            "[批次搜尋] 未提取到女優 - unique_actresses: %s, actresses: %s",
+            raw_result.get("unique_actresses"),
+            raw_result.get("actresses"),
+        )
+        return []
+
+    def _determine_batch_search_status(
+        self, code: str, raw_result: dict[str, Any], actresses: list[str]
+    ) -> tuple[str, list[str]]:
+        found = raw_result.get("found", True)
+        if not found:
+            logger.info(f"番號 {code} 在 AV-WIKI 上未找到")
+            return "video_not_found", actresses
+
+        if len(actresses) == 0:
+            logger.warning(
+                f"番號 {code} 已找到頁面但未提取到女優資訊 (返回字段: {list(raw_result.keys())})"
+            )
+            return "no_actress_found", actresses
+
+        if len(actresses) > 10:
+            logger.warning(
+                f"番號 {code} 找到 {len(actresses)} 位女優，可能是解析錯誤: {actresses[:10]}..."
+            )
+            return "search_error", []
+
+        if len(actresses) > 3:
+            logger.info(
+                f"番號 {code} 找到 {len(actresses)} 位女優，可能需要人工確認: {actresses}"
+            )
+            return "searched_multiple", actresses
+
+        logger.debug(
+            f"[批次搜尋] 番號 {code} 搜尋成功，找到 {len(actresses)} 位女優: {actresses}"
+        )
+        return "searched_found", actresses
+
+    def _build_batch_search_result(
+        self, code: str, search_url: str, raw_result: dict[str, Any]
+    ) -> dict[str, Any]:
+        logger.debug(f"[批次搜尋] 番號 {code} 返回字段: {list(raw_result.keys())}")
+        actresses = self._extract_batch_actresses(raw_result)
+        search_status, actresses = self._determine_batch_search_status(
+            code, raw_result, actresses
+        )
+        return {
+            "video_code": code,
+            "actresses": actresses,
+            "source": "AV-WIKI",
+            "search_url": search_url,
+            "search_status": search_status,
+            "actress_count": len(actresses),
+        }
+
+    @staticmethod
+    def _build_batch_error_result(
+        code: str, error_detail: str, error_type: str
+    ) -> dict[str, Any]:
+        return {
+            "video_code": code,
+            "actresses": [],
+            "error": error_detail,
+            "error_type": error_type,
+            "source": "AV-WIKI",
+        }
 
     async def search_batch_concurrent(
         self,
