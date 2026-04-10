@@ -351,19 +351,29 @@ class CacheManager:
     def _delete_cache_entry(self, cache_key: str, file_path: str):
         """刪除快取條目（檔案和索引）"""
         try:
-            # 刪除檔案
-            file_path_obj = Path(file_path)
-            if file_path_obj.exists():
-                file_path_obj.unlink()
-
-            # 從 JSON 索引移除
+            self._delete_cache_file(file_path)
             index_data = self._load_index()
-            if cache_key in index_data.get("entries", {}):
-                del index_data["entries"][cache_key]
+            if self._remove_index_entry(index_data, cache_key):
                 self._save_index(index_data)
 
         except Exception as e:
             logger.error(f"刪除快取條目失敗: {e}")
+
+    @staticmethod
+    def _delete_cache_file(file_path: str | None) -> None:
+        if not file_path:
+            return
+        file_path_obj = Path(file_path)
+        if file_path_obj.exists():
+            file_path_obj.unlink()
+
+    @staticmethod
+    def _remove_index_entry(index_data: dict, cache_key: str) -> bool:
+        entries = index_data.get("entries", {})
+        if cache_key not in entries:
+            return False
+        del entries[cache_key]
+        return True
 
     def _cleanup_memory_cache(self):
         """清理記憶體快取（LRU策略）"""
@@ -386,49 +396,62 @@ class CacheManager:
     def _cleanup_expired_cache(self):
         """清理過期快取"""
         try:
-            time.time()
+            expired_memory_keys = self._cleanup_expired_memory_entries()
+            expired_disk_entries = self._cleanup_expired_disk_entries()
 
-            # 清理記憶體快取
-            if self.config.enable_memory_cache:
-                with self.memory_lock:
-                    expired_keys = [
-                        key
-                        for key, entry in self.memory_cache.items()
-                        if self._is_expired(entry.created_at, entry.ttl_seconds)
-                    ]
-
-                    for key in expired_keys:
-                        del self.memory_cache[key]
-
-                    if expired_keys:
-                        logger.info(
-                            f"🧹 記憶體快取清理: {len(expired_keys)} 個過期條目"
-                        )
-
-            # 清理磁碟快取
-            if self.config.enable_disk_cache:
-                index_data = self._load_index()
-                expired_entries = []
-
-                # 查找過期條目
-                for cache_key, entry_data in index_data.get("entries", {}).items():
-                    created_at = entry_data.get("created_at", 0)
-                    ttl_seconds = entry_data.get("ttl_seconds", 0)
-
-                    if self._is_expired(created_at, ttl_seconds):
-                        expired_entries.append((cache_key, entry_data.get("file_path")))
-
-                # 刪除過期條目
-                for cache_key, file_path in expired_entries:
-                    self._delete_cache_entry(cache_key, file_path)
-
-                if expired_entries:
-                    logger.info(f"🧹 磁碟快取清理: {len(expired_entries)} 個過期條目")
+            if expired_memory_keys:
+                logger.info(f"🧹 記憶體快取清理: {len(expired_memory_keys)} 個過期條目")
+            if expired_disk_entries:
+                logger.info(f"🧹 磁碟快取清理: {len(expired_disk_entries)} 個過期條目")
 
             self.stats["cleanups"] += 1
 
         except Exception as e:
             logger.error(f"清理過期快取失敗: {e}")
+
+    def _cleanup_expired_memory_entries(self) -> list[str]:
+        if not self.config.enable_memory_cache:
+            return []
+        with self.memory_lock:
+            expired_keys = [
+                key
+                for key, entry in self.memory_cache.items()
+                if self._is_expired(entry.created_at, entry.ttl_seconds)
+            ]
+            for key in expired_keys:
+                del self.memory_cache[key]
+        return expired_keys
+
+    def _cleanup_expired_disk_entries(self) -> list[tuple[str, str | None]]:
+        if not self.config.enable_disk_cache:
+            return []
+        index_data = self._load_index()
+        expired_entries = self._find_expired_disk_entries(index_data)
+        if not expired_entries:
+            return []
+
+        removed_entries = []
+        for cache_key, file_path in expired_entries:
+            try:
+                self._delete_cache_file(file_path)
+                self._remove_index_entry(index_data, cache_key)
+                removed_entries.append((cache_key, file_path))
+            except Exception as e:
+                logger.error(f"刪除快取條目失敗: {e}")
+
+        self._save_index(index_data)
+        return removed_entries
+
+    def _find_expired_disk_entries(
+        self, index_data: dict
+    ) -> list[tuple[str, str | None]]:
+        return [
+            (cache_key, entry_data.get("file_path"))
+            for cache_key, entry_data in index_data.get("entries", {}).items()
+            if self._is_expired(
+                entry_data.get("created_at", 0), entry_data.get("ttl_seconds", 0)
+            )
+        ]
 
     def _start_cleanup_task(self):
         """啟動背景清理任務"""

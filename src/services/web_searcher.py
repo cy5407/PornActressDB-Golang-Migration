@@ -176,92 +176,108 @@ class WebSearcher:
 
         try:
             candidates = self._build_code_candidates(code)
+            avwiki_result = self._search_candidates_in_av_wiki(
+                code, candidates, stop_event
+            )
+            if avwiki_result:
+                return avwiki_result
 
-            # 第一層：原有的 AV-WIKI 搜尋
-            for candidate in candidates:
-                logger.debug(f"🔍 第一層搜尋 - AV-WIKI: {candidate}")
-                result = self._search_av_wiki(candidate, stop_event)
-                if result and result.get("actresses"):
-                    result = self._attach_alias_metadata(result, code, candidate)
-                    self.search_cache[code] = result
-                    return result
-
-            # 第二層：使用安全的 JAVDB 搜尋
-            if not stop_event.is_set():
-                for candidate in candidates:
-                    logger.debug(f"🔍 第三層搜尋 - JAVDB: {candidate}")
-                    javdb_result = self.javdb_searcher.search_javdb(candidate)
-                    if javdb_result and (
-                        javdb_result.get("actresses")
-                        or javdb_result.get("search_status") == "search_error"
-                    ):
-                        # 🔧 標準化片商名稱
-                        raw_studio = javdb_result.get("studio")
-                        normalized_studio = (
-                            self.studio_identifier.normalize_studio_name(
-                                raw_studio, candidate
-                            )
-                        )
-
-                        # 轉換為統一格式
-                        result = {
-                            "source": javdb_result["source"],
-                            "actresses": javdb_result["actresses"],
-                            "studio": normalized_studio,
-                            "studio_code": javdb_result.get("studio_code"),
-                            "release_date": javdb_result.get("release_date"),
-                            "title": javdb_result.get("title"),
-                            "duration": javdb_result.get("duration"),
-                            "director": javdb_result.get("director"),
-                            "series": javdb_result.get("series"),
-                            "rating": javdb_result.get("rating"),
-                            "categories": javdb_result.get("categories", []),
-                            "search_status": javdb_result.get("search_status"),
-                            "search_error_reason": javdb_result.get(
-                                "search_error_reason"
-                            ),
-                            "search_url": javdb_result.get("search_url"),
-                        }
-                        result = self._attach_alias_metadata(result, code, candidate)
-                        if result.get("actresses"):
-                            self.search_cache[code] = result
-
-                        if result.get("actresses"):
-                            # 豐富的日誌輸出
-                            log_parts = [
-                                f"番號 {code} 透過 {result['source']} 找到:"
-                            ]
-                            log_parts.append(
-                                f"女優: {', '.join(result['actresses'])}"
-                            )
-                            log_parts.append(f"片商: {result.get('studio', '未知')}")
-
-                            if result.get("rating"):
-                                log_parts.append(f"評分: {result['rating']}")
-                            if result.get("categories"):
-                                categories_str = ", ".join(
-                                    result["categories"][:3]
-                                )  # 只顯示前3個類別
-                                if len(result["categories"]) > 3:
-                                    categories_str += (
-                                        f" 等{len(result['categories'])}個類別"
-                                    )
-                                log_parts.append(f"類別: {categories_str}")
-
-                            logger.info(" | ".join(log_parts))
-                        else:
-                            logger.warning(
-                                "⚠️ JAVDB 搜尋 %s 發生暫時性異常: %s",
-                                code,
-                                result.get("search_error_reason", "未知原因"),
-                            )
-                        return result
+            javdb_result = self._search_candidates_in_javdb(
+                code, candidates, stop_event
+            )
+            if javdb_result:
+                return javdb_result
 
             logger.warning(f"番號 {code} 未在所有搜尋源中找到女優資訊。")
             return None
         except Exception as e:
             logger.error(f"搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
             return None
+
+    def _search_candidates_in_av_wiki(
+        self, code: str, candidates: list[str], stop_event: threading.Event
+    ) -> dict | None:
+        for candidate in candidates:
+            logger.debug(f"🔍 第一層搜尋 - AV-WIKI: {candidate}")
+            result = self._search_av_wiki(candidate, stop_event)
+            if not result or not result.get("actresses"):
+                continue
+            result = self._attach_alias_metadata(result, code, candidate)
+            self.search_cache[code] = result
+            return result
+        return None
+
+    def _search_candidates_in_javdb(
+        self, code: str, candidates: list[str], stop_event: threading.Event
+    ) -> dict | None:
+        if stop_event.is_set():
+            return None
+        for candidate in candidates:
+            logger.debug(f"🔍 第三層搜尋 - JAVDB: {candidate}")
+            javdb_result = self.javdb_searcher.search_javdb(candidate)
+            if not self._has_usable_javdb_result(javdb_result):
+                continue
+            result = self._build_javdb_search_result(code, candidate, javdb_result)
+            if result.get("actresses"):
+                self.search_cache[code] = result
+            self._log_javdb_result(code, result)
+            return result
+        return None
+
+    @staticmethod
+    def _has_usable_javdb_result(javdb_result: dict | None) -> bool:
+        return bool(
+            javdb_result
+            and (
+                javdb_result.get("actresses")
+                or javdb_result.get("search_status") == "search_error"
+            )
+        )
+
+    def _build_javdb_search_result(
+        self, code: str, candidate: str, javdb_result: dict
+    ) -> dict:
+        normalized_studio = self.studio_identifier.normalize_studio_name(
+            javdb_result.get("studio"), candidate
+        )
+        result = {
+            "source": javdb_result["source"],
+            "actresses": javdb_result["actresses"],
+            "studio": normalized_studio,
+            "studio_code": javdb_result.get("studio_code"),
+            "release_date": javdb_result.get("release_date"),
+            "title": javdb_result.get("title"),
+            "duration": javdb_result.get("duration"),
+            "director": javdb_result.get("director"),
+            "series": javdb_result.get("series"),
+            "rating": javdb_result.get("rating"),
+            "categories": javdb_result.get("categories", []),
+            "search_status": javdb_result.get("search_status"),
+            "search_error_reason": javdb_result.get("search_error_reason"),
+            "search_url": javdb_result.get("search_url"),
+        }
+        return self._attach_alias_metadata(result, code, candidate)
+
+    def _log_javdb_result(self, code: str, result: dict) -> None:
+        if not result.get("actresses"):
+            logger.warning(
+                "⚠️ JAVDB 搜尋 %s 發生暫時性異常: %s",
+                code,
+                result.get("search_error_reason", "未知原因"),
+            )
+            return
+
+        log_parts = [f"番號 {code} 透過 {result['source']} 找到:"]
+        log_parts.append(f"女優: {', '.join(result['actresses'])}")
+        log_parts.append(f"片商: {result.get('studio', '未知')}")
+        if result.get("rating"):
+            log_parts.append(f"評分: {result['rating']}")
+        if result.get("categories"):
+            categories_str = ", ".join(result["categories"][:3])
+            if len(result["categories"]) > 3:
+                categories_str += f" 等{len(result['categories'])}個類別"
+            log_parts.append(f"類別: {categories_str}")
+        logger.info(" | ".join(log_parts))
 
     def _search_av_wiki(self, code: str, stop_event: threading.Event) -> dict | None:
         """AV-WIKI 搜尋方法"""

@@ -375,40 +375,58 @@ class SafeSearcher:
                 return cached_result
 
             self._wait_for_next_request()
-
-            if "headers" not in kwargs:
-                kwargs["headers"] = self.get_headers()
-            if "timeout" not in kwargs:
-                kwargs["timeout"] = 30
+            request_kwargs = self._prepare_request_kwargs(kwargs)
 
             for attempt in range(self.config.max_retries + 1):
                 try:
-                    logger.debug(
-                        f"🌐 發送請求 (嘗試 {attempt + 1}/{self.config.max_retries + 1}): {log_url}"
+                    result = self._perform_request(
+                        request_func, url, log_url, attempt, *args, **request_kwargs
                     )
-
-                    result = request_func(url, *args, **kwargs)
                     if result is not None:
                         self.save_to_cache(url, result, params)
                     return result
 
                 except Exception as e:
                     last_exception = e
-                    logger.warning(f"⚠️ 請求失敗 (嘗試 {attempt + 1}): {e}")
-
-                    if attempt < self.config.max_retries:
-                        wait_time = self.config.backoff_factor**attempt
-                        logger.info(f"⏳ 等待 {wait_time:.1f} 秒後重試...")
-                        time.sleep(wait_time)
-
-                        if self.config.rotate_headers:
-                            kwargs["headers"] = self.get_headers()
+                    self._handle_request_retry(e, attempt, request_kwargs)
 
         logger.error(f"❌ 所有重試都失敗了: {log_url}")
         if last_exception:
             raise last_exception
 
         return None
+
+    def _prepare_request_kwargs(self, kwargs: dict) -> dict:
+        request_kwargs = dict(kwargs)
+        request_kwargs.setdefault("headers", self.get_headers())
+        request_kwargs.setdefault("timeout", 30)
+        return request_kwargs
+
+    def _perform_request(
+        self,
+        request_func: Callable,
+        url: str,
+        log_url: str,
+        attempt: int,
+        *args,
+        **kwargs,
+    ) -> Any:
+        logger.debug(
+            f"🌐 發送請求 (嘗試 {attempt + 1}/{self.config.max_retries + 1}): {log_url}"
+        )
+        return request_func(url, *args, **kwargs)
+
+    def _handle_request_retry(
+        self, error: Exception, attempt: int, request_kwargs: dict
+    ) -> None:
+        logger.warning(f"⚠️ 請求失敗 (嘗試 {attempt + 1}): {error}")
+        if attempt >= self.config.max_retries:
+            return
+        wait_time = self.config.backoff_factor**attempt
+        logger.info(f"⏳ 等待 {wait_time:.1f} 秒後重試...")
+        time.sleep(wait_time)
+        if self.config.rotate_headers:
+            request_kwargs["headers"] = self.get_headers()
 
     def __del__(self):
         """析構函數 - 保存快取"""

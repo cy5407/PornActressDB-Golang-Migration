@@ -96,3 +96,84 @@ def test_parse_detail_page_extracts_actress_and_codes():
     assert detail["product_code"] == "MIDV-567"
     assert detail["delivery_code"] == "midv00567"
     assert detail["title"] == "作品標題"
+
+
+def test_find_matching_row_result_returns_compact_code_match():
+    scraper = ShiroutoWikiScraper.__new__(ShiroutoWikiScraper)
+
+    result = scraper._find_matching_row_result(
+        rows=[
+            {
+                "detail_url": None,
+                "title": "作品標題",
+                "row_code": "midv00567",
+                "actresses": ["三崎なな"],
+            }
+        ],
+        allowed_compact_codes={"midv00567"},
+        search_url="https://shiroutowiki.work/?s=MIDV-00567",
+        candidate="MIDV-00567",
+    )
+
+    assert result == {
+        "source": "shiroutowiki",
+        "actresses": ["三崎なな"],
+        "title": "作品標題",
+        "search_url": "https://shiroutowiki.work/?s=MIDV-00567",
+        "matched_code": "midv00567",
+        "delivery_code": "midv00567",
+        "product_code": None,
+    }
+
+
+def test_search_video_keeps_per_row_priority_between_detail_and_row_code():
+    scraper = ShiroutoWikiScraper.__new__(ShiroutoWikiScraper)
+    scraper.BASE_URL = "https://shiroutowiki.work"
+    scraper.build_search_candidates = lambda _code: ["MIDV-00567"]
+    scraper._build_allowed_compact_codes = lambda _code, _candidates: {"midv00567"}
+    scraper._build_direct_detail_url = lambda _candidate: None
+    scraper._fetch_soup = lambda _url: object()
+    scraper._parse_search_rows = lambda _soup: [
+        {
+            "detail_url": "https://shiroutowiki.work/fanza-video/row-1/",
+            "title": "row 1 title",
+            "row_code": "midv00567",
+            "actresses": ["列資料女優"],
+        },
+        {
+            "detail_url": "https://shiroutowiki.work/fanza-video/row-2/",
+            "title": "row 2 title",
+            "row_code": "other-code",
+            "actresses": ["第二列女優"],
+        },
+    ]
+
+    detail_map = {
+        "https://shiroutowiki.work/fanza-video/row-1/": {
+            "actresses": ["明細未命中"],
+            "title": "detail 1 title",
+            "product_code": "OTHER-001",
+            "delivery_code": "other001",
+            "search_url": "https://shiroutowiki.work/fanza-video/row-1/",
+        },
+        "https://shiroutowiki.work/fanza-video/row-2/": {
+            "actresses": ["第二列明細命中"],
+            "title": "detail 2 title",
+            "product_code": "MIDV-00567",
+            "delivery_code": "midv00567",
+            "search_url": "https://shiroutowiki.work/fanza-video/row-2/",
+        },
+    }
+    scraper._parse_detail_page = lambda _soup, detail_url: detail_map[detail_url]
+
+    result = scraper.search_video("MIDV-00567")
+
+    assert result == {
+        "source": "shiroutowiki",
+        "actresses": ["列資料女優"],
+        "title": "row 1 title",
+        "search_url": "https://shiroutowiki.work/fanza-video/row-1/",
+        "matched_code": "midv00567",
+        "delivery_code": "midv00567",
+        "product_code": None,
+    }

@@ -208,3 +208,33 @@ class TestJSONDatabase:
 
         with pytest.raises(JSONDatabaseError, match="'links' 必須是清單"):
             JSONDBManager(temp_db_dir)
+
+    def test_analyze_primary_studio_counts_all_json_db_entries_as_primary(
+        self, db_manager
+    ):
+        actress_name = "測試女優"
+        for index in range(3):
+            db_manager.add_or_update_video(
+                {
+                    "code": f"SAME-{index:03d}",
+                    "title": f"測試影片 {index}",
+                    "studio": "S1",
+                    "studio_code": "S1",
+                    "release_date": "2024-01-01",
+                    "url": "",
+                    "actresses": [actress_name],
+                    "search_status": "success",
+                    "last_search_date": "2024-01-01",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "updated_at": "2024-01-01T00:00:00Z",
+                    "metadata": {"source": "test", "confidence": 1.0},
+                }
+            )
+
+        analysis = db_manager.analyze_actress_primary_studio(actress_name)
+
+        assert analysis["classification_type"] == "exclusive"
+        assert analysis["total_videos"] == 3
+        assert analysis["studio_distribution"]["S1"]["total_count"] == 3
+        assert analysis["studio_distribution"]["S1"]["primary_count"] == 3
+        assert analysis["studio_distribution"]["S1"]["collaboration_count"] == 0

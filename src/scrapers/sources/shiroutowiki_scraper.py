@@ -206,10 +206,7 @@ class ShiroutoWikiScraper:
     ) -> dict[str, Any] | None:
         """搜尋單一番號，回傳最小資料集。"""
         candidates = search_candidates or self.build_search_candidates(code)
-        allowed_compact_codes = {
-            self._compact_code(candidate) for candidate in candidates if candidate
-        }
-        allowed_compact_codes.add(self._compact_code(code))
+        allowed_compact_codes = self._build_allowed_compact_codes(code, candidates)
 
         for candidate in candidates:
             search_url = f"{self.BASE_URL}/?s={quote(candidate)}"
@@ -222,37 +219,14 @@ class ShiroutoWikiScraper:
                 f"🔍 shiroutowiki 搜尋 {candidate}: 取得 {len(rows)} 筆搜尋列"
             )
 
-            for row in rows:
-                detail_url = row.get("detail_url")
-                if detail_url:
-                    detail_soup = self._fetch_soup(detail_url)
-                    if detail_soup:
-                        detail = self._parse_detail_page(detail_soup, detail_url)
-                        if self._matches_detail(detail, allowed_compact_codes):
-                            return {
-                                "source": "shiroutowiki",
-                                "actresses": detail.get("actresses", []),
-                                "title": detail.get("title") or row.get("title"),
-                                "search_url": detail_url,
-                                "matched_code": detail.get("product_code")
-                                or detail.get("delivery_code")
-                                or row.get("row_code")
-                                or candidate,
-                                "delivery_code": detail.get("delivery_code"),
-                                "product_code": detail.get("product_code"),
-                            }
-
-                row_code = self._compact_code(row.get("row_code"))
-                if row_code in allowed_compact_codes and row.get("actresses"):
-                    return {
-                        "source": "shiroutowiki",
-                        "actresses": row.get("actresses", []),
-                        "title": row.get("title"),
-                        "search_url": detail_url or search_url,
-                        "matched_code": row.get("row_code") or candidate,
-                        "delivery_code": row.get("row_code"),
-                        "product_code": None,
-                    }
+            matched_result = self._find_matching_result(
+                rows,
+                allowed_compact_codes,
+                search_url,
+                candidate,
+            )
+            if matched_result:
+                return matched_result
 
             direct_detail_url = self._build_direct_detail_url(candidate)
             if direct_detail_url:
@@ -261,17 +235,145 @@ class ShiroutoWikiScraper:
                     continue
                 detail = self._parse_detail_page(detail_soup, direct_detail_url)
                 if self._matches_detail(detail, allowed_compact_codes):
-                    return {
-                        "source": "shiroutowiki",
-                        "actresses": detail.get("actresses", []),
-                        "title": detail.get("title"),
-                        "search_url": direct_detail_url,
-                        "matched_code": detail.get("product_code")
-                        or detail.get("delivery_code")
-                        or candidate,
-                        "delivery_code": detail.get("delivery_code"),
-                        "product_code": detail.get("product_code"),
-                    }
+                    return self._build_detail_result(
+                        detail,
+                        direct_detail_url,
+                        candidate,
+                    )
 
         logger.info(f"番號 {code} 未在 shiroutowiki 中找到女優資訊")
         return None
+
+    def _build_allowed_compact_codes(
+        self, code: str, candidates: list[str]
+    ) -> set[str]:
+        allowed_compact_codes = {
+            self._compact_code(candidate) for candidate in candidates if candidate
+        }
+        allowed_compact_codes.add(self._compact_code(code))
+        return allowed_compact_codes
+
+    def _build_detail_result(
+        self,
+        detail: dict[str, Any],
+        detail_url: str,
+        candidate: str,
+        row: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "source": "shiroutowiki",
+            "actresses": detail.get("actresses", []),
+            "title": detail.get("title") or (row or {}).get("title"),
+            "search_url": detail_url,
+            "matched_code": detail.get("product_code")
+            or detail.get("delivery_code")
+            or (row or {}).get("row_code")
+            or candidate,
+            "delivery_code": detail.get("delivery_code"),
+            "product_code": detail.get("product_code"),
+        }
+
+    def _find_matching_result(
+        self,
+        rows: list[dict[str, Any]],
+        allowed_compact_codes: set[str],
+        search_url: str,
+        candidate: str,
+    ) -> dict[str, Any] | None:
+        for row in rows:
+            detail_result = self._find_matching_detail_for_row(
+                row,
+                allowed_compact_codes,
+                candidate,
+            )
+            if detail_result:
+                return detail_result
+
+            row_result = self._find_matching_row_result_for_row(
+                row,
+                allowed_compact_codes,
+                search_url,
+                candidate,
+            )
+            if row_result:
+                return row_result
+
+        return None
+
+    def _find_matching_detail_result(
+        self,
+        rows: list[dict[str, Any]],
+        allowed_compact_codes: set[str],
+        candidate: str,
+    ) -> dict[str, Any] | None:
+        for row in rows:
+            detail_result = self._find_matching_detail_for_row(
+                row,
+                allowed_compact_codes,
+                candidate,
+            )
+            if detail_result:
+                return detail_result
+
+        return None
+
+    def _find_matching_detail_for_row(
+        self,
+        row: dict[str, Any],
+        allowed_compact_codes: set[str],
+        candidate: str,
+    ) -> dict[str, Any] | None:
+        detail_url = row.get("detail_url")
+        if not detail_url:
+            return None
+
+        detail_soup = self._fetch_soup(detail_url)
+        if not detail_soup:
+            return None
+
+        detail = self._parse_detail_page(detail_soup, detail_url)
+        if self._matches_detail(detail, allowed_compact_codes):
+            return self._build_detail_result(detail, detail_url, candidate, row)
+
+        return None
+
+    def _find_matching_row_result(
+        self,
+        rows: list[dict[str, Any]],
+        allowed_compact_codes: set[str],
+        search_url: str,
+        candidate: str,
+    ) -> dict[str, Any] | None:
+        for row in rows:
+            row_result = self._find_matching_row_result_for_row(
+                row,
+                allowed_compact_codes,
+                search_url,
+                candidate,
+            )
+            if row_result:
+                return row_result
+
+        return None
+
+    def _find_matching_row_result_for_row(
+        self,
+        row: dict[str, Any],
+        allowed_compact_codes: set[str],
+        search_url: str,
+        candidate: str,
+    ) -> dict[str, Any] | None:
+        row_code = self._compact_code(row.get("row_code"))
+        if row_code not in allowed_compact_codes or not row.get("actresses"):
+            return None
+
+        detail_url = row.get("detail_url")
+        return {
+            "source": "shiroutowiki",
+            "actresses": row.get("actresses", []),
+            "title": row.get("title"),
+            "search_url": detail_url or search_url,
+            "matched_code": row.get("row_code") or candidate,
+            "delivery_code": row.get("row_code"),
+            "product_code": None,
+        }
