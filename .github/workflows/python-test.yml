@@ -6,6 +6,10 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'cmd/**'
+      - 'pkg/**'
+      - 'go.mod'
+      - 'go.sum'
       - 'requirements.txt'
       - 'pyproject.toml'
   pull_request:
@@ -13,6 +17,10 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'cmd/**'
+      - 'pkg/**'
+      - 'go.mod'
+      - 'go.sum'
       - 'requirements.txt'
       - 'pyproject.toml'
 
@@ -28,6 +36,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Build classifier CLI
+        run: |
+          go build -o classifier.exe ./cmd/scanner
+          chmod +x classifier.exe
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -42,11 +60,10 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Python unit tests (without Go CLI)
+      - name: Run Python unit tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-          # 模擬 Go CLI 不可用（測試 Python fallback 路徑）
-          CLASSIFIER_EXE: ""
+          CLASSIFIER_EXE: ${{ github.workspace }}/classifier.exe
         run: |
           python -m pytest tests/ \
             -v \

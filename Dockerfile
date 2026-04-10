@@ -44,6 +44,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 複製專案原始碼
+COPY pkg/ ./pkg/
 COPY src/ ./src/
 COPY tests/ ./tests/
 COPY tools/ ./tools/
