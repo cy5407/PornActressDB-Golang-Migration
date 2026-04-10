@@ -33,6 +33,7 @@ func (m *Mover) batchMoveWithType(ctx context.Context, items []MoveItem, opType 
 		}
 		moveResult := m.MoveFile(item.Source, item.Destination, strategy)
 		result.Results = append(result.Results, moveResult)
+		opLog.Items[i].Destination = moveResult.Destination
 		if moveResult.Success {
 			if moveResult.Skipped {
 				result.SkippedCount++
@@ -74,51 +75,14 @@ func (m *Mover) batchMoveDirsWithType(ctx context.Context, items []MoveItem, opT
 	opLog := m.createOperationLog(opType, items)
 
 	for i, item := range items {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			opLog.Status = "cancelled"
 			return m.finalizeBatchResult(start, &result, opLog, "批次目錄移動已取消")
-		default:
 		}
 
-		strategy := item.OnConflict
-		if strategy == "" {
-			strategy = m.DefaultStrategy
-		}
-		mr := m.MoveDir(item.Source, item.Destination, strategy)
-		moveResult := MoveResult{
-			Source:      item.Source,
-			Destination: mr.DestDir,
-			Success:     mr.Success,
-			// Renamed 維持零值：合併語意下整個目錄不更名，衝突由內部檔案層級 Rename 處理
-		}
-		if !mr.Success {
-			if len(mr.Errors) > 0 {
-				moveResult.Error = mr.Errors[0].Error
-			} else {
-				moveResult.Error = fmt.Sprintf("移動 %d/%d 個檔案後失敗", mr.FilesMoved, mr.FilesTotal)
-			}
-		}
-
-		dirFullyMoved := mr.Success && mr.FilesSkipped == 0 && mr.DeletedSrc
-		opLog.Items[i].Destination = mr.DestDir
-
-		if !mr.Success {
-			result.FailedCount++
-			opLog.Items[i].Status = "failed"
-			opLog.Items[i].Error = moveResult.Error
-		} else if sameSourceAndDestination(item.Source, item.Destination) {
-			result.SuccessCount++
-			opLog.Items[i].Status = "success"
-		} else if dirFullyMoved {
-			result.SuccessCount++
-			opLog.Items[i].Status = "success"
-		} else {
-			result.SkippedCount++
-			moveResult.Skipped = true
-			opLog.Items[i].Status = "skipped"
-		}
-		result.Results = append(result.Results, moveResult)
+		mr := m.MoveDir(item.Source, item.Destination, m.resolveBatchMoveStrategy(item.OnConflict))
+		moveResult, status := m.buildBatchMoveDirOutcome(item, mr)
+		m.recordBatchMoveDirOutcome(&result, &opLog.Items[i], moveResult, status)
 	}
 
 	if result.FailedCount == 0 && result.SkippedCount == 0 {
@@ -129,6 +93,54 @@ func (m *Mover) batchMoveDirsWithType(ctx context.Context, items []MoveItem, opT
 		opLog.Status = "failed"
 	}
 	return m.finalizeBatchResult(start, &result, opLog, "")
+}
+
+func (m *Mover) resolveBatchMoveStrategy(strategy ConflictStrategy) ConflictStrategy {
+	if strategy != "" {
+		return strategy
+	}
+	return m.DefaultStrategy
+}
+
+func (m *Mover) buildBatchMoveDirOutcome(item MoveItem, mr MergeResult) (MoveResult, string) {
+	moveResult := MoveResult{
+		Source:      item.Source,
+		Destination: mr.DestDir,
+		Success:     mr.Success,
+		// Renamed 維持零值：合併語意下整個目錄不更名，衝突由內部檔案層級 Rename 處理
+	}
+
+	if !mr.Success {
+		if len(mr.Errors) > 0 {
+			moveResult.Error = mr.Errors[0].Error
+		} else {
+			moveResult.Error = fmt.Sprintf("移動 %d/%d 個檔案後失敗", mr.FilesMoved, mr.FilesTotal)
+		}
+		return moveResult, "failed"
+	}
+
+	if sameSourceAndDestination(item.Source, item.Destination) || mr.FilesSkipped == 0 && mr.DeletedSrc {
+		return moveResult, "success"
+	}
+
+	moveResult.Skipped = true
+	return moveResult, "skipped"
+}
+
+func (m *Mover) recordBatchMoveDirOutcome(result *BatchResult, logItem *MoveLog, moveResult MoveResult, status string) {
+	result.Results = append(result.Results, moveResult)
+	logItem.Destination = moveResult.Destination
+	logItem.Status = status
+
+	switch status {
+	case "success":
+		result.SuccessCount++
+	case "skipped":
+		result.SkippedCount++
+	case "failed":
+		result.FailedCount++
+		logItem.Error = moveResult.Error
+	}
 }
 
 func formatBatchSummary(result BatchResult) string {

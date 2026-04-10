@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"actress-classifier/pkg/safefile"
 )
+
+const maxJournalLineSize = 1024 * 1024
 
 // appendJournalEntry 附加 journal 記錄（與 Python IncrementalJSONDB 格式相容）
 // 格式: {"op":"UPDATE","type":"video","id":"STARS-707","data":{...},"ts":"..."}
@@ -78,7 +81,7 @@ func (db *JSONDatabase) loadJournal() error {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
+	scanner := newJournalScanner(f)
 	lineNum := 0
 
 	for scanner.Scan() {
@@ -119,7 +122,7 @@ func (db *JSONDatabase) applyJournalEntry(entry *JournalEntry) {
 	case TypeVideo:
 		db.applyVideoJournalEntry(entry)
 	case TypeActress:
-		// 未來擴展
+		db.applyActressJournalEntry(entry)
 	case TypeLink:
 		// 未來擴展
 	}
@@ -129,120 +132,34 @@ func (db *JSONDatabase) applyJournalEntry(entry *JournalEntry) {
 func (db *JSONDatabase) applyVideoJournalEntry(entry *JournalEntry) {
 	switch entry.Op {
 	case OpAdd:
-		if entry.Data != nil {
-			var video VideoData
-			if err := json.Unmarshal(entry.Data, &video); err == nil {
-				// 確保 code 正確
-				if video.Code == "" {
-					video.Code = entry.ID
-				}
-				db.root.Videos[entry.ID] = &video
-			}
-		}
+		db.applyVideoJournalAdd(entry)
 	case OpUpdate:
-		if entry.Data != nil {
-			// 取得現有影片或建立新的
-			existing, exists := db.root.Videos[entry.ID]
-			if !exists {
-				existing = GetEmptyVideo()
-				existing.Code = entry.ID
-			}
-
-			// 解析更新欄位
-			var updates map[string]any
-			if err := json.Unmarshal(entry.Data, &updates); err == nil {
-				db.applyVideoUpdates(existing, updates)
-			}
-			db.root.Videos[entry.ID] = existing
-		}
+		db.applyVideoJournalUpdate(entry)
 	case OpDelete:
-		delete(db.root.Videos, entry.ID)
+		db.applyVideoJournalDelete(entry.ID)
 	}
 }
 
 // applyVideoUpdates 將更新套用到影片
 // updates 可以是完整 VideoData 的 JSON 物件或部分欄位的 map
-func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]any) { // updates: 欲套用的欄位 map
+func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]any) {
+	db.applyVideoFieldUpdates(video, updates)
+}
+
+func (db *JSONDatabase) applyVideoFieldUpdates(video *VideoData, updates map[string]any) {
 	hasUpdatedAt := false // 追蹤是否有明確提供 updated_at，避免不必要的時間覆蓋
 
 	for key, value := range updates {
-		switch key {
-		case "id": // 舊版相容欄位
-			if v, ok := value.(string); ok {
-				video.ID = v
-			}
-		case "code": // 影片番號
-			if v, ok := value.(string); ok {
-				video.Code = v
-			}
-		case "created_at": // 建立時間（保留原始值，不以目前時間覆蓋）
-			if v, ok := value.(string); ok {
-				video.CreatedAt = v
-			}
-		case "updated_at": // 更新時間（若明確提供則保留，否則使用目前時間）
+		if key == "updated_at" {
 			if v, ok := value.(string); ok {
 				video.UpdatedAt = v
 				hasUpdatedAt = true // 已明確提供，稍後不再覆蓋
 			}
-		case "metadata": // 元資料（source, confidence）
-			if m, ok := value.(map[string]any); ok {
-				if src, ok := m["source"].(string); ok {
-					video.Metadata.Source = src
-				}
-				if conf, ok := m["confidence"].(float64); ok {
-					video.Metadata.Confidence = conf
-				}
-			}
-		case "title":
-			if v, ok := value.(string); ok {
-				video.Title = v
-			}
-		case "studio":
-			if v, ok := value.(string); ok {
-				video.Studio = v
-			}
-		case "studio_code":
-			if v, ok := value.(string); ok {
-				video.StudioCode = v
-			}
-		case "release_date":
-			if v, ok := value.(string); ok {
-				video.ReleaseDate = v
-			}
-		case "url":
-			if v, ok := value.(string); ok {
-				video.URL = v
-			}
-		case "actresses":
-			if v, ok := value.([]any); ok {
-				actresses := make([]string, 0, len(v))
-				for _, a := range v {
-					if s, ok := a.(string); ok {
-						actresses = append(actresses, s)
-					}
-				}
-				video.Actresses = actresses
-			}
-		case "search_status":
-			if v, ok := value.(string); ok {
-				video.SearchStatus = v
-			}
-		case "last_search_date":
-			if v, ok := value.(string); ok {
-				video.LastSearchDate = v
-			}
-		case "original_filename":
-			if v, ok := value.(string); ok {
-				video.OriginalFilename = v
-			}
-		case "file_path":
-			if v, ok := value.(string); ok {
-				video.FilePath = v
-			}
-		case "search_method":
-			if v, ok := value.(string); ok {
-				video.SearchMethod = v
-			}
+			continue
+		}
+
+		if handler, ok := videoFieldUpdateHandlers[key]; ok {
+			handler(video, value)
 		}
 	}
 
@@ -250,6 +167,167 @@ func (db *JSONDatabase) applyVideoUpdates(video *VideoData, updates map[string]a
 	if !hasUpdatedAt {
 		video.UpdatedAt = GetCurrentTimestamp()
 	}
+}
+
+var videoFieldUpdateHandlers = map[string]func(*VideoData, any){
+	"id": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.ID = v
+		}
+	},
+	"code": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.Code = v
+		}
+	},
+	"created_at": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.CreatedAt = v
+		}
+	},
+	"metadata": func(video *VideoData, value any) {
+		if m, ok := value.(map[string]any); ok {
+			if src, ok := m["source"].(string); ok {
+				video.Metadata.Source = src
+			}
+			if conf, ok := m["confidence"].(float64); ok {
+				video.Metadata.Confidence = conf
+			}
+		}
+	},
+	"title": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.Title = v
+		}
+	},
+	"studio": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.Studio = v
+		}
+	},
+	"studio_code": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.StudioCode = v
+		}
+	},
+	"release_date": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.ReleaseDate = v
+		}
+	},
+	"url": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.URL = v
+		}
+	},
+	"actresses": func(video *VideoData, value any) {
+		if v, ok := value.([]any); ok {
+			actresses := make([]string, 0, len(v))
+			for _, a := range v {
+				if s, ok := a.(string); ok {
+					actresses = append(actresses, s)
+				}
+			}
+			video.Actresses = actresses
+		}
+	},
+	"search_status": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.SearchStatus = v
+		}
+	},
+	"last_search_date": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.LastSearchDate = v
+		}
+	},
+	"original_filename": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.OriginalFilename = v
+		}
+	},
+	"file_path": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.FilePath = v
+		}
+	},
+	"search_method": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.SearchMethod = v
+		}
+	},
+}
+
+func (db *JSONDatabase) applyVideoJournalAdd(entry *JournalEntry) {
+	if entry.Data == nil {
+		return
+	}
+
+	var video VideoData
+	if err := json.Unmarshal(entry.Data, &video); err != nil {
+		return
+	}
+
+	// 確保 code 正確
+	if video.Code == "" {
+		video.Code = entry.ID
+	}
+	db.root.Videos[entry.ID] = &video
+	delete(db.deletedVideos, entry.ID)
+}
+
+func (db *JSONDatabase) applyVideoJournalUpdate(entry *JournalEntry) {
+	if entry.Data == nil {
+		return
+	}
+
+	// 取得現有影片或建立新的
+	existing, exists := db.root.Videos[entry.ID]
+	if !exists {
+		existing = GetEmptyVideo()
+		existing.Code = entry.ID
+	}
+
+	// 解析更新欄位
+	var updates map[string]any
+	if err := json.Unmarshal(entry.Data, &updates); err == nil {
+		db.applyVideoFieldUpdates(existing, updates)
+	}
+	db.root.Videos[entry.ID] = existing
+	delete(db.deletedVideos, entry.ID)
+}
+
+func (db *JSONDatabase) applyVideoJournalDelete(id string) {
+	delete(db.root.Videos, id)
+	db.deletedVideos[id] = true
+}
+
+func (db *JSONDatabase) applyActressJournalEntry(entry *JournalEntry) {
+	switch entry.Op {
+	case OpAdd, OpUpdate:
+		db.applyActressJournalUpsert(entry)
+	case OpDelete:
+		db.applyActressJournalDelete(entry.ID)
+	}
+}
+
+func (db *JSONDatabase) applyActressJournalUpsert(entry *JournalEntry) {
+	if entry.Data == nil {
+		return
+	}
+
+	var actress ActressData
+	if err := json.Unmarshal(entry.Data, &actress); err != nil {
+		return
+	}
+	if actress.ID == "" {
+		actress.ID = entry.ID
+	}
+	db.root.Actresses[entry.ID] = &actress
+}
+
+func (db *JSONDatabase) applyActressJournalDelete(id string) {
+	delete(db.root.Actresses, id)
 }
 
 // legacyJournalEntry 舊格式 journal 記錄
@@ -301,7 +379,7 @@ func (db *JSONDatabase) GetJournalEntryCount() (int, error) {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
+	scanner := newJournalScanner(f)
 	count := 0
 
 	for scanner.Scan() {
@@ -315,4 +393,10 @@ func (db *JSONDatabase) GetJournalEntryCount() (int, error) {
 	}
 
 	return count, nil
+}
+
+func newJournalScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), maxJournalLineSize)
+	return scanner
 }

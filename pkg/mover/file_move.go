@@ -19,65 +19,29 @@ func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult 
 	result := MoveResult{Source: src, Destination: dst, Success: false}
 
 	// 同路徑保護：source == destination 視為已完成（skip），避免覆蓋策略觸發時刪除自身
-	absSrc, errSrc := filepath.Abs(src)
-	absDst, errDst := filepath.Abs(dst)
-	if errSrc == nil && errDst == nil && absSrc == absDst {
+	if isSameFilePath(src, dst) {
 		result.Skipped, result.Success = true, true
 		return result
 	}
 
-	srcInfo, err := os.Stat(src)
-	if os.IsNotExist(err) {
-		result.Error = "來源檔案不存在"
-		return result
-	}
-	if err != nil {
-		result.Error = fmt.Sprintf("無法讀取來源: %v", err)
-		return result
-	}
-	if srcInfo.IsDir() {
-		result.Error = "來源是目錄，請使用 MoveDir"
+	if !validateMoveFileSource(src, &result) {
 		return result
 	}
 
-	if !m.DryRun {
-		if err := safefile.MkdirAll(filepath.Dir(dst), 0700); err != nil {
-			result.Error = fmt.Sprintf("無法建立目標目錄: %v", err)
-			return result
-		}
+	if !m.ensureMoveFileDestinationDir(dst, &result) {
+		return result
 	}
 
-	if _, err := os.Stat(dst); err == nil {
-		switch strategy {
-		case Skip:
-			result.Skipped, result.Success = true, true
-			return result
-		case Overwrite:
-			if !m.DryRun {
-				if err := m.replaceFileSafely(src, dst); err != nil {
-					result.Error = fmt.Sprintf("覆蓋目標檔案失敗: %v", err)
-					return result
-				}
-				result.Success, result.Destination = true, dst
-				return result
-			}
-		case Rename:
-			newDst := m.generateUniqueName(dst)
-			result.Renamed, dst = newDst, newDst
-		case Merge:
-			result.Error = "Merge 策略不適用於單一檔案"
-			return result
-		default:
-			result.Error = fmt.Sprintf("未知的衝突策略: %s", strategy)
-			return result
-		}
+	dst, handled := m.resolveMoveFileConflict(src, dst, strategy, &result)
+	if handled {
+		return result
 	}
 
 	if m.DryRun {
 		result.Success, result.Destination = true, dst
 		return result
 	}
-	if err = os.Rename(src, dst); err == nil {
+	if err := os.Rename(src, dst); err == nil {
 		result.Success, result.Destination = true, dst
 		return result
 	}
@@ -93,6 +57,72 @@ func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult 
 
 	result.Success, result.Destination = true, dst
 	return result
+}
+
+func isSameFilePath(src, dst string) bool {
+	absSrc, errSrc := filepath.Abs(src)
+	absDst, errDst := filepath.Abs(dst)
+	return errSrc == nil && errDst == nil && absSrc == absDst
+}
+
+func validateMoveFileSource(src string, result *MoveResult) bool {
+	srcInfo, err := os.Stat(src)
+	if os.IsNotExist(err) {
+		result.Error = "來源檔案不存在"
+		return false
+	}
+	if err != nil {
+		result.Error = fmt.Sprintf("無法讀取來源: %v", err)
+		return false
+	}
+	if srcInfo.IsDir() {
+		result.Error = "來源是目錄，請使用 MoveDir"
+		return false
+	}
+	return true
+}
+
+func (m *Mover) ensureMoveFileDestinationDir(dst string, result *MoveResult) bool {
+	if m.DryRun {
+		return true
+	}
+	if err := safefile.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+		result.Error = fmt.Sprintf("無法建立目標目錄: %v", err)
+		return false
+	}
+	return true
+}
+
+func (m *Mover) resolveMoveFileConflict(src, dst string, strategy ConflictStrategy, result *MoveResult) (string, bool) {
+	if _, err := os.Stat(dst); err != nil {
+		return dst, false
+	}
+
+	switch strategy {
+	case Skip:
+		result.Skipped, result.Success = true, true
+		return dst, true
+	case Overwrite:
+		if !m.DryRun {
+			if err := m.replaceFileSafely(src, dst); err != nil {
+				result.Error = fmt.Sprintf("覆蓋目標檔案失敗: %v", err)
+				return dst, true
+			}
+			result.Success, result.Destination = true, dst
+			return dst, true
+		}
+	case Rename:
+		newDst := m.generateUniqueName(dst)
+		result.Renamed, dst = newDst, newDst
+	case Merge:
+		result.Error = "Merge 策略不適用於單一檔案"
+		return dst, true
+	default:
+		result.Error = fmt.Sprintf("未知的衝突策略: %s", strategy)
+		return dst, true
+	}
+
+	return dst, false
 }
 
 // generateUniqueName 在指定路徑已存在時，產生不衝突的唯一路徑

@@ -209,7 +209,7 @@ func (si *StudioIdentifier) IdentifyStudio(code string) string {
 }
 
 // NormalizeStudioName 標準化片商名稱
-func (si *StudioIdentifier) NormalizeStudioName(studioName string, videoCode string) string {
+func (si *StudioIdentifier) NormalizeStudioName(studioName, videoCode string) string {
 	// 優先使用番號判斷
 	if videoCode != "" {
 		studioFromCode := si.IdentifyStudio(videoCode)

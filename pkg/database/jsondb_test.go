@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func setupTestDB(t *testing.T) (*JSONDatabase, string) {
@@ -205,6 +207,50 @@ func TestJournal(t *testing.T) {
 
 	if count != 0 {
 		t.Errorf("Expected 0 journal entries after compact, got %d", count)
+	}
+}
+
+func TestApplyVideoUpdates_HandlesMixedFieldTypes(t *testing.T) {
+	video := GetEmptyVideo()
+	video.UpdatedAt = "2024-01-01T00:00:00Z"
+
+	updates := map[string]any{
+		"id":            "LEGACY-001",
+		"code":          "VIDEO-001",
+		"title":         "混合欄位測試",
+		"metadata":      map[string]any{"source": "AV-WIKI", "confidence": 0.88},
+		"actresses":     []any{"女優A", 123, "女優B"},
+		"updated_at":    "2025-05-05T05:05:05Z",
+		"studio_code":   "ST-001",
+		"search_method": "manual",
+	}
+
+	db := &JSONDatabase{}
+	db.applyVideoFieldUpdates(video, updates)
+
+	if video.ID != "LEGACY-001" {
+		t.Fatalf("Expected ID to be updated, got %q", video.ID)
+	}
+	if video.Code != "VIDEO-001" {
+		t.Fatalf("Expected Code to be updated, got %q", video.Code)
+	}
+	if video.Title != "混合欄位測試" {
+		t.Fatalf("Expected Title to be updated, got %q", video.Title)
+	}
+	if video.Metadata.Source != "AV-WIKI" || video.Metadata.Confidence != 0.88 {
+		t.Fatalf("Expected metadata to be updated, got %+v", video.Metadata)
+	}
+	if len(video.Actresses) != 2 || video.Actresses[0] != "女優A" || video.Actresses[1] != "女優B" {
+		t.Fatalf("Expected actresses to keep only strings, got %#v", video.Actresses)
+	}
+	if video.UpdatedAt != "2025-05-05T05:05:05Z" {
+		t.Fatalf("Expected UpdatedAt to remain explicit, got %q", video.UpdatedAt)
+	}
+	if video.StudioCode != "ST-001" {
+		t.Fatalf("Expected StudioCode to be updated, got %q", video.StudioCode)
+	}
+	if video.SearchMethod != "manual" {
+		t.Fatalf("Expected SearchMethod to be updated, got %q", video.SearchMethod)
 	}
 }
 
@@ -417,6 +463,198 @@ func TestMergeFromFile_WithOverwrite(t *testing.T) {
 	}
 	if v.Title != "new-title" {
 		t.Fatalf("Expected CODE-003 title to be overwritten to new-title, got %s", v.Title)
+	}
+}
+
+func TestPrepareVideoForMerge_UsesLegacyIDAndClearsID(t *testing.T) {
+	original := &VideoData{
+		ID:        "LEGACY-001",
+		Title:     "legacy-title",
+		CreatedAt: "2024-01-01T00:00:00Z",
+	}
+
+	code, prepared, ok := prepareVideoForMerge(" MAP-IGNORED ", original, "2025-01-01T00:00:00Z")
+	if !ok {
+		t.Fatal("Expected video to be prepared")
+	}
+	if code != "LEGACY-001" {
+		t.Fatalf("Expected legacy ID to be used as code, got %q", code)
+	}
+	if prepared == nil {
+		t.Fatal("Expected prepared video copy")
+	}
+	if prepared.Code != "LEGACY-001" {
+		t.Fatalf("Expected prepared code LEGACY-001, got %q", prepared.Code)
+	}
+	if prepared.ID != "" {
+		t.Fatalf("Expected legacy ID field to be cleared, got %q", prepared.ID)
+	}
+	if prepared.UpdatedAt != "2025-01-01T00:00:00Z" {
+		t.Fatalf("Expected updated time to be refreshed, got %q", prepared.UpdatedAt)
+	}
+	if original.ID != "LEGACY-001" {
+		t.Fatalf("Expected original video data to remain unchanged, got %q", original.ID)
+	}
+}
+
+func TestDeleteExpiredBackups_RemovesOnlyExpiredBackupFiles(t *testing.T) {
+	backupDir := t.TempDir()
+	oldName := fmt.Sprintf("backup_%s_00-00-00.json", time.Now().AddDate(0, 0, -10).Format("2006-01-02"))
+	newName := fmt.Sprintf("backup_%s_00-00-00.json", time.Now().Format("2006-01-02"))
+	otherName := "notes.txt"
+
+	for _, name := range []string{oldName, newName, otherName} {
+		path := filepath.Join(backupDir, name)
+		if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+			t.Fatalf("WriteFile failed for %s: %v", name, err)
+		}
+	}
+
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+
+	deleted := deleteExpiredBackups(backupDir, entries, time.Now().AddDate(0, 0, -3))
+	if deleted != 1 {
+		t.Fatalf("Expected 1 deleted backup, got %d", deleted)
+	}
+
+	if _, err := os.Stat(filepath.Join(backupDir, oldName)); !os.IsNotExist(err) {
+		t.Fatalf("Expected expired backup to be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(backupDir, newName)); err != nil {
+		t.Fatalf("Expected recent backup to remain, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(backupDir, otherName)); err != nil {
+		t.Fatalf("Expected non-backup file to remain, stat err=%v", err)
+	}
+}
+
+func TestLoad_RestoresActressAndDeletedCodesFromJournal(t *testing.T) {
+	db, tempDir := setupTestDB(t)
+
+	actress := &ActressData{ID: "actress-001", Name: "測試女優"}
+	if err := db.UpsertActress(actress); err != nil {
+		t.Fatalf("UpsertActress failed: %v", err)
+	}
+
+	video := NewVideo("DELETE-001")
+	if err := db.UpdateVideo("DELETE-001", video); err != nil {
+		t.Fatalf("UpdateVideo failed: %v", err)
+	}
+	if err := db.DeleteVideo("DELETE-001"); err != nil {
+		t.Fatalf("DeleteVideo failed: %v", err)
+	}
+
+	reloaded := NewJSONDatabase(tempDir)
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+
+	gotActress, err := reloaded.GetActress("actress-001")
+	if err != nil {
+		t.Fatalf("GetActress after reload failed: %v", err)
+	}
+	if gotActress.Name != "測試女優" {
+		t.Fatalf("Actress name after reload = %q, want %q", gotActress.Name, "測試女優")
+	}
+
+	deletedCodes, err := reloaded.GetDeletedCodes()
+	if err != nil {
+		t.Fatalf("GetDeletedCodes after reload failed: %v", err)
+	}
+	if len(deletedCodes) != 1 || deletedCodes[0] != "DELETE-001" {
+		t.Fatalf("deleted codes after reload = %v, want [DELETE-001]", deletedCodes)
+	}
+}
+
+func TestLoad_RestoresLargeJournalEntry(t *testing.T) {
+	db, tempDir := setupTestDB(t)
+
+	video := NewVideo("LARGE-001")
+	video.Title = strings.Repeat("A", 70*1024)
+	if err := db.UpdateVideo("LARGE-001", video); err != nil {
+		t.Fatalf("UpdateVideo failed: %v", err)
+	}
+
+	reloaded := NewJSONDatabase(tempDir)
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+
+	got, err := reloaded.GetVideo("LARGE-001")
+	if err != nil {
+		t.Fatalf("GetVideo after reload failed: %v", err)
+	}
+	if got.Title != video.Title {
+		t.Fatalf("reloaded title length = %d, want %d", len(got.Title), len(video.Title))
+	}
+}
+
+func TestBackupRestore_IgnoresLaterJournalState(t *testing.T) {
+	db, _ := setupTestDB(t)
+
+	baseVideo := NewVideo("BASE-001")
+	if err := db.UpdateVideo("BASE-001", baseVideo); err != nil {
+		t.Fatalf("UpdateVideo failed: %v", err)
+	}
+	if err := db.CompactJournal(); err != nil {
+		t.Fatalf("CompactJournal failed: %v", err)
+	}
+
+	backupPath, err := db.BackupCreate()
+	if err != nil {
+		t.Fatalf("BackupCreate failed: %v", err)
+	}
+
+	laterVideo := NewVideo("LATE-001")
+	if err := db.UpdateVideo("LATE-001", laterVideo); err != nil {
+		t.Fatalf("late UpdateVideo failed: %v", err)
+	}
+
+	if err := db.BackupRestore(backupPath); err != nil {
+		t.Fatalf("BackupRestore failed: %v", err)
+	}
+
+	if _, err := db.GetVideo("BASE-001"); err != nil {
+		t.Fatalf("expected base video after restore, got err=%v", err)
+	}
+	if _, err := db.GetVideo("LATE-001"); err != ErrNotFound {
+		t.Fatalf("expected late video to be absent after restore, got err=%v", err)
+	}
+}
+
+func TestUpdateVideoFields_ReloadPreservesUpdatedAt(t *testing.T) {
+	db, tempDir := setupTestDB(t)
+
+	video := NewVideo("UPDATE-001")
+	if err := db.UpdateVideo("UPDATE-001", video); err != nil {
+		t.Fatalf("UpdateVideo failed: %v", err)
+	}
+	if err := db.UpdateVideoFields("UPDATE-001", map[string]any{"title": "changed"}); err != nil {
+		t.Fatalf("UpdateVideoFields failed: %v", err)
+	}
+
+	updated, err := db.GetVideo("UPDATE-001")
+	if err != nil {
+		t.Fatalf("GetVideo failed: %v", err)
+	}
+	expectedUpdatedAt := updated.UpdatedAt
+
+	time.Sleep(1100 * time.Millisecond)
+
+	reloaded := NewJSONDatabase(tempDir)
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+
+	got, err := reloaded.GetVideo("UPDATE-001")
+	if err != nil {
+		t.Fatalf("GetVideo after reload failed: %v", err)
+	}
+	if got.UpdatedAt != expectedUpdatedAt {
+		t.Fatalf("reloaded updated_at = %q, want %q", got.UpdatedAt, expectedUpdatedAt)
 	}
 }
 

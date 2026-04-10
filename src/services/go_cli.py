@@ -243,7 +243,7 @@ def cache_get(key: str, cache_dir: str = "cache") -> Optional[bytes]:
         if encoded is None:
             return None
         return base64.b64decode(encoded)
-    except (GoError, Exception) as e:
+    except Exception as e:
         logger.debug(f"cache_get 失敗: {e}")
         return None
 

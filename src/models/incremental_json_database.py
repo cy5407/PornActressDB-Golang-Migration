@@ -328,7 +328,7 @@ class IncrementalJSONDB:
         2. 重新載入 base_db 確保記憶體狀態與磁碟同步
         3. 重設 dirty tracking
         """
-        logger.info(f"🔄 開始合併 journal（委派 Go CLI）...")
+        logger.info("🔄 開始合併 journal（委派 Go CLI）...")
 
         try:
             if not _go_db_compact_journal(str(self.data_dir)):

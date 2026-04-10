@@ -56,7 +56,7 @@ class EncodingDetector:
                 logger.debug(f"✅ 成功使用編碼 {encoding} 解碼內容")
                 return decoded_content, encoding
 
-            except (UnicodeDecodeError, UnicodeError):
+            except UnicodeError:
                 continue
 
         # 方法2: 使用 chardet 自動檢測
@@ -78,7 +78,7 @@ class EncodingDetector:
                         self.detection_stats["chardet_usage"] += 1
                         logger.info(f"✅ chardet 成功解碼，編碼: {detected_encoding}")
                         return decoded_content, detected_encoding
-                    except (UnicodeDecodeError, UnicodeError):
+                    except UnicodeError:
                         pass
 
         except Exception as e:

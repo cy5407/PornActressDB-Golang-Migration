@@ -52,7 +52,7 @@ class RetryConfig:
     max_delay: float = 60.0  # 最大延遲(秒)
     backoff_factor: float = 2.0  # 指數退避因子
     jitter: bool = True  # 添加隨機抖動
-    retry_on_errors: list[ErrorType] = None  # 需要重試的錯誤類型
+    retry_on_errors: list[ErrorType] | None = None  # 需要重試的錯誤類型
 
     def __post_init__(self):
         if self.retry_on_errors is None:
@@ -329,7 +329,7 @@ class HealthChecker:
                     await asyncio.sleep(self.config.check_interval)
 
                     # 檢查所有已知域名
-                    for domain in list(self.domain_health.keys()):
+                    for domain in tuple(self.domain_health):
                         is_healthy = await self.check_domain_health(domain)
                         await self.update_domain_health(domain, is_healthy)
 

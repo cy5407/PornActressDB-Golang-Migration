@@ -411,9 +411,7 @@ class CacheManager:
                 expired_entries = []
 
                 # 查找過期條目
-                for cache_key, entry_data in list(
-                    index_data.get("entries", {}).items()
-                ):
+                for cache_key, entry_data in index_data.get("entries", {}).items():
                     created_at = entry_data.get("created_at", 0)
                     ttl_seconds = entry_data.get("ttl_seconds", 0)
 

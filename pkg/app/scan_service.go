@@ -17,6 +17,73 @@ type ScanRequest struct {
 	Recursive bool
 }
 
+func buildSupportedScanFormats() map[string]bool {
+	supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
+	for _, format := range extractor.SupportedFormats {
+		supportedFormats[format] = true
+	}
+	return supportedFormats
+}
+
+func shouldSkipScanDirectory(path string, recursive bool, absDir string) (bool, error) {
+	if recursive {
+		return false, nil
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false, nil
+	}
+
+	return absPath != absDir, nil
+}
+
+func isSupportedScanFile(path string, supportedFormats map[string]bool) bool {
+	return supportedFormats[strings.ToLower(filepath.Ext(path))]
+}
+
+func startScanWorkers(workers int, jobs <-chan string, ext *extractor.CodeExtractor, results *[]contracts.ScanResult, mu *sync.Mutex, wg *sync.WaitGroup) {
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range jobs {
+				if code := ext.ExtractCode(path); code != "" {
+					mu.Lock()
+					*results = append(*results, contracts.ScanResult{Path: path, Code: code})
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+}
+
+func walkScanFiles(root string, recursive bool, absDir string, supportedFormats map[string]bool, jobs chan<- string) error {
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d == nil {
+			return nil
+		}
+
+		if d.IsDir() {
+			skip, skipErr := shouldSkipScanDirectory(path, recursive, absDir)
+			if skipErr != nil {
+				return skipErr
+			}
+			if skip {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if !isSupportedScanFile(path, supportedFormats) {
+			return nil
+		}
+
+		jobs <- path
+		return nil
+	})
+}
+
 func ScanFiles(req ScanRequest) ([]contracts.ScanResult, error) {
 	if _, err := os.Stat(req.Dir); os.IsNotExist(err) {
 		return nil, fmt.Errorf("目錄不存在: %s", req.Dir)
@@ -24,54 +91,18 @@ func ScanFiles(req ScanRequest) ([]contracts.ScanResult, error) {
 
 	ext := extractor.NewCodeExtractor()
 	results := make([]contracts.ScanResult, 0)
-	supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
-	for _, f := range extractor.SupportedFormats {
-		supportedFormats[f] = true
-	}
-
 	jobs := make(chan string, 100)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	for i := 0; i < req.Workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for path := range jobs {
-				if code := ext.ExtractCode(path); code != "" {
-					mu.Lock()
-					results = append(results, contracts.ScanResult{Path: path, Code: code})
-					mu.Unlock()
-				}
-			}
-		}()
-	}
+	startScanWorkers(req.Workers, jobs, ext, &results, &mu, &wg)
 
 	absDir, absErr := filepath.Abs(req.Dir)
 	if absErr != nil {
 		return nil, fmt.Errorf("無法取得目錄絕對路徑: %v", absErr)
 	}
 
-	err := filepath.WalkDir(req.Dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d == nil {
-			return nil
-		}
-		if d.IsDir() {
-			if req.Recursive {
-				return nil
-			}
-			absPath, absPathErr := filepath.Abs(path)
-			if absPathErr != nil || absPath == absDir {
-				return nil
-			}
-			return filepath.SkipDir
-		}
-		if !supportedFormats[strings.ToLower(filepath.Ext(path))] {
-			return nil
-		}
-		jobs <- path
-		return nil
-	})
+	err := walkScanFiles(req.Dir, req.Recursive, absDir, buildSupportedScanFormats(), jobs)
 	close(jobs)
 	wg.Wait()
 	if err != nil {

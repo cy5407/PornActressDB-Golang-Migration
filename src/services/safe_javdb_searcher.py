@@ -538,10 +538,6 @@ class SafeJAVDBSearcher:
             # JAVDB 使用標準 UTF-8 編碼，不需要特殊處理
             soup = BeautifulSoup(response.text, "html.parser")
 
-            if soup is None:
-                logger.warning(f"無法解析 JAVDB 詳情頁面: {sanitize_url_for_log(url)}")
-                return None
-
             page_text = soup.get_text(" ", strip=True)
             if self._looks_like_age_gate_or_landing_page(page_text):
                 self._mark_suspected_page(video_id, "詳情頁返回年齡驗證/落地頁")
