@@ -19,6 +19,7 @@ def test_dockerfile_copies_pkg_sources_for_source_regression_tests():
     dockerfile = (ROOT_DIR / "Dockerfile").read_text(encoding="utf-8")
     runtime_stage = dockerfile.split("FROM python:3.11-slim-bookworm AS runtime", 1)[1]
 
+    assert "COPY Dockerfile ./Dockerfile" in runtime_stage
     assert "COPY pkg/ ./pkg/" in runtime_stage
     assert "COPY .github/ ./.github/" in runtime_stage
 
