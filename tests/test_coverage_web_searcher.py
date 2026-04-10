@@ -6,7 +6,6 @@ import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 from bs4 import BeautifulSoup
@@ -21,6 +20,12 @@ from src.services.web_searcher import WebSearcher
 
 # ---------- helpers ----------
 
+_FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "web_searcher"
+
+
+def _load_fixture_html(name: str) -> str:
+    return (_FIXTURE_DIR / name).read_text(encoding="utf-8")
+
 def _make_searcher(**attrs) -> WebSearcher:
     """Bypass __init__，手動設定屬性。"""
     searcher = object.__new__(WebSearcher)
@@ -30,6 +35,12 @@ def _make_searcher(**attrs) -> WebSearcher:
         "thread_count": 2,
         "batch_delay": 0.0,
         "timeout": 5,
+        "japanese_headers": {},
+        "safe_searcher": SimpleNamespace(safe_request=lambda fn, url: None),
+        "javdb_searcher": SimpleNamespace(search_javdb=lambda code: None),
+        "studio_identifier": SimpleNamespace(
+            normalize_studio_name=lambda studio, code: studio
+        ),
     }
     defaults.update(attrs)
     for k, v in defaults.items():
@@ -369,27 +380,26 @@ def test_search_info_cache_hit():
 
 
 def test_search_info_avwiki_found():
-    s = _make_searcher()
-    found = {"actresses": ["ActressA"], "source": "AV-WIKI"}
-    s._search_candidates_in_av_wiki = lambda code, candidates, stop: found
-    s._search_candidates_in_javdb = lambda code, candidates, stop: None
+    s = _make_avwiki_searcher_with_fixture("avwiki_hit.html")
     result = s.search_info("SSIS-123", threading.Event())
-    assert result is found
+    assert result["actresses"] == ["葵つかさ"]
+    assert result["source"] == "AV-WIKI (安全增強版)"
+    assert s.search_cache["SSIS-123"]["actresses"] == ["葵つかさ"]
 
 
 def test_search_info_javdb_found():
-    s = _make_searcher()
-    found = {"actresses": ["ActressB"], "source": "JAVDB"}
-    s._search_candidates_in_av_wiki = lambda code, candidates, stop: None
-    s._search_candidates_in_javdb = lambda code, candidates, stop: found
+    s = _make_avwiki_searcher_with_fixture(
+        "avwiki_empty.html",
+        javdb_result={"actresses": ["ActressB"], "source": "JAVDB", "studio": "S1"},
+    )
     result = s.search_info("SSIS-123", threading.Event())
-    assert result is found
+    assert result["actresses"] == ["ActressB"]
+    assert result["source"] == "JAVDB"
+    assert s.search_cache["SSIS-123"]["actresses"] == ["ActressB"]
 
 
 def test_search_info_not_found():
-    s = _make_searcher()
-    s._search_candidates_in_av_wiki = lambda code, candidates, stop: None
-    s._search_candidates_in_javdb = lambda code, candidates, stop: None
+    s = _make_avwiki_searcher_with_fixture("avwiki_empty.html", javdb_result=None)
     result = s.search_info("SSIS-123", threading.Event())
     assert result is None
 
@@ -406,17 +416,25 @@ def test_search_info_exception_returns_none():
 # ============================================================
 
 def test_search_candidates_in_av_wiki_found():
-    s = _make_searcher()
-    found = {"actresses": ["A"], "source": "AV-WIKI"}
-    s._search_av_wiki = lambda candidate, stop: found
-    result = s._search_candidates_in_av_wiki("SSIS-123", ["SSIS-123"], threading.Event())
+    def conditional_fixture(url: str) -> str:
+        if "SSIS-001" in url:
+            return _load_fixture_html("avwiki_hit.html")
+        return _load_fixture_html("avwiki_empty.html")
+
+    s = _make_avwiki_searcher_with_fixture(
+        "avwiki_empty.html", conditional_fixture=conditional_fixture
+    )
+    result = s._search_candidates_in_av_wiki(
+        "SSIS-00001", ["SSIS-00001", "SSIS-001"], threading.Event()
+    )
     assert result is not None
-    assert "SSIS-123" in s.search_cache
+    assert result["matched_code"] == "SSIS-001"
+    assert result["search_alias_used"] is True
+    assert s.search_cache["SSIS-00001"]["matched_code"] == "SSIS-001"
 
 
 def test_search_candidates_in_av_wiki_no_actresses():
-    s = _make_searcher()
-    s._search_av_wiki = lambda candidate, stop: {"actresses": [], "source": "AV-WIKI"}
+    s = _make_avwiki_searcher_with_fixture("avwiki_empty.html")
     result = s._search_candidates_in_av_wiki("SSIS-123", ["SSIS-123"], threading.Event())
     assert result is None
 
@@ -441,13 +459,24 @@ def test_search_candidates_in_javdb_stop_event():
 
 
 def test_search_candidates_in_javdb_found():
-    s = _make_searcher()
-    javdb_raw = {"actresses": ["ActressC"], "source": "JAVDB", "studio": "S1"}
-    s.javdb_searcher = SimpleNamespace(search_javdb=lambda c: javdb_raw)
-    s.studio_identifier = SimpleNamespace(normalize_studio_name=lambda studio, code: studio)
-    result = s._search_candidates_in_javdb("SSIS-123", ["SSIS-123"], threading.Event())
+    def search_javdb(candidate):
+        if candidate == "SSIS-001":
+            return {"actresses": ["ActressC"], "source": "JAVDB", "studio": "S1"}
+        return None
+
+    s = _make_searcher(
+        javdb_searcher=SimpleNamespace(search_javdb=search_javdb),
+        studio_identifier=SimpleNamespace(
+            normalize_studio_name=lambda studio, code: studio
+        ),
+    )
+    result = s._search_candidates_in_javdb(
+        "SSIS-00001", ["SSIS-00001", "SSIS-001"], threading.Event()
+    )
     assert result is not None
     assert result["actresses"] == ["ActressC"]
+    assert result["matched_code"] == "SSIS-001"
+    assert s.search_cache["SSIS-00001"]["matched_code"] == "SSIS-001"
 
 
 def test_search_candidates_in_javdb_not_found():
@@ -501,24 +530,26 @@ def test_search_japanese_sites_cache_hit():
 
 
 def test_search_japanese_sites_found():
-    s = _make_searcher()
-    found = {"actresses": ["ActressD"], "source": "AV-WIKI", "search_status": "found"}
-    s._search_av_wiki = lambda candidate, stop: found
+    s = _make_avwiki_searcher_with_fixture("avwiki_hit.html")
     result = s.search_japanese_sites("SSIS-123", threading.Event())
-    assert result["actresses"] == ["ActressD"]
+    assert result["actresses"] == ["葵つかさ"]
+    assert result["studio"] == "S1 NO.1 STYLE"
 
 
 def test_search_japanese_sites_search_error_propagated():
-    s = _make_searcher()
-    error_result = {"actresses": [], "source": "AV-WIKI", "search_status": "search_error"}
-    s._search_av_wiki = lambda candidate, stop: error_result
+    s = _make_searcher(
+        safe_searcher=SimpleNamespace(safe_request=lambda fn, url: None),
+        studio_identifier=SimpleNamespace(
+            normalize_studio_name=lambda studio, code: studio
+        ),
+    )
     result = s.search_japanese_sites("SSIS-123", threading.Event())
     assert result["search_status"] == "search_error"
+    assert result["searched_code"] == "SSIS-123"
 
 
 def test_search_japanese_sites_not_found():
-    s = _make_searcher()
-    s._search_av_wiki = lambda candidate, stop: {"actresses": [], "source": "AV-WIKI"}
+    s = _make_avwiki_searcher_with_fixture("avwiki_empty.html")
     result = s.search_japanese_sites("SSIS-123", threading.Event())
     assert result is None
 
@@ -662,6 +693,26 @@ def test_batch_search_with_progress_and_result_callbacks():
 
 def _make_soup(html: str):
     return BeautifulSoup(html, "html.parser")
+
+
+def _make_avwiki_searcher_with_fixture(
+    fixture_name: str,
+    *,
+    javdb_result=None,
+    conditional_fixture=None,
+) -> WebSearcher:
+    def safe_request(_fn, url):
+        if conditional_fixture is not None:
+            return _make_soup(conditional_fixture(url))
+        return _make_soup(_load_fixture_html(fixture_name))
+
+    return _make_searcher(
+        safe_searcher=SimpleNamespace(safe_request=safe_request),
+        javdb_searcher=SimpleNamespace(search_javdb=lambda code: javdb_result),
+        studio_identifier=SimpleNamespace(
+            normalize_studio_name=lambda studio, code: studio
+        ),
+    )
 
 
 def test_search_av_wiki_stop_event_set():

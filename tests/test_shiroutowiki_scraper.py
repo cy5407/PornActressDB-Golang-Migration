@@ -54,6 +54,48 @@ DETAIL_HTML = """
 """
 
 
+DETAIL_HTML_H1_ONLY = """
+<html>
+  <body>
+    <h1>從 H1 取得的標題</h1>
+    <dl>
+      <dt>女優名</dt>
+      <dd>三崎なな、吉岡美穂</dd>
+      <dt>商品品番</dt>
+      <dd>MIDV-567</dd>
+      <dt>配信品番</dt>
+      <dd>midv00567</dd>
+    </dl>
+  </body>
+</html>
+"""
+
+
+DETAIL_HTML_MISSING_DD = """
+<html>
+  <body>
+    <dl>
+      <dt>正常欄位</dt>
+      <dd>值</dd>
+      <dt>另一個欄位</dt>
+      <dd>另一個值</dd>
+      <dt>孤立欄位</dt>
+    </dl>
+  </body>
+</html>
+"""
+
+
+class DummySafeSearcher:
+    def safe_request(self, fn, url, headers=None):
+        return fn(url, headers)
+
+
+class FailingSafeSearcher:
+    def safe_request(self, fn, url, headers=None):
+        raise RuntimeError("mock error")
+
+
 def test_build_search_candidates_for_shiroutowiki():
     assert ShiroutoWikiScraper.build_search_candidates("SNOS-045") == [
         "SNOS-045",
@@ -69,6 +111,14 @@ def test_build_search_candidates_for_shiroutowiki():
         "MBDD-2094",
         "MBDD2094",
     ]
+    assert ShiroutoWikiScraper.build_search_candidates("   ") == []
+
+
+def test_derive_delivery_code_handles_supported_and_unsupported_lengths():
+    assert ShiroutoWikiScraper._derive_delivery_code("SNOS-045") == "snos00045"
+    assert ShiroutoWikiScraper._derive_delivery_code("MIDV-00567") == "midv00567"
+    assert ShiroutoWikiScraper._derive_delivery_code("ABCD-1234") is None
+    assert ShiroutoWikiScraper._derive_delivery_code("ABC-12") is None
 
 
 def test_parse_search_rows_extracts_detail_url_actress_and_code():
@@ -96,6 +146,31 @@ def test_parse_detail_page_extracts_actress_and_codes():
     assert detail["product_code"] == "MIDV-567"
     assert detail["delivery_code"] == "midv00567"
     assert detail["title"] == "作品標題"
+
+
+def test_parse_detail_page_falls_back_to_plain_text_actress_and_h1_title():
+    scraper = ShiroutoWikiScraper.__new__(ShiroutoWikiScraper)
+
+    detail = scraper._parse_detail_page(
+        BeautifulSoup(DETAIL_HTML_H1_ONLY, "html.parser"),
+        "https://shiroutowiki.work/fanza-video/midv00567/",
+    )
+
+    assert detail["actresses"] == ["三崎なな、吉岡美穂"]
+    assert detail["title"] == "從 H1 取得的標題"
+    assert detail["product_code"] == "MIDV-567"
+    assert detail["delivery_code"] == "midv00567"
+
+
+def test_normalize_detail_map_skips_dt_without_dd():
+    fields = ShiroutoWikiScraper._normalize_detail_map(
+        BeautifulSoup(DETAIL_HTML_MISSING_DD, "html.parser")
+    )
+
+    assert fields == {
+        "正常欄位": "值",
+        "另一個欄位": "另一個值",
+    }
 
 
 def test_find_matching_row_result_returns_compact_code_match():
@@ -176,4 +251,88 @@ def test_search_video_keeps_per_row_priority_between_detail_and_row_code():
         "matched_code": "midv00567",
         "delivery_code": "midv00567",
         "product_code": None,
+    }
+
+
+def test_build_direct_detail_url_accepts_only_delivery_code_format():
+    scraper = ShiroutoWikiScraper.__new__(ShiroutoWikiScraper)
+    scraper.BASE_URL = "https://shiroutowiki.work"
+
+    assert (
+        scraper._build_direct_detail_url("midv00567")
+        == "https://shiroutowiki.work/fanza-video/midv00567/"
+    )
+    assert scraper._build_direct_detail_url("MIDV00567") is None
+    assert scraper._build_direct_detail_url("midv567") is None
+
+
+def test_fetch_soup_returns_none_when_safe_searcher_raises():
+    scraper = ShiroutoWikiScraper(
+        safe_searcher=FailingSafeSearcher(),
+        headers={"User-Agent": "pytest"},
+        timeout=5,
+    )
+
+    assert scraper._fetch_soup("https://example.com") is None
+
+
+def test_fetch_soup_parses_html_via_safe_searcher(monkeypatch):
+    scraper = ShiroutoWikiScraper(
+        safe_searcher=DummySafeSearcher(),
+        headers={"User-Agent": "pytest"},
+        timeout=5,
+    )
+
+    class DummyResponse:
+        text = "<html><body><h1>測試頁</h1></body></html>"
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    class DummyClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, target_url, headers=None):
+            return DummyResponse()
+
+    monkeypatch.setattr("src.scrapers.sources.shiroutowiki_scraper.httpx.Client", DummyClient)
+
+    soup = scraper._fetch_soup("https://example.com")
+
+    assert soup is not None
+    assert soup.find("h1").get_text(strip=True) == "測試頁"
+
+
+def test_search_video_uses_direct_detail_url_when_search_results_do_not_match():
+    scraper = ShiroutoWikiScraper.__new__(ShiroutoWikiScraper)
+    scraper.BASE_URL = "https://shiroutowiki.work"
+    scraper.build_search_candidates = lambda _code: ["midv00567"]
+    scraper._build_allowed_compact_codes = lambda _code, _candidates: {"midv00567"}
+    scraper._parse_search_rows = lambda _soup: []
+
+    def fake_fetch_soup(url):
+        if "?s=" in url:
+            return BeautifulSoup("<html><body></body></html>", "html.parser")
+        return BeautifulSoup(DETAIL_HTML, "html.parser")
+
+    scraper._fetch_soup = fake_fetch_soup
+
+    result = scraper.search_video("MIDV-00567")
+
+    assert result == {
+        "source": "shiroutowiki",
+        "actresses": ["三崎なな"],
+        "title": "作品標題",
+        "search_url": "https://shiroutowiki.work/fanza-video/midv00567/",
+        "matched_code": "MIDV-567",
+        "delivery_code": "midv00567",
+        "product_code": "MIDV-567",
     }

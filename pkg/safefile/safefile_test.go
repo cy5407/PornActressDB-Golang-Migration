@@ -102,10 +102,13 @@ func TestSplitPathValidFile(t *testing.T) {
 
 func TestSplitPathNonExistentDir(t *testing.T) {
 	t.Parallel()
-	// 目錄不存在時 EvalSymlinks 失敗，應回傳原始路徑（不是 error）
-	_, name, err := splitPath("/nonexistent/dir/file.txt")
+	filePath := filepath.Join(t.TempDir(), "missing", "nested", "file.txt")
+	dir, name, err := splitPath(filePath)
 	if err != nil {
 		t.Fatalf("非存在目錄的路徑不應回傳 error, 得到: %v", err)
+	}
+	if dir != filepath.Dir(filePath) {
+		t.Errorf("dir = %q, want %q", dir, filepath.Dir(filePath))
 	}
 	if name != "file.txt" {
 		t.Errorf("name = %q, want %q", name, "file.txt")
@@ -134,8 +137,8 @@ func TestReadFileEmptyPath(t *testing.T) {
 
 func TestWriteFileNonExistentDir(t *testing.T) {
 	t.Parallel()
-	// 目錄不存在，WriteFile 應回傳 error
-	err := WriteFile("/nonexistent/dir/file.txt", []byte("data"), 0600)
+	filePath := filepath.Join(t.TempDir(), "missing", "nested", "file.txt")
+	err := WriteFile(filePath, []byte("data"), 0600)
 	if err == nil {
 		t.Fatal("WriteFile 到不存在的目錄應回傳 error")
 	}
@@ -276,12 +279,22 @@ func TestSplitRootPathWithDotSegments(t *testing.T) {
 func TestSplitRootPathAbsolute(t *testing.T) {
 	t.Parallel()
 	sep := string(filepath.Separator)
-	path := sep + "foo" + sep + "bar"
+	tempDir := t.TempDir()
+	volume := filepath.VolumeName(tempDir)
+	path := filepath.Join(sep+"foo", "bar")
+	wantRoot := sep
+	if volume != "" {
+		path = filepath.Join(volume+sep, "foo", "bar")
+		wantRoot = volume + sep
+	}
 	root, parts := splitRootPath(path)
+	if root != wantRoot {
+		t.Errorf("root = %q, want %q", root, wantRoot)
+	}
 	if !strings.HasSuffix(root, sep) {
 		t.Errorf("絕對路徑的 root 應以 separator 結尾, 得到: %q", root)
 	}
-	if len(parts) < 2 {
+	if len(parts) < 2 || parts[len(parts)-2] != "foo" || parts[len(parts)-1] != "bar" {
 		t.Errorf("parts 長度應 ≥ 2, 得到: %v", parts)
 	}
 }

@@ -1,12 +1,94 @@
 """補測 UnifiedCacheManager 覆蓋率。"""
 import pytest
-from unittest.mock import MagicMock
 from src.services.unified_cache import (
     CacheStats,
     UnifiedCacheManager,
     get_cache_manager,
     cleanup_all_caches,
 )
+
+
+class FakeCacheSource:
+    def __init__(
+        self,
+        initial=None,
+        *,
+        auto_cleanup_result=None,
+        stats_result=None,
+        raise_on=None,
+    ):
+        self.store = dict(initial or {})
+        self.auto_cleanup_result = auto_cleanup_result
+        self.stats_result = stats_result
+        self.raise_on = set(raise_on or [])
+        self.last_set = None
+        self.last_delete = None
+        self.clear_all_called = False
+        self.clear_cache_called = False
+        self.clear_called = False
+        self.cleanup_calls = []
+
+    def get(self, key):
+        if "get" in self.raise_on:
+            raise RuntimeError("get fail")
+        return self.store.get(key)
+
+    def set(self, key, value, ttl_hours=None):
+        if "set" in self.raise_on:
+            raise RuntimeError("set fail")
+        self.last_set = {"key": key, "value": value, "ttl_hours": ttl_hours}
+        self.store[key] = value
+
+    def delete(self, key):
+        if "delete" in self.raise_on:
+            raise RuntimeError("delete fail")
+        self.last_delete = key
+        self.store.pop(key, None)
+
+    def auto_cleanup(self, ttl_days=None, max_size_mb=None, min_keep_entries=None):
+        if "auto_cleanup" in self.raise_on:
+            raise RuntimeError("cleanup fail")
+        self.cleanup_calls.append(
+            {
+                "ttl_days": ttl_days,
+                "max_size_mb": max_size_mb,
+                "min_keep_entries": min_keep_entries,
+            }
+        )
+        return self.auto_cleanup_result or {"total_deleted": 0, "total_freed_mb": 0.0}
+
+    def clear_all(self, confirm=False):
+        if "clear_all" in self.raise_on:
+            raise RuntimeError("clear all fail")
+        self.clear_all_called = confirm
+        self.store.clear()
+
+    def clear_cache(self):
+        if "clear_cache" in self.raise_on:
+            raise RuntimeError("clear cache fail")
+        self.clear_cache_called = True
+        self.store.clear()
+
+    def clear(self):
+        if "clear" in self.raise_on:
+            raise RuntimeError("clear fail")
+        self.clear_called = True
+        self.store.clear()
+
+    def get_stats(self):
+        if "get_stats" in self.raise_on:
+            raise RuntimeError("stats fail")
+        if self.stats_result is not None:
+            return self.stats_result
+        return {
+            "memory_cache_entries": len(self.store),
+            "index_entries": [],
+            "total_size_mb": 0.0,
+            "hit_rate": "0%",
+        }
+
+    def __len__(self):
+        return len(self.store)
 
 
 # ──────────────────────────────
@@ -81,8 +163,7 @@ def test_unregister_nonexistent_is_noop():
 
 def test_get_from_specific_source():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.get.return_value = "hit"
+    cache = FakeCacheSource({"key1": "hit"})
     mgr.register_cache_source("main", cache)
     result = mgr.get("key1", source="main")
     assert result == "hit"
@@ -103,10 +184,8 @@ def test_get_from_specific_source_no_get_method():
 
 def test_get_searches_all_sources():
     mgr = UnifiedCacheManager()
-    cache1 = MagicMock()
-    cache1.get.return_value = None
-    cache2 = MagicMock()
-    cache2.get.return_value = "found"
+    cache1 = FakeCacheSource()
+    cache2 = FakeCacheSource({"key1": "found"})
     mgr.register_cache_source("c1", cache1)
     mgr.register_cache_source("c2", cache2)
     result = mgr.get("key1")
@@ -115,8 +194,7 @@ def test_get_searches_all_sources():
 
 def test_get_returns_none_when_all_miss():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.get.return_value = None
+    cache = FakeCacheSource()
     mgr.register_cache_source("main", cache)
     result = mgr.get("missing")
     assert result is None
@@ -136,10 +214,10 @@ def test_get_skips_sources_without_get():
 
 def test_set_to_specific_source():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
+    cache = FakeCacheSource()
     mgr.register_cache_source("main", cache)
     mgr.set("key", "value", source="main", ttl_hours=2)
-    cache.set.assert_called_once_with("key", "value", ttl_hours=2)
+    assert cache.last_set == {"key": "key", "value": "value", "ttl_hours": 2}
 
 
 def test_set_specific_source_not_found():
@@ -150,20 +228,18 @@ def test_set_specific_source_not_found():
 
 def test_set_to_first_available_source():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
+    cache = FakeCacheSource()
     mgr.register_cache_source("main", cache)
     mgr.set("key", "value")
-    assert cache.set.called
+    assert cache.store["key"] == "value"
 
 
 def test_set_uses_default_ttl_when_none():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
+    cache = FakeCacheSource()
     mgr.register_cache_source("main", cache)
     mgr.set("key", "value")
-    # ttl_hours should be default_ttl_days * 24 = 168
-    call_kwargs = cache.set.call_args[1]
-    assert call_kwargs["ttl_hours"] == 7 * 24
+    assert cache.last_set["ttl_hours"] == 7 * 24
 
 
 def test_set_skips_no_set_method():
@@ -180,10 +256,11 @@ def test_set_skips_no_set_method():
 
 def test_delete_from_specific_source():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
+    cache = FakeCacheSource({"key": "value"})
     mgr.register_cache_source("main", cache)
     mgr.delete("key", source="main")
-    cache.delete.assert_called_once_with("key")
+    assert cache.last_delete == "key"
+    assert "key" not in cache.store
 
 
 def test_delete_from_specific_source_not_found():
@@ -193,13 +270,13 @@ def test_delete_from_specific_source_not_found():
 
 def test_delete_from_all_sources():
     mgr = UnifiedCacheManager()
-    c1 = MagicMock()
-    c2 = MagicMock()
+    c1 = FakeCacheSource({"key": "value1"})
+    c2 = FakeCacheSource({"key": "value2"})
     mgr.register_cache_source("c1", c1)
     mgr.register_cache_source("c2", c2)
     mgr.delete("key")
-    c1.delete.assert_called_once_with("key")
-    c2.delete.assert_called_once_with("key")
+    assert c1.last_delete == "key"
+    assert c2.last_delete == "key"
 
 
 def test_delete_skips_no_delete_method():
@@ -222,18 +299,21 @@ def test_cleanup_all_no_sources():
 
 def test_cleanup_all_with_auto_cleanup():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.auto_cleanup.return_value = {"total_deleted": 5, "total_freed_mb": 1.5}
+    cache = FakeCacheSource(auto_cleanup_result={"total_deleted": 5, "total_freed_mb": 1.5})
     mgr.register_cache_source("main", cache)
     result = mgr.cleanup_all(ttl_days=3, max_size_mb=100)
     assert result["total_deleted"] == 5
     assert result["total_freed_mb"] == 1.5
+    assert cache.cleanup_calls[-1] == {
+        "ttl_days": 3,
+        "max_size_mb": 100,
+        "min_keep_entries": mgr.min_keep_entries,
+    }
 
 
 def test_cleanup_all_exception_is_captured():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.auto_cleanup.side_effect = RuntimeError("oops")
+    cache = FakeCacheSource(raise_on={"auto_cleanup"})
     mgr.register_cache_source("bad", cache)
     result = mgr.cleanup_all()
     assert "error" in result["details"]["bad"]
@@ -246,19 +326,30 @@ def test_cleanup_all_exception_is_captured():
 
 def test_cleanup_single_auto_cleanup():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.auto_cleanup.return_value = {"total_deleted": 3, "total_freed_mb": 0.5}
+    cache = FakeCacheSource(auto_cleanup_result={"total_deleted": 3, "total_freed_mb": 0.5})
     r = mgr._cleanup_single_source("name", cache, 7, 500)
     assert r["deleted"] == 3
+    assert cache.cleanup_calls[-1]["ttl_days"] == 7
 
 
 def test_cleanup_single_clear_with_len():
     mgr = UnifiedCacheManager()
-    cache = MagicMock(spec=["clear", "__len__"])
-    cache.__len__ = MagicMock(return_value=10)
+    class ClearableLenCache:
+        def __init__(self):
+            self.store = {"a": 1, "b": 2, "c": 3}
+            self.clear_called = False
+
+        def __len__(self):
+            return len(self.store)
+
+        def clear(self):
+            self.clear_called = True
+            self.store.clear()
+
+    cache = ClearableLenCache()
     r = mgr._cleanup_single_source("name", cache, 7, 500)
-    assert r["deleted"] == 10
-    cache.clear.assert_called_once()
+    assert r["deleted"] == 3
+    assert cache.clear_called is True
 
 
 def test_cleanup_single_clear_no_len():
@@ -298,10 +389,10 @@ def test_clear_all_requires_confirm():
 
 def test_clear_all_calls_clear_all_on_cache():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
+    cache = FakeCacheSource({"a": 1})
     mgr.register_cache_source("main", cache)
     mgr.clear_all(confirm=True)
-    cache.clear_all.assert_called_once_with(confirm=True)
+    assert cache.clear_all_called is True
 
 
 def test_clear_all_falls_back_to_clear_cache():
@@ -327,8 +418,7 @@ def test_clear_all_falls_back_to_clear():
 
 def test_clear_all_exception_is_swallowed():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.clear_all.side_effect = RuntimeError("bad")
+    cache = FakeCacheSource({"a": 1}, raise_on={"clear_all"})
     mgr.register_cache_source("bad", cache)
     # Should not raise
     assert mgr.clear_all(confirm=True) is True
@@ -348,13 +438,14 @@ def test_get_stats_no_sources():
 
 def test_get_stats_with_cache_manager_source():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.get_stats.return_value = {
-        "memory_cache_entries": 5,
-        "index_entries": ["a", "b"],
-        "total_size_mb": 1.2,
-        "hit_rate": "80%",
-    }
+    cache = FakeCacheSource(
+        stats_result={
+            "memory_cache_entries": 5,
+            "index_entries": ["a", "b"],
+            "total_size_mb": 1.2,
+            "hit_rate": "80%",
+        }
+    )
     mgr.register_cache_source("main", cache)
     stats = mgr.get_stats()
     assert stats["sources"]["main"]["memory_entries"] == 5
@@ -382,8 +473,7 @@ def test_get_stats_with_len_source():
 
 def test_get_stats_source_exception():
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.get_stats.side_effect = RuntimeError("oops")
+    cache = FakeCacheSource(raise_on={"get_stats"})
     mgr.register_cache_source("bad", cache)
     stats = mgr.get_stats()
     assert "error" in stats["sources"]["bad"]
@@ -392,13 +482,14 @@ def test_get_stats_source_exception():
 def test_get_stats_index_entries_non_list():
     """index_entries 非 list 時，len() 拋出 TypeError，被 get_stats 捕獲後回傳 error。"""
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.get_stats.return_value = {
-        "memory_cache_entries": 2,
-        "index_entries": 5,  # not a list → len(5) raises TypeError
-        "total_size_mb": 0.0,
-        "hit_rate": "0%",
-    }
+    cache = FakeCacheSource(
+        stats_result={
+            "memory_cache_entries": 2,
+            "index_entries": 5,  # not a list → len(5) raises TypeError
+            "total_size_mb": 0.0,
+            "hit_rate": "0%",
+        }
+    )
     mgr.register_cache_source("main", cache)
     stats = mgr.get_stats()
     # TypeError is caught, so source shows error dict
@@ -420,8 +511,7 @@ def test_print_stats_runs_without_error(capsys):
 
 def test_print_stats_shows_error_source(capsys):
     mgr = UnifiedCacheManager()
-    cache = MagicMock()
-    cache.get_stats.side_effect = RuntimeError("crash")
+    cache = FakeCacheSource(raise_on={"get_stats"})
     mgr.register_cache_source("bad", cache)
     mgr.print_stats()
     captured = capsys.readouterr()

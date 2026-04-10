@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import src.models.json_database as json_database
 from src.models.json_database import JSONDBManager
 from src.models.json_types import (
     JSONDatabaseError,
@@ -283,3 +284,84 @@ class TestJSONDatabase:
         assert analysis["studio_distribution"]["S1"]["total_count"] == 3
         assert analysis["studio_distribution"]["S1"]["primary_count"] == 3
         assert analysis["studio_distribution"]["S1"]["collaboration_count"] == 0
+
+    def test_add_or_update_actress_updates_memory_cache(self, db_manager, monkeypatch):
+        captured = {}
+        actress = {"id": "actress-001", "name": "測試女優", "aliases": ["別名"]}
+
+        def fake_update_actress(actress_id, actress_info, data_dir):
+            captured["actress_id"] = actress_id
+            captured["actress_info"] = actress_info
+            captured["data_dir"] = data_dir
+            return True
+
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_update_actress",
+            fake_update_actress,
+        )
+
+        result = db_manager.add_or_update_actress(actress)
+
+        assert result == "actress-001"
+        assert captured["actress_id"] == "actress-001"
+        assert captured["actress_info"] == actress
+        assert Path(captured["data_dir"]) == Path(db_manager.data_dir)
+        assert db_manager.data["actresses"]["actress-001"] == actress
+
+    def test_get_actress_info_returns_none_for_not_found(self, db_manager, monkeypatch):
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_get_actress",
+            lambda actress_id, data_dir: (_ for _ in ()).throw(
+                json_database._GoBridgeNotFoundError("not found")
+            ),
+        )
+
+        assert db_manager.get_actress_info("missing-actress") is None
+
+    def test_delete_actress_removes_cache_and_links(self, db_manager, monkeypatch):
+        db_manager.data["actresses"]["actress-001"] = {"id": "actress-001", "name": "測試女優"}
+        db_manager.data["links"] = [
+            {"video_code": "TEST-001", "actress_id": "actress-001"},
+            {"video_code": "TEST-002", "actress_id": "actress-999"},
+        ]
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_delete_actress",
+            lambda actress_id, data_dir: True,
+        )
+
+        result = db_manager.delete_actress("actress-001")
+
+        assert result is True
+        assert "actress-001" not in db_manager.data["actresses"]
+        assert db_manager.data["links"] == [
+            {"video_code": "TEST-002", "actress_id": "actress-999"}
+        ]
+
+    def test_apply_video_filters_supports_studio_and_date_bounds(self):
+        videos = [
+            {"code": "A", "studio": "S1", "release_date": "2024-01-01"},
+            {"code": "B", "studio": "S1", "release_date": "2024-03-01"},
+            {"code": "C", "studio": "S2", "release_date": "2024-02-01"},
+        ]
+
+        filtered = JSONDBManager._apply_video_filters(
+            videos,
+            {
+                "studio": "S1",
+                "release_date_after": "2024-02-01",
+                "release_date_before": "2024-03-31",
+            },
+        )
+
+        assert filtered == [{"code": "B", "studio": "S1", "release_date": "2024-03-01"}]
+
+    def test_empty_data_file_initializes_empty_database(self, temp_db_dir):
+        data_file = Path(temp_db_dir) / "data.json"
+        data_file.parent.mkdir(parents=True, exist_ok=True)
+        data_file.write_text("", encoding="utf-8")
+
+        manager = JSONDBManager(temp_db_dir)
+
+        assert manager.data["videos"] == {}
+        assert manager.data["actresses"] == {}
+        assert manager.data["links"] == []

@@ -5,7 +5,8 @@
 import asyncio
 import time
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
+from types import SimpleNamespace
 from src.scrapers.async_scraper import (
     AsyncWebScraper,
     BatchWebScraper,
@@ -51,8 +52,10 @@ def _result(status_code=None, error=None) -> ScrapingResult:
 
 @pytest.fixture
 def scraper():
-    with patch("src.scrapers.async_scraper.get_global_rate_limiter", return_value=MagicMock()), \
-         patch("src.scrapers.async_scraper.get_global_cache_manager", return_value=MagicMock()):
+    fake_rate_limiter = SimpleNamespace(get_stats=lambda: {})
+    fake_cache_manager = SimpleNamespace(get_stats=lambda: {})
+    with patch("src.scrapers.async_scraper.get_global_rate_limiter", return_value=fake_rate_limiter), \
+         patch("src.scrapers.async_scraper.get_global_cache_manager", return_value=fake_cache_manager):
         return AsyncWebScraper()
 
 
@@ -238,9 +241,28 @@ def test_scrape_multiple_empty_urls(scraper):
 
 @pytest.fixture
 def batch_scraper():
-    with patch("src.scrapers.async_scraper.get_global_rate_limiter", return_value=MagicMock()), \
-         patch("src.scrapers.async_scraper.get_global_cache_manager", return_value=MagicMock()):
+    fake_rate_limiter = SimpleNamespace(get_stats=lambda: {})
+    fake_cache_manager = SimpleNamespace(get_stats=lambda: {})
+    with patch("src.scrapers.async_scraper.get_global_rate_limiter", return_value=fake_rate_limiter), \
+         patch("src.scrapers.async_scraper.get_global_cache_manager", return_value=fake_cache_manager):
         return BatchWebScraper(batch_size=3)
+
+
+class FakeBatchWorker:
+    def __init__(self, results_by_url):
+        self.results_by_url = results_by_url
+        self.calls = []
+
+    def scrape_multiple_sync(self, urls, progress_callback=None):
+        self.calls.append(list(urls))
+        results = []
+        for url in urls:
+            result = self.results_by_url[url]
+            results.append(result)
+            if progress_callback:
+                status = "✅ 成功" if result.success else f"❌ 失敗: {result.error}"
+                progress_callback(f"{url}: {status}")
+        return results
 
 
 def test_batch_scraper_empty_urls(batch_scraper):
@@ -255,21 +277,25 @@ def test_batch_scraper_calls_progress_callback(batch_scraper):
     def on_progress(msg):
         called.append(msg)
 
-    # mock scraper 內部呼叫，避免真實網路
-    batch_scraper.scraper.scrape_multiple_sync = MagicMock(
-        return_value=[ScrapingResult(url="http://a.com", success=True)]
+    batch_scraper.scraper = FakeBatchWorker(
+        {
+            "http://a.com": ScrapingResult(url="http://a.com", success=True),
+        }
     )
 
     with patch("time.sleep"):  # 跳過批次間 sleep
         batch_scraper.scrape_in_batches(["http://a.com"], progress_callback=on_progress)
 
-    assert len(called) > 0
+    assert any("處理批次 1/1" in msg for msg in called)
+    assert any("http://a.com: ✅ 成功" in msg for msg in called)
 
 
 def test_batch_scraper_no_inter_batch_pause_for_single_batch(batch_scraper):
     """只有一批時不應呼叫 time.sleep。"""
-    batch_scraper.scraper.scrape_multiple_sync = MagicMock(
-        return_value=[ScrapingResult(url="http://a.com", success=True)]
+    batch_scraper.scraper = FakeBatchWorker(
+        {
+            "http://a.com": ScrapingResult(url="http://a.com", success=True),
+        }
     )
 
     with patch("time.sleep") as mock_sleep:
@@ -280,8 +306,13 @@ def test_batch_scraper_no_inter_batch_pause_for_single_batch(batch_scraper):
 
 def test_batch_scraper_pauses_between_batches(batch_scraper):
     """多批時應呼叫 time.sleep 進行批次間暫停。"""
-    batch_scraper.scraper.scrape_multiple_sync = MagicMock(
-        return_value=[ScrapingResult(url="http://x.com", success=True)] * 3
+    batch_scraper.scraper = FakeBatchWorker(
+        {
+            "http://a.com": ScrapingResult(url="http://a.com", success=True),
+            "http://b.com": ScrapingResult(url="http://b.com", success=True),
+            "http://c.com": ScrapingResult(url="http://c.com", success=True),
+            "http://d.com": ScrapingResult(url="http://d.com", success=True),
+        }
     )
 
     urls = ["http://a.com", "http://b.com", "http://c.com", "http://d.com"]  # 4 urls, batch_size=3 → 2 batches
@@ -290,21 +321,30 @@ def test_batch_scraper_pauses_between_batches(batch_scraper):
         batch_scraper.scrape_in_batches(urls)
 
     mock_sleep.assert_called_once_with(2.0)
+    assert batch_scraper.scraper.calls == [
+        ["http://a.com", "http://b.com", "http://c.com"],
+        ["http://d.com"],
+    ]
 
 
 def test_batch_scraper_collects_all_results(batch_scraper):
     """所有批次的結果應被合併回傳。"""
-    batch_scraper.scraper.scrape_multiple_sync = MagicMock(
-        side_effect=[
-            [ScrapingResult(url="http://a.com", success=True)] * 3,
-            [ScrapingResult(url="http://d.com", success=False)],
-        ]
+    batch_scraper.scraper = FakeBatchWorker(
+        {
+            "http://a.com": ScrapingResult(url="http://a.com", success=True),
+            "http://b.com": ScrapingResult(url="http://b.com", success=True),
+            "http://c.com": ScrapingResult(url="http://c.com", success=True),
+            "http://d.com": ScrapingResult(
+                url="http://d.com", success=False, error="timeout"
+            ),
+        }
     )
 
-    urls = ["http://a.com"] * 4  # 2 batches (3+1)
+    urls = ["http://a.com", "http://b.com", "http://c.com", "http://d.com"]
 
     with patch("time.sleep"):
         results = batch_scraper.scrape_in_batches(urls)
 
     assert len(results) == 4
     assert sum(1 for r in results if r.success) == 3
+    assert [r.url for r in results] == urls

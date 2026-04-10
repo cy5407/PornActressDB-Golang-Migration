@@ -7,7 +7,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -126,13 +126,31 @@ def test_get_file_path_creates_dirs(tmp_path, monkeypatch):
 
 
 # ============================================================
-# set / get / delete (public API) - mocking module-level Go funcs
+# set / get / delete (public API)
+# 僅在 Go 邊界做替身，實際跑本層 payload / memory cache 邏輯
 # ============================================================
 
-def test_set_delegates_to_set_go(tmp_path, monkeypatch):
-    mgr = _make_cache_manager(tmp_path, monkeypatch)
-    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_set", lambda *a, **kw: True)
-    assert mgr.set("test-key", {"data": 1}) is True
+def test_set_public_api_writes_real_payload_and_updates_memory_cache(tmp_path, monkeypatch):
+    mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=True)
+    captured = {}
+
+    def fake_go_cache_set(key, payload, ttl_hours, cache_dir):
+        captured["key"] = key
+        captured["payload"] = payload
+        captured["ttl_hours"] = ttl_hours
+        captured["cache_dir"] = cache_dir
+        return True
+
+    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_set", fake_go_cache_set)
+
+    assert mgr.set("test-key", {"data": 1}, ttl_hours=2) is True
+    assert captured["key"] == "test-key"
+    assert captured["ttl_hours"] == 2
+    assert captured["cache_dir"] == str(tmp_path)
+    assert captured["payload"][0] == 0  # uncompressed flag
+
+    cache_key = mgr._generate_cache_key("test-key")
+    assert mgr.memory_cache[cache_key].value == {"data": 1}
 
 
 def test_set_returns_false_on_go_exception(tmp_path, monkeypatch):
@@ -143,6 +161,19 @@ def test_set_returns_false_on_go_exception(tmp_path, monkeypatch):
 
     monkeypatch.setattr("src.scrapers.cache_manager._go_cache_set", _raise)
     assert mgr.set("test-key", {"data": 1}) is False
+
+
+def test_get_public_api_decodes_real_payload_and_populates_memory_cache(tmp_path, monkeypatch):
+    mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=True)
+    monkeypatch.setattr(
+        "src.scrapers.cache_manager._go_cache_get",
+        lambda *a, **kw: _make_payload({"name": "Alice"}, compressed=False),
+    )
+
+    assert mgr.get("test-key") == {"name": "Alice"}
+
+    cache_key = mgr._generate_cache_key("test-key")
+    assert mgr.memory_cache[cache_key].value == {"name": "Alice"}
 
 
 def test_get_returns_none_on_not_found(tmp_path, monkeypatch):
@@ -169,10 +200,28 @@ def test_get_returns_none_on_go_error(tmp_path, monkeypatch):
     assert mgr.get("broken-key") is None
 
 
-def test_delete_returns_true(tmp_path, monkeypatch):
-    mgr = _make_cache_manager(tmp_path, monkeypatch)
-    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_delete", lambda *a, **kw: True)
+def test_delete_public_api_calls_go_and_clears_memory_cache(tmp_path, monkeypatch):
+    mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=True)
+    cache_key = mgr._generate_cache_key("test-key")
+    mgr.memory_cache[cache_key] = CacheEntry(
+        key=cache_key,
+        value={"cached": True},
+        created_at=time.time(),
+        ttl_seconds=3600,
+        last_accessed=time.time(),
+    )
+    captured = {}
+
+    def fake_go_cache_delete(key, cache_dir):
+        captured["key"] = key
+        captured["cache_dir"] = cache_dir
+        return True
+
+    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_delete", fake_go_cache_delete)
+
     assert mgr.delete("test-key") is True
+    assert captured == {"key": "test-key", "cache_dir": str(tmp_path)}
+    assert cache_key not in mgr.memory_cache
 
 
 def test_delete_returns_false_on_exception(tmp_path, monkeypatch):
@@ -191,8 +240,15 @@ def test_delete_returns_false_on_exception(tmp_path, monkeypatch):
 
 def test_set_go_too_large_returns_false(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch, max_file_size_mb=0)
-    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_set", lambda *a, **kw: True)
+    go_called = {"value": False}
+
+    def fake_go_cache_set(*args, **kwargs):
+        go_called["value"] = True
+        return True
+
+    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_set", fake_go_cache_set)
     assert mgr._set_go("key", {"data": "x" * 100}) is False
+    assert go_called["value"] is False
 
 
 def test_set_go_go_returns_false_propagates(tmp_path, monkeypatch):
@@ -201,11 +257,42 @@ def test_set_go_go_returns_false_propagates(tmp_path, monkeypatch):
     assert mgr._set_go("key", {"data": 1}) is False
 
 
-def test_set_go_increments_stats(tmp_path, monkeypatch):
+def test_set_go_captures_uncompressed_payload_and_increments_stats(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=True)
-    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_set", lambda *a, **kw: True)
-    mgr._set_go("key", {"data": "hello"})
+    captured = {}
+
+    def fake_go_cache_set(key, payload, ttl_hours, cache_dir):
+        captured["key"] = key
+        captured["payload"] = payload
+        captured["ttl_hours"] = ttl_hours
+        captured["cache_dir"] = cache_dir
+        return True
+
+    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_set", fake_go_cache_set)
+    mgr._set_go("key", {"data": "hello"}, ttl_hours=3)
+
     assert mgr.stats["sets"] == 1
+    assert captured["key"] == "key"
+    assert captured["ttl_hours"] == 3
+    assert captured["cache_dir"] == str(tmp_path)
+    assert captured["payload"][0] == 0
+    assert mgr._deserialize_value(captured["payload"][1:], False) == {"data": "hello"}
+
+
+def test_set_go_compresses_large_payload_when_effective(tmp_path, monkeypatch):
+    mgr = _make_cache_manager(tmp_path, monkeypatch, enable_compression=True)
+    captured = {}
+
+    def fake_go_cache_set(key, payload, ttl_hours, cache_dir):
+        captured["payload"] = payload
+        return True
+
+    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_set", fake_go_cache_set)
+    large_value = {"data": "x" * 5000}
+
+    assert mgr._set_go("large-key", large_value) is True
+    assert captured["payload"][0] == 1
+    assert mgr._deserialize_value(captured["payload"][1:], True) == large_value
 
 
 # ============================================================
@@ -246,18 +333,39 @@ def test_get_go_memory_cache_expired_evicted(tmp_path, monkeypatch):
 
 
 def test_get_go_disk_hit(tmp_path, monkeypatch):
-    mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=False)
+    mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=True)
     payload = _make_payload({"found": True}, compressed=False)
     monkeypatch.setattr("src.scrapers.cache_manager._go_cache_get", lambda *a, **kw: payload)
     result = mgr._get_go("disk-key")
     assert result == {"found": True}
     assert mgr.stats["disk_hits"] == 1
+    cache_key = mgr._generate_cache_key("disk-key")
+    assert mgr.memory_cache[cache_key].value == {"found": True}
+
+
+def test_get_go_disk_hit_compressed_payload(tmp_path, monkeypatch):
+    mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=False)
+    payload = _make_payload({"found": True, "large": "x" * 2000}, compressed=True)
+    monkeypatch.setattr("src.scrapers.cache_manager._go_cache_get", lambda *a, **kw: payload)
+    result = mgr._get_go("disk-key")
+    assert result["found"] is True
+    assert result["large"].startswith("x")
 
 
 def test_get_go_miss(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=False)
     monkeypatch.setattr("src.scrapers.cache_manager._go_cache_get", lambda *a, **kw: None)
     assert mgr._get_go("no-such-key") is None
+    assert mgr.stats["misses"] == 1
+
+
+def test_get_go_invalid_payload_counts_as_miss(tmp_path, monkeypatch):
+    mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=False)
+    monkeypatch.setattr(
+        "src.scrapers.cache_manager._go_cache_get",
+        lambda *a, **kw: b"\x00" + b"not valid json",
+    )
+    assert mgr._get_go("broken-key") is None
     assert mgr.stats["misses"] == 1
 
 
@@ -268,7 +376,7 @@ def test_get_go_miss(tmp_path, monkeypatch):
 def test_delete_go_removes_memory_cache(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=True)
     cache_key = mgr._generate_cache_key("del-key")
-    mgr.memory_cache[cache_key] = MagicMock()
+    mgr.memory_cache[cache_key] = object()
     monkeypatch.setattr("src.scrapers.cache_manager._go_cache_delete", lambda *a, **kw: True)
     result = mgr._delete_go("del-key")
     assert result is True
@@ -359,7 +467,7 @@ def test_cleanup_expired_memory_entries_disabled(tmp_path, monkeypatch):
 def test_clear_cache_clears_memory_and_disk_files(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=True, enable_disk_cache=True)
     cache_key = mgr._generate_cache_key("k")
-    mgr.memory_cache[cache_key] = MagicMock()
+    mgr.memory_cache[cache_key] = object()
     fake_cache = tmp_path / "ab" / "cd" / "fake.cache"
     fake_cache.parent.mkdir(parents=True)
     fake_cache.write_bytes(b"data")
@@ -393,14 +501,30 @@ def test_get_stats_calculates_hit_rate(tmp_path, monkeypatch):
 # 這些方法使用 local import，需要 patch src.services.go_cli.*
 # ============================================================
 
-def test_cleanup_expired_success(tmp_path, monkeypatch):
+def test_cleanup_expired_normalizes_go_result_and_passes_parameters(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch)
-    fake = {"deleted_count": 5, "freed_bytes": 1024, "remaining_count": 10}
-    with patch("src.services.go_cli.cache_prune", return_value=fake):
+    captured = {}
+
+    def fake_cache_prune(cache_dir, ttl_days, max_size_mb, min_keep):
+        captured.update(
+            {
+                "cache_dir": cache_dir,
+                "ttl_days": ttl_days,
+                "max_size_mb": max_size_mb,
+                "min_keep": min_keep,
+            }
+        )
+        return {"deleted_count": 5, "freed_bytes": "1024", "remaining_count": 10}
+
+    with patch("src.services.go_cli.cache_prune", side_effect=fake_cache_prune):
         result = mgr.cleanup_expired(ttl_days=7)
-    assert result["deleted_files"] == 5
-    assert result["freed_bytes"] == 1024
-    assert result["remaining_files"] == 10
+    assert captured == {
+        "cache_dir": str(tmp_path),
+        "ttl_days": 7,
+        "max_size_mb": 9999,
+        "min_keep": 100,
+    }
+    assert result == {"deleted_files": 5, "freed_bytes": 1024, "remaining_files": 10}
 
 
 def test_cleanup_expired_raises_on_none(tmp_path, monkeypatch):
@@ -417,11 +541,34 @@ def test_cleanup_expired_raises_on_exception(tmp_path, monkeypatch):
             mgr.cleanup_expired()
 
 
-def test_cleanup_by_size_success(tmp_path, monkeypatch):
+def test_cleanup_by_size_normalizes_go_result_and_passes_parameters(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch)
-    fake = {"deleted_count": 2, "freed_bytes": 512, "remaining_count": 8, "current_size_mb": 0.5}
-    with patch("src.services.go_cli.cache_prune", return_value=fake):
+    captured = {}
+
+    def fake_cache_prune(cache_dir, ttl_days, max_size_mb, min_keep):
+        captured.update(
+            {
+                "cache_dir": cache_dir,
+                "ttl_days": ttl_days,
+                "max_size_mb": max_size_mb,
+                "min_keep": min_keep,
+            }
+        )
+        return {
+            "deleted_count": 2,
+            "freed_bytes": 512,
+            "remaining_count": 8,
+            "current_size_mb": 0.5,
+        }
+
+    with patch("src.services.go_cli.cache_prune", side_effect=fake_cache_prune):
         result = mgr.cleanup_by_size(max_size_mb=100)
+    assert captured == {
+        "cache_dir": str(tmp_path),
+        "ttl_days": 9999,
+        "max_size_mb": 100,
+        "min_keep": 100,
+    }
     assert result["deleted_files"] == 2
     assert result["current_size_mb"] == 0.5
 
@@ -433,13 +580,16 @@ def test_cleanup_by_size_raises_on_none(tmp_path, monkeypatch):
             mgr.cleanup_by_size()
 
 
-def test_get_cache_stats_success(tmp_path, monkeypatch):
+def test_get_cache_stats_merges_go_stats_with_memory_entries(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch)
-    fake = {"total_files": 10, "total_size_mb": 1.0}
+    mgr.memory_cache["k1"] = object()
+    mgr.memory_cache["k2"] = object()
+    fake = {"total_files": 10, "total_size_mb": 1.0, "index_entries": [{"key": "x"}]}
     with patch("src.services.go_cli.cache_get_stats", return_value=fake):
         result = mgr.get_cache_stats()
     assert result["total_files"] == 10
-    assert "memory_cache_entries" in result
+    assert result["memory_cache_entries"] == 2
+    assert result["index_entries"] == [{"key": "x"}]
 
 
 def test_get_cache_stats_raises_on_none(tmp_path, monkeypatch):
@@ -454,13 +604,21 @@ def test_clear_all_requires_confirm(tmp_path, monkeypatch):
     assert mgr.clear_all(confirm=False) is False
 
 
-def test_clear_all_success(tmp_path, monkeypatch):
+def test_clear_all_success_clears_memory_and_passes_dry_run_false(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch, enable_memory_cache=True)
-    mgr.memory_cache["k"] = MagicMock()
-    with patch("src.services.go_cli.cache_clear", return_value={"ok": True}):
+    mgr.memory_cache["k"] = object()
+    captured = {}
+
+    def fake_cache_clear(cache_dir, dry_run):
+        captured["cache_dir"] = cache_dir
+        captured["dry_run"] = dry_run
+        return {"ok": True}
+
+    with patch("src.services.go_cli.cache_clear", side_effect=fake_cache_clear):
         result = mgr.clear_all(confirm=True)
     assert result is True
     assert len(mgr.memory_cache) == 0
+    assert captured == {"cache_dir": str(tmp_path), "dry_run": False}
 
 
 def test_clear_all_raises_on_none(tmp_path, monkeypatch):
@@ -470,12 +628,31 @@ def test_clear_all_raises_on_none(tmp_path, monkeypatch):
             mgr.clear_all(confirm=True)
 
 
-def test_auto_cleanup_success(tmp_path, monkeypatch):
+def test_auto_cleanup_normalizes_go_result(tmp_path, monkeypatch):
     mgr = _make_cache_manager(tmp_path, monkeypatch)
-    fake = {"deleted_count": 3, "freed_bytes": 768}
-    with patch("src.services.go_cli.cache_prune", return_value=fake):
-        result = mgr.auto_cleanup()
+    captured = {}
+
+    def fake_cache_prune(cache_dir, ttl_days, max_size_mb, min_keep):
+        captured.update(
+            {
+                "cache_dir": cache_dir,
+                "ttl_days": ttl_days,
+                "max_size_mb": max_size_mb,
+                "min_keep": min_keep,
+            }
+        )
+        return {"deleted_count": 3, "freed_bytes": 1048576}
+
+    with patch("src.services.go_cli.cache_prune", side_effect=fake_cache_prune):
+        result = mgr.auto_cleanup(ttl_days=9, max_size_mb=123, min_keep_entries=7)
+    assert captured == {
+        "cache_dir": str(tmp_path),
+        "ttl_days": 9,
+        "max_size_mb": 123,
+        "min_keep": 7,
+    }
     assert result["total_deleted"] == 3
+    assert result["total_freed_mb"] == 1.0
 
 
 def test_auto_cleanup_raises_on_none(tmp_path, monkeypatch):
