@@ -20,6 +20,7 @@ def test_dockerfile_copies_pkg_sources_for_source_regression_tests():
     runtime_stage = dockerfile.split("FROM python:3.11-slim-bookworm AS runtime", 1)[1]
 
     assert "COPY pkg/ ./pkg/" in runtime_stage
+    assert "COPY .github/ ./.github/" in runtime_stage
 
 
 def test_go_lint_workflow_installs_linter_with_current_go_toolchain():
