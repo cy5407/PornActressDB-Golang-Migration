@@ -83,6 +83,6 @@ func buildRollbackSummary(result BatchResult) (string, string) {
 	case result.FailedCount > 0:
 		return fmt.Sprintf("回滾部分完成：%d 項成功，%d 項失敗（共 %d 項）", result.SuccessCount, result.FailedCount, result.TotalItems), "partial"
 	default:
-		return fmt.Sprintf("回滾完成：共 %d 項成功", result.SuccessCount), ""
+		return fmt.Sprintf("回滾完成：共 %d 項成功", result.SuccessCount), "completed"
 	}
 }

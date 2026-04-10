@@ -281,8 +281,8 @@ func TestBatchSearchAVWiki_NotFoundCreatesMinimalSourceStatusRecord(t *testing.T
 	if video.LastSearchDate == "" {
 		t.Fatal("expected last_search_date to use NewVideo defaults")
 	}
-	if video.SearchStatus != database.SearchStatusSuccess {
-		t.Fatalf("expected search_status to keep NewVideo default %q, got %q", database.SearchStatusSuccess, video.SearchStatus)
+	if video.SearchStatus != "searched_not_found" {
+		t.Fatalf("expected search_status=%q for not-found result, got %q", "searched_not_found", video.SearchStatus)
 	}
 	if video.Actresses == nil {
 		t.Fatal("expected actresses slice to be initialized, got nil")

@@ -724,6 +724,10 @@ func (a *App) persistBatchSearchResult(res SearchResult, source string) {
 		newVideo.SearchStatus = "searched_found"
 		newVideo.SearchMethod = res.Method
 		newVideo.LastSearchDate = now
+	} else if sourceStatus == batchSearchResultMiss {
+		newVideo.SearchStatus = "searched_not_found"
+	} else {
+		newVideo.SearchStatus = "search_error"
 	}
 	_ = a.db.AddVideo(newVideo)
 }
