@@ -410,8 +410,36 @@ function ActionToolbar() {
   }
 
   async function handleSearchAVWiki() {
-    const codes = await getSourceSearchCodes('AV-WIKI', 'avwiki_actress_status');
-    if (codes.length === 0) return;
+    const targets = getSearchTargets();
+    if (targets.length === 0) {
+      setStatusMessage('沒有可搜尋的項目', 'warning');
+      return;
+    }
+
+    const videoStates = await Promise.all(
+      targets.map(async ({ code }) => {
+        try {
+          const video = (await DbGetVideo(code)) as VideoDataWithSourceStatus | null;
+          return { code, video };
+        } catch {
+          return { code, video: null };
+        }
+      })
+    );
+
+    // 跳過：AV-WIKI 已找到 OR JAVDB 已找到（女優資料已存在）
+    const codes = videoStates
+      .filter(
+        ({ video }) =>
+          !isFoundSearchStatus(video?.['avwiki_actress_status']) &&
+          !isFoundSearchStatus(video?.['javdb_actress_status'])
+      )
+      .map(({ code }) => code);
+
+    if (codes.length === 0) {
+      setStatusMessage('AV-WIKI：沒有需要重新搜尋的項目', 'warning');
+      return;
+    }
     await runSourceSearch('AV-WIKI', codes, BatchSearchAVWiki);
   }
 
