@@ -123,35 +123,6 @@ function ActionToolbar() {
   const getSearchTargets = () =>
     scanResults.filter((r) => selectedCodes.size === 0 || selectedCodes.has(r.code));
 
-  async function getSourceSearchCodes(source: SearchSource, statusField: SearchStatusField) {
-    const targets = getSearchTargets();
-    if (targets.length === 0) {
-      setStatusMessage(`沒有可搜尋的項目`, 'warning');
-      return [];
-    }
-
-    const videoStates = await Promise.all(
-      targets.map(async ({ code }) => {
-        try {
-          const video = (await DbGetVideo(code)) as VideoDataWithSourceStatus | null;
-          return { code, video };
-        } catch {
-          return { code, video: null };
-        }
-      })
-    );
-
-    const codes = videoStates
-      .filter(({ video }) => !isFoundSearchStatus(video?.[statusField]))
-      .map(({ code }) => code);
-
-    if (codes.length === 0) {
-      setStatusMessage(`${source}：沒有需要重新搜尋的項目`, 'warning');
-    }
-
-    return codes;
-  }
-
   async function runSourceSearch(
     source: SearchSource,
     codes: string[],
@@ -409,7 +380,11 @@ function ActionToolbar() {
     resetProgress();
   }
 
-  async function handleSearchAVWiki() {
+  /** 通用單源搜尋：跳過任一來源已找到女優資料的影片 */
+  async function handleSourceSearch(
+    source: SearchSource,
+    searchFn: (codes: string[], workers: number) => Promise<backend.SearchResult[]>
+  ) {
     const targets = getSearchTargets();
     if (targets.length === 0) {
       setStatusMessage('沒有可搜尋的項目', 'warning');
@@ -427,7 +402,7 @@ function ActionToolbar() {
       })
     );
 
-    // 跳過：AV-WIKI 已找到 OR JAVDB 已找到（女優資料已存在）
+    // 跳過：任一來源已找到女優資料（無論搜尋順序）
     const codes = videoStates
       .filter(
         ({ video }) =>
@@ -437,44 +412,18 @@ function ActionToolbar() {
       .map(({ code }) => code);
 
     if (codes.length === 0) {
-      setStatusMessage('AV-WIKI：沒有需要重新搜尋的項目', 'warning');
+      setStatusMessage(`${source}：沒有需要重新搜尋的項目`, 'warning');
       return;
     }
-    await runSourceSearch('AV-WIKI', codes, BatchSearchAVWiki);
+    await runSourceSearch(source, codes, searchFn);
+  }
+
+  async function handleSearchAVWiki() {
+    await handleSourceSearch('AV-WIKI', BatchSearchAVWiki);
   }
 
   async function handleSearchJAVDB() {
-    const targets = getSearchTargets();
-    if (targets.length === 0) {
-      setStatusMessage('沒有可搜尋的項目', 'warning');
-      return;
-    }
-
-    const videoStates = await Promise.all(
-      targets.map(async ({ code }) => {
-        try {
-          const video = (await DbGetVideo(code)) as VideoDataWithSourceStatus | null;
-          return { code, video };
-        } catch {
-          return { code, video: null };
-        }
-      })
-    );
-
-    // 跳過：JAVDB 已找到 OR AV-WIKI 已找到（女優資料已存在）
-    const codes = videoStates
-      .filter(
-        ({ video }) =>
-          !isFoundSearchStatus(video?.['javdb_actress_status']) &&
-          !isFoundSearchStatus(video?.['avwiki_actress_status'])
-      )
-      .map(({ code }) => code);
-
-    if (codes.length === 0) {
-      setStatusMessage('JAVDB：沒有需要重新搜尋的項目', 'warning');
-      return;
-    }
-    await runSourceSearch('JAVDB', codes, BatchSearchJAVDB);
+    await handleSourceSearch('JAVDB', BatchSearchJAVDB);
   }
 
   async function handleMove() {
