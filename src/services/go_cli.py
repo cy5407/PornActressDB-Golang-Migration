@@ -16,6 +16,10 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+_CLASSIFIER_EXE = "classifier.exe"
+_DEFAULT_DATA_DIR = "data/json_db"
+_JSON_SUFFIX = ".json"
+
 _EXE_SEARCH_DONE = False
 _EXE_PATH: Optional[str] = None
 
@@ -34,21 +38,21 @@ def _resolve_exe(exe_path: str | None = None) -> Optional[str]:
     _EXE_SEARCH_DONE = True
     # 1. 優先從此檔案往上找專案根目錄
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    for name in ("classifier.exe", "classifier"):
+    for name in (_CLASSIFIER_EXE, "classifier"):
         candidate = os.path.join(root, name)
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             _EXE_PATH = candidate
             return _EXE_PATH
 
     # 2. 目前工作目錄
-    for name in ("classifier.exe", "classifier"):
+    for name in (_CLASSIFIER_EXE, "classifier"):
         candidate = os.path.join(os.getcwd(), name)
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             _EXE_PATH = candidate
             return _EXE_PATH
 
     # 3. PATH
-    for name in ("classifier.exe", "classifier"):
+    for name in (_CLASSIFIER_EXE, "classifier"):
         found = shutil.which(name)
         if found:
             _EXE_PATH = found
@@ -147,11 +151,11 @@ def identify_studio(code: str) -> Optional[str]:
 # 資料庫操作
 # ---------------------------------------------------------------------------
 
-def db_get_video(code: str, data_dir: str = "data/json_db") -> Optional[dict]:
+def db_get_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> Optional[dict]:
     """取得影片資訊，找不到回傳 None。"""
     try:
         cmd = ["db", "get"]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         cmd.append(code)
         return run(cmd)
@@ -162,18 +166,18 @@ def db_get_video(code: str, data_dir: str = "data/json_db") -> Optional[dict]:
         raise
 
 
-def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> bool:
+def db_update_video(code: str, video: dict, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
     """更新影片資訊，成功回傳 True。"""
     temp_file = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
+            mode="w", suffix=_JSON_SUFFIX, delete=False, encoding="utf-8"
         ) as f:
             json.dump(video, f, ensure_ascii=False, indent=2)
             temp_file = f.name
 
         cmd = ["db", "update"]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         cmd.extend([code, temp_file])
         run(cmd)
@@ -186,11 +190,11 @@ def db_update_video(code: str, video: dict, data_dir: str = "data/json_db") -> b
             os.unlink(temp_file)
 
 
-def db_delete_video(code: str, data_dir: str = "data/json_db") -> bool:
+def db_delete_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
     """刪除影片，成功回傳 True。"""
     try:
         cmd = ["db", "delete"]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         cmd.append(code)
         run(cmd)
@@ -200,11 +204,11 @@ def db_delete_video(code: str, data_dir: str = "data/json_db") -> bool:
         return False
 
 
-def db_get_all_videos(data_dir: str = "data/json_db") -> list[dict]:
+def db_get_all_videos(data_dir: str = _DEFAULT_DATA_DIR) -> list[dict]:
     """取得所有影片清單。"""
     try:
         cmd = ["db", "list", "--full"]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         data = run(cmd)
         if isinstance(data, list):
@@ -215,11 +219,11 @@ def db_get_all_videos(data_dir: str = "data/json_db") -> list[dict]:
         return []
 
 
-def db_compact_journal(data_dir: str = "data/json_db") -> bool:
+def db_compact_journal(data_dir: str = _DEFAULT_DATA_DIR) -> bool:
     """合併 journal 到主資料庫。"""
     try:
         cmd = ["db", "compact", "-json"]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         data = run(cmd)
         return bool(data.get("success", True)) if isinstance(data, dict) else True
@@ -326,10 +330,10 @@ def cache_clear(cache_dir: str = "cache", dry_run: bool = False) -> dict:
 
 
 
-def db_backup_create(data_dir: str = "data/json_db") -> dict:
+def db_backup_create(data_dir: str = _DEFAULT_DATA_DIR) -> dict:
     try:
         cmd = ["db", "backup-create"]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         return run(cmd)
     except GoError as e:
@@ -337,10 +341,10 @@ def db_backup_create(data_dir: str = "data/json_db") -> dict:
         return {}
 
 
-def db_backup_list(data_dir: str = "data/json_db") -> list:
+def db_backup_list(data_dir: str = _DEFAULT_DATA_DIR) -> list:
     try:
         cmd = ["db", "backup-list"]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         data = run(cmd)
         if isinstance(data, dict):
@@ -352,10 +356,10 @@ def db_backup_list(data_dir: str = "data/json_db") -> list:
         return []
 
 
-def db_backup_restore(backup_file: str, data_dir: str = "data/json_db") -> dict:
+def db_backup_restore(backup_file: str, data_dir: str = _DEFAULT_DATA_DIR) -> dict:
     try:
         cmd = ["db", "backup-restore", "-backup-path", backup_file]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         return run(cmd)
     except GoError as e:
@@ -363,10 +367,10 @@ def db_backup_restore(backup_file: str, data_dir: str = "data/json_db") -> dict:
         return {}
 
 
-def db_backup_cleanup(data_dir: str = "data/json_db", **kwargs) -> int:
+def db_backup_cleanup(data_dir: str = _DEFAULT_DATA_DIR, **kwargs) -> int:
     try:
         cmd = ["db", "backup-cleanup"]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         if "days" in kwargs:
             cmd.extend(["-days", str(kwargs["days"])])
@@ -379,10 +383,10 @@ def db_backup_cleanup(data_dir: str = "data/json_db", **kwargs) -> int:
         return 0
 
 
-def db_get_actress(name: str, data_dir: str = "data/json_db") -> Optional[dict]:
+def db_get_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> Optional[dict]:
     try:
         cmd = ["db", "get-actress", name]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         return run(cmd)
     except GoError as e:
@@ -392,17 +396,17 @@ def db_get_actress(name: str, data_dir: str = "data/json_db") -> Optional[dict]:
         return None
 
 
-def db_update_actress(name: str, data: dict, data_dir: str = "data/json_db") -> bool:
+def db_update_actress(name: str, data: dict, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
     temp_file = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
+            mode="w", suffix=_JSON_SUFFIX, delete=False, encoding="utf-8"
         ) as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
             temp_file = f.name
 
         cmd = ["db", "update-actress", name, temp_file]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         run(cmd)
         return True
@@ -414,10 +418,10 @@ def db_update_actress(name: str, data: dict, data_dir: str = "data/json_db") -> 
             os.unlink(temp_file)
 
 
-def db_delete_actress(name: str, data_dir: str = "data/json_db") -> bool:
+def db_delete_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
     try:
         cmd = ["db", "delete-actress", name]
-        if data_dir != "data/json_db":
+        if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         run(cmd)
         return True
@@ -478,7 +482,7 @@ def batch_move(
     temp_file = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
+            mode="w", suffix=_JSON_SUFFIX, delete=False, encoding="utf-8"
         ) as f:
             json.dump(items, f, ensure_ascii=False)
             temp_file = f.name
