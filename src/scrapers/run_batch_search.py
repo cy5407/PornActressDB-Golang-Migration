@@ -37,12 +37,14 @@ from scrapers.run_search import (  # noqa: E402
     _search_with_mode,
 )
 
+CONFIG_INI_FILENAME = "config.ini"
+
 
 def _resolve_config_path() -> str:
     candidates = [
-        os.path.join(_PROJECT_ROOT, "config.ini"),
-        os.path.join(os.getcwd(), "config.ini"),
-        "config.ini",
+        os.path.join(_PROJECT_ROOT, CONFIG_INI_FILENAME),
+        os.path.join(os.getcwd(), CONFIG_INI_FILENAME),
+        CONFIG_INI_FILENAME,
     ]
     for c in candidates:
         if os.path.isfile(c):
