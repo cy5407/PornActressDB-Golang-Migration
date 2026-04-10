@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 
 from src.models.json_database import JSONDBManager
-from src.models.json_types import JSONDatabaseError, VideoDict, get_empty_json_database
+from src.models.json_types import (
+    JSONDatabaseError,
+    VideoDict,
+    get_empty_json_database,
+    get_empty_video,
+)
 
 
 class TestJSONDatabase:
@@ -95,6 +100,46 @@ class TestJSONDatabase:
 
         result = db_manager.get_video_info("TEST-UPDATE")
         assert result["title"] == "更新後的標題"
+
+    def test_get_empty_video_includes_source_specific_search_fields(self):
+        """新 schema 應預留來源別女優搜尋欄位"""
+        video = get_empty_video()
+
+        assert video["avwiki_actress_status"] == ""
+        assert video["avwiki_last_search_date"] == ""
+        assert video["javdb_actress_status"] == ""
+        assert video["javdb_last_search_date"] == ""
+
+    def test_load_normalizes_missing_source_specific_search_fields(self, temp_db_dir):
+        """載入舊資料時應補齊來源別女優搜尋欄位"""
+        payload = get_empty_json_database()
+        payload["videos"]["TEST-LEGACY"] = {
+            "code": "TEST-LEGACY",
+            "title": "舊資料",
+            "studio": "",
+            "release_date": "",
+            "url": "",
+            "actresses": [],
+            "search_status": "success",
+            "search_method": "AV-WIKI",
+            "last_search_date": "2024-01-01",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z",
+            "metadata": {"source": "test", "confidence": 1.0},
+        }
+        data_file = Path(temp_db_dir) / "data.json"
+        data_file.parent.mkdir(parents=True, exist_ok=True)
+        data_file.write_text(json.dumps(payload), encoding="utf-8")
+
+        manager = JSONDBManager(temp_db_dir)
+
+        loaded = manager.data["videos"]["TEST-LEGACY"]
+        assert loaded["search_status"] == "success"
+        assert loaded["search_method"] == "AV-WIKI"
+        assert loaded["avwiki_actress_status"] == ""
+        assert loaded["avwiki_last_search_date"] == ""
+        assert loaded["javdb_actress_status"] == ""
+        assert loaded["javdb_last_search_date"] == ""
 
     def test_delete_video(self, db_manager):
         """測試刪除影片"""

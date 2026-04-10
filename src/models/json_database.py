@@ -206,6 +206,13 @@ class JSONDBManager:
         if isinstance(normalized.get("links"), dict):
             raise ValidationError("'links' 必須是清單")
 
+        videos = normalized.get("videos")
+        if isinstance(videos, dict):
+            normalized["videos"] = {
+                code: self._normalize_loaded_video(video, code)
+                for code, video in videos.items()
+            }
+
         statistics = normalized.get("statistics")
         if not isinstance(statistics, dict):
             normalized["statistics"] = default_data["statistics"]
@@ -215,6 +222,16 @@ class JSONDBManager:
             normalized["statistics"] = merged_statistics
 
         return normalized
+
+    def _normalize_loaded_video(self, video: Any, code: str) -> VideoDict:
+        """補齊單筆影片缺少的 schema 欄位。"""
+        if not isinstance(video, dict):
+            raise ValidationError(f"影片 {code} 資料必須是字典")
+
+        normalized_video = get_empty_video()
+        normalized_video.update(video)
+        normalized_video["code"] = normalized_video.get("code") or code
+        return normalized_video
 
     def _save_all_data(self, data: JSONDatabaseDict) -> None:
         """

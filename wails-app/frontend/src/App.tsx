@@ -18,13 +18,22 @@ import {
 import { Button } from '@/components/ui/button';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
-import { ScanDirectory, BatchSearch, BatchMove, BatchMoveDirs, CheckDirConflicts, CancelOperation, GetActressPrimaryStudios, GetStudiosByCodes, CheckConflicts, PlanDirMergeMoves } from '../wailsjs/go/backend/App';
+import { ScanDirectory, BatchSearch, BatchSearchAVWiki, BatchSearchJAVDB, BatchMove, BatchMoveDirs, CheckDirConflicts, CancelOperation, GetActressPrimaryStudios, GetStudiosByCodes, CheckConflicts, PlanDirMergeMoves, DbGetVideo } from '../wailsjs/go/backend/App';
 import { backend, mover } from '../wailsjs/go/models';
+import type { database } from '../wailsjs/go/models';
 import { Scan, Search, FolderOutput, RotateCcw, ChevronDown, History, Settings, StopCircle } from 'lucide-react';
 
 type ScanResult = backend.ScanResult;
 type ConflictStrategy = 'skip' | 'overwrite' | 'rename';
 type ConflictDialogMode = 'file' | 'directory';
+type SearchSource = 'AV-WIKI' | 'JAVDB';
+type SearchStatusField = 'avwiki_actress_status' | 'javdb_actress_status';
+type VideoDataWithSourceStatus = database.VideoData & Partial<Record<SearchStatusField, string>>;
+const FOUND_SEARCH_STATUSES = new Set(['found', 'searched_found']);
+
+function isFoundSearchStatus(status?: string): boolean {
+  return status !== undefined && FOUND_SEARCH_STATUSES.has(status);
+}
 
 function emptyBatchResult(): mover.BatchResult {
   return mover.BatchResult.createFrom({
@@ -110,6 +119,77 @@ function ActionToolbar() {
   } = useTaskStore();
 
   const isRunning = status !== 'idle' && status !== 'error';
+
+  const getSearchTargets = () =>
+    scanResults.filter((r) => selectedCodes.size === 0 || selectedCodes.has(r.code));
+
+  async function getSourceSearchCodes(source: SearchSource, statusField: SearchStatusField) {
+    const targets = getSearchTargets();
+    if (targets.length === 0) {
+      setStatusMessage(`沒有可搜尋的項目`, 'warning');
+      return [];
+    }
+
+    const videoStates = await Promise.all(
+      targets.map(async ({ code }) => {
+        try {
+          const video = (await DbGetVideo(code)) as VideoDataWithSourceStatus | null;
+          return { code, video };
+        } catch {
+          return { code, video: null };
+        }
+      })
+    );
+
+    const codes = videoStates
+      .filter(({ video }) => !isFoundSearchStatus(video?.[statusField]))
+      .map(({ code }) => code);
+
+    if (codes.length === 0) {
+      setStatusMessage(`${source}：沒有需要重新搜尋的項目`, 'warning');
+    }
+
+    return codes;
+  }
+
+  async function runSourceSearch(
+    source: SearchSource,
+    codes: string[],
+    searchFn: (codes: string[], workers: number) => Promise<backend.SearchResult[]>
+  ) {
+    setStatus('searching');
+    clearSearchResults();
+    resetProgress();
+    pushEvent('info', `🔍 ${source} 開始搜尋 ${codes.length} 筆番號…`);
+    setStatusMessage(`${source} 搜尋中：0 / ${codes.length}`, 'info');
+
+    try {
+      const results = await searchFn(codes, 0);
+      if (results) {
+        let success = 0;
+        let failed = 0;
+        for (const r of results) {
+          if (r.error) {
+            failed++;
+          } else {
+            success++;
+          }
+        }
+        const summary = `${source} 搜尋完成：${success} 成功 / ${failed} 失敗`;
+        setStatusMessage(summary, failed > 0 ? 'warning' : 'success');
+        if (success > 0) setShowSearchResults(true);
+      }
+    } catch (err) {
+      const msg = `❌ ${source} 批次搜尋失敗：${err}`;
+      setStatusMessage(msg, 'error');
+      pushEvent('error', msg);
+      setStatus('error');
+      return;
+    }
+
+    setStatus('idle');
+    resetProgress();
+  }
 
   // ── 衝突對話框狀態 ──────────────────────────────────────────────────────────
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
@@ -287,9 +367,7 @@ function ActionToolbar() {
   }
 
   async function handleSearch() {
-    const targets = scanResults.filter(
-      (r) => selectedCodes.size === 0 || selectedCodes.has(r.code)
-    );
+    const targets = getSearchTargets();
     if (targets.length === 0) {
       setStatusMessage('沒有可搜尋的項目', 'warning');
       return;
@@ -329,6 +407,18 @@ function ActionToolbar() {
     }
     setStatus('idle');
     resetProgress();
+  }
+
+  async function handleSearchAVWiki() {
+    const codes = await getSourceSearchCodes('AV-WIKI', 'avwiki_actress_status');
+    if (codes.length === 0) return;
+    await runSourceSearch('AV-WIKI', codes, BatchSearchAVWiki);
+  }
+
+  async function handleSearchJAVDB() {
+    const codes = await getSourceSearchCodes('JAVDB', 'javdb_actress_status');
+    if (codes.length === 0) return;
+    await runSourceSearch('JAVDB', codes, BatchSearchJAVDB);
   }
 
   async function handleMove() {
@@ -621,6 +711,22 @@ function ActionToolbar() {
       >
         <Search className="h-4 w-4 mr-1" />
         搜尋{selectedCodes.size > 0 ? ` (${selectedCodes.size})` : '全部'}
+      </Button>
+      <Button
+        onClick={handleSearchAVWiki}
+        disabled={isRunning || scanResults.length === 0}
+        variant="secondary"
+        size="sm"
+      >
+        AV-WIKI 搜尋
+      </Button>
+      <Button
+        onClick={handleSearchJAVDB}
+        disabled={isRunning || scanResults.length === 0}
+        variant="secondary"
+        size="sm"
+      >
+        JAVDB 搜尋
       </Button>
       <Button
         onClick={handleMove}

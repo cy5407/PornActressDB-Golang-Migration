@@ -241,6 +241,26 @@ var videoFieldUpdateHandlers = map[string]func(*VideoData, any){
 			video.LastSearchDate = v
 		}
 	},
+	"avwiki_actress_status": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.AVWikiActressStatus = v
+		}
+	},
+	"avwiki_last_search_date": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.AVWikiLastSearchDate = v
+		}
+	},
+	"javdb_actress_status": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.JAVDBActressStatus = v
+		}
+	},
+	"javdb_last_search_date": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.JAVDBLastSearchDate = v
+		}
+	},
 	"original_filename": func(video *VideoData, value any) {
 		if v, ok := value.(string); ok {
 			video.OriginalFilename = v

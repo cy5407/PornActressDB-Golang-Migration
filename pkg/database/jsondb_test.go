@@ -254,6 +254,35 @@ func TestApplyVideoUpdates_HandlesMixedFieldTypes(t *testing.T) {
 	}
 }
 
+func TestApplyVideoUpdates_HandlesSourceSpecificSearchFields(t *testing.T) {
+	video := GetEmptyVideo()
+	video.UpdatedAt = "2024-01-01T00:00:00Z"
+
+	updates := map[string]any{
+		"avwiki_actress_status":   "searched_found",
+		"avwiki_last_search_date": "2026-04-10T10:00:00Z",
+		"javdb_actress_status":    "searched_not_found",
+		"javdb_last_search_date":  "2026-04-10T11:00:00Z",
+		"updated_at":              "2026-04-10T12:00:00Z",
+	}
+
+	db := &JSONDatabase{}
+	db.applyVideoFieldUpdates(video, updates)
+
+	if video.AVWikiActressStatus != "searched_found" {
+		t.Fatalf("Expected AVWikiActressStatus to be updated, got %q", video.AVWikiActressStatus)
+	}
+	if video.AVWikiLastSearchDate != "2026-04-10T10:00:00Z" {
+		t.Fatalf("Expected AVWikiLastSearchDate to be updated, got %q", video.AVWikiLastSearchDate)
+	}
+	if video.JAVDBActressStatus != "searched_not_found" {
+		t.Fatalf("Expected JAVDBActressStatus to be updated, got %q", video.JAVDBActressStatus)
+	}
+	if video.JAVDBLastSearchDate != "2026-04-10T11:00:00Z" {
+		t.Fatalf("Expected JAVDBLastSearchDate to be updated, got %q", video.JAVDBLastSearchDate)
+	}
+}
+
 func TestGetVideoCount(t *testing.T) {
 	db, _ := setupTestDB(t)
 
@@ -655,6 +684,45 @@ func TestUpdateVideoFields_ReloadPreservesUpdatedAt(t *testing.T) {
 	}
 	if got.UpdatedAt != expectedUpdatedAt {
 		t.Fatalf("reloaded updated_at = %q, want %q", got.UpdatedAt, expectedUpdatedAt)
+	}
+}
+
+func TestUpdateVideoFields_ReloadPreservesSourceSpecificSearchFields(t *testing.T) {
+	db, tempDir := setupTestDB(t)
+
+	video := NewVideo("SOURCE-001")
+	if err := db.UpdateVideo("SOURCE-001", video); err != nil {
+		t.Fatalf("UpdateVideo failed: %v", err)
+	}
+	if err := db.UpdateVideoFields("SOURCE-001", map[string]any{
+		"avwiki_actress_status":   "searched_found",
+		"avwiki_last_search_date": "2026-04-10T08:00:00Z",
+		"javdb_actress_status":    "searched_not_found",
+		"javdb_last_search_date":  "2026-04-10T09:00:00Z",
+	}); err != nil {
+		t.Fatalf("UpdateVideoFields failed: %v", err)
+	}
+
+	reloaded := NewJSONDatabase(tempDir)
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+
+	got, err := reloaded.GetVideo("SOURCE-001")
+	if err != nil {
+		t.Fatalf("GetVideo after reload failed: %v", err)
+	}
+	if got.AVWikiActressStatus != "searched_found" {
+		t.Fatalf("AVWikiActressStatus = %q, want searched_found", got.AVWikiActressStatus)
+	}
+	if got.AVWikiLastSearchDate != "2026-04-10T08:00:00Z" {
+		t.Fatalf("AVWikiLastSearchDate = %q, want 2026-04-10T08:00:00Z", got.AVWikiLastSearchDate)
+	}
+	if got.JAVDBActressStatus != "searched_not_found" {
+		t.Fatalf("JAVDBActressStatus = %q, want searched_not_found", got.JAVDBActressStatus)
+	}
+	if got.JAVDBLastSearchDate != "2026-04-10T09:00:00Z" {
+		t.Fatalf("JAVDBLastSearchDate = %q, want 2026-04-10T09:00:00Z", got.JAVDBLastSearchDate)
 	}
 }
 

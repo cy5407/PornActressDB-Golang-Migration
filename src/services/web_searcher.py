@@ -8,6 +8,7 @@ import logging
 import re
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -279,6 +280,16 @@ class WebSearcher:
             log_parts.append(f"類別: {categories_str}")
         logger.info(" | ".join(log_parts))
 
+    @staticmethod
+    def _build_search_error_result(source: str, reason: str) -> dict:
+        return {
+            "source": source,
+            "actresses": [],
+            "search_status": "search_error",
+            "search_error_reason": reason,
+            "last_search_date": datetime.now(UTC).isoformat(),
+        }
+
     def _search_av_wiki(self, code: str, stop_event: threading.Event) -> dict | None:
         """AV-WIKI 搜尋方法"""
         if stop_event.is_set():
@@ -303,7 +314,9 @@ class WebSearcher:
 
             if soup is None:
                 logger.warning(f"無法獲取 {code} 的 AV-WIKI 搜尋頁面")
-                return None
+                return self._build_search_error_result(
+                    "AV-WIKI (安全增強版)", "無法獲取搜尋頁面"
+                )
 
             # 先檢查是否有搜尋結果
             search_results = soup.find_all("div", class_="column-flex")
@@ -416,6 +429,7 @@ class WebSearcher:
 
         except Exception as e:
             logger.error(f"AV-WIKI 搜尋 {code} 時發生錯誤: {e}", exc_info=True)
+            return self._build_search_error_result("AV-WIKI (安全增強版)", str(e))
 
         return None
 
@@ -919,6 +933,10 @@ class WebSearcher:
         """僅搜尋 AV-WIKI。保留舊 API，內部委派到統一實作。"""
         return self.search_japanese_sites(code, stop_event)
 
+    def search_avwiki_only(self, code: str, stop_event: threading.Event) -> dict | None:
+        """僅搜尋 AV-WIKI。"""
+        return self.search_japanese_sites(code, stop_event)
+
     def search_javdb_only(self, code: str, stop_event: threading.Event) -> dict | None:
         """僅搜尋 JAVDB"""
         if stop_event.is_set():
@@ -928,46 +946,12 @@ class WebSearcher:
 
         try:
             logger.debug(f"📊 JAVDB 搜尋: {code}")
-            javdb_result = self.javdb_searcher.search_javdb(code)
-            if javdb_result and (
-                javdb_result.get("actresses")
-                or javdb_result.get("search_status") == "search_error"
-            ):
-                # 🔧 標準化片商名稱
-                raw_studio = javdb_result.get("studio")
-                normalized_studio = (
-                    self.studio_identifier.normalize_studio_name(raw_studio, code)
-                    if raw_studio
-                    else None
-                )
-
-                # 轉換為統一格式
-                result = {
-                    "source": javdb_result["source"],
-                    "actresses": javdb_result["actresses"],
-                    "studio": normalized_studio,
-                    "studio_code": javdb_result.get("studio_code"),
-                    "release_date": javdb_result.get("release_date"),
-                    "title": javdb_result.get("title"),
-                    "duration": javdb_result.get("duration"),
-                    "director": javdb_result.get("director"),
-                    "series": javdb_result.get("series"),
-                    "rating": javdb_result.get("rating"),
-                    "categories": javdb_result.get("categories", []),
-                    "search_status": javdb_result.get("search_status"),
-                    "search_error_reason": javdb_result.get("search_error_reason"),
-                    "search_url": javdb_result.get("search_url"),
-                }
-                if result.get("actresses"):
-                    self.search_cache[code] = result
-                return result
-
-            logger.debug(f"📊 JAVDB 未找到: {code}")
-            return None
+            candidates = self._build_code_candidates(code)
+            return self._search_candidates_in_javdb(code, candidates, stop_event)
 
         except Exception as e:
             logger.error(f"JAVDB 搜尋 {code} 時發生錯誤: {e}", exc_info=True)
-            return None
+            return self._build_search_error_result("JAVDB (安全增強版)", str(e))
 
     def search_shiroutowiki_only(
         self, code: str, stop_event: threading.Event
@@ -1011,19 +995,28 @@ class WebSearcher:
             return self.search_cache[code]
 
         try:
+            last_error_result = None
             for candidate in self._build_code_candidates(code):
                 logger.debug(f"🇯🇵 AV-WIKI 搜尋: {candidate}")
                 result = self._search_av_wiki(candidate, stop_event)
+                if result and result.get("search_status") == "search_error":
+                    last_error_result = self._attach_alias_metadata(
+                        result, code, candidate
+                    )
+                    continue
                 if result and result.get("actresses"):
                     result = self._attach_alias_metadata(result, code, candidate)
                     self.search_cache[code] = result
                     return result
 
+            if last_error_result:
+                return last_error_result
+
             logger.warning(f"番號 {code} 未在 AV-WIKI 中找到女優資訊。")
             return None
         except Exception as e:
             logger.error(f"AV-WIKI 搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
-            return None
+            return self._build_search_error_result("AV-WIKI (安全增強版)", str(e))
 
     def batch_search_avwiki_concurrent(
         self, codes: list, stop_event: threading.Event, progress_callback=None

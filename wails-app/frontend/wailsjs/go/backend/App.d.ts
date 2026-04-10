@@ -13,6 +13,10 @@ export function BatchMoveJSON(arg1:string,arg2:string):Promise<mover.BatchResult
 
 export function BatchSearch(arg1:Array<string>,arg2:number):Promise<Array<backend.SearchResult>>;
 
+export function BatchSearchAVWiki(arg1:Array<string>,arg2:number):Promise<Array<backend.SearchResult>>;
+
+export function BatchSearchJAVDB(arg1:Array<string>,arg2:number):Promise<Array<backend.SearchResult>>;
+
 export function CancelOperation():Promise<void>;
 
 export function CheckConflicts(arg1:Array<mover.MoveItem>):Promise<Array<backend.ConflictItem>>;

@@ -67,22 +67,26 @@ type Metadata struct {
 // VideoData 影片資料結構（與 Python VideoDict 完全相容）
 // 注意：某些欄位可能有 id 或 code，需要同時支援
 type VideoData struct {
-	Code             string   `json:"code"`
-	ID               string   `json:"id,omitempty"` // 舊版相容欄位
-	Title            string   `json:"title"`
-	Studio           string   `json:"studio"`
-	StudioCode       string   `json:"studio_code,omitempty"`
-	ReleaseDate      string   `json:"release_date"`
-	URL              string   `json:"url"`
-	Actresses        []string `json:"actresses"`
-	SearchStatus     string   `json:"search_status"`
-	LastSearchDate   string   `json:"last_search_date"`
-	CreatedAt        string   `json:"created_at"`
-	UpdatedAt        string   `json:"updated_at"`
-	Metadata         Metadata `json:"metadata"`
-	OriginalFilename string   `json:"original_filename,omitempty"`
-	FilePath         string   `json:"file_path,omitempty"`
-	SearchMethod     string   `json:"search_method,omitempty"`
+	Code                 string   `json:"code"`
+	ID                   string   `json:"id,omitempty"` // 舊版相容欄位
+	Title                string   `json:"title"`
+	Studio               string   `json:"studio"`
+	StudioCode           string   `json:"studio_code,omitempty"`
+	ReleaseDate          string   `json:"release_date"`
+	URL                  string   `json:"url"`
+	Actresses            []string `json:"actresses"`
+	SearchStatus         string   `json:"search_status"`
+	LastSearchDate       string   `json:"last_search_date"`
+	AVWikiActressStatus  string   `json:"avwiki_actress_status,omitempty"`
+	AVWikiLastSearchDate string   `json:"avwiki_last_search_date,omitempty"`
+	JAVDBActressStatus   string   `json:"javdb_actress_status,omitempty"`
+	JAVDBLastSearchDate  string   `json:"javdb_last_search_date,omitempty"`
+	CreatedAt            string   `json:"created_at"`
+	UpdatedAt            string   `json:"updated_at"`
+	Metadata             Metadata `json:"metadata"`
+	OriginalFilename     string   `json:"original_filename,omitempty"`
+	FilePath             string   `json:"file_path,omitempty"`
+	SearchMethod         string   `json:"search_method,omitempty"`
 }
 
 // GetCode 取得影片番號（優先 code，其次 id）
@@ -246,16 +250,20 @@ func GetCurrentTimestampRFC3339() string {
 func GetEmptyVideo() *VideoData {
 	now := GetCurrentTimestamp()
 	return &VideoData{
-		Code:           "",
-		Title:          "",
-		Studio:         "",
-		ReleaseDate:    "",
-		URL:            "",
-		Actresses:      []string{},
-		SearchStatus:   SearchStatusSuccess,
-		LastSearchDate: now,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		Code:                 "",
+		Title:                "",
+		Studio:               "",
+		ReleaseDate:          "",
+		URL:                  "",
+		Actresses:            []string{},
+		SearchStatus:         SearchStatusSuccess,
+		LastSearchDate:       now,
+		AVWikiActressStatus:  "",
+		AVWikiLastSearchDate: "",
+		JAVDBActressStatus:   "",
+		JAVDBLastSearchDate:  "",
+		CreatedAt:            now,
+		UpdatedAt:            now,
 		Metadata: Metadata{
 			Source:     "",
 			Confidence: 0.0,
@@ -267,16 +275,20 @@ func GetEmptyVideo() *VideoData {
 func NewVideo(code string) *VideoData {
 	now := GetCurrentTimestamp()
 	return &VideoData{
-		Code:           code,
-		Title:          "",
-		Studio:         "",
-		ReleaseDate:    "",
-		URL:            "",
-		Actresses:      []string{},
-		SearchStatus:   SearchStatusSuccess,
-		LastSearchDate: now,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		Code:                 code,
+		Title:                "",
+		Studio:               "",
+		ReleaseDate:          "",
+		URL:                  "",
+		Actresses:            []string{},
+		SearchStatus:         SearchStatusSuccess,
+		LastSearchDate:       now,
+		AVWikiActressStatus:  "",
+		AVWikiLastSearchDate: "",
+		JAVDBActressStatus:   "",
+		JAVDBLastSearchDate:  "",
+		CreatedAt:            now,
+		UpdatedAt:            now,
 		Metadata: Metadata{
 			Source:     "",
 			Confidence: 0.0,

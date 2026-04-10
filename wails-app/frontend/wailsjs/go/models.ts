@@ -114,6 +114,10 @@ export namespace database {
 	    actresses: string[];
 	    search_status: string;
 	    last_search_date: string;
+	    avwiki_actress_status?: string;
+	    avwiki_last_search_date?: string;
+	    javdb_actress_status?: string;
+	    javdb_last_search_date?: string;
 	    created_at: string;
 	    updated_at: string;
 	    metadata: Metadata;
@@ -137,6 +141,10 @@ export namespace database {
 	        this.actresses = source["actresses"];
 	        this.search_status = source["search_status"];
 	        this.last_search_date = source["last_search_date"];
+	        this.avwiki_actress_status = source["avwiki_actress_status"];
+	        this.avwiki_last_search_date = source["avwiki_last_search_date"];
+	        this.javdb_actress_status = source["javdb_actress_status"];
+	        this.javdb_last_search_date = source["javdb_last_search_date"];
 	        this.created_at = source["created_at"];
 	        this.updated_at = source["updated_at"];
 	        this.metadata = this.convertValues(source["metadata"], Metadata);
