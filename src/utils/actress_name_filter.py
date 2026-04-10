@@ -198,7 +198,6 @@ class ActressNameFilter:
         # 檢查是否包含過多的非漢字日文（可能是標題片段）
         hiragana_count = len(re.findall(r'[\u3040-\u309F]', name))
         katakana_count = len(re.findall(r'[\u30A0-\u30FF]', name))
-        total_kana = hiragana_count + katakana_count
         
         # 女優名字通常以漢字或片假名為主，平假名不會太多
         # 但短名字（≤5字元）例外，因為很多女優名字就是短的

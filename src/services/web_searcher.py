@@ -30,6 +30,8 @@ from .unified_cache import get_cache_manager  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+AV_WIKI_SEARCH_METHOD = "AV-WIKI (安全增強版)"
+
 
 class WebSearcher:
     """增強版搜尋器 - 支援搜尋結果頁面"""
@@ -316,7 +318,7 @@ class WebSearcher:
             if soup is None:
                 logger.warning(f"無法獲取 {code} 的 AV-WIKI 搜尋頁面")
                 return self._build_search_error_result(
-                    "AV-WIKI (安全增強版)", "無法獲取搜尋頁面"
+                    AV_WIKI_SEARCH_METHOD, "無法獲取搜尋頁面"
                 )
 
             # 先檢查是否有搜尋結果
@@ -418,7 +420,7 @@ class WebSearcher:
                 )
 
                 result = {
-                    "source": "AV-WIKI (安全增強版)",
+                    "source": AV_WIKI_SEARCH_METHOD,
                     "actresses": actresses,
                     "studio": normalized_studio,
                     "studio_code": studio_info.get("studio_code"),
@@ -431,7 +433,7 @@ class WebSearcher:
 
         except Exception as e:
             logger.error(f"AV-WIKI 搜尋 {code} 時發生錯誤: {e}", exc_info=True)
-            return self._build_search_error_result("AV-WIKI (安全增強版)", str(e))
+            return self._build_search_error_result(AV_WIKI_SEARCH_METHOD, str(e))
 
         return None
 
@@ -1018,7 +1020,7 @@ class WebSearcher:
             return None
         except Exception as e:
             logger.error(f"AV-WIKI 搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
-            return self._build_search_error_result("AV-WIKI (安全增強版)", str(e))
+            return self._build_search_error_result(AV_WIKI_SEARCH_METHOD, str(e))
 
     def batch_search_avwiki_concurrent(
         self, codes: list, stop_event: threading.Event, progress_callback=None
