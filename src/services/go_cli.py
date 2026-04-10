@@ -24,11 +24,31 @@ _EXE_SEARCH_DONE = False
 _EXE_PATH: Optional[str] = None
 
 
+def _is_executable_file(path: str) -> bool:
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+
+def _find_exe_in_dir(base_dir: str) -> Optional[str]:
+    for name in (_CLASSIFIER_EXE, "classifier"):
+        candidate = os.path.join(base_dir, name)
+        if _is_executable_file(candidate):
+            return candidate
+    return None
+
+
+def _find_exe_from_path() -> Optional[str]:
+    for name in (_CLASSIFIER_EXE, "classifier"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
 def _resolve_exe(exe_path: str | None = None) -> Optional[str]:
     """尋找 classifier 執行檔路徑（快取結果）。"""
     global _EXE_SEARCH_DONE, _EXE_PATH
     if exe_path:
-        if os.path.isfile(exe_path) and os.access(exe_path, os.X_OK):
+        if _is_executable_file(exe_path):
             return exe_path
         return None
 
@@ -38,25 +58,19 @@ def _resolve_exe(exe_path: str | None = None) -> Optional[str]:
     _EXE_SEARCH_DONE = True
     # 1. 優先從此檔案往上找專案根目錄
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    for name in (_CLASSIFIER_EXE, "classifier"):
-        candidate = os.path.join(root, name)
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            _EXE_PATH = candidate
-            return _EXE_PATH
+    _EXE_PATH = _find_exe_in_dir(root)
+    if _EXE_PATH:
+        return _EXE_PATH
 
     # 2. 目前工作目錄
-    for name in (_CLASSIFIER_EXE, "classifier"):
-        candidate = os.path.join(os.getcwd(), name)
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            _EXE_PATH = candidate
-            return _EXE_PATH
+    _EXE_PATH = _find_exe_in_dir(os.getcwd())
+    if _EXE_PATH:
+        return _EXE_PATH
 
     # 3. PATH
-    for name in (_CLASSIFIER_EXE, "classifier"):
-        found = shutil.which(name)
-        if found:
-            _EXE_PATH = found
-            return _EXE_PATH
+    _EXE_PATH = _find_exe_from_path()
+    if _EXE_PATH:
+        return _EXE_PATH
 
     return None
 

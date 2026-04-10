@@ -6,6 +6,25 @@ import (
 	"testing"
 )
 
+func assertMergeResultState(
+	t *testing.T,
+	result MergeResult,
+	wantSuccess bool,
+	wantDeletedSrc bool,
+	wantErrorCount int,
+) {
+	t.Helper()
+	if result.Success != wantSuccess {
+		t.Fatalf("Success = %v, want %v", result.Success, wantSuccess)
+	}
+	if result.DeletedSrc != wantDeletedSrc {
+		t.Fatalf("DeletedSrc = %v, want %v", result.DeletedSrc, wantDeletedSrc)
+	}
+	if len(result.Errors) != wantErrorCount {
+		t.Fatalf("len(Errors) = %d, want %d", len(result.Errors), wantErrorCount)
+	}
+}
+
 func TestValidateMoveDirDestination(t *testing.T) {
 	tempDir, cleanup := setupTestEnv(t)
 	defer cleanup()
@@ -21,15 +40,7 @@ func TestValidateMoveDirDestination(t *testing.T) {
 		if shouldContinue {
 			t.Fatal("source == destination 時不應繼續處理")
 		}
-		if !result.Success {
-			t.Fatal("source == destination 時應視為成功")
-		}
-		if result.DeletedSrc {
-			t.Fatal("source == destination 時不應刪除來源")
-		}
-		if len(result.Errors) != 0 {
-			t.Fatalf("source == destination 時不應回傳錯誤: %+v", result.Errors)
-		}
+		assertMergeResultState(t, result, true, false, 0)
 	})
 
 	t.Run("nested destination is rejected", func(t *testing.T) {
@@ -41,12 +52,7 @@ func TestValidateMoveDirDestination(t *testing.T) {
 		if shouldContinue {
 			t.Fatal("目標位於來源內時不應繼續處理")
 		}
-		if result.Success {
-			t.Fatal("目標位於來源內時應回報失敗")
-		}
-		if len(result.Errors) != 1 {
-			t.Fatalf("應回傳 1 個錯誤，got %d", len(result.Errors))
-		}
+		assertMergeResultState(t, result, false, false, 1)
 		if !strings.Contains(result.Errors[0].Error, "目標目錄不能位於來源目錄內") {
 			t.Fatalf("錯誤訊息不正確: %q", result.Errors[0].Error)
 		}
@@ -61,11 +67,6 @@ func TestValidateMoveDirDestination(t *testing.T) {
 		if !shouldContinue {
 			t.Fatal("一般目標路徑應繼續後續處理")
 		}
-		if result.Success {
-			t.Fatal("尚未完成移動前不應提前標記成功")
-		}
-		if len(result.Errors) != 0 {
-			t.Fatalf("一般目標路徑不應預先產生錯誤: %+v", result.Errors)
-		}
+		assertMergeResultState(t, result, false, false, 0)
 	})
 }

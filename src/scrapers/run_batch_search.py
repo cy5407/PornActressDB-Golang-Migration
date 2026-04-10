@@ -32,6 +32,7 @@ for _path in (_SRC_DIR, _PROJECT_ROOT):
         sys.path.insert(0, _path)
 
 from scrapers.run_search import (  # noqa: E402
+    DEFAULT_CONFIG_FILE,
     DEFAULT_SOURCE_MODE,
     _normalize_source_mode,
     _search_with_mode,
@@ -40,14 +41,14 @@ from scrapers.run_search import (  # noqa: E402
 
 def _resolve_config_path() -> str:
     candidates = [
-        os.path.join(_PROJECT_ROOT, "config.ini"),
-        os.path.join(os.getcwd(), "config.ini"),
-        "config.ini",
+        os.path.join(_PROJECT_ROOT, DEFAULT_CONFIG_FILE),
+        os.path.join(os.getcwd(), DEFAULT_CONFIG_FILE),
+        DEFAULT_CONFIG_FILE,
     ]
     for c in candidates:
         if os.path.isfile(c):
             return c
-    return os.path.join(_PROJECT_ROOT, "config.ini")
+    return os.path.join(_PROJECT_ROOT, DEFAULT_CONFIG_FILE)
 
 
 # ---------------------------------------------------------------------------

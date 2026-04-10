@@ -45,6 +45,7 @@ for _path in (_SRC_DIR, _PROJECT_ROOT):
 
 
 DEFAULT_SOURCE_MODE = "cascade"
+DEFAULT_CONFIG_FILE = "config.ini"
 SOURCE_MODE_ALIASES = {
     "": DEFAULT_SOURCE_MODE,
     DEFAULT_SOURCE_MODE: DEFAULT_SOURCE_MODE,
@@ -61,15 +62,15 @@ SOURCE_MODE_ALIASES = {
 def _resolve_config_path() -> str:
     """尋找 config.ini：優先使用與腳本同層目錄的路徑，其次為 CWD。"""
     candidates = [
-        os.path.join(_PROJECT_ROOT, "config.ini"),
-        os.path.join(os.getcwd(), "config.ini"),
-        "config.ini",
+        os.path.join(_PROJECT_ROOT, DEFAULT_CONFIG_FILE),
+        os.path.join(os.getcwd(), DEFAULT_CONFIG_FILE),
+        DEFAULT_CONFIG_FILE,
     ]
     for candidate in candidates:
         if os.path.isfile(candidate):
             return candidate
     # 回傳預設路徑（即使不存在，ConfigManager 會使用內建預設值）
-    return os.path.join(_PROJECT_ROOT, "config.ini")
+    return os.path.join(_PROJECT_ROOT, DEFAULT_CONFIG_FILE)
 
 
 def _error(code: str, message: str) -> None:
