@@ -299,6 +299,7 @@ class WebSearcher:
 
         # 使用日文網站專用標頭和增強編碼檢測
         def make_request(url, **kwargs):
+            kwargs.pop("timeout", None)  # 已由 self.timeout 明確指定，避免重複
             with httpx.Client(timeout=self.timeout, **kwargs) as client:
                 # 🔧 使用不支援壓縮的標頭，避免 Brotli 問題
                 response = client.get(url, headers=self.japanese_headers)
@@ -370,6 +371,7 @@ class WebSearcher:
                     )
 
                     def make_detail_request(url, **kwargs):
+                        kwargs.pop("timeout", None)  # 已由 self.timeout 明確指定，避免重複
                         with httpx.Client(timeout=self.timeout, **kwargs) as client:
                             response = client.get(url, headers=self.japanese_headers)
                             response.raise_for_status()
