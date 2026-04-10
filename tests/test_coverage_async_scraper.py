@@ -1,0 +1,310 @@
+"""
+補測 AsyncWebScraper / BatchWebScraper 的純邏輯部分。
+測試目標：驗證真實行為（重試決策、UA 輪替、統計計算），不跑真實網路。
+"""
+import asyncio
+import time
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+from src.scrapers.async_scraper import (
+    AsyncWebScraper,
+    BatchWebScraper,
+    ScrapingConfig,
+    ScrapingResult,
+)
+
+
+# ──────────────────────────────
+# Dataclass 預設值
+# ──────────────────────────────
+
+
+def test_scraping_config_defaults():
+    cfg = ScrapingConfig()
+    assert cfg.max_concurrent == 3
+    assert cfg.max_retries == 3
+    assert cfg.enable_cache is True
+    assert cfg.user_agent_rotation is True
+
+
+def test_scraping_result_defaults():
+    r = ScrapingResult(url="http://example.com", success=True)
+    assert r.from_cache is False
+    assert r.error is None
+    assert r.response_time == 0.0
+
+
+# ──────────────────────────────
+# _should_retry_result() - 重試決策
+# 這是最關鍵的邏輯：錯誤的重試判斷會浪費請求或漏掉重試
+# ──────────────────────────────
+
+
+def _result(status_code=None, error=None) -> ScrapingResult:
+    return ScrapingResult(
+        url="http://test.com",
+        success=False,
+        status_code=status_code,
+        error=error,
+    )
+
+
+@pytest.fixture
+def scraper():
+    with patch("src.scrapers.async_scraper.get_global_rate_limiter", return_value=MagicMock()), \
+         patch("src.scrapers.async_scraper.get_global_cache_manager", return_value=MagicMock()):
+        return AsyncWebScraper()
+
+
+def test_should_retry_when_no_status_code(scraper):
+    """status_code=None 表示網路層錯誤，應重試。"""
+    assert scraper._should_retry_result(_result(status_code=None)) is True
+
+
+def test_should_retry_on_408(scraper):
+    """408 Request Timeout → 應重試。"""
+    assert scraper._should_retry_result(_result(status_code=408)) is True
+
+
+def test_should_retry_on_429(scraper):
+    """429 Too Many Requests → 應重試。"""
+    assert scraper._should_retry_result(_result(status_code=429)) is True
+
+
+def test_should_not_retry_on_404(scraper):
+    """404 Not Found → 不應重試（永久失敗）。"""
+    assert scraper._should_retry_result(_result(status_code=404)) is False
+
+
+def test_should_not_retry_on_403(scraper):
+    """403 Forbidden → 不應重試（存取被拒）。"""
+    assert scraper._should_retry_result(_result(status_code=403)) is False
+
+
+def test_should_not_retry_on_400(scraper):
+    assert scraper._should_retry_result(_result(status_code=400)) is False
+
+
+def test_should_retry_on_500(scraper):
+    """500 Server Error → 應重試（服務器暫時問題）。"""
+    assert scraper._should_retry_result(_result(status_code=500)) is True
+
+
+def test_should_retry_on_503(scraper):
+    """503 Service Unavailable → 應重試。"""
+    assert scraper._should_retry_result(_result(status_code=503)) is True
+
+
+def test_should_not_retry_on_301(scraper):
+    """301 Redirect → 不是 4xx，應重試（非錯誤）。
+    但 301 只會出現在 response.status >= 400 的分支之前，
+    此函式只在 success=False 的情況下被呼叫，所以 301 理論上不會到這裡。
+    測試確認邏輯本身對非 4xx 回傳 True。
+    """
+    assert scraper._should_retry_result(_result(status_code=301)) is True
+
+
+# ──────────────────────────────
+# _get_headers() - User-Agent 輪替
+# ──────────────────────────────
+
+
+def test_get_headers_rotates_user_agent(scraper):
+    """每次呼叫應輪替 UA，避免被偵測為 bot。"""
+    ua_set = set()
+    for _ in range(len(scraper.user_agents) + 1):
+        headers = scraper._get_headers()
+        ua_set.add(headers["User-Agent"])
+    # 至少用過 2 個不同的 UA
+    assert len(ua_set) > 1
+
+
+def test_get_headers_index_wraps_around(scraper):
+    """UA index 超出清單長度時應回到 0。"""
+    scraper.current_ua_index = len(scraper.user_agents) - 1
+    scraper._get_headers()  # 使用最後一個，index 會 wrap 到 0
+    # 下一次應使用 index=0 的 UA
+    headers = scraper._get_headers()
+    assert headers["User-Agent"] == scraper.user_agents[0]
+
+
+def test_get_headers_no_rotation_uses_first(scraper):
+    """user_agent_rotation=False 應固定使用第一個 UA。"""
+    scraper.config.user_agent_rotation = False
+    ua1 = scraper._get_headers()["User-Agent"]
+    ua2 = scraper._get_headers()["User-Agent"]
+    assert ua1 == ua2 == scraper.user_agents[0]
+
+
+def test_get_headers_has_required_fields(scraper):
+    headers = scraper._get_headers()
+    for key in ("Accept", "Accept-Language", "User-Agent", "DNT"):
+        assert key in headers
+
+
+# ──────────────────────────────
+# _update_stats()
+# ──────────────────────────────
+
+
+def test_update_stats_success(scraper):
+    scraper._update_stats("example.com", True, 0.5)
+    assert scraper.stats["total_requests"] == 1
+    assert scraper.stats["successful_requests"] == 1
+    assert scraper.stats["failed_requests"] == 0
+    assert scraper.stats["total_response_time"] == 0.5
+    assert scraper.stats["requests_by_domain"]["example.com"]["total"] == 1
+    assert scraper.stats["requests_by_domain"]["example.com"]["success"] == 1
+
+
+def test_update_stats_failure(scraper):
+    scraper._update_stats("example.com", False, 1.0)
+    assert scraper.stats["failed_requests"] == 1
+    assert scraper.stats["requests_by_domain"]["example.com"]["success"] == 0
+
+
+def test_update_stats_encoding(scraper):
+    scraper._update_stats("example.com", True, 0.1, encoding="utf-8")
+    assert scraper.stats["encoding_stats"]["utf-8"] == 1
+
+
+def test_update_stats_encoding_accumulates(scraper):
+    scraper._update_stats("a.com", True, 0.1, encoding="utf-8")
+    scraper._update_stats("b.com", True, 0.1, encoding="utf-8")
+    assert scraper.stats["encoding_stats"]["utf-8"] == 2
+
+
+def test_update_stats_domain_accumulates(scraper):
+    scraper._update_stats("a.com", True, 0.1)
+    scraper._update_stats("a.com", False, 0.2)
+    assert scraper.stats["requests_by_domain"]["a.com"]["total"] == 2
+    assert scraper.stats["requests_by_domain"]["a.com"]["success"] == 1
+
+
+# ──────────────────────────────
+# get_stats() - 邊界條件
+# ──────────────────────────────
+
+
+def test_get_stats_no_requests(scraper):
+    """0 請求時不應有 ZeroDivisionError。"""
+    stats = scraper.get_stats()
+    assert "0" in stats["success_rate"]
+    assert "0" in stats["average_response_time"]
+    assert "0" in stats["cache_hit_rate"]
+
+
+def test_get_stats_calculates_correctly(scraper):
+    scraper._update_stats("a.com", True, 0.4)
+    scraper._update_stats("a.com", True, 0.6)
+    scraper._update_stats("a.com", False, 1.0)
+    stats = scraper.get_stats()
+    assert stats["success_rate"] == "66.7%"
+    assert stats["average_response_time"] == "0.67s"
+
+
+# ──────────────────────────────
+# reset_stats()
+# ──────────────────────────────
+
+
+def test_reset_stats_clears_all(scraper):
+    scraper._update_stats("a.com", True, 1.0, encoding="utf-8")
+    scraper.stats["cache_hits"] = 3
+    scraper.reset_stats()
+    assert scraper.stats["total_requests"] == 0
+    assert scraper.stats["successful_requests"] == 0
+    assert scraper.stats["failed_requests"] == 0
+    assert scraper.stats["cache_hits"] == 0
+    assert scraper.stats["total_response_time"] == 0.0
+    assert scraper.stats["requests_by_domain"] == {}
+    assert scraper.stats["encoding_stats"] == {}
+
+
+# ──────────────────────────────
+# scrape_multiple() - 空列表
+# ──────────────────────────────
+
+
+def test_scrape_multiple_empty_urls(scraper):
+    result = asyncio.run(scraper.scrape_multiple([]))
+    assert result == []
+
+
+# ──────────────────────────────
+# BatchWebScraper
+# ──────────────────────────────
+
+
+@pytest.fixture
+def batch_scraper():
+    with patch("src.scrapers.async_scraper.get_global_rate_limiter", return_value=MagicMock()), \
+         patch("src.scrapers.async_scraper.get_global_cache_manager", return_value=MagicMock()):
+        return BatchWebScraper(batch_size=3)
+
+
+def test_batch_scraper_empty_urls(batch_scraper):
+    result = batch_scraper.scrape_in_batches([])
+    assert result == []
+
+
+def test_batch_scraper_calls_progress_callback(batch_scraper):
+    """progress_callback 應被呼叫於每批開始。"""
+    called = []
+
+    def on_progress(msg):
+        called.append(msg)
+
+    # mock scraper 內部呼叫，避免真實網路
+    batch_scraper.scraper.scrape_multiple_sync = MagicMock(
+        return_value=[ScrapingResult(url="http://a.com", success=True)]
+    )
+
+    with patch("time.sleep"):  # 跳過批次間 sleep
+        batch_scraper.scrape_in_batches(["http://a.com"], progress_callback=on_progress)
+
+    assert len(called) > 0
+
+
+def test_batch_scraper_no_inter_batch_pause_for_single_batch(batch_scraper):
+    """只有一批時不應呼叫 time.sleep。"""
+    batch_scraper.scraper.scrape_multiple_sync = MagicMock(
+        return_value=[ScrapingResult(url="http://a.com", success=True)]
+    )
+
+    with patch("time.sleep") as mock_sleep:
+        batch_scraper.scrape_in_batches(["http://a.com"])
+
+    mock_sleep.assert_not_called()
+
+
+def test_batch_scraper_pauses_between_batches(batch_scraper):
+    """多批時應呼叫 time.sleep 進行批次間暫停。"""
+    batch_scraper.scraper.scrape_multiple_sync = MagicMock(
+        return_value=[ScrapingResult(url="http://x.com", success=True)] * 3
+    )
+
+    urls = ["http://a.com", "http://b.com", "http://c.com", "http://d.com"]  # 4 urls, batch_size=3 → 2 batches
+
+    with patch("time.sleep") as mock_sleep:
+        batch_scraper.scrape_in_batches(urls)
+
+    mock_sleep.assert_called_once_with(2.0)
+
+
+def test_batch_scraper_collects_all_results(batch_scraper):
+    """所有批次的結果應被合併回傳。"""
+    batch_scraper.scraper.scrape_multiple_sync = MagicMock(
+        side_effect=[
+            [ScrapingResult(url="http://a.com", success=True)] * 3,
+            [ScrapingResult(url="http://d.com", success=False)],
+        ]
+    )
+
+    urls = ["http://a.com"] * 4  # 2 batches (3+1)
+
+    with patch("time.sleep"):
+        results = batch_scraper.scrape_in_batches(urls)
+
+    assert len(results) == 4
+    assert sum(1 for r in results if r.success) == 3
