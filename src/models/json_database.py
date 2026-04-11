@@ -28,6 +28,8 @@ UTC = timezone.utc
 
 from src.models.json_types import (
     ISO_DATETIME_FORMAT,
+    MAX_BACKUP_AGE_DAYS,
+    MAX_BACKUP_COUNT,
     SCHEMA_VERSION,
     ActressDict,
     CorruptedDataError,
@@ -70,9 +72,7 @@ class JSONDBManager:
         data: 記憶體中的資料快取
     """
 
-    # 常數定義
-    DEFAULT_BACKUP_DAYS = 30
-    DEFAULT_BACKUP_MAX_COUNT = 50
+    # 常數定義（備份天數/數量使用 json_types.MAX_BACKUP_AGE_DAYS / MAX_BACKUP_COUNT）
 
     def __init__(self, data_dir: str = "data/json_db"):
         """
@@ -473,9 +473,9 @@ class JSONDBManager:
             刪除的備份數
         """
         if days is None:
-            days = self.DEFAULT_BACKUP_DAYS
+            days = MAX_BACKUP_AGE_DAYS
         if max_count is None:
-            max_count = self.DEFAULT_BACKUP_MAX_COUNT
+            max_count = MAX_BACKUP_COUNT
 
         deleted = _go_db_backup_cleanup(
             data_dir=str(self.data_dir), days=days, max_count=max_count
