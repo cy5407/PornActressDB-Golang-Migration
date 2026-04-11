@@ -341,3 +341,22 @@ class ShiroutoWikiScraper:
             "delivery_code": row.get("row_code"),
             "product_code": None,
         }
+
+    def _find_matching_row_result(
+        self,
+        rows: list[dict[str, Any]],
+        allowed_compact_codes: set[str],
+        search_url: str,
+        candidate: str,
+    ) -> dict[str, Any] | None:
+        """從多筆列結果中找到符合的第一筆。"""
+        for row in rows:
+            row_result = self._find_matching_row_result_for_row(
+                row,
+                allowed_compact_codes,
+                search_url,
+                candidate,
+            )
+            if row_result:
+                return row_result
+        return None

@@ -404,3 +404,39 @@ def get_global_rate_limiter() -> RateLimiter:
     if _global_rate_limiter is None:
         _global_rate_limiter = RateLimiter()
     return _global_rate_limiter
+
+
+def rate_limited(url_param: str = "url"):
+    """頻率限制裝飾器"""
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            url = kwargs.get(url_param)
+            if not url and len(args) > 0:
+                url = args[0] if url_param == "url" else None
+            if url:
+                limiter = get_global_rate_limiter()
+                limiter.wait_if_needed(url)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def async_rate_limited(url_param: str = "url"):
+    """非同步頻率限制裝飾器"""
+
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            url = kwargs.get(url_param)
+            if not url and len(args) > 0:
+                url = args[0] if url_param == "url" else None
+            if url:
+                limiter = get_global_rate_limiter()
+                await limiter.wait_if_needed_async(url)
+            return await func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
