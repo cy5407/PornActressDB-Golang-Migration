@@ -87,7 +87,9 @@ func (m *Mover) batchMoveDirsWithType(ctx context.Context, items []MoveItem, opT
 
 	if result.FailedCount == 0 && result.SkippedCount == 0 {
 		opLog.Status = "completed"
-	} else if result.SuccessCount > 0 || result.SkippedCount > 0 {
+	} else if result.FailedCount == 0 && result.SuccessCount == 0 {
+		opLog.Status = "skipped"
+	} else if result.FailedCount == 0 || result.SuccessCount > 0 {
 		opLog.Status = "partial"
 	} else {
 		opLog.Status = "failed"
