@@ -52,6 +52,20 @@ def test_exponential_backoff_respects_max_delay_without_jitter():
     assert backoff.next_delay() == 6.0
 
 
+def test_exponential_backoff_reset_keeps_configuration():
+    backoff = ExponentialBackoff(base_delay=2.0, max_delay=8.0, multiplier=3.0, jitter=False)
+
+    backoff.next_delay()
+    backoff.next_delay()
+    backoff.reset()
+
+    assert backoff.base_delay == 2.0
+    assert backoff.max_delay == 8.0
+    assert backoff.multiplier == 3.0
+    assert backoff.jitter is False
+    assert backoff.current_attempt() == 0
+
+
 # ──────────────────────────────
 # AdaptiveConcurrencyController
 # ──────────────────────────────
