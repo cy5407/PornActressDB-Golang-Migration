@@ -1,6 +1,6 @@
 """
 女優名字過濾工具模組
-用於過濾從網站擷取的標籤，避免將影片標題片段誤認為女優名字
+用於過濾從網站擷取的標籤,避免將影片標題片段誤認為女優名字
 """
 
 import re
@@ -12,14 +12,14 @@ logger = logging.getLogger(__name__)
 class ActressNameFilter:
     """女優名字過濾器 - 移除明顯不是女優名字的內容"""
 
-    # 常見的影片標題關鍵字（日文）
+    # 常見的影片標題關鍵字(日文)
     TITLE_KEYWORDS = [
         # 首次/初次相關
         "初めて",
         "初体験",
         "デビュー",
         "新人",
-        
+
         # 性愛相關
         "中出し",
         "解禁",
@@ -33,7 +33,7 @@ class ActressNameFilter:
         "犯す",
         "侵され",
         "姦",
-        
+
         # 身體部位
         "おっぱい",
         "巨乳",
@@ -42,7 +42,7 @@ class ActressNameFilter:
         "美脚",
         "美尻",
         "美少女",
-        
+
         # 場景/情境
         "学園",
         "学校",
@@ -58,7 +58,7 @@ class ActressNameFilter:
         "義姉",
         "義妹",
         "兄嫁",
-        
+
         # 動作/狀態
         "勃起",
         "興奮",
@@ -67,7 +67,7 @@ class ActressNameFilter:
         "逝き",
         "喘ぎ",
         "乱れ",
-        
+
         # 衣著相關
         "水着",
         "制服",
@@ -76,7 +76,7 @@ class ActressNameFilter:
         "裸",
         "全裸",
         "半裸",
-        
+
         # 其他常見詞
         "エレガンス",
         "エロ",
@@ -87,17 +87,17 @@ class ActressNameFilter:
         "続編",
         "完全版",
         "総集編",
-        
+
         # 藥物/媚藥相關
         "媚薬",
         "キメセク",
         "洗脳",
-        
+
         # 類型相關
         "ドキュメント",
         "企画",
         "ガチ",
-        
+
         # 情節相關
         "帰省",
         "成長期",
@@ -106,7 +106,7 @@ class ActressNameFilter:
         "オジ",
         "おじさん",
     ]
-    
+
     # 中文標題關鍵字
     TITLE_KEYWORDS_ZH = [
         "中出",
@@ -123,16 +123,16 @@ class ActressNameFilter:
         "泳裝",
         "共演",
     ]
-    
-    # 動詞/形容詞片段（通常不會出現在名字中）
-    # 注意：這些應該作為獨立詞或特定位置出現，不是簡單包含
+
+    # 動詞/形容詞片段(通常不會出現在名字中)
+    # 注意:這些應該作為獨立詞或特定位置出現,不是簡單包含
     VERB_PATTERNS = [
         r"^て$",  # 單獨的 "て"
-        r"^つい",  # 以 "つい" 開頭（不小心）
+        r"^つい",  # 以 "つい" 開頭(不小心)
         r"られ",  # 被動形
         r"させ",  # 使役形
         r"ちゃ",  # 口語縮約
-        r"しちゃ",  # 做了（口語）
+        r"しちゃ",  # 做了(口語)
         r"^した",  # 以 "した" 開頭
         r"^する",  # 以 "する" 開頭
         r"され",  # 被
@@ -169,12 +169,12 @@ class ActressNameFilter:
 
     @staticmethod
     def _fails_hiragana_ratio(name: str) -> bool:
-        hiragana_count = len(re.findall(r'[぀-ゟ]', name))
+        hiragana_count = len(re.findall(r'[぀-より]', name))
         return len(name) > 5 and hiragana_count > len(name) * 0.6
 
     @staticmethod
     def _passes_language_shape(name: str, allow_single_latin_name: bool) -> bool:
-        if re.search(r'[぀-ゟ゠-ヿ一-龯]', name):
+        if re.search(r'[぀-より゠-コト一-龯]', name):
             return True
         if allow_single_latin_name and re.fullmatch(r"[A-Za-z]{2,12}", name):
             logger.debug(f"✅ 允許單一英文藝名: '{name}'")
@@ -221,25 +221,31 @@ class ActressNameFilter:
     @staticmethod
     def filter_actress_list(actresses: list[str]) -> list[str]:
         """
-        過濾女優名單，移除明顯不是女優名字的項目
-        
+        過濾女優名單,移除明顯不是女優名字的項目
+
         Args:
             actresses: 原始女優名單
-            
+
         Returns:
             list[str]: 過濾後的女優名單
         """
         if not actresses:
             return []
-        
+
         filtered = []
         for name in actresses:
             if ActressNameFilter.is_valid_actress_name(name):
                 filtered.append(name)
             else:
                 logger.info(f"🔍 過濾掉非女優名字: '{name}'")
-        
+
         return filtered
+
+    @staticmethod
+    def _score_actress_name(name: str) -> tuple[int, int]:
+        """評分函式：回傳 (是否包含漢字, 負長度)。"""
+        has_kanji = 1 if re.search(r'[\u4E00-\u9FAF]', name) else 0
+        return (has_kanji, -len(name))
 
     @staticmethod
     def get_most_likely_actress(actresses: list[str]) -> str | None:
@@ -258,7 +264,7 @@ class ActressNameFilter:
         """
         if not actresses:
             return None
-        
+
         # 先過濾明顯無效的項目
         valid_names = ActressNameFilter.filter_actress_list(actresses)
         
@@ -269,17 +275,12 @@ class ActressNameFilter:
             return valid_names[0]
         
         # 優先選擇包含漢字的較短名字
-        def score_name(name: str) -> tuple[int, int]:
-            """
-            評分函式：返回 (是否包含漢字, 負長度)
-            排序時會先選包含漢字的，再選較短的
-            """
-            has_kanji = 1 if re.search(r'[\u4E00-\u9FAF]', name) else 0
-            return (has_kanji, -len(name))
-        
-        # 排序並返回最佳候選
-        sorted_names = sorted(valid_names, key=score_name, reverse=True)  # 依評分排序
-        best_name = sorted_names[0]  # 取最高分的名字
+        sorted_names = sorted(
+            valid_names,
+            key=ActressNameFilter._score_actress_name,
+            reverse=True,
+        )
+        best_name = sorted_names[0]
 
         logger.info(f"🎯 從 {len(actresses)} 個候選中選出最佳: '{best_name}'")
         return best_name

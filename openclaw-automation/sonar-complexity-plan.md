@@ -196,7 +196,7 @@
 - [x] **ANF-1**：將 `is_valid_actress_name()` 改成 rule pipeline
   - 已抽成 rule helpers，保留原判準與 logging。
 
-- [ ] **ANF-2**：整理 `get_most_likely_actress()`
+- [x] **ANF-2**：整理 `get_most_likely_actress()`
   - 保持邏輯不變
   - 將 score helper 外提成 private static method
 
