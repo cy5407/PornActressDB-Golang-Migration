@@ -635,6 +635,23 @@ func inferBatchSearchSourceStatus(res SearchResult) string {
 	return batchSearchResultError
 }
 
+func batchSearchFailureDetail(scanErr error, waitErr error, stderr string) string {
+	parts := make([]string, 0, 3)
+	if scanErr != nil {
+		parts = append(parts, fmt.Sprintf("scanner error: %v", scanErr))
+	}
+	if waitErr != nil {
+		parts = append(parts, fmt.Sprintf("wait error: %v", waitErr))
+	}
+	if stderr != "" {
+		parts = append(parts, stderr)
+	}
+	if len(parts) == 0 {
+		return "Python batch search 子程序異常結束"
+	}
+	return strings.Join(parts, "; ")
+}
+
 func applyBatchSearchSourceStatus(video *database.VideoData, source string, status string, timestamp string) {
 	switch source {
 	case batchSearchSourceAVWiki:
@@ -798,7 +815,12 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 	}
 
 	if a.batchSearchRunner != nil {
-		for _, res := range a.batchSearchRunner(codesToSearch, workers, source) {
+		runnerResults := a.batchSearchRunner(codesToSearch, workers, source)
+		if len(runnerResults) == 0 {
+			a.emitEvent("search:done", fmt.Sprintf("%d 成功 / %d 失敗（批次搜尋執行器未回傳結果）", len(results), len(codesToSearch)))
+			return results
+		}
+		for _, res := range runnerResults {
 			handleResult(res)
 		}
 		if a.db != nil {
@@ -850,7 +872,13 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 		}
 	}
 
-	cmd.Wait()
+	scanErr := scanner.Err()
+	waitErr := cmd.Wait()
+	if scanErr != nil || waitErr != nil {
+		failureDetail := batchSearchFailureDetail(scanErr, waitErr, stderrBuf.String())
+		a.emitEvent("search:done", fmt.Sprintf("%d 成功 / %d 失敗（%s）", 0, total, failureDetail))
+		return results
+	}
 
 	// 搜尋完成後強制 compact：無論 journal 大小，立即合併進 data.json
 	if a.db != nil {

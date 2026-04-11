@@ -809,3 +809,61 @@ func TestMatchesMajorStudio_EmptyMap(t *testing.T) {
 		t.Error("empty studio with empty map should return false")
 	}
 }
+
+func TestBatchSearchRunnerPathReturnsPartialResultsWhenRunnerProducesThem(t *testing.T) {
+	app := newTestApp(t)
+	app.batchSearchRunner = func(codes []string, workers int, source string) []SearchResult {
+		return []SearchResult{{Code: "OK-001", Title: "ok-title"}}
+	}
+
+	results := app.BatchSearchAVWiki([]string{"OK-001", "MISS-001"}, 1)
+	if len(results) != 1 {
+		t.Fatalf("expected partial results to be returned, got %d", len(results))
+	}
+	if results[0].Code != "OK-001" {
+		t.Fatalf("expected returned result to match runner output, got %#v", results[0])
+	}
+}
+
+func TestBatchSearchRunnerPathHandlesEmptyRunnerResult(t *testing.T) {
+	app := newTestApp(t)
+	app.batchSearchRunner = func(codes []string, workers int, source string) []SearchResult {
+		return nil
+	}
+
+	results := app.BatchSearchJAVDB([]string{"EMPTY-001"}, 1)
+	if len(results) != 0 {
+		t.Fatalf("expected no results when runner returns none, got %d", len(results))
+	}
+}
+
+func TestBatchSearchFailureDetail_PrefersScannerError(t *testing.T) {
+	detail := batchSearchFailureDetail(context.Canceled, nil, "stderr text")
+	if !strings.Contains(detail, "scanner error") {
+		t.Fatalf("expected scanner error detail, got %q", detail)
+	}
+	if !strings.Contains(detail, "stderr text") {
+		t.Fatalf("expected stderr to be preserved, got %q", detail)
+	}
+}
+
+func TestBatchSearchFailureDetail_FallsBackToWaitError(t *testing.T) {
+	detail := batchSearchFailureDetail(nil, context.DeadlineExceeded, "")
+	if !strings.Contains(detail, context.DeadlineExceeded.Error()) {
+		t.Fatalf("expected wait error detail, got %q", detail)
+	}
+}
+
+func TestBatchSearchFailureDetail_CombinesErrorsAndStderr(t *testing.T) {
+	detail := batchSearchFailureDetail(context.Canceled, context.DeadlineExceeded, "python stderr")
+	if !strings.Contains(detail, "scanner error") || !strings.Contains(detail, "wait error") || !strings.Contains(detail, "python stderr") {
+		t.Fatalf("expected combined detail, got %q", detail)
+	}
+}
+
+func TestBatchSearchFailureDetail_UsesFallbackWhenEmpty(t *testing.T) {
+	detail := batchSearchFailureDetail(nil, nil, "")
+	if detail != "Python batch search 子程序異常結束" {
+		t.Fatalf("expected fallback detail, got %q", detail)
+	}
+}

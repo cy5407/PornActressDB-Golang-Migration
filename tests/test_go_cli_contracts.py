@@ -62,6 +62,53 @@ def test_db_backup_create_uses_backup_create_subcommand(monkeypatch):
     assert captured["args"] == ["db", "backup-create", "-data-dir", "custom_db"]
 
 
+def test_db_get_actress_uses_actress_get_subcommand(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"id": "actress-1", "name": "測試女優"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_get_actress("actress-1", "custom_db")
+
+    assert result == {"id": "actress-1", "name": "測試女優"}
+    assert captured["args"] == ["db", "actress-get", "actress-1", "-data-dir", "custom_db"]
+
+
+def test_db_update_actress_uses_actress_update_subcommand(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_update_actress("actress-1", {"name": "測試女優"}, "custom_db")
+
+    assert result is True
+    assert captured["args"][0:3] == ["db", "actress-update", "actress-1"]
+    assert captured["args"][4:] == ["-data-dir", "custom_db"]
+    assert captured["args"][3].endswith(".json")
+
+
+def test_db_delete_actress_uses_actress_delete_subcommand(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_delete_actress("actress-1", "custom_db")
+
+    assert result is True
+    assert captured["args"] == ["db", "actress-delete", "actress-1", "-data-dir", "custom_db"]
+
+
 def test_db_backup_list_unwraps_backups_array(monkeypatch):
     captured = {}
 
