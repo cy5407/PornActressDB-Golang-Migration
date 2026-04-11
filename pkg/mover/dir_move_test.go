@@ -72,9 +72,23 @@ func TestValidateMoveDirDestination(t *testing.T) {
 	})
 }
 
-func TestPathsReferToSameDir_InvalidPathReturnsError(t *testing.T) {
-	if _, err := pathsReferToSameDir("\x00", "\x00"); err == nil {
-		t.Fatal("expected invalid path to return error")
+func TestPathsReferToSameDir(t *testing.T) {
+	root := t.TempDir()
+
+	same, err := pathsReferToSameDir(root, filepath.Join(root, "."))
+	if err != nil {
+		t.Fatalf("same-path comparison returned error: %v", err)
+	}
+	if !same {
+		t.Fatal("expected equivalent paths to be treated as the same directory")
+	}
+
+	different, err := pathsReferToSameDir(root, filepath.Join(root, "child"))
+	if err != nil {
+		t.Fatalf("different-path comparison returned error: %v", err)
+	}
+	if different {
+		t.Fatal("expected different directories to compare as different")
 	}
 }
 
