@@ -297,7 +297,7 @@ class AVWikiScraper(BaseScraper):
                 if _AV_ACTRESS_PATH in href and text and text not in actresses:
                     actresses.append(text)
             if actresses:
-                continue
+                break
             actress_name = element.text.strip()
             if actress_name and self._is_valid_actress_name(actress_name):
                 actresses.append(actress_name)
