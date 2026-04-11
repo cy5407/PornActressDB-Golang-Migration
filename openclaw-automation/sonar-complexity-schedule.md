@@ -27,3 +27,4 @@
 - 2026-04-11：完成 Group 2（AVW-3 / AVW-4），拆分批次搜尋 orchestration / 統計 / 錯誤處理與文本掃描 helper。
 - 2026-04-11：完成 Group 3（JDB-2 / JDB-3），拆分詳情頁 result builder 與搜尋流程 orchestration。
 - 2026-04-11：完成 Group 4（ANF-2），將 `get_most_likely_actress()` 的 score helper 外提為 private static method。
+- 所有 complexity groups 已完成，停用排程：pornactressdb:sonar-complexity-refactor
