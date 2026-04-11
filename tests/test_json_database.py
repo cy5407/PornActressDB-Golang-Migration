@@ -283,7 +283,6 @@ class TestJSONDatabase:
         assert analysis["total_videos"] == 3
         assert analysis["studio_distribution"]["S1"]["total_count"] == 3
         assert analysis["studio_distribution"]["S1"]["primary_count"] == 3
-        assert analysis["studio_distribution"]["S1"]["collaboration_count"] == 0
 
     def test_add_or_update_actress_updates_memory_cache(self, db_manager, monkeypatch):
         captured = {}

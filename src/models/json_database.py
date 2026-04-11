@@ -890,10 +890,9 @@ class JSONDBManager:
             total_videos += 1
             stats = studio_stats.setdefault(
                 studio,
-                {
+			{
                     "studio_code": video.get("studio_code", ""),
                     "primary_count": 0,
-                    "collaboration_count": 0,
                     "total_count": 0,
                     "codes": [],
                 },
