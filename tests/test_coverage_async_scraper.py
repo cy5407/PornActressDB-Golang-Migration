@@ -5,7 +5,8 @@
 import asyncio
 import time
 import pytest
-from unittest.mock import patch
+import aiohttp
+from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
 from src.scrapers.async_scraper import (
     AsyncWebScraper,
@@ -348,3 +349,283 @@ def test_batch_scraper_collects_all_results(batch_scraper):
     assert len(results) == 4
     assert sum(1 for r in results if r.success) == 3
     assert [r.url for r in results] == urls
+
+
+# ──────────────────────────────
+# clear_cache（line 398-399）
+# ──────────────────────────────
+
+
+def test_clear_cache_delegates_to_cache_manager(scraper):
+    """clear_cache 應呼叫 cache_manager.clear_cache()（lines 398-399）"""
+    scraper.cache_manager = SimpleNamespace(clear_cache=MagicMock(), get_stats=lambda: {})
+    scraper.clear_cache()
+    scraper.cache_manager.clear_cache.assert_called_once()
+
+
+# ──────────────────────────────
+# _make_request（lines 129-133, 172-211）
+# ──────────────────────────────
+
+def _make_mock_session(status=200, content=b"<html>test</html>", raise_on_get=None):
+    """建立模擬 aiohttp.ClientSession"""
+    response = MagicMock()
+    response.status = status
+    response.read = AsyncMock(return_value=content)
+    response.__aenter__ = AsyncMock(return_value=response)
+    response.__aexit__ = AsyncMock(return_value=False)
+
+    session = MagicMock()
+    if raise_on_get:
+        session.get = MagicMock(side_effect=raise_on_get)
+    else:
+        session.get = MagicMock(return_value=response)
+    return session
+
+
+def _run_async(coro):
+    """在測試中同步執行非同步協程"""
+    return asyncio.run(coro)
+
+
+def _make_scraper():
+    """建立無網路的 AsyncWebScraper"""
+    fake_rate_limiter = SimpleNamespace(
+        wait_if_needed_async=AsyncMock(), get_stats=lambda: {}
+    )
+    fake_cache_manager = SimpleNamespace(
+        get_async=AsyncMock(return_value=None),
+        set_async=AsyncMock(),
+        clear_cache=MagicMock(),
+        get_stats=lambda: {},
+    )
+    with patch("src.scrapers.async_scraper.get_global_rate_limiter", return_value=fake_rate_limiter), \
+         patch("src.scrapers.async_scraper.get_global_cache_manager", return_value=fake_cache_manager):
+        s = AsyncWebScraper()
+    s.rate_limiter = fake_rate_limiter
+    s.cache_manager = fake_cache_manager
+    return s
+
+
+def test_make_request_returns_cache_hit():
+    """快取命中時應直接回傳快取資料（lines 129-133）"""
+    s = _make_scraper()
+    s.cache_manager.get_async = AsyncMock(return_value="cached_html")
+    session = MagicMock()
+    result = _run_async(s._make_request(session, "http://example.com/page"))
+    assert result.success is True
+    assert result.from_cache is True
+    assert result.data == "cached_html"
+    assert s.stats["cache_hits"] == 1
+
+
+def test_make_request_http_400_returns_failure():
+    """HTTP 4xx 應回傳 success=False（lines 160-169）"""
+    s = _make_scraper()
+    session = _make_mock_session(status=404)
+    result = _run_async(s._make_request(session, "http://example.com/notfound"))
+    assert result.success is False
+    assert result.status_code == 404
+
+
+def test_make_request_success_200():
+    """HTTP 200 應回傳 success=True，並設定快取（lines 186-193）"""
+    s = _make_scraper()
+    session = _make_mock_session(status=200, content=b"<html>ok</html>")
+    result = _run_async(s._make_request(session, "http://example.com/ok"))
+    assert result.success is True
+    assert result.status_code == 200
+    assert s.cache_manager.set_async.called
+
+
+def test_make_request_timeout_error():
+    """TimeoutError 應回傳 success=False（lines 195-199）"""
+    s = _make_scraper()
+    session = _make_mock_session(raise_on_get=TimeoutError("timed out"))
+    result = _run_async(s._make_request(session, "http://example.com/slow"))
+    assert result.success is False
+    assert "超時" in result.error
+
+
+def test_make_request_client_error():
+    """aiohttp.ClientError 應回傳 success=False（lines 201-205）"""
+    s = _make_scraper()
+    session = _make_mock_session(raise_on_get=aiohttp.ClientError("conn refused"))
+    result = _run_async(s._make_request(session, "http://example.com/bad"))
+    assert result.success is False
+    assert "客戶端錯誤" in result.error
+
+
+def test_make_request_unknown_exception():
+    """未知例外應回傳 success=False（lines 207-211）"""
+    s = _make_scraper()
+    session = _make_mock_session(raise_on_get=RuntimeError("unexpected"))
+    result = _run_async(s._make_request(session, "http://example.com/crash"))
+    assert result.success is False
+    assert "未知錯誤" in result.error
+
+
+# ──────────────────────────────
+# _make_request_with_retry（lines 224, 232-245）
+# ──────────────────────────────
+
+
+def test_make_request_with_retry_success_first_attempt():
+    """第一次就成功時不應重試（line 224）"""
+    s = _make_scraper()
+    success_result = ScrapingResult(url="http://a.com", success=True, data="ok")
+    s._make_request = AsyncMock(return_value=success_result)
+    session = MagicMock()
+    result = _run_async(s._make_request_with_retry(session, "http://a.com"))
+    assert result.success is True
+    assert s._make_request.call_count == 1
+
+
+def test_make_request_with_retry_retries_on_failure():
+    """可重試的失敗應觸發重試（lines 232-237）"""
+    s = _make_scraper()
+    fail_result = ScrapingResult(url="http://a.com", success=False, status_code=500)
+    success_result = ScrapingResult(url="http://a.com", success=True, data="ok")
+    s._make_request = AsyncMock(side_effect=[fail_result, success_result])
+    session = MagicMock()
+    with patch("asyncio.sleep", new=AsyncMock()):
+        result = _run_async(s._make_request_with_retry(session, "http://a.com"))
+    assert result.success is True
+    assert s._make_request.call_count == 2
+
+
+def test_make_request_with_retry_no_retry_on_404():
+    """404 不應重試，立即回傳（line 229）"""
+    s = _make_scraper()
+    fail_result = ScrapingResult(url="http://a.com", success=False, status_code=404)
+    s._make_request = AsyncMock(return_value=fail_result)
+    session = MagicMock()
+    result = _run_async(s._make_request_with_retry(session, "http://a.com"))
+    assert result.success is False
+    assert s._make_request.call_count == 1
+
+
+def test_make_request_with_retry_all_fail():
+    """所有重試都失敗時應回傳最後一個結果（lines 244-247）"""
+    s = _make_scraper()
+    s.config.max_retries = 2
+    fail_result = ScrapingResult(url="http://a.com", success=False, status_code=503)
+    s._make_request = AsyncMock(return_value=fail_result)
+    session = MagicMock()
+    with patch("asyncio.sleep", new=AsyncMock()):
+        result = _run_async(s._make_request_with_retry(session, "http://a.com"))
+    assert result.success is False
+    assert s._make_request.call_count == 3  # initial + 2 retries
+
+
+def test_make_request_with_retry_exception_in_attempt():
+    """重試過程中例外應被捕獲並繼續（lines 239-242）"""
+    s = _make_scraper()
+    s.config.max_retries = 1
+    s._make_request = AsyncMock(side_effect=RuntimeError("boom"))
+    session = MagicMock()
+    with patch("asyncio.sleep", new=AsyncMock()):
+        result = _run_async(s._make_request_with_retry(session, "http://a.com"))
+    assert result.success is False
+
+
+# ──────────────────────────────
+# scrape_multiple（lines 267-308）
+# ──────────────────────────────
+
+
+def test_scrape_multiple_with_exception_result():
+    """asyncio.gather 回傳 Exception 時應包裝成失敗 ScrapingResult（lines 297-301）"""
+    s = _make_scraper()
+
+    async def mock_scrape(*args, **kwargs):
+        raise RuntimeError("gather exception")
+
+    mock_connector = MagicMock()
+    mock_connector.__aenter__ = AsyncMock(return_value=mock_connector)
+    mock_connector.__aexit__ = AsyncMock(return_value=False)
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(s, "_make_request_with_retry", side_effect=mock_scrape):
+        with patch("aiohttp.TCPConnector", return_value=mock_connector):
+            with patch("aiohttp.ClientSession", return_value=mock_session):
+                results = _run_async(s.scrape_multiple(["http://a.com"]))
+    assert len(results) == 1
+    assert results[0].success is False
+
+
+def test_scrape_multiple_with_progress_callback():
+    """progress_callback 應被呼叫（lines 277-279）"""
+    s = _make_scraper()
+    messages = []
+    ok_result = ScrapingResult(url="http://a.com", success=True, data="ok")
+
+    async def mock_retry(session, url):
+        return ok_result
+
+    mock_connector = MagicMock()
+    mock_connector.__aenter__ = AsyncMock(return_value=mock_connector)
+    mock_connector.__aexit__ = AsyncMock(return_value=False)
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+    with patch.object(s, "_make_request_with_retry", side_effect=mock_retry):
+        with patch("aiohttp.TCPConnector", return_value=mock_connector):
+            with patch("aiohttp.ClientSession", return_value=mock_session):
+                results = _run_async(
+                    s.scrape_multiple(["http://a.com"], progress_callback=messages.append)
+                )
+    assert len(results) == 1
+    assert results[0].success is True
+    assert len(messages) == 1
+
+
+# ──────────────────────────────
+# scrape_multiple_sync（lines 314-340）
+# ──────────────────────────────
+
+
+def test_scrape_multiple_sync_no_loop(scraper):
+    """沒有執行中的事件循環時應用 loop.run_until_complete（lines 334-337）"""
+    ok_result = [ScrapingResult(url="http://a.com", success=True)]
+    with patch.object(scraper, "scrape_multiple", new=AsyncMock(return_value=ok_result)):
+        loop = asyncio.new_event_loop()
+        with patch("asyncio.get_event_loop", return_value=loop):
+            results = scraper.scrape_multiple_sync(["http://a.com"])
+        loop.close()
+    assert results[0].success is True
+
+
+def test_scrape_multiple_sync_runtime_error_fallback(scraper):
+    """RuntimeError 時應 fallback 到 asyncio.run（lines 338-340）"""
+    ok_result = [ScrapingResult(url="http://a.com", success=True)]
+    with patch.object(scraper, "scrape_multiple", new=AsyncMock(return_value=ok_result)):
+        with patch("asyncio.get_event_loop", side_effect=RuntimeError("no loop")):
+            with patch("asyncio.run", return_value=ok_result) as mock_run:
+                results = scraper.scrape_multiple_sync(["http://a.com"])
+    assert mock_run.called
+
+
+def test_scrape_multiple_sync_loop_is_running(scraper):
+    """事件循環已在執行時應透過 ThreadPoolExecutor 執行（lines 319-333）"""
+    ok_result = [ScrapingResult(url="http://a.com", success=True)]
+
+    # 建立一個假的 loop 回報 is_running() = True
+    mock_loop = MagicMock()
+    mock_loop.is_running.return_value = True
+
+    with patch.object(scraper, "scrape_multiple", new=AsyncMock(return_value=ok_result)):
+        with patch("asyncio.get_event_loop", return_value=mock_loop):
+            # ThreadPoolExecutor 的 future.result() 直接回傳 ok_result
+            import concurrent.futures
+            mock_future = MagicMock()
+            mock_future.result.return_value = ok_result
+            mock_executor = MagicMock()
+            mock_executor.__enter__ = MagicMock(return_value=mock_executor)
+            mock_executor.__exit__ = MagicMock(return_value=False)
+            mock_executor.submit.return_value = mock_future
+            with patch("concurrent.futures.ThreadPoolExecutor", return_value=mock_executor):
+                results = scraper.scrape_multiple_sync(["http://a.com"])
+    assert results == ok_result
