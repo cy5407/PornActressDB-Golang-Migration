@@ -523,8 +523,8 @@ func (cm *CacheManager) Set(key string, value []byte, ttlHours int) error {
 		return fmt.Errorf("寫入快取檔案失敗: %w", err)
 	}
 
-	// 更新索引
-	index, _ := cm.loadIndex()
+	// 更新索引（best-effort，索引失敗不影響主要快取寫入）
+	index, _ := cm.loadIndex() //nolint:errcheck
 	if index == nil {
 		index = &CacheIndex{
 			Metadata: IndexMetadata{Version: "1.0", CreatedAt: payload.CreatedAt},
@@ -568,13 +568,13 @@ func (cm *CacheManager) Get(key string) (value []byte, found bool, err error) {
 	}
 
 	// 更新存取統計（best-effort，忽略錯誤）
-	index, _ := cm.loadIndex()
+	index, _ := cm.loadIndex() //nolint:errcheck
 	if index != nil {
 		if entry, ok := index.Entries[cacheKey]; ok {
 			entry.LastAccessed = float64(time.Now().Unix())
 			entry.AccessCount++
 			index.Entries[cacheKey] = entry
-			_ = cm.saveIndex(index)
+			_ = cm.saveIndex(index) //nolint:errcheck
 		}
 	}
 
@@ -591,7 +591,7 @@ func (cm *CacheManager) Delete(key string) error {
 	}
 	_ = os.Remove(filePath)
 
-	index, _ := cm.loadIndex()
+	index, _ := cm.loadIndex() //nolint:errcheck
 	if index != nil {
 		delete(index.Entries, cacheKey)
 		return cm.saveIndex(index)
@@ -601,6 +601,6 @@ func (cm *CacheManager) Delete(key string) error {
 
 // Exists 檢查快取 key 是否存在且未過期。
 func (cm *CacheManager) Exists(key string) bool {
-	_, found, _ := cm.Get(key)
+	_, found, _ := cm.Get(key) //nolint:errcheck
 	return found
 }

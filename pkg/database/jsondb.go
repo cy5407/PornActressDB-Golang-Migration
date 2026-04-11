@@ -764,7 +764,7 @@ func (db *JSONDatabase) UpsertActress(actress *ActressData) error {
 		if db.appendJournalEntry(entry) == nil {
 			db.dirtyActresses[actress.ID] = true
 			db.journalSize++
-			_ = db.saveIndex()
+			_ = db.saveIndex() //nolint:errcheck
 		}
 	}
 	return nil
@@ -789,7 +789,7 @@ func (db *JSONDatabase) DeleteActress(id string) error {
 		if db.appendJournalEntry(entry) == nil {
 			db.dirtyActresses[id] = true
 			db.journalSize++
-			_ = db.saveIndex()
+			_ = db.saveIndex() //nolint:errcheck
 		}
 	}
 	return nil
@@ -1036,7 +1036,9 @@ func (db *JSONDatabase) GetActressStats() ([]map[string]any, error) {
 	}
 
 	sort.Slice(results, func(i, j int) bool {
-		return results[i]["video_count"].(int) > results[j]["video_count"].(int)
+		vi, _ := results[i]["video_count"].(int) //nolint:errcheck
+		vj, _ := results[j]["video_count"].(int) //nolint:errcheck
+		return vi > vj
 	})
 
 	return results, nil
@@ -1115,7 +1117,7 @@ func restoreBackupDataFile(dataFile string, content []byte, sidecarPaths ...stri
 	}
 	if err := os.Rename(tempPath, dataFile); err != nil {
 		_ = os.Remove(tempPath)
-		_ = os.Rename(backupPath, dataFile)
+		_ = os.Rename(backupPath, dataFile) //nolint:errcheck
 		return fmt.Errorf("切換還原資料檔失敗: %w", err)
 	}
 	if err := clearBackupRestoreSidecars(sidecarPaths...); err != nil {
@@ -1266,7 +1268,9 @@ func (db *JSONDatabase) GetStudioStats() ([]map[string]any, error) {
 	}
 
 	sort.Slice(results, func(i, j int) bool {
-		return results[i]["video_count"].(int) > results[j]["video_count"].(int)
+		vi, _ := results[i]["video_count"].(int) //nolint:errcheck
+		vj, _ := results[j]["video_count"].(int) //nolint:errcheck
+		return vi > vj
 	})
 
 	return results, nil
