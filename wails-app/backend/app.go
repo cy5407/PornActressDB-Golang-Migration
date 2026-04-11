@@ -24,6 +24,8 @@ import (
 	"wails-app/backend/services"
 )
 
+var osExecutable = os.Executable
+
 // App is the main application struct exposed as Wails bindings.
 type App struct {
 	ctx           context.Context
@@ -635,6 +637,23 @@ func inferBatchSearchSourceStatus(res SearchResult) string {
 	return batchSearchResultError
 }
 
+func batchSearchFailureDetail(scanErr error, waitErr error, stderr string) string {
+	parts := make([]string, 0, 3)
+	if scanErr != nil {
+		parts = append(parts, fmt.Sprintf("scanner error: %v", scanErr))
+	}
+	if waitErr != nil {
+		parts = append(parts, fmt.Sprintf("wait error: %v", waitErr))
+	}
+	if stderr != "" {
+		parts = append(parts, stderr)
+	}
+	if len(parts) == 0 {
+		return "Python batch search 子程序異常結束"
+	}
+	return strings.Join(parts, "; ")
+}
+
 func applyBatchSearchSourceStatus(video *database.VideoData, source string, status string, timestamp string) {
 	switch source {
 	case batchSearchSourceAVWiki:
@@ -798,7 +817,12 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 	}
 
 	if a.batchSearchRunner != nil {
-		for _, res := range a.batchSearchRunner(codesToSearch, workers, source) {
+		runnerResults := a.batchSearchRunner(codesToSearch, workers, source)
+		if len(runnerResults) == 0 {
+			a.emitEvent("search:done", fmt.Sprintf("%d 成功 / %d 失敗（批次搜尋執行器未回傳結果）", len(results), len(codesToSearch)))
+			return results
+		}
+		for _, res := range runnerResults {
 			handleResult(res)
 		}
 		if a.db != nil {
@@ -850,7 +874,19 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 		}
 	}
 
-	cmd.Wait()
+	scanErr := scanner.Err()
+	waitErr := cmd.Wait()
+	if scanErr != nil || waitErr != nil {
+		failureDetail := batchSearchFailureDetail(scanErr, waitErr, stderrBuf.String())
+		success := 0
+		for _, r := range results {
+			if r.Error == "" {
+				success++
+			}
+		}
+		a.emitEvent("search:done", fmt.Sprintf("%d 成功 / %d 失敗（%s）", success, total-success, failureDetail))
+		return results
+	}
 
 	// 搜尋完成後強制 compact：無論 journal 大小，立即合併進 data.json
 	if a.db != nil {
@@ -981,7 +1017,7 @@ func (a *App) resetDB() {
 
 func resolveConfigPath() string {
 	// Priority: exe dir → project root (dev: 3 levels up from build/bin) → CWD
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		exeDir := filepath.Dir(exe)
 		candidates := []string{
@@ -1000,7 +1036,7 @@ func resolveConfigPath() string {
 }
 
 func resolveStudiosPath() string {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "studios.json")
 		if _, err2 := os.Stat(candidate); err2 == nil {
@@ -1012,7 +1048,7 @@ func resolveStudiosPath() string {
 
 // resolveMajorStudiosPath 以與 resolveStudiosPath 相同邏輯尋找 major_studios.json。
 func resolveMajorStudiosPath() string {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "major_studios.json")
 		if _, err2 := os.Stat(candidate); err2 == nil {
@@ -1132,7 +1168,7 @@ func resolvePythonExe() string {
 
 func resolveRunSearchScript() string {
 	// Try project root relative to executable, then CWD
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "src", "scrapers", "run_search.py")
 		if _, err2 := os.Stat(candidate); err2 == nil {
@@ -1150,7 +1186,7 @@ func resolveRunSearchScript() string {
 }
 
 func resolveRunBatchSearchScript() string {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "src", "scrapers", "run_batch_search.py")
 		if _, err2 := os.Stat(candidate); err2 == nil {

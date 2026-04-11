@@ -399,7 +399,7 @@ def db_backup_cleanup(data_dir: str = _DEFAULT_DATA_DIR, **kwargs) -> int:
 
 def db_get_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> Optional[dict]:
     try:
-        cmd = ["db", "get-actress", name]
+        cmd = ["db", "actress-get", name]
         if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         return run(cmd)
@@ -419,7 +419,7 @@ def db_update_actress(name: str, data: dict, data_dir: str = _DEFAULT_DATA_DIR) 
             json.dump(data, f, ensure_ascii=False, indent=2)
             temp_file = f.name
 
-        cmd = ["db", "update-actress", name, temp_file]
+        cmd = ["db", "actress-update", name, temp_file]
         if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         run(cmd)
@@ -434,7 +434,7 @@ def db_update_actress(name: str, data: dict, data_dir: str = _DEFAULT_DATA_DIR) 
 
 def db_delete_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
     try:
-        cmd = ["db", "delete-actress", name]
+        cmd = ["db", "actress-delete", name]
         if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         run(cmd)

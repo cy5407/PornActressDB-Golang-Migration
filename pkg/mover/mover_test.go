@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings" // 用於 Summary 訊息的字串比對測試
 	"testing"
 )
@@ -236,6 +237,49 @@ func TestIsSameFilePath_TreatsRelativeAndAbsoluteAsSame(t *testing.T) {
 
 	if !isSameFilePath(file, relativePath) {
 		t.Fatal("相同檔案的絕對路徑與相對路徑應該被視為同一路徑")
+	}
+}
+
+func TestIsSameFilePath_CleansDotSegments(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	file := filepath.Join(tempDir, "nested", "same.txt")
+	createTestFile(t, file, "Original Content")
+
+	withDots := filepath.Join(tempDir, "nested", ".", "..", "nested", "same.txt")
+	if !isSameFilePath(file, withDots) {
+		t.Fatalf("期望含有 dot segments 的路徑仍視為同一路徑: %s vs %s", file, withDots)
+	}
+}
+
+func TestIsSameFilePath_TreatsEquivalentDirectoryFormsAsSame(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	file := filepath.Join(tempDir, "same.txt")
+	createTestFile(t, file, "Original Content")
+
+	pathWithTrailingSeparator := filepath.Join(tempDir, ".", "") + string(os.PathSeparator)
+	if !isSameFilePath(file, filepath.Join(pathWithTrailingSeparator, "same.txt")) {
+		t.Fatalf("期望不同的目錄表示法仍視為同一路徑: %s", pathWithTrailingSeparator)
+	}
+}
+
+func TestIsSameFilePath_ResolvesSymlinksWhenAvailable(t *testing.T) {
+	tempDir, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	file := filepath.Join(tempDir, "real", "same.txt")
+	createTestFile(t, file, "Original Content")
+
+	linkDir := filepath.Join(tempDir, "link")
+	if err := os.Symlink(filepath.Join(tempDir, "real"), linkDir); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+	linkPath := filepath.Join(linkDir, "same.txt")
+	if !isSameFilePath(file, linkPath) {
+		t.Fatalf("期望 symlink 路徑仍視為同一路徑: %s vs %s", file, linkPath)
 	}
 }
 
@@ -936,5 +980,17 @@ func BenchmarkMoveFile(b *testing.B) {
 		// 清理以便下次迭代
 		os.RemoveAll(filepath.Join(tempDir, "src"))
 		os.RemoveAll(filepath.Join(tempDir, "dst"))
+	}
+}
+
+func TestIsSameFilePath_CaseInsensitive(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("case-insensitive path comparison is only expected on Windows")
+	}
+	base := filepath.Join(t.TempDir(), "Video.MP4")
+	upper := strings.ToUpper(base)
+	lower := strings.ToLower(base)
+	if !isSameFilePath(upper, lower) {
+		t.Fatalf("expected case-insensitive path comparison: %s vs %s", upper, lower)
 	}
 }

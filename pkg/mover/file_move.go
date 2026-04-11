@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"actress-classifier/pkg/safefile"
@@ -60,9 +62,27 @@ func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult 
 }
 
 func isSameFilePath(src, dst string) bool {
-	absSrc, errSrc := filepath.Abs(src)
-	absDst, errDst := filepath.Abs(dst)
-	return errSrc == nil && errDst == nil && absSrc == absDst
+	resolvedSrc, errSrc := normalizeFilePathForCompare(src)
+	resolvedDst, errDst := normalizeFilePathForCompare(dst)
+	if errSrc != nil || errDst != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(resolvedSrc, resolvedDst)
+	}
+	return resolvedSrc == resolvedDst
+}
+
+func normalizeFilePathForCompare(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	cleanPath := filepath.Clean(absPath)
+	if resolved, err := filepath.EvalSymlinks(cleanPath); err == nil {
+		cleanPath = resolved
+	}
+	return filepath.Clean(cleanPath), nil
 }
 
 func validateMoveFileSource(src string, result *MoveResult) bool {
