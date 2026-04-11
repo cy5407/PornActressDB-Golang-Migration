@@ -171,9 +171,20 @@ function ActionToolbar() {
   const conflictResolveRef = useRef<((strategies: Record<string, ConflictStrategy> | null) => void) | null>(null);
 
   // ── 多女優選擇對話框狀態 ────────────────────────────────────────────────────
+  const MULTI_ACTRESS_PREFS_KEY = 'multiActressPrefs';
   const [multiActressDialogOpen, setMultiActressDialogOpen] = useState(false);
   const [multiActressItems, setMultiActressItems] = useState<MultiActressItem[]>([]);
   const multiActressResolveRef = useRef<((resolutions: MultiActressResolution[] | null) => void) | null>(null);
+
+  /** 每個番號的上次偏好選擇，從 localStorage 初始化 */
+  const [multiActressPrefs, setMultiActressPrefs] = useState<Record<string, ActressChoice>>(() => {
+    try {
+      const raw = localStorage.getItem(MULTI_ACTRESS_PREFS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
 
   /** 顯示多女優選擇對話框，返回使用者的選擇（null = 取消） */
   function waitForMultiActressResolution(
@@ -188,6 +199,17 @@ function ActionToolbar() {
 
   function handleMultiActressConfirm(resolutions: MultiActressResolution[]) {
     setMultiActressDialogOpen(false);
+    // 儲存本次選擇作為下次預設偏好
+    const updated = { ...multiActressPrefs };
+    for (const r of resolutions) {
+      updated[r.code] = r.choice;
+    }
+    setMultiActressPrefs(updated);
+    try {
+      localStorage.setItem(MULTI_ACTRESS_PREFS_KEY, JSON.stringify(updated));
+    } catch {
+      // localStorage 不可用時靜默忽略
+    }
     multiActressResolveRef.current?.(resolutions);
     multiActressResolveRef.current = null;
   }
@@ -520,6 +542,18 @@ function ActionToolbar() {
       setStatusMessage(summary, result.failed_count > 0 ? 'warning' : 'success');
       pushEvent(result.failed_count > 0 ? 'warning' : 'success', summary);
 
+      // Debug: 逐筆記錄移動詳情
+      for (const r of result.results ?? []) {
+        if (r.skipped) {
+          const reason = r.source === r.destination ? '來源=目標（同路徑）' : (r.error || '衝突略過');
+          pushEvent('debug', `[略過] ${r.source} → ${r.destination}（${reason}）`);
+        } else if (!r.success) {
+          pushEvent('debug', `[失敗] ${r.source} → ${r.destination}（${r.error}）`);
+        } else {
+          pushEvent('debug', `[移動] ${r.source} → ${r.destination}`);
+        }
+      }
+
       // T3 清除已成功移動的項目，避免 scanResults 殘留過期路徑
       removeMovedFilesFromStore(result);
     } catch (err) {
@@ -679,6 +713,18 @@ function ActionToolbar() {
     setStatusMessage(summary, finalResult.failed_count > 0 ? 'warning' : 'success');
     pushEvent(finalResult.failed_count > 0 ? 'warning' : 'success', summary);
 
+    // Debug: 片商分類逐筆詳情
+    for (const r of [...(cleanDirResult.results ?? []), ...(mergeFinalizeResult.results ?? [])]) {
+      if (r.skipped) {
+        const reason = r.source === r.destination ? '來源=目標（同路徑）' : (r.error || '衝突略過');
+        pushEvent('debug', `[略過] ${r.source} → ${r.destination}（${reason}）`);
+      } else if (!r.success) {
+        pushEvent('debug', `[失敗] ${r.source} → ${r.destination}（${r.error}）`);
+      } else {
+        pushEvent('debug', `[移動] ${r.source} → ${r.destination}`);
+      }
+    }
+
     // 移除已成功移動的女優資料夾下的所有 scanResults
     removeMovedDirectoriesFromStore(finalResult);
     setLastBatchResult(finalResult);
@@ -701,6 +747,7 @@ function ActionToolbar() {
       <MultiActressDialog
         open={multiActressDialogOpen}
         items={multiActressItems}
+        savedChoices={multiActressPrefs}
         onConfirm={handleMultiActressConfirm}
         onCancel={handleMultiActressCancel}
       />

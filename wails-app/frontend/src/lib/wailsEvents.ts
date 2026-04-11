@@ -42,14 +42,14 @@ export function useWailsEvents() {
     rt.EventsOn(WailsEvents.ScanProgress, (...args) => {
       const [current, total] = args as [number, number];
       store.setProgress(current, total);
-      store.pushEvent('info', `掃描進度：${current} / ${total}`);
+      store.pushEvent('debug', `掃描進度：${current} / ${total}`);
     });
 
     // -- scan:result --
     rt.EventsOn(WailsEvents.ScanResult, (...args) => {
       const result = args[0] as { path: string; code: string };
       if (result?.code) {
-        store.pushEvent('success', `✔ ${result.code}  ${result.path}`);
+        store.pushEvent('debug', `[掃描] ${result.code}  ${result.path}`);
       }
     });
 
@@ -66,7 +66,7 @@ export function useWailsEvents() {
     rt.EventsOn(WailsEvents.SearchProgress, (...args) => {
       const [current, total, code] = args as [number, number, string];
       store.setProgress(current, total);
-      store.pushEvent('info', `搜尋中 (${current}/${total})：${code}`);
+      store.pushEvent('debug', `[搜尋] (${current}/${total}) ${code}`);
     });
 
     // -- search:result --
@@ -77,7 +77,7 @@ export function useWailsEvents() {
         if (result.error) {
           store.pushEvent('warning', `⚠ ${result.code}: ${result.error}`);
         } else {
-          store.pushEvent('success', `✔ ${result.code}: ${result.title || '找到結果'}`);
+          store.pushEvent('debug', `[搜尋結果] ${result.code}: ${result.title || '找到結果'}`);
         }
       }
     });
@@ -95,7 +95,7 @@ export function useWailsEvents() {
     rt.EventsOn(WailsEvents.MoveProgress, (...args) => {
       const [current, total, src] = args as [number, number, string];
       store.setProgress(current, total);
-      store.pushEvent('info', `移動中 (${current}/${total})：${src}`);
+      store.pushEvent('debug', `[移動] (${current}/${total}) ${src}`);
     });
 
     // -- move:done --

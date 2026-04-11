@@ -4,7 +4,7 @@ import { backend, mover } from '../../wailsjs/go/models';
 export type TaskStatus = 'idle' | 'scanning' | 'searching' | 'moving' | 'error';
 
 export interface ProgressEvent {
-  type: 'info' | 'error' | 'clear' | 'success' | 'warning';
+  type: 'info' | 'error' | 'clear' | 'success' | 'warning' | 'debug';
   message: string;
   timestamp: number;
 }
@@ -65,6 +65,10 @@ export interface TaskState {
   setShowPreferences: (v: boolean) => void;
   setShowOperationHistory: (v: boolean) => void;
   setShowSearchResults: (v: boolean) => void;
+
+  // Debug mode
+  debugMode: boolean;
+  setDebugMode: (v: boolean) => void;
 
   // Conflict strategy
   conflictStrategy: 'skip' | 'overwrite' | 'rename';
@@ -153,6 +157,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   setShowPreferences: (v) => set({ showPreferences: v }),
   setShowOperationHistory: (v) => set({ showOperationHistory: v }),
   setShowSearchResults: (v) => set({ showSearchResults: v }),
+
+  debugMode: false,
+  setDebugMode: (v) => set({ debugMode: v }),
 
   conflictStrategy: 'skip',
   setConflictStrategy: (s) => set({ conflictStrategy: s }),

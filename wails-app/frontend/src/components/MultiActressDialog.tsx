@@ -29,6 +29,8 @@ interface MultiActressDialogProps {
   items: MultiActressItem[];
   /** 「多人共演」資料夾的名稱，可由偏好設定覆寫 */
   multiLabel?: string;
+  /** 上次確認的偏好選擇，key 為番號；初始化時優先採用 */
+  savedChoices?: Record<string, ActressChoice>;
   onConfirm: (resolutions: MultiActressResolution[]) => void;
   onCancel: () => void;
 }
@@ -45,26 +47,36 @@ function basename(path: string): string {
  * - 多人共演資料夾
  * - 未分類
  */
+/** 從 savedChoices 取出此 item 的偏好；若女優已不在清單中則回退到第一位 */
+function resolveInitialChoice(
+  item: MultiActressItem,
+  savedChoices?: Record<string, ActressChoice>
+): ActressChoice {
+  const saved = savedChoices?.[item.code];
+  if (saved) {
+    if (saved.type === 'actress' && item.actresses.includes(saved.name)) return saved;
+    if (saved.type === 'multi' || saved.type === 'unclassified') return saved;
+  }
+  return { type: 'actress', name: item.actresses[0] };
+}
+
 export function MultiActressDialog({
   open,
   items,
   multiLabel = '多人共演',
+  savedChoices,
   onConfirm,
   onCancel,
 }: MultiActressDialogProps) {
   const [choices, setChoices] = useState<Record<string, ActressChoice>>(() =>
-    Object.fromEntries(
-      items.map((item) => [item.code, { type: 'actress', name: item.actresses[0] } as ActressChoice])
-    )
+    Object.fromEntries(items.map((item) => [item.code, resolveInitialChoice(item, savedChoices)]))
   );
 
   React.useEffect(() => {
     setChoices(
-      Object.fromEntries(
-        items.map((item) => [item.code, { type: 'actress', name: item.actresses[0] } as ActressChoice])
-      )
+      Object.fromEntries(items.map((item) => [item.code, resolveInitialChoice(item, savedChoices)]))
     );
-  }, [items]);
+  }, [items, savedChoices]);
 
   const setChoice = useCallback((code: string, choice: ActressChoice) => {
     setChoices((prev) => ({ ...prev, [code]: choice }));
