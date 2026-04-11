@@ -14,7 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import orjson
+try:
+    import orjson as _orjson_impl  # noqa: F401 — 僅用於相容性檢測
+    _ORJSON_AVAILABLE = True
+except ImportError:
+    _orjson_impl = None  # type: ignore
+    _ORJSON_AVAILABLE = False
+
+import src.utils.json_utils as _json_utils
 # Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
 UTC = timezone.utc
 
@@ -158,10 +165,10 @@ class JSONDBManager:
                 self.data = initial_data
                 return
 
-            # 試圖解析 JSON (使用 orjson 加速)
+            # 試圖解析 JSON (使用 orjson 加速，無則降級 stdlib json)
             try:
-                loaded_data = orjson.loads(file_content)
-            except orjson.JSONDecodeError as e:
+                loaded_data = _json_utils.loads(file_content)
+            except (ValueError, Exception) as e:
                 logger.error(f"❌ JSON 解析失敗: {e}")
                 raise CorruptedDataError(f"JSON 格式錯誤: {e}") from e
 
@@ -292,14 +299,14 @@ class JSONDBManager:
     def _calculate_data_hash(data: JSONDatabaseDict) -> str:
         data_copy = data.copy()
         data_copy["data_hash"] = ""
-        data_bytes = orjson.dumps(data_copy, option=orjson.OPT_SORT_KEYS)
+        data_bytes = _json_utils.dumps(data_copy, sort_keys=True).encode("utf-8")
         return hashlib.sha256(data_bytes).hexdigest()
 
     def _write_temp_data_file(self, data: JSONDatabaseDict) -> Path:
         temp_file = self.data_file.parent / f"{self.data_file.name}.tmp"
         self._cleanup_existing_temp_file(temp_file)
         with open(temp_file, "wb") as file_obj:
-            file_obj.write(orjson.dumps(data, option=orjson.OPT_INDENT_2))
+            file_obj.write(_json_utils.dumps(data, indent=2).encode("utf-8"))
         return temp_file
 
     @staticmethod

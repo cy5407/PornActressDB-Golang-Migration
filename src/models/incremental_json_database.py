@@ -24,7 +24,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import orjson
+try:
+    import orjson as _orjson_impl  # noqa: F401 — 僅用於相容性檢測
+    _ORJSON_AVAILABLE = True
+except ImportError:
+    _orjson_impl = None  # type: ignore
+    _ORJSON_AVAILABLE = False
+
+import src.utils.json_utils as _json_utils
 
 # Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
 UTC = timezone.utc
@@ -114,7 +121,7 @@ class IncrementalJSONDB:
         if self.index_file.exists():
             try:
                 with open(self.index_file, "rb") as f:
-                    index_data = orjson.loads(f.read())
+                    index_data = _json_utils.loads(f.read())
                     self.journal_size = index_data.get("journal_size", 0)
                     self.dirty_videos = set(index_data.get("videos", []))
                     self.dirty_actresses = set(index_data.get("actresses", []))
@@ -145,7 +152,7 @@ class IncrementalJSONDB:
             }
 
             with open(self.index_file, "wb") as f:
-                f.write(orjson.dumps(index_data, option=orjson.OPT_INDENT_2))
+                f.write(_json_utils.dumps(index_data, indent=2).encode("utf-8"))
         except Exception as e:
             logger.warning(f"⚠️ 儲存索引失敗: {e}")
 
