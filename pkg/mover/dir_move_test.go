@@ -1,6 +1,7 @@
 package mover
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,4 +70,22 @@ func TestValidateMoveDirDestination(t *testing.T) {
 		}
 		assertMergeResultState(t, result, false, false, 0)
 	})
+}
+
+func TestPathsReferToSameDir_InvalidPathReturnsError(t *testing.T) {
+	if _, err := pathsReferToSameDir("\x00", "\x00"); err == nil {
+		t.Fatal("expected invalid path to return error")
+	}
+}
+
+func TestCountMovedDirFiles_ReturnsWalkError(t *testing.T) {
+	result := &MergeResult{}
+
+	err := countMovedDirFiles(filepath.Join(t.TempDir(), "missing"), result)
+	if err == nil {
+		t.Fatal("expected missing directory to return walk error")
+	}
+	if !os.IsNotExist(err) {
+		t.Fatalf("expected not-exist error, got %v", err)
+	}
 }

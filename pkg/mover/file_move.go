@@ -193,9 +193,16 @@ func (m *Mover) copyFile(src, dst string) error {
 		return fmt.Errorf("failed to close destination file: %w", err)
 	}
 	if srcInfo, err := os.Stat(src); err == nil {
-		_ = os.Chmod(dst, srcInfo.Mode())
+		if err := applyFileMode(dst, srcInfo.Mode()); err != nil {
+			_ = os.Remove(dst)
+			return fmt.Errorf("failed to apply source file mode: %w", err)
+		}
 	}
 	return nil
+}
+
+func applyFileMode(dst string, mode os.FileMode) error {
+	return os.Chmod(dst, mode)
 }
 
 // replaceFileSafely 使用暫存檔原子替換目標，確保中途失敗時目標檔案仍保持完整

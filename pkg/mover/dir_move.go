@@ -55,7 +55,12 @@ func validateMoveDirDestination(src, dst string, result *MergeResult) bool {
 	if !dstInsideSrc {
 		return true
 	}
-	if isSameDirPath(src, dst) {
+	isSamePath, err := pathsReferToSameDir(src, dst)
+	if err != nil {
+		appendMoveDirError(result, src, dst, fmt.Sprintf("無法比較來源與目標路徑: %v", err))
+		return false
+	}
+	if isSamePath {
 		result.Success = true
 		result.DeletedSrc = false
 		return false
@@ -64,13 +69,16 @@ func validateMoveDirDestination(src, dst string, result *MergeResult) bool {
 	return false
 }
 
-func isSameDirPath(src, dst string) bool {
-	absSrc, _ := filepath.Abs(src)
-	if absSrc == "" {
-		return false
+func pathsReferToSameDir(src, dst string) (bool, error) {
+	absSrc, err := filepath.Abs(src)
+	if err != nil {
+		return false, err
 	}
-	absDst, _ := filepath.Abs(dst)
-	return strings.EqualFold(absSrc, absDst)
+	absDst, err := filepath.Abs(dst)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(absSrc, absDst), nil
 }
 
 func (m *Mover) tryFastMoveDirRename(src, dst string, result *MergeResult) bool {
@@ -86,14 +94,20 @@ func (m *Mover) tryFastMoveDirRename(src, dst string, result *MergeResult) bool 
 	if err := os.Rename(src, dst); err != nil {
 		return false
 	}
-	countMovedDirFiles(dst, result)
+	if err := countMovedDirFiles(dst, result); err != nil {
+		appendMoveDirError(result, src, dst, fmt.Sprintf("統計搬移檔案失敗: %v", err))
+		return false
+	}
 	result.DeletedSrc = true
 	result.Success = true
 	return true
 }
 
-func countMovedDirFiles(dst string, result *MergeResult) {
-	_ = filepath.Walk(dst, func(_ string, info os.FileInfo, _ error) error {
+func countMovedDirFiles(dst string, result *MergeResult) error {
+	return filepath.Walk(dst, func(_ string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
 		if info != nil && !info.IsDir() {
 			result.FilesMoved++
 		}

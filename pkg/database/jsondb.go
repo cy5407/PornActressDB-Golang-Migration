@@ -1291,24 +1291,33 @@ func (db *JSONDatabase) GetActressPrimaryStudio(actressName string) string {
 
 	studioCounts := map[string]int{}
 	for _, video := range db.root.Videos {
-		if video == nil {
-			continue
-		}
-		for _, a := range video.Actresses {
-			if a == actressName {
-				if video.Studio != "" && video.Studio != "UNKNOWN" {
-					studioCounts[video.Studio]++
-				}
-			}
+		if shouldCountActressStudio(video, actressName) {
+			studioCounts[video.Studio]++
 		}
 	}
+	return selectPrimaryStudio(studioCounts)
+}
+
+func shouldCountActressStudio(video *VideoData, actressName string) bool {
+	if video == nil || video.Studio == "" || video.Studio == "UNKNOWN" {
+		return false
+	}
+	for _, actress := range video.Actresses {
+		if actress == actressName {
+			return true
+		}
+	}
+	return false
+}
+
+func selectPrimaryStudio(studioCounts map[string]int) string {
 	if len(studioCounts) == 0 {
 		return ""
 	}
 	maxStudio, maxCount := "", 0
-	for s, c := range studioCounts {
-		if c > maxCount || (c == maxCount && s < maxStudio) {
-			maxStudio, maxCount = s, c
+	for studio, count := range studioCounts {
+		if count > maxCount || (count == maxCount && studio < maxStudio) {
+			maxStudio, maxCount = studio, count
 		}
 	}
 	return maxStudio

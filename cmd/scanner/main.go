@@ -193,6 +193,11 @@ func moveCmd(args []string) {
 
 // === History 命令 ===
 
+type historyCommandOptions struct {
+	logDir     string
+	jsonOutput bool
+}
+
 func historyCmd(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "用法: classifier.exe history <list|show|rollback> [選項]")
@@ -200,105 +205,133 @@ func historyCmd(args []string) {
 	}
 
 	subCmd := args[0]
+	opts, remaining := parseHistoryCommandOptions(subCmd, args[1:])
 
+	handler, ok := historyHandlers[subCmd]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)
+		os.Exit(1)
+	}
+	handler(opts, remaining)
+}
+
+func parseHistoryCommandOptions(subCmd string, args []string) (historyCommandOptions, []string) {
 	// 使用 flag.FlagSet 統一解析 -log-dir 參數
 	// 注意：Go flag 遇到非旗標字串就停止解析，因此把旗標和非旗標引數分開處理，
 	// 讓 `history rollback <id> -log-dir <path>` 和 `history rollback -log-dir <path> <id>` 都能正常運作。
 	fs := flag.NewFlagSet("history "+subCmd, flag.ExitOnError)
 	logDir := fs.String("log-dir", "logs", "操作日誌目錄")
 	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
+	flagArgs, posArgs := splitHistoryArgs(subCmd, args)
+	parseFlagsOrExit(fs, flagArgs)
+	return historyCommandOptions{
+		logDir:     *logDir,
+		jsonOutput: *jsonOutput,
+	}, posArgs
+}
 
+func splitHistoryArgs(subCmd string, rawArgs []string) ([]string, []string) {
 	var flagArgs, posArgs []string
-	rawArgs := args[1:]
 	for i := 0; i < len(rawArgs); i++ {
 		a := rawArgs[i]
 		if subCmd == "rollback" && a == "--last" {
 			posArgs = append(posArgs, a)
 			continue
 		}
-		if strings.HasPrefix(a, "-") {
-			flagArgs = append(flagArgs, a)
-			// 若下一個不是旗標，視為此旗標的值一起帶走
-			if i+1 < len(rawArgs) && !strings.HasPrefix(rawArgs[i+1], "-") && strings.Contains(a, "=") == false {
-				// 只有在旗標不含 = 且下一個看起來是值時才吃掉
-				// 保守判斷：若旗標是 -log-dir / -json 這類
-				if a == "-log-dir" || a == "--log-dir" {
-					i++
-					flagArgs = append(flagArgs, rawArgs[i])
-				}
-			}
-		} else {
+		if !strings.HasPrefix(a, "-") {
 			posArgs = append(posArgs, a)
+			continue
+		} else {
+			flagArgs = append(flagArgs, a)
+			i = consumeHistoryFlagValue(a, rawArgs, i, &flagArgs)
 		}
 	}
-	parseFlagsOrExit(fs, flagArgs)
-	remaining := posArgs
+	return flagArgs, posArgs
+}
 
-	switch subCmd {
-	case "list":
-		logs, err := app.ListOperations(*logDir, 0)
-		if err != nil {
-			printError(fmt.Sprintf("無法列出操作: %v", err))
-			os.Exit(1)
-		}
+func consumeHistoryFlagValue(flagArg string, rawArgs []string, index int, flagArgs *[]string) int {
+	if strings.Contains(flagArg, "=") || !expectsHistoryFlagValue(flagArg) {
+		return index
+	}
+	nextIndex := index + 1
+	if nextIndex >= len(rawArgs) || strings.HasPrefix(rawArgs[nextIndex], "-") {
+		return index
+	}
+	*flagArgs = append(*flagArgs, rawArgs[nextIndex])
+	return nextIndex
+}
 
-		if len(logs) == 0 {
-			if *jsonOutput {
-				outputJSON([]contracts.OperationLog{})
-			} else {
-				fmt.Println("沒有操作記錄")
-			}
-			return
-		}
+func expectsHistoryFlagValue(flagArg string) bool {
+	return flagArg == "-log-dir" || flagArg == "--log-dir"
+}
 
-		if *jsonOutput {
-			outputJSON(logs)
-			return
-		}
+var historyHandlers = map[string]func(historyCommandOptions, []string){
+	"list":     runHistoryList,
+	"show":     runHistoryShow,
+	"rollback": runHistoryRollback,
+}
 
-		fmt.Printf("%-10s %-20s %-12s %-10s\n", "ID", "時間", "類型", "狀態")
-		fmt.Println("------------------------------------------------------")
-		for _, log := range logs {
-			fmt.Printf("%-10s %-20s %-12s %-10s\n",
-				log.ID,
-				log.Timestamp.Format("2006-01-02 15:04:05"),
-				log.Type,
-				log.Status,
-			)
-		}
-
-	case "show":
-		if len(remaining) < 1 {
-			fmt.Fprintln(os.Stderr, "用法: classifier.exe history show <操作ID>")
-			os.Exit(1)
-		}
-		log, err := app.ShowOperation(*logDir, remaining[0])
-		if err != nil {
-			printError(err.Error(), "請使用 'history list' 查看有效的操作 ID")
-			os.Exit(1)
-		}
-		outputJSON(log)
-
-	case "rollback":
-		if len(remaining) < 1 {
-			fmt.Fprintln(os.Stderr, "用法: classifier.exe history rollback <操作ID>")
-			os.Exit(1)
-		}
-		result, err := app.Rollback(*logDir, remaining[0], remaining[0] == "--last")
-		if err != nil {
-			printError(fmt.Sprintf("回滾失敗: %v", err))
-			os.Exit(1)
-		}
-
-		if !*jsonOutput {
-			printSuccess("回滾完成: 成功 %d, 失敗 %d", result.SuccessCount, result.FailedCount)
-		}
-		outputJSON(result)
-
-	default:
-		fmt.Fprintf(os.Stderr, "未知的子命令: %s\n", subCmd)
+func runHistoryList(opts historyCommandOptions, _ []string) {
+	logs, err := app.ListOperations(opts.logDir, 0)
+	if err != nil {
+		printError(fmt.Sprintf("無法列出操作: %v", err))
 		os.Exit(1)
 	}
+
+	if len(logs) == 0 {
+		if opts.jsonOutput {
+			outputJSON([]contracts.OperationLog{})
+		} else {
+			fmt.Println("沒有操作記錄")
+		}
+		return
+	}
+
+	if opts.jsonOutput {
+		outputJSON(logs)
+		return
+	}
+
+	fmt.Printf("%-10s %-20s %-12s %-10s\n", "ID", "時間", "類型", "狀態")
+	fmt.Println("------------------------------------------------------")
+	for _, log := range logs {
+		fmt.Printf("%-10s %-20s %-12s %-10s\n",
+			log.ID,
+			log.Timestamp.Format("2006-01-02 15:04:05"),
+			log.Type,
+			log.Status,
+		)
+	}
+}
+
+func runHistoryShow(opts historyCommandOptions, remaining []string) {
+	if len(remaining) < 1 {
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe history show <操作ID>")
+		os.Exit(1)
+	}
+	log, err := app.ShowOperation(opts.logDir, remaining[0])
+	if err != nil {
+		printError(err.Error(), "請使用 'history list' 查看有效的操作 ID")
+		os.Exit(1)
+	}
+	outputJSON(log)
+}
+
+func runHistoryRollback(opts historyCommandOptions, remaining []string) {
+	if len(remaining) < 1 {
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe history rollback <操作ID>")
+		os.Exit(1)
+	}
+	result, err := app.Rollback(opts.logDir, remaining[0], remaining[0] == "--last")
+	if err != nil {
+		printError(fmt.Sprintf("回滾失敗: %v", err))
+		os.Exit(1)
+	}
+
+	if !opts.jsonOutput {
+		printSuccess("回滾完成: 成功 %d, 失敗 %d", result.SuccessCount, result.FailedCount)
+	}
+	outputJSON(result)
 }
 
 // === 輔助函式 ===

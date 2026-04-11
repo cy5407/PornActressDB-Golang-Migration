@@ -785,3 +785,13 @@ func TestGetActressPrimaryStudio_EmptyName(t *testing.T) {
 		t.Errorf("expected empty string, got %q", got)
 	}
 }
+
+func TestSelectPrimaryStudio_TieBreaksLexicographically(t *testing.T) {
+	got := selectPrimaryStudio(map[string]int{
+		"S1":     2,
+		"MOODYZ": 2,
+	})
+	if got != "MOODYZ" {
+		t.Fatalf("expected MOODYZ, got %q", got)
+	}
+}

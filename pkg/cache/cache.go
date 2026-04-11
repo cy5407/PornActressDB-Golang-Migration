@@ -20,6 +20,12 @@ type CacheManager struct {
 	indexPath string
 }
 
+type cacheEntryCandidate struct {
+	key        string
+	entry      IndexEntry
+	orderValue float64
+}
+
 // NewCacheManager 建立快取管理器（符合 Go 命名慣例）
 func NewCacheManager(cacheDir string) *CacheManager {
 	return &CacheManager{
@@ -180,47 +186,8 @@ func (cm *CacheManager) CleanupExpired(config PruneConfig) (*CleanupResult, erro
 
 	now := float64(time.Now().Unix())
 	ttlSeconds := float64(config.TTLDays * 24 * 3600)
-
-	// 收集過期條目
-	type expiredEntry struct {
-		key       string
-		entry     IndexEntry
-		createdAt float64
-	}
-	var expired []expiredEntry
-
-	for key, entry := range index.Entries {
-		if now-entry.CreatedAt > ttlSeconds {
-			expired = append(expired, expiredEntry{key, entry, entry.CreatedAt})
-		}
-	}
-
-	// 確保不會刪除太多
-	maxDeletable := len(index.Entries) - config.MinKeepEntries
-	if len(expired) > maxDeletable {
-		// 按建立時間排序，刪除最舊的
-		sort.Slice(expired, func(i, j int) bool {
-			return expired[i].createdAt < expired[j].createdAt
-		})
-		expired = expired[:maxDeletable]
-	}
-
-	// 執行刪除
-	for _, e := range expired {
-		if !config.DryRun {
-			// 刪除檔案（驗證路徑在快取目錄內）
-			if e.entry.FilePath != "" {
-				if err := cm.safeRemoveCacheFile(e.entry.FilePath); err != nil && !os.IsNotExist(err) {
-					result.Errors++
-					continue
-				}
-			}
-			// 從索引移除
-			delete(index.Entries, e.key)
-		}
-		result.DeletedFiles++
-		result.FreedBytes += int64(e.entry.SizeBytes)
-	}
+	expired := limitCleanupCandidates(collectExpiredCandidates(index.Entries, now, ttlSeconds), len(index.Entries), config.MinKeepEntries)
+	cm.applyCleanupCandidates(index, expired, config.DryRun, result)
 
 	result.FreedMB = float64(result.FreedBytes) / (1024 * 1024)
 	// 計算剩餘檔案數（考慮 dry run）
@@ -265,54 +232,9 @@ func (cm *CacheManager) CleanupBySize(config PruneConfig) (*CleanupResult, error
 	}
 
 	bytesToFree := totalSize - maxSizeBytes
-
-	// 按最後存取時間排序 (LRU)
-	type entryWithKey struct {
-		key          string
-		entry        IndexEntry
-		lastAccessed float64
-	}
-	var entries []entryWithKey
-	for key, entry := range index.Entries {
-		lastAccessed := entry.LastAccessed
-		if lastAccessed == 0 {
-			lastAccessed = entry.CreatedAt
-		}
-		entries = append(entries, entryWithKey{key, entry, lastAccessed})
-	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].lastAccessed < entries[j].lastAccessed
-	})
-
-	// 計算可刪除的最大數量
-	maxDeletable := len(index.Entries) - config.MinKeepEntries
-
-	// 刪除直到釋放足夠空間
-	var freedBytes int64
-	for i, e := range entries {
-		if freedBytes >= bytesToFree || i >= maxDeletable {
-			break
-		}
-
-		if !config.DryRun {
-			// 刪除檔案（驗證路徑在快取目錄內）
-			if e.entry.FilePath != "" {
-				if err := cm.safeRemoveCacheFile(e.entry.FilePath); err != nil && !os.IsNotExist(err) {
-					result.Errors++
-					continue
-				}
-			}
-			// 從索引移除
-			delete(index.Entries, e.key)
-		}
-
-		freedBytes += int64(e.entry.SizeBytes)
-		result.DeletedFiles++
-	}
-
-	result.FreedBytes = freedBytes
-	result.FreedMB = float64(freedBytes) / (1024 * 1024)
+	candidates := selectSizeCleanupCandidates(collectLRUCandidates(index.Entries), bytesToFree, len(index.Entries), config.MinKeepEntries)
+	cm.applyCleanupCandidates(index, candidates, config.DryRun, result)
+	result.FreedMB = float64(result.FreedBytes) / (1024 * 1024)
 	result.RemainingFiles = len(index.Entries)
 
 	// 儲存更新的索引
@@ -389,89 +311,17 @@ func (cm *CacheManager) AutoCleanup(ctx context.Context, config PruneConfig) (*C
 
 	// 第一步：清理過期條目（共用同一份 index，無 TOCTOU 問題）
 	if len(index.Entries) > config.MinKeepEntries {
-		type expiredEntry struct {
-			key       string
-			entry     IndexEntry
-			createdAt float64
-		}
-		var expired []expiredEntry
-		for key, entry := range index.Entries {
-			if now-entry.CreatedAt > ttlSeconds {
-				expired = append(expired, expiredEntry{key, entry, entry.CreatedAt})
-			}
-		}
-
-		maxDeletable := len(index.Entries) - config.MinKeepEntries
-		if len(expired) > maxDeletable {
-			sort.Slice(expired, func(i, j int) bool {
-				return expired[i].createdAt < expired[j].createdAt
-			})
-			expired = expired[:maxDeletable]
-		}
-
-		for _, e := range expired {
-			if !config.DryRun {
-				if e.entry.FilePath != "" {
-					if rmErr := cm.safeRemoveCacheFile(e.entry.FilePath); rmErr != nil && !os.IsNotExist(rmErr) {
-						result.Errors++
-						continue
-					}
-				}
-				delete(index.Entries, e.key)
-			}
-			result.DeletedFiles++
-			result.FreedBytes += int64(e.entry.SizeBytes)
-		}
+		expired := limitCleanupCandidates(collectExpiredCandidates(index.Entries, now, ttlSeconds), len(index.Entries), config.MinKeepEntries)
+		cm.applyCleanupCandidates(index, expired, config.DryRun, result)
 	}
 
 	// 第二步：清理超大條目（LRU，共用同一份 index）
-	var totalSize int64
-	for _, entry := range index.Entries {
-		totalSize += int64(entry.SizeBytes)
-	}
-
+	totalSize := totalIndexSize(index.Entries)
 	maxSizeBytes := int64(config.MaxSizeMB) * 1024 * 1024
 	if totalSize > maxSizeBytes {
 		bytesToFree := totalSize - maxSizeBytes
-
-		type entryWithKey struct {
-			key          string
-			entry        IndexEntry
-			lastAccessed float64
-		}
-		var entries []entryWithKey
-		for key, entry := range index.Entries {
-			lastAccessed := entry.LastAccessed
-			if lastAccessed == 0 {
-				lastAccessed = entry.CreatedAt
-			}
-			entries = append(entries, entryWithKey{key, entry, lastAccessed})
-		}
-
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].lastAccessed < entries[j].lastAccessed
-		})
-
-		maxDeletable := len(index.Entries) - config.MinKeepEntries
-		var freedBytes int64
-
-		for i, e := range entries {
-			if freedBytes >= bytesToFree || i >= maxDeletable {
-				break
-			}
-			if !config.DryRun {
-				if e.entry.FilePath != "" {
-					if rmErr := cm.safeRemoveCacheFile(e.entry.FilePath); rmErr != nil && !os.IsNotExist(rmErr) {
-						result.Errors++
-						continue
-					}
-				}
-				delete(index.Entries, e.key)
-			}
-			freedBytes += int64(e.entry.SizeBytes)
-			result.DeletedFiles++
-			result.FreedBytes += int64(e.entry.SizeBytes)
-		}
+		candidates := selectSizeCleanupCandidates(collectLRUCandidates(index.Entries), bytesToFree, len(index.Entries), config.MinKeepEntries)
+		cm.applyCleanupCandidates(index, candidates, config.DryRun, result)
 	}
 
 	result.FreedMB = float64(result.FreedBytes) / (1024 * 1024)
@@ -485,6 +335,93 @@ func (cm *CacheManager) AutoCleanup(ctx context.Context, config PruneConfig) (*C
 	}
 
 	return result, nil
+}
+
+func collectExpiredCandidates(entries map[string]IndexEntry, now, ttlSeconds float64) []cacheEntryCandidate {
+	candidates := make([]cacheEntryCandidate, 0)
+	for key, entry := range entries {
+		if now-entry.CreatedAt > ttlSeconds {
+			candidates = append(candidates, cacheEntryCandidate{
+				key:        key,
+				entry:      entry,
+				orderValue: entry.CreatedAt,
+			})
+		}
+	}
+	sortCacheCandidates(candidates)
+	return candidates
+}
+
+func collectLRUCandidates(entries map[string]IndexEntry) []cacheEntryCandidate {
+	candidates := make([]cacheEntryCandidate, 0, len(entries))
+	for key, entry := range entries {
+		orderValue := entry.LastAccessed
+		if orderValue == 0 {
+			orderValue = entry.CreatedAt
+		}
+		candidates = append(candidates, cacheEntryCandidate{
+			key:        key,
+			entry:      entry,
+			orderValue: orderValue,
+		})
+	}
+	sortCacheCandidates(candidates)
+	return candidates
+}
+
+func sortCacheCandidates(candidates []cacheEntryCandidate) {
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].orderValue < candidates[j].orderValue
+	})
+}
+
+func limitCleanupCandidates(candidates []cacheEntryCandidate, totalEntries, minKeepEntries int) []cacheEntryCandidate {
+	maxDeletable := totalEntries - minKeepEntries
+	if maxDeletable <= 0 {
+		return nil
+	}
+	if len(candidates) <= maxDeletable {
+		return candidates
+	}
+	return candidates[:maxDeletable]
+}
+
+func selectSizeCleanupCandidates(candidates []cacheEntryCandidate, bytesToFree int64, totalEntries, minKeepEntries int) []cacheEntryCandidate {
+	limited := limitCleanupCandidates(candidates, totalEntries, minKeepEntries)
+	selected := make([]cacheEntryCandidate, 0, len(limited))
+	var freedBytes int64
+	for _, candidate := range limited {
+		if freedBytes >= bytesToFree {
+			break
+		}
+		selected = append(selected, candidate)
+		freedBytes += int64(candidate.entry.SizeBytes)
+	}
+	return selected
+}
+
+func (cm *CacheManager) applyCleanupCandidates(index *CacheIndex, candidates []cacheEntryCandidate, dryRun bool, result *CleanupResult) {
+	for _, candidate := range candidates {
+		if !dryRun {
+			if candidate.entry.FilePath != "" {
+				if err := cm.safeRemoveCacheFile(candidate.entry.FilePath); err != nil && !os.IsNotExist(err) {
+					result.Errors++
+					continue
+				}
+			}
+			delete(index.Entries, candidate.key)
+		}
+		result.DeletedFiles++
+		result.FreedBytes += int64(candidate.entry.SizeBytes)
+	}
+}
+
+func totalIndexSize(entries map[string]IndexEntry) int64 {
+	var totalSize int64
+	for _, entry := range entries {
+		totalSize += int64(entry.SizeBytes)
+	}
+	return totalSize
 }
 
 // hashKey 以 SHA256 雜湊 key（與 Python _generate_cache_key 相容）
