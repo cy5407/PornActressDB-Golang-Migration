@@ -118,18 +118,19 @@
 - [x] **AVW-2**：把 detail actresses 的三段式策略線性化
   - 已拆成 tag link / actress-name / text scan 三段 helper。
 
-- [ ] **AVW-3**：拆 `batch_search_concurrent()`
-  - 抽出：
-    - `search_single_video()` 以外的 orchestration helper
-    - result 統計 helper
-    - error → batch error result 映射 helper
+- [x] **AVW-3**：拆 `batch_search_concurrent()`
+  - 已抽出：
+    - 單筆搜尋 helper `_search_single_video_batch()`
+    - 進度通知 helper `_notify_batch_search_progress()`
+    - 暫時性錯誤判斷 helper `_is_temporary_batch_search_error()`
+    - 結果統計 helper `_summarize_batch_search_results()`
   - 保留 adaptive concurrency / backoff 行為
 
-- [ ] **AVW-4**：審視 `_extract_actresses_from_text()`
-  - 不一定先改邏輯，但可以先抽：
-    - candidate line selection
-    - name extraction from line
-    - result limit / dedup
+- [x] **AVW-4**：審視 `_extract_actresses_from_text()`
+  - 已抽出：
+    - candidate line selection helper `_select_actress_scan_lines()`
+    - name extraction helper `_extract_actress_names_from_lines()`
+    - result limit / dedup 維持原行為
 
 ### 驗收重點
 - `unique_actresses` / `search_results` / `found` 欄位語義不變

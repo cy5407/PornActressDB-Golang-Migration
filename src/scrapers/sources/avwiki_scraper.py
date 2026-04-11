@@ -324,63 +324,58 @@ class AVWikiScraper(BaseScraper):
         result["found"] = True
         return result
 
-    def _extract_actresses_from_text(self, text: str) -> list[str]:
-        """從文本中提取女優名稱（改進版本，更聰明的過濾）"""
-        actresses = []
-        seen = set()
-
-        # 分割成行
-        lines = [line.strip() for line in text.split("\n") if line.strip()]
-
-        # 尋找可能包含女優名稱的行（包含「出演」「女優」等關鍵詞）
-        potential_actress_lines = []
+    def _select_actress_scan_lines(self, lines: list[str]) -> list[str]:
+        potential_actress_lines: list[str] = []
+        keywords = (
+            "出演",
+            "女優",
+            "演員",
+            "Cast",
+            "cast",
+            "actress",
+            "出演者",
+        )
 
         for i, line in enumerate(lines):
-            # 檢查是否為潛在的女優資訊行
-            if any(
-                keyword in line
-                for keyword in [
-                    "出演",
-                    "女優",
-                    "演員",
-                    "Cast",
-                    "cast",
-                    "actress",
-                    "出演者",
-                ]
-            ):
-                # 添加該行及其前後幾行的上下文
+            if any(keyword in line for keyword in keywords):
                 start = max(0, i - 1)
                 end = min(len(lines), i + 3)
                 potential_actress_lines.extend(lines[start:end])
 
-        # 如果沒有找到關鍵詞行，則掃描整個文本但限制數量
-        if not potential_actress_lines:
-            # 只掃描文本的前 30% 和後 20%（避免掃描導航和側邊欄）
-            text_lines_count = len(lines)
-            upper_bound = int(text_lines_count * 0.3)
-            lower_bound = int(text_lines_count * 0.8)
+        if potential_actress_lines:
+            return potential_actress_lines
 
-            potential_actress_lines = lines[:upper_bound] + lines[lower_bound:]
+        text_lines_count = len(lines)
+        upper_bound = int(text_lines_count * 0.3)
+        lower_bound = int(text_lines_count * 0.8)
+        return lines[:upper_bound] + lines[lower_bound:]
 
-        # 從候選行中提取名稱
-        for line in potential_actress_lines:
-            # 尋找可能的女優名稱
+    def _extract_actress_names_from_lines(
+        self, lines: list[str], seen: set[str], actresses: list[str]
+    ) -> list[str]:
+        for line in lines:
             potential_names = re.findall(
                 r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]{2,8}", line
             )
 
             for name in potential_names:
-                # 驗證並去重
                 if self._is_valid_actress_name(name) and name not in seen:
                     actresses.append(name)
                     seen.add(name)
-
-                    # 限制最多 15 位女優
                     if len(actresses) >= 15:
                         return actresses
 
         return actresses
+
+    def _extract_actresses_from_text(self, text: str) -> list[str]:
+        """從文本中提取女優名稱（改進版本，更聰明的過濾）"""
+        actresses: list[str] = []
+        seen: set[str] = set()
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
+        potential_actress_lines = self._select_actress_scan_lines(lines)
+        return self._extract_actress_names_from_lines(
+            potential_actress_lines, seen, actresses
+        )
 
     def _extract_studio_info(self, text: str, title: str = "") -> dict[str, Any]:
         """提取片商資訊"""
@@ -482,6 +477,130 @@ class AVWikiScraper(BaseScraper):
                 "error": str(e),
             }
 
+    def _is_temporary_batch_search_error(self, error: Exception) -> bool:
+        if isinstance(error, aiohttp.ClientResponseError):
+            return error.status in (429, 500, 502, 503, 504)
+        return isinstance(error, (TimeoutError, aiohttp.ClientConnectionError))
+
+    def _notify_batch_search_progress(
+        self,
+        progress_callback: callable | None,
+        current_num: int,
+        total_count: int,
+        code: str,
+    ) -> None:
+        if not progress_callback:
+            return
+
+        try:
+            progress_callback(current_num, total_count, code)
+        except Exception as e:
+            logger.warning(f"進度回調函式執行失敗: {e}")
+
+    async def _search_single_video_batch(
+        self,
+        code: str,
+        total_count: int,
+        shared_semaphore: asyncio.Semaphore,
+        count_lock: asyncio.Lock,
+        progress_callback: callable | None,
+        concurrency_controller: AdaptiveConcurrencyController,
+        backoff: ExponentialBackoff,
+        started_count_ref: list[int],
+    ) -> tuple[str, dict[str, Any]]:
+        async with shared_semaphore:
+            async with count_lock:
+                started_count_ref[0] += 1
+                current_num = started_count_ref[0]
+
+            self._notify_batch_search_progress(
+                progress_callback, current_num, total_count, code
+            )
+
+            try:
+                search_url = f"{self.base_url}/?s={quote(code)}&post_type=product"
+                logger.debug(
+                    f"[批次搜尋] 開始搜尋番號 {code}, URL: {sanitize_url_for_log(search_url)}"
+                )
+
+                result = await self.scrape_url(search_url)
+                concurrency_controller.report_success()
+                backoff.reset()
+                return code, self._build_batch_search_result(
+                    code=code,
+                    search_url=search_url,
+                    raw_result=result,
+                )
+            except (
+                TimeoutError,
+                aiohttp.ClientResponseError,
+                aiohttp.ClientConnectionError,
+            ) as e:
+                error_type = type(e).__name__
+                is_temporary = self._is_temporary_batch_search_error(e)
+
+                if is_temporary:
+                    concurrency_controller.report_failure()
+                    backoff_delay = backoff.next_delay()
+                    logger.warning(
+                        f"[批次搜尋] 番號 {code} 暫時性錯誤 ({error_type})，"
+                        f"退避 {backoff_delay:.1f}s，併發降至 {concurrency_controller.get_concurrency()}"
+                    )
+                    await asyncio.sleep(backoff_delay)
+
+                error_detail = str(e)
+                logger.error(
+                    f"[批次搜尋] 番號 {code} 搜尋失敗 - 錯誤類型: {error_type}, 錯誤訊息: {error_detail}"
+                )
+                return code, self._build_batch_error_result(
+                    code, error_detail, error_type
+                )
+            except Exception as e:
+                error_type = type(e).__name__
+                error_detail = str(e)
+                logger.error(
+                    f"[批次搜尋] 番號 {code} 搜尋失敗 - 錯誤類型: {error_type}, 錯誤訊息: {error_detail}"
+                )
+
+                import traceback
+
+                logger.debug(
+                    f"[批次搜尋] 番號 {code} 完整錯誤堆疊:\n{traceback.format_exc()}"
+                )
+                return code, self._build_batch_error_result(
+                    code, error_detail, error_type
+                )
+
+    def _summarize_batch_search_results(
+        self, completed_results: list[Any]
+    ) -> tuple[dict[str, dict[str, Any]], int, int, int]:
+        results: dict[str, dict[str, Any]] = {}
+        success_count = 0
+        error_count = 0
+        no_actress_count = 0
+
+        for item in completed_results:
+            if isinstance(item, tuple):
+                code, result = item
+                results[code] = result
+
+                if "error" in result:
+                    error_count += 1
+                    logger.debug(
+                        f"[批次搜尋統計] {code}: 發生錯誤 - {result.get('error_type', 'Unknown')}"
+                    )
+                elif result.get("actress_count", 0) > 0:
+                    success_count += 1
+                else:
+                    no_actress_count += 1
+            elif isinstance(item, Exception):
+                error_count += 1
+                logger.error(
+                    f"[批次搜尋] 任務執行發生例外: {type(item).__name__} - {item}"
+                )
+
+        return results, success_count, error_count, no_actress_count
+
     async def batch_search_concurrent(
         self,
         video_codes: list[str],
@@ -503,12 +622,8 @@ class AVWikiScraper(BaseScraper):
         Returns:
             Dict[番號, 搜尋結果]
         """
-        results = {}
-        started_count = 0  # 追蹤「開始」的數量
         total_count = len(video_codes)
-        count_lock = asyncio.Lock()  # 使用 asyncio.Lock 保護計數器
-
-        # 初始化自適應併發控制器與退避計算器
+        count_lock = asyncio.Lock()
         concurrency_controller = AdaptiveConcurrencyController(
             initial=max_concurrent,
             minimum=2,
@@ -516,136 +631,30 @@ class AVWikiScraper(BaseScraper):
         )
         backoff = ExponentialBackoff(base_delay=0.5, max_delay=10.0)
         shared_semaphore = asyncio.Semaphore(max_concurrent)
+        started_count_ref = [0]
 
-        async def search_single_video(code: str) -> tuple[str, dict[str, Any]]:
-            """直接搜尋單個影片（繞過 rate_limiter）"""
-            nonlocal started_count
+        tasks = [
+            self._search_single_video_batch(
+                code,
+                total_count,
+                shared_semaphore,
+                count_lock,
+                progress_callback,
+                concurrency_controller,
+                backoff,
+                started_count_ref,
+            )
+            for code in video_codes
+        ]
 
-            # 所有 task 共用同一個 semaphore，避免每個 task 各自放大實際併發數
-            async with shared_semaphore:
-                # 在開始搜尋時就更新進度（而非完成後）
-                async with count_lock:
-                    started_count += 1
-                    current_num = started_count
-
-                # 呼叫進度回調 - 顯示「開始搜尋」
-                if progress_callback:
-                    try:
-                        progress_callback(current_num, total_count, code)
-                    except Exception as e:
-                        logger.warning(f"進度回調函式執行失敗: {e}")
-
-                try:
-                    # 直接使用 scrape_url 繞過 rate_limiter
-                    search_url = f"{self.base_url}/?s={quote(code)}&post_type=product"
-
-                    # 記錄開始搜尋
-                    logger.debug(
-                        f"[批次搜尋] 開始搜尋番號 {code}, URL: {sanitize_url_for_log(search_url)}"
-                    )
-
-                    result = await self.scrape_url(search_url)
-
-                    # 搜尋成功，回報給併發控制器
-                    concurrency_controller.report_success()
-                    backoff.reset()
-                    return code, self._build_batch_search_result(
-                        code=code,
-                        search_url=search_url,
-                        raw_result=result,
-                    )
-
-                except (
-                    TimeoutError,
-                    aiohttp.ClientResponseError,
-                    aiohttp.ClientConnectionError,
-                ) as e:
-                    # 暫時性錯誤：回報失敗並加退避
-                    error_type = type(e).__name__
-                    is_temporary = True
-
-                    # 檢查是否為 HTTP 錯誤且狀態碼表示暫時性問題
-                    if isinstance(e, aiohttp.ClientResponseError):
-                        if e.status in (429, 500, 502, 503, 504):
-                            is_temporary = True
-                        elif e.status == 404:
-                            is_temporary = False
-
-                    if is_temporary:
-                        concurrency_controller.report_failure()
-                        backoff_delay = backoff.next_delay()
-                        logger.warning(
-                            f"[批次搜尋] 番號 {code} 暫時性錯誤 ({error_type})，"
-                            f"退避 {backoff_delay:.1f}s，併發降至 {concurrency_controller.get_concurrency()}"
-                        )
-                        await asyncio.sleep(backoff_delay)
-
-                    error_detail = str(e)
-                    logger.error(
-                        f"[批次搜尋] 番號 {code} 搜尋失敗 - 錯誤類型: {error_type}, 錯誤訊息: {error_detail}"
-                    )
-
-                    return code, self._build_batch_error_result(
-                        code, error_detail, error_type
-                    )
-
-                except Exception as e:
-                    error_type = type(e).__name__
-                    error_detail = str(e)
-
-                    # 詳細記錄錯誤資訊
-                    logger.error(
-                        f"[批次搜尋] 番號 {code} 搜尋失敗 - 錯誤類型: {error_type}, 錯誤訊息: {error_detail}"
-                    )
-
-                    # 記錄完整的堆疊追蹤（僅在 DEBUG 模式）
-                    import traceback
-
-                    logger.debug(
-                        f"[批次搜尋] 番號 {code} 完整錯誤堆疊:\n{traceback.format_exc()}"
-                    )
-
-                    return code, self._build_batch_error_result(
-                        code, error_detail, error_type
-                    )
-
-        # 建立所有任務
-        tasks = [search_single_video(code) for code in video_codes]
-
-        # 併發執行所有搜尋
         logger.info(
             f"🚀 開始批次搜尋 {total_count} 個番號，併發數: {max_concurrent}（繞過 rate_limiter）"
         )
         completed_results = await asyncio.gather(*tasks, return_exceptions=True)
+        results, success_count, error_count, no_actress_count = (
+            self._summarize_batch_search_results(completed_results)
+        )
 
-        # 整理結果並統計
-        success_count = 0
-        error_count = 0
-        no_actress_count = 0
-
-        for item in completed_results:
-            if isinstance(item, tuple):
-                code, result = item
-                results[code] = result
-
-                # 統計結果
-                if "error" in result:
-                    error_count += 1
-                    logger.debug(
-                        f"[批次搜尋統計] {code}: 發生錯誤 - {result.get('error_type', 'Unknown')}"
-                    )
-                elif result.get("actress_count", 0) > 0:
-                    success_count += 1
-                else:
-                    no_actress_count += 1
-
-            elif isinstance(item, Exception):
-                error_count += 1
-                logger.error(
-                    f"[批次搜尋] 任務執行發生例外: {type(item).__name__} - {item}"
-                )
-
-        # 詳細的完成報告
         logger.info(
             f"✅ 批次搜尋完成 - 總計: {total_count}, 成功: {success_count} ({success_count / total_count * 100:.1f}%), "
             f"無女優: {no_actress_count} ({no_actress_count / total_count * 100:.1f}%), "
