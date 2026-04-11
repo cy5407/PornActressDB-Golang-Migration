@@ -276,77 +276,51 @@ class AVWikiScraper(BaseScraper):
             if len(actress_elements) >= 10:
                 break
 
+    def _extract_detail_title(self, soup: BeautifulSoup) -> str | None:
+        title_element = soup.find("h1") or soup.find("h2", class_="entry-title") or soup.find("title")
+        return title_element.text.strip() if title_element else None
+
+    def _extract_detail_actresses(self, soup: BeautifulSoup, page_text: str) -> list[str]:
+        actresses: list[str] = []
+        for link in soup.find_all("a", rel="tag"):
+            href = link.get("href", "")
+            text = link.get_text(strip=True)
+            if _AV_ACTRESS_PATH in href and text and text not in actresses:
+                actresses.append(text)
+        if actresses:
+            return actresses
+        actress_name_elements = soup.find_all(class_="actress-name")
+        for element in actress_name_elements:
+            for link in element.find_all("a"):
+                href = link.get("href", "")
+                text = link.get_text(strip=True)
+                if _AV_ACTRESS_PATH in href and text and text not in actresses:
+                    actresses.append(text)
+            if actresses:
+                continue
+            actress_name = element.text.strip()
+            if actress_name and self._is_valid_actress_name(actress_name):
+                actresses.append(actress_name)
+        if actresses:
+            return actresses
+        return self._extract_actresses_from_text(page_text)
+
     def _parse_detail_page(self, soup: BeautifulSoup) -> dict[str, Any]:
         """解析詳情頁面"""
+        page_text = soup.get_text()
         result = {
-            "actresses": [],
+            "actresses": self._extract_detail_actresses(soup, page_text),
             "studio": None,
             "studio_code": None,
-            "title": None,
+            "title": self._extract_detail_title(soup),
             "release_date": None,
             "series": None,
             "categories": [],
         }
-
-        # 提取標題
-        title_element = (
-            soup.find("h1")
-            or soup.find("h2", class_="entry-title")
-            or soup.find("title")
-        )
-        if title_element:
-            result["title"] = title_element.text.strip()
-
-        # 從頁面內容中提取資訊
-        page_text = soup.get_text()
-
-        # 分層女優名稱提取：優先使用 tag 連結，備選 actress-name class，最後文本掃描
-        actresses = []
-
-        # 方法1: 優先使用 tag 連結
-        tag_links = soup.find_all("a", rel="tag")
-        for link in tag_links:
-            href = link.get("href", "")
-            text = link.get_text(strip=True)
-
-            # 只提取女優標籤（href 包含 /av-actress/）
-            if _AV_ACTRESS_PATH in href and text and text not in actresses:
-                actresses.append(text)
-
-        # 方法2: 如果沒找到，嘗試從 actress-name class 提取
-        if not actresses:
-            actress_name_elements = soup.find_all(class_="actress-name")
-            for element in actress_name_elements:
-                # 首先嘗試從元素內的 <a> 標籤提取
-                actress_links = element.find_all("a")
-                for link in actress_links:
-                    href = link.get("href", "")
-                    text = link.get_text(strip=True)
-
-                    if _AV_ACTRESS_PATH in href and text and text not in actresses:
-                        actresses.append(text)
-
-                # 如果沒找到連結，則使用元素的完整文本
-                if not actresses:
-                    actress_name = element.text.strip()
-                    if actress_name and self._is_valid_actress_name(actress_name):
-                        actresses.append(actress_name)
-
-        # 方法3: 如果仍沒找到，嘗試文本掃描
-        if not actresses:
-            actresses = self._extract_actresses_from_text(page_text)
-
-        result["actresses"] = actresses
-
-        # 提取片商資訊
-        studio_info = self._extract_studio_info(page_text, result.get("title", ""))
-        result.update(studio_info)
-
-        # 提取發行日期
+        result.update(self._extract_studio_info(page_text, result.get("title", "")))
         date_match = re.search(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})", page_text)
         if date_match:
             result["release_date"] = date_match.group(1)
-
         result["found"] = True
         return result
 

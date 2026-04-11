@@ -142,78 +142,79 @@ class ActressNameFilter:
     ]
 
     @staticmethod
+    def _fails_length_check(name: str) -> bool:
+        return len(name) < 2 or len(name) > 15
+
+    @staticmethod
+    def _contains_any_keyword(name: str, keywords: list[str]) -> str | None:
+        for keyword in keywords:
+            if keyword in name:
+                return keyword
+        return None
+
+    @staticmethod
+    def _contains_verb_pattern(name: str) -> str | None:
+        for pattern in ActressNameFilter.VERB_PATTERNS:
+            if re.search(pattern, name):
+                return pattern
+        return None
+
+    @staticmethod
+    def _looks_like_truncated_title(name: str) -> bool:
+        return name.endswith(("ガ", "オ", "自", "香", "期")) and len(name) > 10
+
+    @staticmethod
+    def _is_numeric_or_symbol_only(name: str) -> bool:
+        return bool(re.match(r'^[\d\W]+$', name))
+
+    @staticmethod
+    def _fails_hiragana_ratio(name: str) -> bool:
+        hiragana_count = len(re.findall(r'[぀-ゟ]', name))
+        return len(name) > 5 and hiragana_count > len(name) * 0.6
+
+    @staticmethod
+    def _passes_language_shape(name: str, allow_single_latin_name: bool) -> bool:
+        if re.search(r'[぀-ゟ゠-ヿ一-龯]', name):
+            return True
+        if allow_single_latin_name and re.fullmatch(r"[A-Za-z]{2,12}", name):
+            logger.debug(f"✅ 允許單一英文藝名: '{name}'")
+            return True
+        return bool(re.match(r'^[A-Za-z\s]+$', name) and ' ' in name)
+
+    @staticmethod
     def is_valid_actress_name(
         name: str, allow_single_latin_name: bool = False
     ) -> bool:
-        """
-        判斷是否為有效的女優名字
-        
-        Args:
-            name: 待檢查的名字
-            
-        Returns:
-            bool: True 表示可能是女優名字，False 表示明顯不是
-        """
         if not name or not isinstance(name, str):
             return False
-            
         name = name.strip()
-        
-        # 長度檢查：女優名字通常是 2-15 個字元
-        if len(name) < 2 or len(name) > 15:
+        if ActressNameFilter._fails_length_check(name):
             logger.debug(f"❌ 長度不符: '{name}' (長度: {len(name)})")
             return False
-        
-        # 檢查是否包含標題關鍵字（日文）
-        for keyword in ActressNameFilter.TITLE_KEYWORDS:
-            if keyword in name:
-                logger.debug(f"❌ 包含標題關鍵字: '{name}' (關鍵字: {keyword})")
-                return False
-        
-        # 檢查是否包含標題關鍵字（中文）
-        for keyword in ActressNameFilter.TITLE_KEYWORDS_ZH:
-            if keyword in name:
-                logger.debug(f"❌ 包含中文標題關鍵字: '{name}' (關鍵字: {keyword})")
-                return False
-        
-        # 檢查是否包含動詞/形容詞片段（使用正則表達式）
-        for pattern in ActressNameFilter.VERB_PATTERNS:
-            if re.search(pattern, name):
-                logger.debug(f"❌ 包含動詞片段: '{name}' (模式: {pattern})")
-                return False
-        
-        # 檢查是否包含截斷的標題（以特殊字元結尾）
-        if name.endswith(("ガ", "オ", "自", "香", "期")):
-            # 這些字元常出現在被截斷的標題結尾
-            # 但也可能是真實名字的一部分，所以要額外檢查
-            if len(name) > 10:
-                logger.debug(f"❌ 疑似被截斷的標題: '{name}'")
-                return False
-        
-        # 檢查是否為純數字或符號
-        if re.match(r'^[\d\W]+$', name):
+        keyword = ActressNameFilter._contains_any_keyword(name, ActressNameFilter.TITLE_KEYWORDS)
+        if keyword:
+            logger.debug(f"❌ 包含標題關鍵字: '{name}' (關鍵字: {keyword})")
+            return False
+        keyword = ActressNameFilter._contains_any_keyword(name, ActressNameFilter.TITLE_KEYWORDS_ZH)
+        if keyword:
+            logger.debug(f"❌ 包含中文標題關鍵字: '{name}' (關鍵字: {keyword})")
+            return False
+        pattern = ActressNameFilter._contains_verb_pattern(name)
+        if pattern:
+            logger.debug(f"❌ 包含動詞片段: '{name}' (模式: {pattern})")
+            return False
+        if ActressNameFilter._looks_like_truncated_title(name):
+            logger.debug(f"❌ 疑似被截斷的標題: '{name}'")
+            return False
+        if ActressNameFilter._is_numeric_or_symbol_only(name):
             logger.debug(f"❌ 純數字或符號: '{name}'")
             return False
-        
-        # 檢查是否包含過多的非漢字日文（可能是標題片段）
-        hiragana_count = len(re.findall(r'[\u3040-\u309F]', name))  # 計算平假名字元數
-
-        # 女優名字通常以漢字或片假名為主，平假名不會太多
-        # 但短名字（≤5字元）例外，因為很多女優名字就是短的
-        if len(name) > 5 and hiragana_count > len(name) * 0.6:
-            logger.debug(f"❌ 平假名比例過高: '{name}' (平假名: {hiragana_count}/{len(name)})")
+        if ActressNameFilter._fails_hiragana_ratio(name):
+            logger.debug(f"❌ 平假名比例過高: '{name}'")
             return False
-        
-        # 檢查是否包含日文或中文字元
-        if not re.search(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]', name):
-            if allow_single_latin_name and re.fullmatch(r"[A-Za-z]{2,12}", name):
-                logger.debug(f"✅ 允許單一英文藝名: '{name}'")
-                return True
-            # 如果沒有日文/中文，檢查是否為西方名字格式
-            if not re.match(r'^[A-Za-z\s]+$', name) or ' ' not in name:
-                logger.debug(f"❌ 不符合名字格式: '{name}'")
-                return False
-        
+        if not ActressNameFilter._passes_language_shape(name, allow_single_latin_name):
+            logger.debug(f"❌ 不符合名字格式: '{name}'")
+            return False
         logger.debug(f"✅ 通過驗證: '{name}'")
         return True
 

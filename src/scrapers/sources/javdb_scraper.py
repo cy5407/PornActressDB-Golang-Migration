@@ -122,64 +122,36 @@ class JAVDBScraper(BaseScraper):
             logger.error(f"解析 JAVDB 內容失敗: {e}")
             raise ScrapingException(f"內容解析錯誤: {e}", ErrorType.PARSING_ERROR, url) from e
 
+    def _parse_search_result_item(self, item: BeautifulSoup) -> dict[str, Any] | None:
+        link_element = item.find("a")
+        if not link_element:
+            return None
+        detail_url = urljoin(self.base_url, link_element.get("href"))
+        title_element = item.find("div", class_="video-title")
+        title = title_element.text.strip() if title_element else ""
+        actresses = [a.text.strip() for a in item.find_all("a", href=re.compile(r"/actors/")) if a.text.strip() and self._is_valid_actress_name(a.text.strip())]
+        studio_element = item.find("a", href=re.compile(r"/makers/"))
+        studio = studio_element.text.strip() if studio_element else None
+        date_element = item.find("div", class_="meta")
+        release_date = None
+        if date_element:
+            date_match = re.search(r"(\d{4}-\d{2}-\d{2})", date_element.text)
+            if date_match:
+                release_date = date_match.group(1)
+        if actresses or title:
+            return {"title": title, "actresses": actresses, "studio": studio, "release_date": release_date, "detail_url": detail_url}
+        return None
+
     def _parse_search_results(self, soup: BeautifulSoup) -> dict[str, Any]:
         """解析搜尋結果頁面"""
         results = []
-
-        # 查找影片卡片
-        movie_items = soup.find_all("div", class_="item")
-
-        for item in movie_items:
+        for item in soup.find_all("div", class_="item"):
             try:
-                # 提取基本資訊
-                link_element = item.find("a")
-                if not link_element:
-                    continue
-
-                detail_url = urljoin(self.base_url, link_element.get("href"))
-
-                # 提取標題
-                title_element = item.find("div", class_="video-title")
-                title = title_element.text.strip() if title_element else ""
-
-                # 提取演員資訊
-                actresses = []
-                actor_elements = item.find_all("a", href=re.compile(r"/actors/"))
-                for actor in actor_elements:
-                    actress_name = actor.text.strip()
-                    if actress_name and self._is_valid_actress_name(actress_name):
-                        actresses.append(actress_name)
-
-                # 提取片商資訊
-                studio = None
-                studio_element = item.find("a", href=re.compile(r"/makers/"))
-                if studio_element:
-                    studio = studio_element.text.strip()
-
-                # 提取發布日期
-                date_element = item.find("div", class_="meta")
-                release_date = None
-                if date_element:
-                    date_text = date_element.text
-                    date_match = re.search(r"(\d{4}-\d{2}-\d{2})", date_text)
-                    if date_match:
-                        release_date = date_match.group(1)
-
-                if actresses or title:
-                    results.append(
-                        {
-                            "title": title,
-                            "actresses": actresses,
-                            "studio": studio,
-                            "release_date": release_date,
-                            "detail_url": detail_url,
-                        }
-                    )
-
+                parsed = self._parse_search_result_item(item)
+                if parsed:
+                    results.append(parsed)
             except Exception as e:
                 logger.warning(f"解析搜尋結果項目失敗: {e}")
-                continue
-
         return {"search_results": results, "total_results": len(results)}
 
     def _parse_detail_page(self, soup: BeautifulSoup) -> dict[str, Any]:

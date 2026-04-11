@@ -292,735 +292,103 @@ class WebSearcher:
             "last_search_date": datetime.now(UTC).isoformat(),
         }
 
-    def _search_av_wiki(self, code: str, stop_event: threading.Event) -> dict | None:
-        """AV-WIKI 搜尋方法"""
-        if stop_event.is_set():
-            return None
-
-        search_url = f"https://av-wiki.net/?s={quote(code)}&post_type=product"
-
-        # 使用日文網站專用標頭和增強編碼檢測
-        def make_request(url, **kwargs):
-            kwargs.pop("timeout", None)  # 已由 self.timeout 明確指定，避免重複
+    def _fetch_avwiki_search_soup(self, url: str) -> BeautifulSoup:
+        def make_request(req_url, **kwargs):
+            kwargs.pop("timeout", None)
             with httpx.Client(timeout=self.timeout, **kwargs) as client:
-                # 🔧 使用不支援壓縮的標頭，避免 Brotli 問題
-                response = client.get(url, headers=self.japanese_headers)
+                response = client.get(req_url, headers=self.japanese_headers)
                 response.raise_for_status()
-                # 🔧 使用增強的編碼檢測機制
                 decoded_content = self._detect_and_decode_content(response)
                 logger.debug(f"📄 AV-WIKI 內容長度: {len(decoded_content)} 字符")
                 logger.debug(f"📄 AV-WIKI 內容開頭: {decoded_content[:100]}...")
                 return BeautifulSoup(decoded_content, "html.parser")
 
-        try:
-            soup = self.safe_searcher.safe_request(make_request, search_url)
-
-            if soup is None:
-                logger.warning(f"無法獲取 {code} 的 AV-WIKI 搜尋頁面")
-                return self._build_search_error_result(
-                    AV_WIKI_SEARCH_METHOD, "無法獲取搜尋頁面"
-                )
-
-            # 先檢查是否有搜尋結果
-            search_results = soup.find_all("div", class_="column-flex")
-            logger.info(f"AV-WIKI 搜尋 {code}: 找到 {len(search_results)} 個搜尋結果")
-
-            if not search_results:
-                # 檢查是否是 "沒有找到結果" 的頁面
-                no_results_indicators = [
-                    "該当なし",
-                    "見つかりませんでした",
-                    "検索結果：0",
-                    "0件",
-                ]
-                page_text = soup.get_text()
-                for indicator in no_results_indicators:
-                    if indicator in page_text:
-                        logger.info(f"AV-WIKI 明確顯示沒有找到 {code} 的結果")
-                        return None
-
-            # 🔧 修正女優解析邏輯：使用 rel="tag" 且 href 包含 /av-actress/
-            tag_links = soup.find_all("a", rel="tag")
-            actresses = []
-            seen_actresses = set()  # 避免重複
-
-            logger.info(f"AV-WIKI 解析: 找到 {len(tag_links)} 個 tag 連結")
-
-            for link in tag_links:
-                href = link.get("href", "")
-                text = link.get_text(strip=True)
-
-                # 只提取女優標籤（href 包含 /av-actress/）
-                if "/av-actress/" in href and text and text not in seen_actresses:
-                    seen_actresses.add(text)
-                    actresses.append(text)
-                    logger.info(f"AV-WIKI 提取到女優: {text} (來自 {href})")
-
-            logger.info(f"AV-WIKI 最終找到 {len(actresses)} 位女優: {actresses}")
-
-            if not actresses:
-                logger.warning(
-                    f"AV-WIKI 未找到女優名稱，HTML開頭: {str(soup)[:200]}..."
-                )
-
-            # 搜尋片商資訊
-            studio_info = self._extract_studio_info(soup, code)
-            if not studio_info.get("studio") and not stop_event.is_set():
-                detail_url = self._extract_avwiki_detail_url(soup, code)
-                if detail_url:
-                    logger.debug(
-                        f"🔍 AV-WIKI 詳情頁補抓片商: {code} -> {sanitize_url_for_log(detail_url)}"
-                    )
-
-                    def make_detail_request(url, **kwargs):
-                        kwargs.pop("timeout", None)  # 已由 self.timeout 明確指定，避免重複
-                        with httpx.Client(timeout=self.timeout, **kwargs) as client:
-                            response = client.get(url, headers=self.japanese_headers)
-                            response.raise_for_status()
-                            decoded_content = self._detect_and_decode_content(response)
-                            return BeautifulSoup(decoded_content, "html.parser")
-
-                    detail_soup = self.safe_searcher.safe_request(
-                        make_detail_request, detail_url
-                    )
-                    if detail_soup is not None:
-                        detail_studio = self._extract_studio_info(detail_soup, code)
-                        if detail_studio.get("studio"):
-                            studio_info["studio"] = detail_studio["studio"]
-                        if detail_studio.get("studio_code"):
-                            studio_info["studio_code"] = detail_studio["studio_code"]
-                        if detail_studio.get("release_date"):
-                            studio_info["release_date"] = detail_studio["release_date"]
-
-            if not actresses:
-                page_text = soup.get_text()
-                lines = [line.strip() for line in page_text.split("\n") if line.strip()]
-                for i, line in enumerate(lines):
-                    if code in line:
-                        for j in range(max(0, i - 3), min(len(lines), i + 1)):
-                            potential_name = lines[j].strip()
-                            if potential_name and self._is_actress_name(potential_name) and potential_name not in actresses:
-                                actresses.append(potential_name)
-            # 品質檢查：如果找到超過 10 位女優，很可能是錯誤解析
-            if actresses:
-                if len(actresses) > 10:
-                    logger.warning(
-                        f"番號 {code} 找到 {len(actresses)} 位女優，可能是解析錯誤，已清空結果"
-                    )
-                    return None
-                elif len(actresses) > 3:
-                    logger.warning(
-                        f"番號 {code} 找到 {len(actresses)} 位女優: {', '.join(actresses[:5])}...（可能需要確認）"
-                    )
-
-                # 🔧 標準化片商名稱
-                raw_studio = studio_info.get("studio")
-                normalized_studio = self.studio_identifier.normalize_studio_name(
-                    raw_studio, code
-                )
-
-                result = {
-                    "source": AV_WIKI_SEARCH_METHOD,
-                    "actresses": actresses,
-                    "studio": normalized_studio,
-                    "studio_code": studio_info.get("studio_code"),
-                    "release_date": studio_info.get("release_date"),
-                }
-                logger.info(
-                    f"番號 {code} 透過 {result['source']} 找到: {', '.join(result['actresses'])}, 片商: {result.get('studio', '未知')}"
-                )
-                return result
-
-        except Exception as e:
-            logger.error(f"AV-WIKI 搜尋 {code} 時發生錯誤: {e}", exc_info=True)
-            return self._build_search_error_result(AV_WIKI_SEARCH_METHOD, str(e))
-
-        return None
-
-    def _extract_avwiki_detail_url(self, soup: BeautifulSoup, code: str) -> str | None:
-        """從 AV-WIKI 搜尋結果頁提取作品詳情頁網址"""
-        code_slug = code.lower()
-        if "/" in code_slug:
-            code_slug = code_slug.replace("/", "-")
-
-        candidates: list[str] = []
-        for link in soup.find_all("a", href=True):
-            href = (link.get("href") or "").strip()
-            if not href:
-                continue
-
-            # 優先選擇「続きを読む」連結，通常會指向 AV-WIKI 作品詳情頁
-            link_text = link.get_text(strip=True)
-            is_readmore = "続きを読む" in link_text
-            is_avwiki_link = "av-wiki.net/" in href or href.startswith("/")
-            if not (is_readmore and is_avwiki_link):
-                continue
-
-            if href.startswith("/"):
-                href = f"https://av-wiki.net{href}"
-            if href.startswith("https://av-wiki.net/"):
-                candidates.append(href)
-
-        if not candidates:
-            return None
-
-        # 優先匹配番號 slug 的詳情頁
-        for url in candidates:
-            if code_slug in url.lower():
-                return url
-
-        return candidates[0]
-
-    def _is_actress_name(self, text: str) -> bool:
-        """判斷文字是否可能是女優名稱"""
-        if not text or len(text) < 2 or len(text) > 20:
-            return False
-        exclude_keywords = [
-            "SOD",
-            "STARS",
-            "FANZA",
-            "MGS",
-            "MIDV",
-            "SSIS",
-            "IPX",
-            "IPZZ",
-            "続きを読む",
-            "検索",
-            "件",
-            "特典",
-            "映像",
-            "付き",
-            "star",
-            "SOKMIL",
-            "Menu",
-            "セール",
-            "限定",
-            "最大",
-        ]
-        if any(keyword in text for keyword in exclude_keywords):
-            return False
-        if re.match(r"^\d+$", text) or len(re.findall(r"\d", text)) > len(text) // 2:
-            return False
-        return bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]", text))
-
-    def _detect_and_decode_content(self, response: httpx.Response) -> str:
-        """多重編碼檢測和解碼機制（支援壓縮內容處理）"""
-        content_bytes = response.content
-
-        # 🔧 首先檢查是否為壓縮內容
-        content_bytes = self._handle_compression(response, content_bytes)
-
-        # 檢查內容是否看起來像二進制壓縮數據
-        if self._is_likely_compressed(content_bytes):
-            logger.warning("⚠️ 內容仍然看起來像壓縮數據，嘗試強制解壓")
-            content_bytes = self._force_decompress(content_bytes)
-
-        # 如果檢測到 brotli 但沒有庫，強制嘗試解壓
-        content_encoding = response.headers.get("content-encoding", "").lower()
-        if content_encoding == "br" and len(content_bytes) > 0:
-            logger.warning("⚠️ 服務器發送了 brotli 壓縮內容，嘗試強制解壓")
-            content_bytes = self._force_decompress(content_bytes)
-
-        # 優先順序：UTF-8 > Shift_JIS > EUC-JP > CP932 > 自動檢測
-        encoding_attempts = ["utf-8", "shift_jis", "euc-jp", "cp932", "iso-2022-jp"]
-
-        # 如果 response 已經有編碼信息，優先嘗試
-        if response.encoding and response.encoding.lower() not in [
-            enc.lower() for enc in encoding_attempts
-        ]:
-            encoding_attempts.insert(0, response.encoding.lower())
-
-        # 嘗試每種編碼
-        for encoding in encoding_attempts:
-            try:
-                decoded_text = content_bytes.decode(encoding)
-                # 驗證解碼是否成功（檢查是否有明顯的亂碼）
-                if self._is_valid_decoded_text(decoded_text):
-                    logger.debug(f"✅ 成功使用編碼 {encoding} 解碼內容")
-                    return decoded_text
-            except (UnicodeDecodeError, LookupError):
-                logger.debug(f"❌ 編碼 {encoding} 解碼失敗")
-                continue
-
-        # 如果所有預設編碼都失敗，使用 chardet 自動檢測
-        try:
-            detected = chardet.detect(
-                content_bytes[:10000]
-            )  # 只檢測前10K字節以提高效率
-            if detected and detected["encoding"] and detected["confidence"] > 0.6:
-                encoding = detected["encoding"]
-                decoded_text = content_bytes.decode(encoding)
-                if self._is_valid_decoded_text(decoded_text):
-                    logger.info(
-                        f"🔍 通過自動檢測使用編碼 {encoding} (置信度: {detected['confidence']:.2f})"
-                    )
-                    return decoded_text
-        except Exception as e:
-            logger.warning(f"自動編碼檢測失敗: {e}")
-
-        # 最後手段：使用 errors='replace' 強制解碼
-        logger.warning("所有編碼嘗試失敗，使用 UTF-8 強制解碼")
-        return content_bytes.decode("utf-8", errors="replace")
-
-    def _handle_compression(
-        self, response: httpx.Response, content_bytes: bytes
-    ) -> bytes:
-        """處理HTTP壓縮內容"""
-        import gzip
-        import zlib
-
-        # 嘗試導入 brotli（可選）
-        try:
-            import brotli
-
-            brotli_available = True
-        except ImportError:
-            logger.debug("❌ brotli 庫未安裝，跳過 brotli 解壓縮")
-            brotli_available = False
-
-        # 檢查 Content-Encoding 標頭
-        content_encoding = response.headers.get("content-encoding", "").lower()
-
-        try:
-            if content_encoding == "gzip":
-                logger.debug("🔧 檢測到 gzip 壓縮，正在解壓")
-                return gzip.decompress(content_bytes)
-            elif content_encoding == "br" and brotli_available:
-                logger.debug("🔧 檢測到 brotli 壓縮，正在解壓")
-                return brotli.decompress(content_bytes)
-            elif content_encoding == "br" and not brotli_available:
-                logger.warning("⚠️ 檢測到 brotli 壓縮但未安裝 brotli 庫，嘗試其他方法")
-            elif content_encoding == "deflate":
-                logger.debug("🔧 檢測到 deflate 壓縮，正在解壓")
-                return zlib.decompress(content_bytes)
-        except Exception as e:
-            logger.warning(f"⚠️ 壓縮解碼失敗: {e}")
-
-        return content_bytes
-
-    def _is_likely_compressed(self, content_bytes: bytes) -> bool:
-        """檢查內容是否看起來像壓縮數據"""
-        if len(content_bytes) < 10:
-            return False
-
-        # 檢查常見壓縮格式的魔術字節
-        # gzip: 1f 8b
-        # brotli: 通常有高熵值
-        # deflate: 78 9c, 78 01, 78 da, 78 5e
-
-        first_bytes = content_bytes[:10]
-
-        # gzip 魔術字節
-        if first_bytes.startswith(b"\x1f\x8b"):
-            return True
-
-        # deflate 魔術字節
-        if first_bytes.startswith((b"\x78\x9c", b"\x78\x01", b"\x78\xda", b"\x78\x5e")):
-            return True
-
-        # 檢查是否有過多的非ASCII字符（可能是壓縮數據）
-        non_ascii_count = sum(1 for b in first_bytes if b > 127)
-        return non_ascii_count > len(first_bytes) * 0.5
-
-    def _force_decompress(self, content_bytes: bytes) -> bytes:
-        """強制嘗試所有可能的解壓方法"""
-        import gzip
-        import zlib
-
-        # 嘗試導入 brotli（可選）
-        try:
-            import brotli
-
-            brotli_available = True
-        except ImportError:
-            brotli_available = False
-
-        decompress_methods = [
-            ("gzip", gzip.decompress),
-            ("deflate", zlib.decompress),
-            ("deflate (raw)", lambda x: zlib.decompress(x, -15)),  # raw deflate
-        ]
-
-        # 如果 brotli 可用，添加到解壓方法列表
-        if brotli_available:
-            decompress_methods.insert(1, ("brotli", brotli.decompress))
-
-        for method_name, decompress_func in decompress_methods:
-            try:
-                decompressed = decompress_func(content_bytes)
-                logger.info(f"🎉 成功使用 {method_name} 解壓縮")
-                return decompressed
-            except Exception as e:
-                logger.debug(f"❌ {method_name} 解壓失敗: {e}")
-                continue
-
-        logger.warning("⚠️ 所有解壓方法都失敗，返回原始內容")
-        return content_bytes
-
-    def _is_valid_decoded_text(self, text: str) -> bool:
-        """驗證解碼後的文字是否有效（無明顯亂碼）"""
-        if not text or len(text) < 10:
-            return False
-
-        # 檢查是否有過多的替換字符（�）
-        replacement_ratio = text.count("�") / len(text)
-        if replacement_ratio > 0.1:  # 放寬到10%，因為有些網站可能包含特殊字符
-            logger.debug(f"❌ 替換字符比例過高: {replacement_ratio:.2%}")
-            return False
-
-        # 檢查是否包含基本的HTML標籤
-        html_tags = [
-            "<html",
-            "<body",
-            "<div",
-            "<span",
-            "<a",
-            "<title",
-            "<head",
-            "<!doctype",
-        ]
-        has_html = any(tag in text.lower() for tag in html_tags)
-
-        # 檢查是否包含日文字符
-        has_japanese = re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]", text)
-
-        # 檢查是否包含常見的HTML實體或標準字符
-        has_entities = any(
-            entity in text for entity in ["&lt;", "&gt;", "&amp;", "&quot;"]
-        )
-
-        # 檢查字符分佈是否合理（不是純二進制數據）
-        printable_chars = sum(1 for c in text[:1000] if c.isprintable() or c.isspace())
-        printable_ratio = printable_chars / min(len(text), 1000)
-
-        is_valid = (has_html or has_japanese or has_entities) and printable_ratio > 0.7
-
-        if not is_valid:
-            logger.debug(
-                f"❌ 內容驗證失敗 - HTML:{has_html} 日文:{bool(has_japanese)} 實體:{has_entities} 可列印比例:{printable_ratio:.2%}"
-            )
-
-        return is_valid
-
-    def batch_search(
-        self,
-        items: list,
-        task_func,
-        stop_event: threading.Event,
-        progress_callback=None,
-        result_callback=None,
-    ) -> dict:
-        results = {}
-        total_batches = (len(items) + self.batch_size - 1) // self.batch_size
-        for i in range(0, len(items), self.batch_size):
-            if stop_event.is_set():
-                logger.info("任務被使用者中止。")
-                break
-            batch = items[i : i + self.batch_size]
-            batch_num = (i // self.batch_size) + 1
-            if progress_callback:
-                progress_callback(f"處理批次 {batch_num}/{total_batches}...\n")
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=self.thread_count
-            ) as executor:
-                future_to_item = {
-                    executor.submit(task_func, item, stop_event): item for item in batch
-                }
-                for future in concurrent.futures.as_completed(future_to_item):
-                    if stop_event.is_set():
-                        break
-                    item = future_to_item[future]
-                    try:
-                        result = future.result()
-                        results[item] = result
-                        if result_callback:
-                            result_callback(item, result, None)
-                        if progress_callback:
-                            if result and result.get("actresses"):
-                                progress_callback(f"✅ {item}: 找到資料\n")
-                            elif result and result.get("search_status") == "search_error":
-                                progress_callback(
-                                    f"⚠️ {item}: 搜尋頁面異常 - {result.get('search_error_reason', '未知原因')}\n"
-                                )
-                            else:
-                                progress_callback(f"❌ {item}: 未找到結果\n")
-                    except Exception as e:
-                        logger.error(f"批次處理 {item} 時發生錯誤: {e}")
-                        results[item] = None
-                        if result_callback:
-                            result_callback(item, None, e)
-                        if progress_callback:
-                            progress_callback(f"💥 {item}: 處理失敗 - {e}\n")
-            if i + self.batch_size < len(items) and total_batches > 1:
-                time.sleep(self.batch_delay)
-        return results
-
-    def _extract_studio_info(self, soup: BeautifulSoup, code: str) -> dict:
-        """從網頁中提取片商資訊"""
-        studio_info = {"studio": None, "studio_code": None, "release_date": None}
-
-        try:
-            # 先取得網頁文字內容，後續方法都可能用到
-            page_text = soup.get_text()
-
-            # 方法1: 從 AV-WIKI HTML 結構中直接提取片商資訊
-            # 查找包含 fa-clone 圖標的 li 元素
-            studio_elements = soup.find_all("li")
-            for li in studio_elements:
-                icon = li.find("i", class_="fa-clone")
-                if icon:
-                    link = li.find("a")
-                    if link and link.text.strip():
-                        studio_text = link.text.strip()
-                        # 解析片商名稱，例如 "エスワン - SONE" -> studio="エスワン", code="SONE"
-                        if " - " in studio_text:
-                            parts = studio_text.split(" - ")
-                            studio_info["studio"] = parts[0].strip()
-                            studio_info["studio_code"] = parts[1].strip()
-                        else:
-                            studio_info["studio"] = studio_text
-                        break
-
-            # 方法2: 如果方法1失敗，從頁面文字中提取片商資訊
-            if not studio_info["studio"]:
-                # 搜尋常見的片商名稱和模式
-                studio_patterns = [
-                    # 直接片商名稱匹配
-                    (
-                        r"(S1|SOD|MOODYZ|PREMIUM|WANZ|FALENO|ATTACKERS|E-BODY|KAWAII|FITCH|MADONNA|PRESTIGE)",
-                        r"\1",
-                    ),
-                    # 製作公司/發行商模式
-                    (r"製作[：:]\s*([^\n\r]+)", r"\1"),
-                    (r"發行[：:]\s*([^\n\r]+)", r"\1"),
-                    (r"メーカー[：:]\s*([^\n\r]+)", r"\1"),
-                    (r"メーカー\s*[\r\n]+\s*([^\n\r]+)", r"\1"),
-                    # 番號前綴模式
-                    (r"品番[：:]\s*([A-Z]+)-?\d+", r"\1"),
-                ]
-
-                for pattern, _replacement in studio_patterns:
-                    match = re.search(pattern, page_text, re.IGNORECASE)
-                    if match:
-                        extracted_studio = match.group(1).strip()
-                        if (
-                            extracted_studio and len(extracted_studio) < 50
-                        ):  # 合理長度限制
-                            if not studio_info["studio"]:
-                                studio_info["studio"] = extracted_studio
-                            if (
-                                not studio_info["studio_code"]
-                                and len(extracted_studio) <= 10
-                            ):
-                                studio_info["studio_code"] = extracted_studio
-                            break
-
-            # 方法3: 如果仍失敗，嘗試從番號中提取片商代碼
-            if not studio_info["studio"]:
-                studio_code = self._extract_studio_code_from_number(code)
-                if studio_code:
-                    studio_info["studio_code"] = studio_code
-                    studio_info["studio"] = self._get_studio_name_by_code(studio_code)
-
-            # 方法4: 嘗試提取發行日期（總是執行）
-            date_patterns = [
-                r"發售日[：:]\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})",
-                r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})",
-                r"(\d{4}\.\d{1,2}\.\d{1,2})",
-            ]
-
-            for pattern in date_patterns:
-                match = re.search(pattern, page_text)
-                if match:
-                    studio_info["release_date"] = match.group(1)
-                    break
-        except Exception as e:
-            logger.warning(f"提取片商資訊時發生錯誤: {e}")
-
+        return self.safe_searcher.safe_request(make_request, url)
+
+    @staticmethod
+    def _is_avwiki_no_results_page(soup: BeautifulSoup) -> bool:
+        page_text = soup.get_text()
+        return any(indicator in page_text for indicator in ["該当なし", "見つかりませんでした", "検索結果：0", "0件"])
+
+    def _extract_avwiki_actresses(self, soup: BeautifulSoup) -> list[str]:
+        actresses: list[str] = []
+        seen_actresses: set[str] = set()
+        tag_links = soup.find_all("a", rel="tag")
+        logger.info(f"AV-WIKI 解析: 找到 {len(tag_links)} 個 tag 連結")
+        for link in tag_links:
+            href = link.get("href", "")
+            text = link.get_text(strip=True)
+            if "/av-actress/" in href and text and text not in seen_actresses:
+                seen_actresses.add(text)
+                actresses.append(text)
+                logger.info(f"AV-WIKI 提取到女優: {text} (來自 {href})")
+        return actresses
+
+    def _fetch_avwiki_detail_studio_info(self, soup: BeautifulSoup, code: str) -> dict:
+        studio_info = self._extract_studio_info(soup, code)
+        if studio_info.get("studio"):
+            return studio_info
+        detail_url = self._extract_avwiki_detail_url(soup, code)
+        if not detail_url:
+            return studio_info
+        logger.debug(f"🔍 AV-WIKI 詳情頁補抓片商: {code} -> {sanitize_url_for_log(detail_url)}")
+        detail_soup = self.safe_searcher.safe_request(self._fetch_avwiki_search_soup, detail_url)
+        if detail_soup is not None:
+            detail_studio = self._extract_studio_info(detail_soup, code)
+            for key in ("studio", "studio_code", "release_date"):
+                if detail_studio.get(key):
+                    studio_info[key] = detail_studio[key]
         return studio_info
 
-    def _extract_studio_code_from_number(self, code: str) -> str | None:
-        """從番號中提取片商代碼"""
-        if not code:
+    def _scan_avwiki_text_for_actresses(self, soup: BeautifulSoup, code: str) -> list[str]:
+        page_text = soup.get_text()
+        lines = [line.strip() for line in page_text.split("\n") if line.strip()]
+        actresses: list[str] = []
+        for i, line in enumerate(lines):
+            if code not in line:
+                continue
+            for j in range(max(0, i - 3), min(len(lines), i + 1)):
+                for name in re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]{2,8}", lines[j]):
+                    if name not in actresses and self._is_valid_actress_name(name):
+                        actresses.append(name)
+            if actresses:
+                break
+        return actresses
+
+    def _finalize_avwiki_search_result(self, code: str, actresses: list[str], studio_info: dict) -> dict | None:
+        if len(actresses) > 10:
+            logger.info(f"AV-WIKI 搜尋 {code}: 找到過多女優，視為可能錯誤結果")
             return None
+        if not actresses:
+            logger.info(f"AV-WIKI 搜尋 {code}: 未找到有效女優資訊")
+            return None
+        return {"source": AV_WIKI_SEARCH_METHOD, "actresses": actresses, "studio": self.studio_identifier.normalize_studio_name(studio_info.get("studio"), code), "studio_code": studio_info.get("studio_code"), "release_date": studio_info.get("release_date")}
 
-        # 提取字母部分作為片商代碼
-        match = re.match(r"^([A-Z]+)", code.upper())
-        if match:
-            return match.group(1)
-        return None
-
-    def _get_studio_name_by_code(self, studio_code: str) -> str | None:
-        """根據片商代碼獲取片商名稱（從 studios.json 載入）"""
-        return self._studio_code_mapping.get(studio_code.upper(), studio_code)
-
-    def _load_studio_code_mapping(self) -> dict[str, str]:
-        """載入片商代碼對照表，避免批次搜尋時重複讀取磁碟。"""
-        studio_mapping = {
-            "STAR": "SOD",
-            "STARS": "SOD",
-            "SDJS": "SOD",
-            "SSIS": "S1",
-            "SSNI": "S1",
-            "IPX": "IdeaPocket",
-            "IPZZ": "IdeaPocket",
-            "MIDV": "MOODYZ",
-            "MIAA": "MOODYZ",
-            "WANZ": "WANZ FACTORY",
-            "FSDSS": "FALENO",
-            "PRED": "PREMIUM",
-            "ABW": "Prestige",
-            "BF": "BeFree",
-            "CAWD": "kawaii",
-            "JUFD": "Fitch",
-            "JUL": "MADONNA",
-            "JUY": "MADONNA",
-        }
-
-        try:
-            try:
-                from utils.json_utils import load as json_load
-            except ImportError:  # pragma: no cover
-                from src.utils.json_utils import load as json_load
-
-            studios_file = Path(__file__).parent.parent.parent / "studios.json"
-            if studios_file.exists():
-                with open(studios_file, encoding="utf-8") as f:
-                    studios_data = json_load(f)
-
-                for studio_name, codes in studios_data.items():
-                    for code in codes:
-                        studio_mapping[code.upper()] = studio_name
-        except Exception as e:
-            logger.warning(f"載入 studios.json 失敗: {e}")
-
-        return studio_mapping
-
-    def get_safe_searcher_stats(self) -> dict:
-        """獲取安全搜尋器統計資訊"""
-        return self.safe_searcher.get_stats()
-
-    def clear_cache(self):
-        """清空快取"""
-        self.search_cache.clear()
-        self.safe_searcher.clear_cache()
-        logger.info("🧹 已清空所有搜尋快取")
-
-    def configure_safe_searcher(self, **kwargs):
-        """動態配置安全搜尋器"""
-        self.safe_searcher.configure(**kwargs)
-        # 更新本地標頭
-        self.headers = self.safe_searcher.get_headers()
-
-    def get_javdb_stats(self) -> dict:
-        """獲取 JAVDB 搜尋器統計資訊"""
-        return self.javdb_searcher.get_stats()
-
-    def get_all_search_stats(self) -> dict:
-        """獲取所有搜尋器的統計資訊"""
-        return {
-            "safe_searcher": self.get_safe_searcher_stats(),
-            "javdb_searcher": self.get_javdb_stats(),
-            "local_cache_entries": len(self.search_cache),
-        }
-
-    def clear_all_cache(self):
-        """清空所有搜尋快取"""
-        self.search_cache.clear()
-        self.safe_searcher.clear_cache()
-        self.javdb_searcher.clear_cache()
-        logger.info("🧹 已清空所有搜尋快取 (包含 JAVDB)")
-
-    def search_japanese_sites_only(
-        self, code: str, stop_event: threading.Event
-    ) -> dict | None:
-        """僅搜尋 AV-WIKI。保留舊 API，內部委派到統一實作。"""
-        return self.search_japanese_sites(code, stop_event)
-
-    def search_avwiki_only(self, code: str, stop_event: threading.Event) -> dict | None:
-        """僅搜尋 AV-WIKI。"""
-        return self.search_japanese_sites(code, stop_event)
-
-    def search_javdb_only(self, code: str, stop_event: threading.Event) -> dict | None:
-        """僅搜尋 JAVDB"""
+    def _search_av_wiki(self, code: str, stop_event: threading.Event) -> dict | None:
+        """AV-WIKI 搜尋方法"""
         if stop_event.is_set():
             return None
-        if code in self.search_cache:
-            return self.search_cache[code]
-
+        search_url = f"https://av-wiki.net/?s={quote(code)}&post_type=product"
         try:
-            logger.debug(f"📊 JAVDB 搜尋: {code}")
-            candidates = self._build_code_candidates(code)
-            return self._search_candidates_in_javdb(code, candidates, stop_event)
-
+            soup = self._fetch_avwiki_search_soup(search_url)
+            if soup is None:
+                logger.warning(f"無法獲取 {code} 的 AV-WIKI 搜尋頁面")
+                return self._build_search_error_result(AV_WIKI_SEARCH_METHOD, "無法獲取搜尋頁面")
+            search_results = soup.find_all("div", class_="column-flex")
+            logger.info(f"AV-WIKI 搜尋 {code}: 找到 {len(search_results)} 個搜尋結果")
+            if not search_results and self._is_avwiki_no_results_page(soup):
+                logger.info(f"AV-WIKI 明確顯示沒有找到 {code} 的結果")
+                return None
+            actresses = self._extract_avwiki_actresses(soup)
+            logger.info(f"AV-WIKI 最終找到 {len(actresses)} 位女優: {actresses}")
+            if not actresses:
+                logger.warning(f"AV-WIKI 未找到女優名稱，HTML開頭: {str(soup)[:200]}...")
+                actresses = self._scan_avwiki_text_for_actresses(soup, code)
+            studio_info = self._fetch_avwiki_detail_studio_info(soup, code)
+            return self._finalize_avwiki_search_result(code, actresses, studio_info)
         except Exception as e:
-            logger.error(f"JAVDB 搜尋 {code} 時發生錯誤: {e}", exc_info=True)
-            return self._build_search_error_result("JAVDB (安全增強版)", str(e))
-
-    def search_shiroutowiki_only(
-        self, code: str, stop_event: threading.Event
-    ) -> dict | None:
-        """僅搜尋 shiroutowiki.work。"""
-        if stop_event.is_set():
+            logger.error(f"搜尋 AV-WIKI 番號 {code} 時發生錯誤: {e}", exc_info=True)
             return None
-
-        cache_key = f"shiroutowiki::{code}"
-        if cache_key in self.search_cache:
-            return self.search_cache[cache_key]
-
-        try:
-            candidates = self._build_shiroutowiki_candidates(code)
-            logger.debug(
-                f"🧑 shiroutowiki 搜尋 {code}，候選: {', '.join(candidates)}"
-            )
-
-            result = self.shiroutowiki_scraper.search_video(code, candidates)
-            if result and result.get("actresses"):
-                matched_code = result.get("matched_code", code)
-                result = self._attach_alias_metadata(result, code, matched_code)
-                self.search_cache[cache_key] = result
-                return result
-
-            logger.warning(f"番號 {code} 未在 shiroutowiki 中找到女優資訊。")
-            return None
-        except Exception as e:
-            logger.error(
-                f"shiroutowiki 搜尋番號 {code} 時發生錯誤: {e}", exc_info=True
-            )
-            return None
-
-    def search_japanese_sites(
-        self, code: str, stop_event: threading.Event
-    ) -> dict | None:
-        """只搜尋 AV-WIKI"""
-        if stop_event.is_set():
-            return None
-        if code in self.search_cache:
-            return self.search_cache[code]
-
-        try:
-            last_error_result = None
-            for candidate in self._build_code_candidates(code):
-                logger.debug(f"🇯🇵 AV-WIKI 搜尋: {candidate}")
-                result = self._search_av_wiki(candidate, stop_event)
-                if result and result.get("search_status") == "search_error":
-                    last_error_result = self._attach_alias_metadata(
-                        result, code, candidate
-                    )
-                    continue
-                if result and result.get("actresses"):
-                    result = self._attach_alias_metadata(result, code, candidate)
-                    self.search_cache[code] = result
-                    return result
-
-            if last_error_result:
-                return last_error_result
-
-            logger.warning(f"番號 {code} 未在 AV-WIKI 中找到女優資訊。")
-            return None
-        except Exception as e:
-            logger.error(f"AV-WIKI 搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
-            return self._build_search_error_result(AV_WIKI_SEARCH_METHOD, str(e))
 
     def batch_search_avwiki_concurrent(
         self, codes: list, stop_event: threading.Event, progress_callback=None
