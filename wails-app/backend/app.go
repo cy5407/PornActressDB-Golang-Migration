@@ -94,7 +94,7 @@ func (a *App) Startup(ctx context.Context) {
 }
 
 func (a *App) emitEvent(eventName string, optionalData ...interface{}) {
-	if a.ctx == nil || a.ctx.Value("events") == nil {
+	if a.ctx == nil {
 		return
 	}
 	wailsRuntime.EventsEmit(a.ctx, eventName, optionalData...)
