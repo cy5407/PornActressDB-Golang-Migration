@@ -76,3 +76,15 @@ def test_orjson_branch_fallback_to_stdlib_when_ensure_ascii_true(monkeypatch):
     payload = {"日本語": "テスト"}
     text = json_utils.dumps(payload, ensure_ascii=True, sort_keys=True)
     assert "\\u65e5\\u672c\\u8a9e" in text
+
+
+def test_dumps_supports_default_callable_and_roundtrip_load():
+    class Custom:
+        def __init__(self, value):
+            self.value = value
+
+    payload = {"obj": Custom(7)}
+
+    text = json_utils.dumps(payload, default=lambda obj: {"value": obj.value}, sort_keys=True)
+    assert '"value":7' in text or '"value": 7' in text
+    assert json_utils.loads(text) == {"obj": {"value": 7}}
