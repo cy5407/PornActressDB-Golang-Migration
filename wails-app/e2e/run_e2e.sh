@@ -25,8 +25,8 @@ TEST_OUTPUT="$(go test ./backend -run 'TestIntegration|TestBackendSmoke' -v 2>&1
 STATUS=$?
 printf '%s\n' "$TEST_OUTPUT"
 
-SUCCESS_COUNT="$(printf '%s\n' "$TEST_OUTPUT" | grep -c '--- PASS:' || true)"
-FAIL_COUNT="$(printf '%s\n' "$TEST_OUTPUT" | grep -c '--- FAIL:' || true)"
+SUCCESS_COUNT="$(printf '%s\n' "$TEST_OUTPUT" | grep -c -F -- '--- PASS:' || true)"
+FAIL_COUNT="$(printf '%s\n' "$TEST_OUTPUT" | grep -c -F -- '--- FAIL:' || true)"
 
 cat <<EOF
 

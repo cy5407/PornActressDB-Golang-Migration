@@ -212,6 +212,10 @@ func historyCmd(args []string) {
 	rawArgs := args[1:]
 	for i := 0; i < len(rawArgs); i++ {
 		a := rawArgs[i]
+		if subCmd == "rollback" && a == "--last" {
+			posArgs = append(posArgs, a)
+			continue
+		}
 		if strings.HasPrefix(a, "-") {
 			flagArgs = append(flagArgs, a)
 			// 若下一個不是旗標，視為此旗標的值一起帶走
