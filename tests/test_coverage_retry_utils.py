@@ -100,9 +100,12 @@ def test_adaptive_concurrency_controller_respects_bounds_and_reset():
 
     controller.report_failure()
     assert controller.get_concurrency() == 3
+    assert controller.consecutive_successes == 0
+    assert controller.consecutive_failures == 0
 
     controller.report_success()
     assert controller.get_concurrency() == 5
+    assert controller.consecutive_failures == 0
 
     controller.reset()
     assert controller.get_stats()["consecutive_successes"] == 0
