@@ -71,6 +71,13 @@ def test_exponential_backoff_reset_keeps_configuration():
     assert backoff.current_attempt() == 0
 
 
+def test_exponential_backoff_applies_jitter_factor(monkeypatch):
+    monkeypatch.setattr("src.utils.retry_utils.randbelow", lambda _: 0)
+    backoff = ExponentialBackoff(base_delay=10.0, max_delay=20.0, multiplier=2.0, jitter=True)
+
+    assert backoff.next_delay() == 8.0
+
+
 # ──────────────────────────────
 # AdaptiveConcurrencyController
 # ──────────────────────────────
