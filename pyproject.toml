@@ -1,7 +1,7 @@
 [project]
 name = "pornactressdb"
-version = "5.4.3"
-description = "女優分類系統 - Python/Tkinter GUI 桌面應用"
+version = "6.0.0"
+description = "女優分類系統 - Wails GUI、Go CLI 與 Python 搜尋管線"
 requires-python = ">=3.11"
 
 [tool.ruff]

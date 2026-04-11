@@ -29,12 +29,13 @@ Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透
 1. 從 [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases) 下載：
    - `actress-classifier.exe`（主程式）
    - `classifier.exe`（Go CLI，搜尋與資料庫加速）
-   - `major_studios.json`（片商清單）
+   - `major_studios.json`（大片商清單）
+   - `studios.json`（片商識別規則）
 2. 安裝 Python 3.11+，執行：
    ```powershell
    pip install -r requirements.txt
    ```
-3. 將 `actress-classifier.exe`、`classifier.exe`、`major_studios.json` 放在同一目錄，雙擊啟動
+3. 將 `actress-classifier.exe`、`classifier.exe`、`major_studios.json`、`studios.json` 放在同一目錄，雙擊啟動
 
 > Python 環境只用於搜尋爬蟲；GUI 本身不需要 Python 即可啟動，但搜尋功能需要。
 
@@ -58,6 +59,8 @@ wails build
 ```
 
 > 建置 `classifier.exe` 時請使用套件路徑，不要直接指定 `main.go`，否則會漏掉同套件的輔助檔案。
+>
+> 建置或釋出 Wails 應用時，請另外確認 `classifier.exe`、`major_studios.json`、`studios.json` 是否也放在預期位置，避免 GUI 啟動後部分功能可開啟但搜尋 / 片商分類失效。
 
 ## 操作流程
 
@@ -140,6 +143,7 @@ python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --wr
 actress-classifier.exe    # Wails GUI（建置產物）
 classifier.exe            # Go CLI（建置產物）
 major_studios.json        # 大片商清單
+studios.json              # 片商識別規則
 config.ini                # 設定檔（從 config.ini.example 複製）
 requirements.txt          # Python 爬蟲相依套件
 │
@@ -195,16 +199,16 @@ Extracts video codes from filenames, searches actress information from AV-WIKI a
 
 ## Quick Start
 
-1. Download `actress-classifier.exe`, `classifier.exe`, and `major_studios.json` from [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases)
+1. Download `actress-classifier.exe`, `classifier.exe`, `major_studios.json`, and `studios.json` from [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases)
 2. Install Python 3.11+ and run `pip install -r requirements.txt` (required for search functionality)
-3. Launch `actress-classifier.exe`
+3. Keep these files in the same directory, then launch `actress-classifier.exe`
 
 ## Workflow
 
 1. Set input folder (scan source) and output folder (move target)
 2. **Scan** — extract video codes from filenames
 3. **Search** — fetch actress info from AV-WIKI → JAVDB, write to JSON database
-4. **Move** → `outputDir\actress\code.ext`  
+4. **Move** → `outputDir\actress\code.ext`
    **Studio Classify** → `outputDir\studio\actress\code.ext`
 5. Use **Operation History** to rollback if needed
 
@@ -216,7 +220,7 @@ Extracts video codes from filenames, searches actress information from AV-WIKI a
 | Independent/minor studio | `outputDir\單體企劃女優\{actress}\code.ext` |
 | No actress data | `outputDir\未分類\code.ext` |
 
-Major studios defined in `major_studios.json` (S1, MOODYZ, PREMIUM, FALENO, KAWAII, etc.).
+Major studios are defined in `major_studios.json`, while broader studio identification rules are provided by `studios.json`.
 
 ## Building from Source
 
