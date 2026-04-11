@@ -72,7 +72,7 @@ func Rollback(logDir, id string, last bool) (contracts.BatchResult, error) {
 		if len(logs) == 0 {
 			return contracts.BatchResult{}, fmt.Errorf("沒有可回滾的操作")
 		}
-		targetID = logs[len(logs)-1].ID
+		targetID = logs[0].ID
 	}
 	result, err := mover.NewMover(logDir).Rollback(targetID)
 	if err != nil {
