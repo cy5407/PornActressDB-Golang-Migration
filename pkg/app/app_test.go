@@ -242,7 +242,7 @@ func TestBatchAndRollback_RoundTrip(t *testing.T) {
 	}
 
 	// 確認目的地有檔案
-	if _, err := os.Stat(dst); os.IsNotExist(err) {
+	if _, statErr := os.Stat(dst); os.IsNotExist(statErr) {
 		t.Fatal("destination file missing after batch move")
 	}
 

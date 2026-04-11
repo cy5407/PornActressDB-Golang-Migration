@@ -132,7 +132,7 @@ func TestApplyLegacyJournalEntry_Update(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open journal error: %v", err)
 	}
-	f.Write(data) //nolint:errcheck
+	f.Write(data)       //nolint:errcheck
 	f.WriteString("\n") //nolint:errcheck
 	f.Close()
 
@@ -168,7 +168,7 @@ func TestApplyLegacyJournalEntry_Delete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open journal error: %v", err)
 	}
-	f.Write(data) //nolint:errcheck
+	f.Write(data)       //nolint:errcheck
 	f.WriteString("\n") //nolint:errcheck
 	f.Close()
 
@@ -255,8 +255,8 @@ func TestLoadJournal_EmptyLinesSkipped(t *testing.T) {
 	videoData, _ := json.Marshal(NewVideo("SSIS-999"))
 	entry := JournalEntry{Op: OpAdd, Type: TypeVideo, ID: "SSIS-999", Data: videoData, Ts: GetCurrentTimestamp()}
 	entryBytes, _ := json.Marshal(entry)
-	f.WriteString("\n") //nolint:errcheck
-	f.Write(entryBytes)  //nolint:errcheck
+	f.WriteString("\n")   //nolint:errcheck
+	f.Write(entryBytes)   //nolint:errcheck
 	f.WriteString("\n\n") //nolint:errcheck
 	f.Close()
 

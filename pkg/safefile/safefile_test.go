@@ -289,12 +289,12 @@ func TestOpenFileViaSymlinkedDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFile() error = %v", err)
 	}
-	if _, err := f.Write([]byte("safe-open")); err != nil {
+	if _, writeErr := f.Write([]byte("safe-open")); writeErr != nil {
 		_ = f.Close()
-		t.Fatalf("Write() error = %v", err)
+		t.Fatalf("Write() error = %v", writeErr)
 	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
+	if closeErr := f.Close(); closeErr != nil {
+		t.Fatalf("Close() error = %v", closeErr)
 	}
 
 	got, err := os.ReadFile(filepath.Join(realDir, "payload.txt"))

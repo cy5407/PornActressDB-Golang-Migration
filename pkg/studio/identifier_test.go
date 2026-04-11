@@ -12,6 +12,7 @@ func TestNewStudioIdentifier(t *testing.T) {
 	// 即使檔案不存在，也應該返回有效的識別器（使用預設規則）
 	if si == nil {
 		t.Fatal("Expected StudioIdentifier instance even when file doesn't exist")
+		return
 	}
 	// 應該有錯誤（檔案不存在），但識別器仍應可用
 	if err == nil {
@@ -26,6 +27,10 @@ func TestNewStudioIdentifier(t *testing.T) {
 
 func TestIdentifyStudio(t *testing.T) {
 	si, _ := NewStudioIdentifier("")
+	if si == nil {
+		t.Fatal("expected identifier instance")
+		return
+	}
 
 	tests := []struct {
 		name     string
@@ -59,6 +64,10 @@ func TestIdentifyStudio(t *testing.T) {
 
 func TestNormalizeStudioName(t *testing.T) {
 	si, _ := NewStudioIdentifier("")
+	if si == nil {
+		t.Fatal("expected identifier instance")
+		return
+	}
 
 	tests := []struct {
 		name       string

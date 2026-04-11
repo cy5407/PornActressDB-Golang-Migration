@@ -24,7 +24,7 @@ type IndexMetadata struct {
 
 // CacheIndex 快取索引結構
 type CacheIndex struct {
-	Metadata IndexMetadata          `json:"_metadata"`
+	Metadata IndexMetadata         `json:"_metadata"`
 	Entries  map[string]IndexEntry `json:"entries"`
 }
 
@@ -50,10 +50,10 @@ type CleanupResult struct {
 
 // PruneConfig 清理配置
 type PruneConfig struct {
-	TTLDays        int   `json:"ttl_days"`
-	MaxSizeMB      int   `json:"max_size_mb"`
-	MinKeepEntries int   `json:"min_keep_entries"`
-	DryRun         bool  `json:"dry_run"`
+	TTLDays        int  `json:"ttl_days"`
+	MaxSizeMB      int  `json:"max_size_mb"`
+	MinKeepEntries int  `json:"min_keep_entries"`
+	DryRun         bool `json:"dry_run"`
 }
 
 // DefaultPruneConfig 預設清理配置

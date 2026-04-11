@@ -14,6 +14,17 @@ import (
 	"actress-classifier/pkg/safefile"
 )
 
+type moveCommandOptions struct {
+	src        string
+	dst        string
+	batch      string
+	batchStdin bool
+	kind       string
+	strategy   string
+	dryRun     bool
+	logDir     string
+}
+
 func parseFlagsOrExit(fs *flag.FlagSet, args []string) {
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
@@ -119,6 +130,14 @@ func scanCmd(args []string) {
 // === Move 命令 ===
 
 func moveCmd(args []string) {
+	opts := parseMoveCommandOptions(args)
+	if handleBatchMove(opts) {
+		return
+	}
+	runSingleMove(opts)
+}
+
+func parseMoveCommandOptions(args []string) moveCommandOptions {
 	fs := flag.NewFlagSet("move", flag.ExitOnError)
 	src := fs.String("src", "", "來源路徑")
 	dst := fs.String("dst", "", "目標路徑")
@@ -129,61 +148,96 @@ func moveCmd(args []string) {
 	dryRun := fs.Bool("dry-run", false, "模擬執行模式")
 	logDir := fs.String("log-dir", "logs", "操作日誌目錄")
 	parseFlagsOrExit(fs, args)
-
-	// 批次模式
-	if *batch != "" {
-		data, err := safefile.ReadFile(*batch)
-		if err != nil {
-			printError(fmt.Sprintf("無法讀取批次檔案: %v", err), "請確認檔案路徑正確")
-			os.Exit(1)
-		}
-
-		var items []contracts.MoveItem
-		if err := json.Unmarshal(data, &items); err != nil {
-			printError(fmt.Sprintf("JSON 解析錯誤: %v", err), "批次檔案必須是有效的 JSON 陣列格式")
-			os.Exit(1)
-		}
-		result, err := app.BatchMove(context.Background(), items, *strategy, *dryRun, *logDir)
-		if err != nil {
-			printError(err.Error(), "請確認批次移動輸入與參數格式正確")
-			os.Exit(1)
-		}
-		outputJSON(result)
-		return
+	return moveCommandOptions{
+		src:        *src,
+		dst:        *dst,
+		batch:      *batch,
+		batchStdin: *batchStdin,
+		kind:       *kind,
+		strategy:   *strategy,
+		dryRun:     *dryRun,
+		logDir:     *logDir,
 	}
-	if *batchStdin {
-		result, err := app.BatchMoveStdin(context.Background(), *strategy, *dryRun, *logDir)
-		if err != nil {
-			printError(err.Error(), "請確認 stdin 為有效的 JSON 陣列")
-			os.Exit(1)
-		}
-		outputJSON(result)
-		return
+}
+
+func handleBatchMove(opts moveCommandOptions) bool {
+	if opts.batch != "" {
+		runBatchMoveFile(opts)
+		return true
+	}
+	if opts.batchStdin {
+		runBatchMoveStdin(opts)
+		return true
+	}
+	return false
+}
+
+func runBatchMoveFile(opts moveCommandOptions) {
+	data, err := safefile.ReadFile(opts.batch)
+	if err != nil {
+		printError(fmt.Sprintf("無法讀取批次檔案: %v", err), "請確認檔案路徑正確")
+		os.Exit(1)
 	}
 
-	// 單檔模式
-	if *src == "" || *dst == "" {
+	var items []contracts.MoveItem
+	unmarshalErr := json.Unmarshal(data, &items)
+	if unmarshalErr != nil {
+		printError(fmt.Sprintf("JSON 解析錯誤: %v", unmarshalErr), "批次檔案必須是有效的 JSON 陣列格式")
+		os.Exit(1)
+	}
+	result, runErr := app.BatchMove(context.Background(), items, opts.strategy, opts.dryRun, opts.logDir)
+	if runErr != nil {
+		printError(runErr.Error(), "請確認批次移動輸入與參數格式正確")
+		os.Exit(1)
+	}
+	outputJSON(result)
+}
+
+func runBatchMoveStdin(opts moveCommandOptions) {
+	result, err := app.BatchMoveStdin(context.Background(), opts.strategy, opts.dryRun, opts.logDir)
+	if err != nil {
+		printError(err.Error(), "請確認 stdin 為有效的 JSON 陣列")
+		os.Exit(1)
+	}
+	outputJSON(result)
+}
+
+func runSingleMove(opts moveCommandOptions) {
+	validateSingleMoveOptions(opts)
+	switch opts.kind {
+	case "dir":
+		runDirMove(opts)
+	case "file":
+		runFileMove(opts)
+	default:
+		printError(fmt.Sprintf("未知的移動類型: %s", opts.kind), "有效值: file, dir")
+		os.Exit(1)
+	}
+}
+
+func validateSingleMoveOptions(opts moveCommandOptions) {
+	if opts.src == "" || opts.dst == "" {
 		printError("必須指定 -src 和 -dst，或使用 -batch / -batch-stdin")
-		fs.Usage()
+		printMoveUsage()
 		os.Exit(1)
 	}
+}
 
-	if *kind == "dir" {
-		result, err := app.MoveDir(*src, *dst, *strategy, *dryRun, *logDir)
-		if err != nil {
-			printError(err.Error(), "有效值: file, dir；strategy: skip, overwrite, rename")
-			os.Exit(1)
-		}
-		outputJSON(result)
-		return
-	}
+func printMoveUsage() {
+	fmt.Fprintln(os.Stderr, "用法: classifier.exe move -src <來源> -dst <目標> [-kind file|dir] [-strategy skip|overwrite|rename]")
+}
 
-	if *kind != "file" {
-		printError(fmt.Sprintf("未知的移動類型: %s", *kind), "有效值: file, dir")
+func runDirMove(opts moveCommandOptions) {
+	result, err := app.MoveDir(opts.src, opts.dst, opts.strategy, opts.dryRun, opts.logDir)
+	if err != nil {
+		printError(err.Error(), "有效值: file, dir；strategy: skip, overwrite, rename")
 		os.Exit(1)
 	}
+	outputJSON(result)
+}
 
-	result, err := app.MoveFile(*src, *dst, *strategy, *dryRun, *logDir)
+func runFileMove(opts moveCommandOptions) {
+	result, err := app.MoveFile(opts.src, opts.dst, opts.strategy, opts.dryRun, opts.logDir)
 	if err != nil {
 		printError(err.Error(), "有效值: file, dir；strategy: skip, overwrite, rename")
 		os.Exit(1)

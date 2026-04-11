@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"actress-classifier/pkg/safefile"
+
 	"github.com/google/uuid"
 )
 
@@ -26,7 +27,7 @@ func (m *Mover) ListOperations() ([]OperationLog, error) {
 		return nil, err
 	}
 
-	var logs []OperationLog
+	logs := make([]OperationLog, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue

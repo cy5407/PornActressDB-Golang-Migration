@@ -29,6 +29,38 @@ type dbCommandContext struct {
 	opts dbCommandOptions
 }
 
+type changeEntry struct {
+	Code string `json:"code"`
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type dbFixStudiosOptions struct {
+	dataDir     string
+	studiosFile string
+	force       bool
+}
+
+type studioFixStatus string
+
+const (
+	studioFixUpdate         studioFixStatus = "update"
+	studioFixSkip           studioFixStatus = "skip"
+	studioFixAlreadyCorrect studioFixStatus = "already-correct"
+)
+
+type studioFixPlan struct {
+	status studioFixStatus
+	change changeEntry
+}
+
+type studioFixSummary struct {
+	updated        int
+	skipped        int
+	alreadyCorrect int
+	changes        []changeEntry
+}
+
 func dbCmd(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios|actress-get|actress-update|actress-delete|actress-list|backup-create|backup-restore|backup-list|backup-cleanup> [選項]")
@@ -377,93 +409,104 @@ func dbMergeCmd(args []string) {
 
 // dbFixStudiosCmd 批次修正資料庫內的片商欄位
 func dbFixStudiosCmd(args []string) {
+	opts := parseDBFixStudiosOptions(args)
+	si, err := studio.NewStudioIdentifier(opts.studiosFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "載入片商規則失敗: %v\n", err)
+		os.Exit(1)
+	}
+	db := loadDBOrExit(opts.dataDir)
+	videos := getAllVideosOrExit(db)
+	summary := applyStudioFixes(db, videos, si, opts.force)
+	saveStudioFixChangesIfNeeded(db, summary.updated)
+
+	result := map[string]any{
+		"success":         true,
+		"total":           len(videos),
+		"updated":         summary.updated,
+		"skipped":         summary.skipped,
+		"already_correct": summary.alreadyCorrect,
+		"changes":         summary.changes,
+	}
+	outputJSON(result)
+}
+
+func parseDBFixStudiosOptions(args []string) dbFixStudiosOptions {
 	fs := flag.NewFlagSet("db fix-studios", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
 	studiosFile := fs.String("studios", "studios.json", "片商規則檔案路徑")
 	forceFlag := fs.Bool("force", false, "強制覆蓋已有片商資料（非 UNKNOWN）")
 	_ = fs.Bool("json", false, "輸出 JSON 格式（預設即為 JSON，保留相容性）")
 	parseFlagsOrExit(fs, args)
-
-	// 載入片商識別器
-	si, err := studio.NewStudioIdentifier(*studiosFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "載入片商規則失敗: %v\n", err)
-		os.Exit(1)
+	return dbFixStudiosOptions{
+		dataDir:     *dataDir,
+		studiosFile: *studiosFile,
+		force:       *forceFlag,
 	}
+}
 
-	// 載入資料庫
-	db := database.NewJSONDatabase(*dataDir)
-	if err := db.Load(context.Background()); err != nil {
-		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
-		os.Exit(1)
-	}
-
+func getAllVideosOrExit(db *database.JSONDatabase) []*database.VideoData {
 	videos, err := db.GetAllVideos()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "取得影片清單失敗: %v\n", err)
 		os.Exit(1)
 	}
+	return videos
+}
 
-	type changeEntry struct {
-		Code string `json:"code"`
-		From string `json:"from"`
-		To   string `json:"to"`
+func applyStudioFixes(db *database.JSONDatabase, videos []*database.VideoData, si *studio.StudioIdentifier, force bool) studioFixSummary {
+	summary := studioFixSummary{
+		changes: make([]changeEntry, 0),
 	}
-
-	updated := 0
-	skipped := 0
-	alreadyCorrect := 0
-	var changes []changeEntry
-
-	for _, vd := range videos {
-		code := vd.GetCode()
-		if code == "" {
-			skipped++
+	for _, video := range videos {
+		plan := buildStudioFixPlan(video, si.IdentifyStudio(video.GetCode()), force)
+		if !applyStudioFixPlan(db, plan, &summary) {
 			continue
-		}
-
-		currentStudio := vd.Studio
-		needsUpdate := currentStudio == "" || currentStudio == "UNKNOWN"
-
-		if !needsUpdate && !*forceFlag {
-			alreadyCorrect++
-			continue
-		}
-
-		newStudio := si.IdentifyStudio(code)
-		if newStudio == "UNKNOWN" || newStudio == "" {
-			skipped++
-			continue
-		}
-
-		if currentStudio == newStudio {
-			alreadyCorrect++
-			continue
-		}
-
-		if err := db.UpdateVideoFields(code, map[string]any{"studio": newStudio}); err != nil {
-			fmt.Fprintf(os.Stderr, "更新 %s 失敗: %v\n", code, err)
-			continue
-		}
-
-		updated++
-		changes = append(changes, changeEntry{Code: code, From: currentStudio, To: newStudio})
-	}
-
-	if updated > 0 {
-		if err := db.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
-			os.Exit(1)
 		}
 	}
+	return summary
+}
 
-	result := map[string]any{
-		"success":         true,
-		"total":           len(videos),
-		"updated":         updated,
-		"skipped":         skipped,
-		"already_correct": alreadyCorrect,
-		"changes":         changes,
+func buildStudioFixPlan(video *database.VideoData, newStudio string, force bool) studioFixPlan {
+	code := video.GetCode()
+	if code == "" || newStudio == "" || newStudio == "UNKNOWN" {
+		return studioFixPlan{status: studioFixSkip}
 	}
-	outputJSON(result)
+	currentStudio := video.Studio
+	if (currentStudio != "" && currentStudio != "UNKNOWN" && !force) || currentStudio == newStudio {
+		return studioFixPlan{status: studioFixAlreadyCorrect}
+	}
+	return studioFixPlan{
+		status: studioFixUpdate,
+		change: changeEntry{Code: code, From: currentStudio, To: newStudio},
+	}
+}
+
+func applyStudioFixPlan(db *database.JSONDatabase, plan studioFixPlan, summary *studioFixSummary) bool {
+	switch plan.status {
+	case studioFixSkip:
+		summary.skipped++
+		return false
+	case studioFixAlreadyCorrect:
+		summary.alreadyCorrect++
+		return false
+	}
+	if err := db.UpdateVideoFields(plan.change.Code, map[string]any{"studio": plan.change.To}); err != nil {
+		fmt.Fprintf(os.Stderr, "更新 %s 失敗: %v\n", plan.change.Code, err)
+		summary.skipped++
+		return false
+	}
+	summary.updated++
+	summary.changes = append(summary.changes, plan.change)
+	return true
+}
+
+func saveStudioFixChangesIfNeeded(db *database.JSONDatabase, updated int) {
+	if updated == 0 {
+		return
+	}
+	if err := db.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
+		os.Exit(1)
+	}
 }

@@ -208,8 +208,8 @@ func TestDeleteActress_NotFound(t *testing.T) {
 
 func TestListActresses(t *testing.T) {
 	db, _ := setupTestDB(t)
-	db.UpsertActress(&ActressData{ID: "a1", Name: "Actress One"})  //nolint:errcheck
-	db.UpsertActress(&ActressData{ID: "a2", Name: "Actress Two"})  //nolint:errcheck
+	db.UpsertActress(&ActressData{ID: "a1", Name: "Actress One"}) //nolint:errcheck
+	db.UpsertActress(&ActressData{ID: "a2", Name: "Actress Two"}) //nolint:errcheck
 
 	ids, err := db.ListActresses()
 	if err != nil {

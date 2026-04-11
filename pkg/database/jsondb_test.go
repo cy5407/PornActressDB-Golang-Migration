@@ -28,6 +28,7 @@ func TestNewJSONDatabase(t *testing.T) {
 
 	if db == nil {
 		t.Fatal("Expected database to be created")
+		return
 	}
 
 	if !db.loaded {
@@ -195,8 +196,8 @@ func TestJournal(t *testing.T) {
 	}
 
 	// 合併 journal
-	if err := db.CompactJournal(); err != nil {
-		t.Fatalf("Failed to compact journal: %v", err)
+	if compactErr := db.CompactJournal(); compactErr != nil {
+		t.Fatalf("Failed to compact journal: %v", compactErr)
 	}
 
 	// 驗證 journal 已清空
@@ -299,8 +300,8 @@ func TestGetVideoCount(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		code := fmt.Sprintf("COUNT-%03d", i)
 		video := NewVideo(code)
-		if err := db.UpdateVideo(code, video); err != nil {
-			t.Fatalf("Failed to update video: %v", err)
+		if updateErr := db.UpdateVideo(code, video); updateErr != nil {
+			t.Fatalf("Failed to update video: %v", updateErr)
 		}
 	}
 
@@ -426,8 +427,8 @@ func TestMergeFromFile_NoOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to marshal source: %v", err)
 	}
-	if err := os.WriteFile(sourcePath, raw, 0644); err != nil {
-		t.Fatalf("Failed to write source file: %v", err)
+	if writeErr := os.WriteFile(sourcePath, raw, 0644); writeErr != nil {
+		t.Fatalf("Failed to write source file: %v", writeErr)
 	}
 
 	stats, err := db.MergeFromFile(sourcePath, false)
@@ -473,8 +474,8 @@ func TestMergeFromFile_WithOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to marshal source: %v", err)
 	}
-	if err := os.WriteFile(sourcePath, raw, 0644); err != nil {
-		t.Fatalf("Failed to write source file: %v", err)
+	if writeErr := os.WriteFile(sourcePath, raw, 0644); writeErr != nil {
+		t.Fatalf("Failed to write source file: %v", writeErr)
 	}
 
 	stats, err := db.MergeFromFile(sourcePath, true)
@@ -511,6 +512,7 @@ func TestPrepareVideoForMerge_UsesLegacyIDAndClearsID(t *testing.T) {
 	}
 	if prepared == nil {
 		t.Fatal("Expected prepared video copy")
+		return
 	}
 	if prepared.Code != "LEGACY-001" {
 		t.Fatalf("Expected prepared code LEGACY-001, got %q", prepared.Code)
@@ -577,8 +579,8 @@ func TestLoad_RestoresActressAndDeletedCodesFromJournal(t *testing.T) {
 	}
 
 	reloaded := NewJSONDatabase(tempDir)
-	if err := reloaded.Load(context.Background()); err != nil {
-		t.Fatalf("Reload failed: %v", err)
+	if loadErr := reloaded.Load(context.Background()); loadErr != nil {
+		t.Fatalf("Reload failed: %v", loadErr)
 	}
 
 	gotActress, err := reloaded.GetActress("actress-001")
@@ -608,8 +610,8 @@ func TestLoad_RestoresLargeJournalEntry(t *testing.T) {
 	}
 
 	reloaded := NewJSONDatabase(tempDir)
-	if err := reloaded.Load(context.Background()); err != nil {
-		t.Fatalf("Reload failed: %v", err)
+	if loadErr := reloaded.Load(context.Background()); loadErr != nil {
+		t.Fatalf("Reload failed: %v", loadErr)
 	}
 
 	got, err := reloaded.GetVideo("LARGE-001")
@@ -674,8 +676,8 @@ func TestUpdateVideoFields_ReloadPreservesUpdatedAt(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 
 	reloaded := NewJSONDatabase(tempDir)
-	if err := reloaded.Load(context.Background()); err != nil {
-		t.Fatalf("Reload failed: %v", err)
+	if loadErr := reloaded.Load(context.Background()); loadErr != nil {
+		t.Fatalf("Reload failed: %v", loadErr)
 	}
 
 	got, err := reloaded.GetVideo("UPDATE-001")

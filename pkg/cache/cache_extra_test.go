@@ -17,6 +17,7 @@ func TestNew_AliasForNewCacheManager(t *testing.T) {
 	cm := New(dir)
 	if cm == nil {
 		t.Fatal("New returned nil")
+		return
 	}
 	if cm.cacheDir != dir {
 		t.Errorf("cacheDir = %q, want %q", cm.cacheDir, dir)
