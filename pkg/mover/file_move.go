@@ -131,6 +131,8 @@ func (m *Mover) resolveMoveFileConflict(src, dst string, strategy ConflictStrate
 			result.Success, result.Destination = true, dst
 			return dst, true
 		}
+		result.Success, result.Destination = true, dst
+		return dst, true
 	case Rename:
 		newDst := m.generateUniqueName(dst)
 		result.Renamed, dst = newDst, newDst
