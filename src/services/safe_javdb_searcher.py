@@ -699,8 +699,6 @@ class SafeJAVDBSearcher:
 
     def _extract_studio_code_from_number(self, code: str) -> str | None:
         """從番號中提取片商代碼"""
-        import re
-
         if not code:
             return None
 
