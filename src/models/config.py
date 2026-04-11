@@ -213,10 +213,3 @@ class ConfigManager:
             self.config.add_section(section)
         self.config.set(section, key, str(value))
         self.save_config()
-
-    def get_all_settings(self) -> dict[str, dict[str, str]]:
-        """取得所有設定（用於除錯）"""
-        result = {}
-        for section in self.config.sections():
-            result[section] = dict(self.config.items(section))
-        return result

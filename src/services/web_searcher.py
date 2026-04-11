@@ -989,12 +989,6 @@ class WebSearcher:
         self.javdb_searcher.clear_cache()
         logger.info("🧹 已清空所有搜尋快取 (包含 JAVDB)")
 
-    def search_japanese_sites_only(
-        self, code: str, stop_event: threading.Event
-    ) -> dict | None:
-        """僅搜尋 AV-WIKI。保留舊 API，內部委派到統一實作。"""
-        return self.search_japanese_sites(code, stop_event)
-
     def search_shiroutowiki_only(
         self, code: str, stop_event: threading.Event
     ) -> dict | None:

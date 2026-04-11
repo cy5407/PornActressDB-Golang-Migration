@@ -348,17 +348,6 @@ class CacheManager:
             logger.debug(f"🗑️ Go 快取已刪除: {key}")
         return ok
 
-    def _delete_cache_entry(self, cache_key: str, file_path: str):
-        """刪除快取條目（檔案和索引）"""
-        try:
-            self._delete_cache_file(file_path)
-            index_data = self._load_index()
-            if self._remove_index_entry(index_data, cache_key):
-                self._save_index(index_data)
-
-        except Exception as e:
-            logger.error(f"刪除快取條目失敗: {e}")
-
     @staticmethod
     def _delete_cache_file(file_path: str | None) -> None:
         if not file_path:

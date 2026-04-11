@@ -331,30 +331,6 @@ class UnifiedCacheManager:
 
         return {"entries": 0, "size_mb": 0.0}
 
-    def print_stats(self):
-        """印出格式化的統計資訊"""
-        stats = self.get_stats()
-
-        print("\n" + "=" * 60)
-        print("📊 快取統計報告")
-        print("=" * 60)
-
-        print(f"\n📦 註冊的快取來源: {stats['total_sources']}")
-
-        for name, source_stats in stats["sources"].items():
-            print(f"\n  【{name}】")
-            if "error" in source_stats:
-                print(f"    ❌ 錯誤: {source_stats['error']}")
-            else:
-                print(f"    條目數: {source_stats.get('entries', 0)}")
-                print(f"    大小: {source_stats.get('size_mb', 0):.2f} MB")
-                if "hit_rate" in source_stats:
-                    print(f"    命中率: {source_stats['hit_rate']}")
-
-        print("\n📈 總計:")
-        print(f"    總條目數: {stats['summary']['total_entries']}")
-        print(f"    總大小: {stats['summary']['total_size_mb']:.2f} MB")
-        print("=" * 60 + "\n")
 
 
 # ========================================

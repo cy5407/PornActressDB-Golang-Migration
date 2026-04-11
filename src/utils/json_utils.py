@@ -21,9 +21,6 @@ except Exception:  # pragma: no cover
     _ORJSON_AVAILABLE = False
 
 
-def is_orjson_available() -> bool:
-    return _ORJSON_AVAILABLE
-
 
 def loads(data: str | bytes, /) -> Any:
     """解析 JSON 字串/位元組。"""

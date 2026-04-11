@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 )
 
 const (
@@ -59,61 +58,4 @@ func printError(msg string, hint ...string) {
 
 func printWarning(format string, args ...any) {
 	fmt.Fprintln(os.Stderr, colorWarn("⚠️  警告: ")+fmt.Sprintf(format, args...))
-}
-
-type ProgressBar struct {
-	total   int
-	current int
-	width   int
-	label   string
-	enabled bool
-}
-
-func NewProgressBar(total int, label string) *ProgressBar {
-	return &ProgressBar{
-		total:   total,
-		current: 0,
-		width:   30,
-		label:   label,
-		enabled: !noColor && isTerminalDevice(os.Stderr),
-	}
-}
-
-func (p *ProgressBar) Increment() {
-	p.current++
-	p.render()
-}
-
-func (p *ProgressBar) render() {
-	if !p.enabled {
-		return
-	}
-	var line string
-	if p.total > 0 {
-		pct := float64(p.current) / float64(p.total)
-		if pct > 1 {
-			pct = 1
-		}
-		filled := int(pct * float64(p.width))
-		empty := p.width - filled
-		bar := strings.Repeat("=", filled)
-		if filled < p.width {
-			bar += ">"
-			empty--
-		}
-		bar += strings.Repeat(" ", empty)
-		line = fmt.Sprintf("\r%s [%s] %d/%d",
-			colorCyan(p.label), colorCyan(bar), p.current, p.total)
-	} else {
-		line = fmt.Sprintf("\r%s %s 個檔案",
-			colorCyan(p.label), colorBold(fmt.Sprintf("%d", p.current)))
-	}
-	fmt.Fprint(os.Stderr, line)
-}
-
-func (p *ProgressBar) Finish() {
-	if !p.enabled {
-		return
-	}
-	fmt.Fprintln(os.Stderr)
 }

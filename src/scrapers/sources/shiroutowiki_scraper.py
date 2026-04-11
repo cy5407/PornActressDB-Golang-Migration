@@ -300,23 +300,6 @@ class ShiroutoWikiScraper:
 
         return None
 
-    def _find_matching_detail_result(
-        self,
-        rows: list[dict[str, Any]],
-        allowed_compact_codes: set[str],
-        candidate: str,
-    ) -> dict[str, Any] | None:
-        for row in rows:
-            detail_result = self._find_matching_detail_for_row(
-                row,
-                allowed_compact_codes,
-                candidate,
-            )
-            if detail_result:
-                return detail_result
-
-        return None
-
     def _find_matching_detail_for_row(
         self,
         row: dict[str, Any],
@@ -334,25 +317,6 @@ class ShiroutoWikiScraper:
         detail = self._parse_detail_page(detail_soup, detail_url)
         if self._matches_detail(detail, allowed_compact_codes):
             return self._build_detail_result(detail, detail_url, candidate, row)
-
-        return None
-
-    def _find_matching_row_result(
-        self,
-        rows: list[dict[str, Any]],
-        allowed_compact_codes: set[str],
-        search_url: str,
-        candidate: str,
-    ) -> dict[str, Any] | None:
-        for row in rows:
-            row_result = self._find_matching_row_result_for_row(
-                row,
-                allowed_compact_codes,
-                search_url,
-                candidate,
-            )
-            if row_result:
-                return row_result
 
         return None
 

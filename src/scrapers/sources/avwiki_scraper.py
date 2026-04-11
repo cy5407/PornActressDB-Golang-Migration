@@ -449,34 +449,6 @@ class AVWikiScraper(BaseScraper):
                 f"搜尋失敗: {e}", ErrorType.UNKNOWN_ERROR, search_url
             ) from e
 
-    async def get_actress_info(self, actress_name: str) -> dict[str, Any]:
-        """獲取女優資訊"""
-        search_url = f"{self.base_url}/?s={quote(actress_name)}"
-
-        try:
-            result = await self.safe_scrape(search_url)
-
-            # 處理女優資訊
-            works = []
-            if "search_results" in result:
-                works = result["search_results"]
-
-            return {
-                "actress_name": actress_name,
-                "total_works": len(works),
-                "works": works,
-                "search_url": search_url,
-            }
-
-        except Exception as e:
-            logger.error(f"獲取 AV-WIKI 女優資訊 {actress_name} 失敗: {e}")
-            return {
-                "actress_name": actress_name,
-                "total_works": 0,
-                "works": [],
-                "error": str(e),
-            }
-
     def _is_temporary_batch_search_error(self, error: Exception) -> bool:
         if isinstance(error, aiohttp.ClientResponseError):
             return error.status in (429, 500, 502, 503, 504)
@@ -741,22 +713,3 @@ class AVWikiScraper(BaseScraper):
             "error_type": error_type,
             "source": "AV-WIKI",
         }
-
-    async def search_batch_concurrent(
-        self,
-        video_codes: list[str],
-        max_concurrent: int = 15,
-        progress_callback: callable | None = None,
-    ) -> dict[str, dict[str, Any]]:
-        """相容 wrapper。
-
-        遷移註記：
-        1. `batch_search_concurrent` 已是正式主名稱
-        2. 保留此舊名稱到下一個 checkpoint，避免外部呼叫端立即中斷
-        3. 下一輪若確認無對外依賴，再移除此 wrapper
-        """
-        return await self.batch_search_concurrent(
-            video_codes,
-            max_concurrent=max_concurrent,
-            progress_callback=progress_callback,
-        )
