@@ -942,6 +942,48 @@ class WebSearcher:
 
         return studio_info
 
+    def _load_studio_code_mapping(self) -> dict[str, str]:
+        """載入片商代碼對照表，避免批次搜尋時重複讀取磁碟。"""
+        studio_mapping = {
+            "STAR": "SOD",
+            "STARS": "SOD",
+            "SDJS": "SOD",
+            "SSIS": "S1",
+            "SSNI": "S1",
+            "IPX": "IdeaPocket",
+            "IPZZ": "IdeaPocket",
+            "MIDV": "MOODYZ",
+            "MIAA": "MOODYZ",
+            "WANZ": "WANZ FACTORY",
+            "FSDSS": "FALENO",
+            "PRED": "PREMIUM",
+            "ABW": "Prestige",
+            "BF": "BeFree",
+            "CAWD": "kawaii",
+            "JUFD": "Fitch",
+            "JUL": "MADONNA",
+            "JUY": "MADONNA",
+        }
+
+        try:
+            try:
+                from utils.json_utils import load as json_load
+            except ImportError:  # pragma: no cover
+                from src.utils.json_utils import load as json_load
+
+            studios_file = Path(__file__).parent.parent.parent / "studios.json"
+            if studios_file.exists():
+                with open(studios_file, encoding="utf-8") as f:
+                    studios_data = json_load(f)
+
+                for studio_name, codes in studios_data.items():
+                    for code in codes:
+                        studio_mapping[code.upper()] = studio_name
+        except Exception as e:
+            logger.warning(f"載入 studios.json 失敗: {e}")
+
+        return studio_mapping
+
     def _extract_studio_code_from_number(self, code: str) -> str | None:
         """從番號中提取片商代碼。"""
         if not code:
