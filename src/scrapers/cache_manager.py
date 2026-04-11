@@ -729,7 +729,7 @@ class CacheManager:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.get, key)
 
-async def delete_async(self, key: str) -> bool:
+    async def delete_async(self, key: str) -> bool:
         """非同步刪除快取值"""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.delete, key)
