@@ -73,21 +73,12 @@
 - [x] **WBS-2**：整理 `_search_av_wiki()` 的 fallback 分支
   - 已將「no results 判斷」「text scan fallback」「>10 actresses quality gate」抽成 helper，主函式改為 orchestration。
 
-- [ ] **WBS-3**：拆 `batch_search_avwiki_concurrent()`
-  - 抽出：
-    - cache 分流
-    - progress callback 包裝
-    - async chunk runner
-    - result merge + summary
-  - 避免同步/async 混在同一個大函式裡
+- [x] **WBS-3**：拆 `batch_search_avwiki_concurrent()`
+  - 已抽出：cache 分流、progress callback 包裝、async chunk runner、result cache/merge helper
+  - 保留快取與 progress 行為
 
-- [ ] **WBS-4**：拆 `batch_cascade_search()`
-  - 分成：
-    - phase1 execute
-    - phase1 result apply
-    - alias candidate build
-    - phase2 alias apply
-    - final progress summary
+- [x] **WBS-4**：拆 `batch_cascade_search()`
+  - 已拆成：phase1 result apply、alias candidate build、phase2 alias apply、summary orchestration
   - 保留 `tried_sources` / `final_source` 語義
 
 ### 驗收重點

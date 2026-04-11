@@ -390,6 +390,55 @@ class WebSearcher:
             logger.error(f"搜尋 AV-WIKI 番號 {code} 時發生錯誤: {e}", exc_info=True)
             return None
 
+    def _split_cached_avwiki_codes(self, codes: list) -> tuple[list, dict[str, dict]]:
+        uncached_codes = [code for code in codes if code not in self.search_cache]
+        cached_results = {
+            code: self.search_cache[code] for code in codes if code in self.search_cache
+        }
+        return uncached_codes, cached_results
+
+    @staticmethod
+    def _build_avwiki_progress_callback(progress_callback, global_total: int):
+        if not progress_callback:
+            return None
+
+        import threading as _threading
+
+        progress_lock = _threading.Lock()
+        displayed_codes = set()
+
+        def wrapped_progress_callback(_current, _total, code):
+            with progress_lock:
+                if code in displayed_codes:
+                    return
+                displayed_codes.add(code)
+                progress_callback(f"[{len(displayed_codes)}/{global_total}] 搜尋 {code}\n")
+
+        return wrapped_progress_callback
+
+    async def _run_avwiki_batch_search(self, uncached_codes: list, stop_event: threading.Event, progress_callback=None) -> dict[str, dict | None]:
+        avwiki_scraper = AVWikiScraper()
+        chunk_size = max(200, min(500, self.avwiki_max_concurrent * 20))
+        batch_results: dict[str, dict | None] = {}
+        for i in range(0, len(uncached_codes), chunk_size):
+            if stop_event.is_set():
+                break
+            chunk = uncached_codes[i : i + chunk_size]
+            if not chunk:
+                continue
+            chunk_results = await avwiki_scraper.batch_search_concurrent(
+                chunk,
+                max_concurrent=self.avwiki_max_concurrent,
+                progress_callback=progress_callback,
+            )
+            batch_results.update(chunk_results)
+        return batch_results
+
+    def _cache_avwiki_batch_results(self, batch_results: dict[str, dict | None]) -> None:
+        for code, result in batch_results.items():
+            if result and result.get("actresses"):
+                self.search_cache[code] = result
+
     def batch_search_avwiki_concurrent(
         self, codes: list, stop_event: threading.Event, progress_callback=None
     ) -> dict[str, dict | None]:
@@ -406,79 +455,29 @@ class WebSearcher:
         if not codes:
             return {}
 
-        # 過濾已快取的番號
-        uncached_codes = [code for code in codes if code not in self.search_cache]
-        cached_results = {
-            code: self.search_cache[code] for code in codes if code in self.search_cache
-        }
-
+        uncached_codes, cached_results = self._split_cached_avwiki_codes(codes)
         if progress_callback and cached_results:
             progress_callback(f"📦 使用快取: {len(cached_results)} 個番號\n")
-
         if not uncached_codes:
             return cached_results
 
-        global_total = len(uncached_codes)
-
-        # 使用 threading.Lock 確保進度計數的執行緒安全
-        import threading as _threading
-
-        progress_lock = _threading.Lock()
-        displayed_codes = set()  # 追蹤已顯示的番號
-
-        # 定義進度回調轉換
-        def wrapped_progress_callback(current, _total, code):
-            if progress_callback:
-                with progress_lock:
-                    # 避免重複顯示同一番號
-                    if code not in displayed_codes:
-                        displayed_codes.add(code)
-                        # 使用已顯示的數量作為進度，確保順序一致
-                        display_num = len(displayed_codes)
-                        progress_callback(
-                            f"[{display_num}/{global_total}] 搜尋 {code}\n"
-                        )
-
-        # 定義異步執行函式
-        async def run_batch_search_all():
-            # 在 async 環境中初始化 AVWikiScraper
-            avwiki_scraper = AVWikiScraper()
-
-            # 分段執行：避免一次建立過多 tasks 造成記憶體/排程尖峰
-            chunk_size = max(200, min(500, self.avwiki_max_concurrent * 20))
-            batch_results: dict[str, dict | None] = {}
-            for i in range(0, len(uncached_codes), chunk_size):
-                if stop_event.is_set():
-                    break
-
-                chunk = uncached_codes[i : i + chunk_size]
-                chunk_results = await avwiki_scraper.batch_search_concurrent(
-                    chunk,
-                    max_concurrent=self.avwiki_max_concurrent,
-                    progress_callback=wrapped_progress_callback,
-                )
-                batch_results.update(chunk_results)
-
-            return batch_results
+        wrapped_progress_callback = self._build_avwiki_progress_callback(
+            progress_callback, len(uncached_codes)
+        )
 
         try:
-            # 使用 asyncio.run 執行併發搜尋
             if progress_callback:
                 progress_callback(
                     f"🚀 開始 AV-WIKI 批次併發搜尋 ({len(uncached_codes)} 個番號)...\n"
                 )
 
-            batch_results = asyncio.run(run_batch_search_all())
-
-            # 將結果加入快取
-            for code, result in batch_results.items():
-                if result and result.get("actresses"):
-                    self.search_cache[code] = result
-
-            # 合併快取結果和新結果
+            batch_results = asyncio.run(
+                self._run_avwiki_batch_search(
+                    uncached_codes, stop_event, wrapped_progress_callback
+                )
+            )
+            self._cache_avwiki_batch_results(batch_results)
             all_results = {**cached_results, **batch_results}
-
-            # 統計
             success_count = sum(
                 1 for r in batch_results.values() if r and r.get("actresses")
             )
@@ -486,9 +485,7 @@ class WebSearcher:
                 progress_callback(
                     f"\n✅ AV-WIKI 批次搜尋完成: {success_count}/{len(uncached_codes)} 個番號找到資料\n"
                 )
-
             return all_results
-
         except Exception as e:
             logger.error(f"AV-WIKI 批次併發搜尋發生錯誤: {e}", exc_info=True)
             if progress_callback:
@@ -499,64 +496,19 @@ class WebSearcher:
     # 級聯搜尋功能（新增）
     # ============================================================
 
-    def batch_cascade_search(
+    def _apply_cascade_avwiki_results(
         self,
         codes: list[str],
-        stop_event: threading.Event,
-        progress_callback=None,
+        avwiki_results: dict[str, dict | None],
+        progress,
         result_callback=None,
-    ) -> dict[str, dict]:
-        """
-        批次智慧搜尋
-
-        策略：
-        1. 先用 AV-WIKI 批次併發搜尋所有番號
-        2. 收集失敗的番號
-        3. 回傳整理後的結果
-
-        Args:
-            codes: 番號列表
-            stop_event: 停止事件
-            progress_callback: 進度回調函式
-
-        Returns:
-            Dict[番號, 搜尋結果（含 tried_sources 欄位）]
-        """
-        from utils.progress_tracker import SearchProgressInfo
-
-        if not codes:
-            return {}
-
-        total_codes = len(codes)
-        results = {}
-
-        # 初始化進度追蹤
-        progress = SearchProgressInfo(total=total_codes)
-
-        # 第一階段：AV-WIKI 批次併發搜尋
-        if progress_callback:
-            progress_callback(f"\n{'=' * 60}\n")
-            progress_callback(
-                f"📡 第一階段：AV-WIKI 批次併發搜尋 ({total_codes} 個番號)\n"
-            )
-            progress_callback(f"{'=' * 60}\n")
-
-        progress.set_phase(1, "AV-WIKI 批次搜尋", 2)
-
-        def phase1_callback(msg):
-            if progress_callback:
-                progress_callback(msg)
-
-        avwiki_results = self.batch_search_avwiki_concurrent(
-            codes, stop_event, phase1_callback
-        )
-
-        # 處理 AV-WIKI 結果
-        failed_codes = []
+        stop_event: threading.Event | None = None,
+    ) -> tuple[dict[str, dict], list[str]]:
+        results: dict[str, dict] = {}
+        failed_codes: list[str] = []
         for code in codes:
-            if stop_event.is_set():
+            if stop_event and stop_event.is_set():
                 break
-
             result = avwiki_results.get(code)
             if result and result.get("actresses"):
                 results[code] = {
@@ -575,65 +527,103 @@ class WebSearcher:
                     "tried_sources": ["AV-WIKI"],
                     "final_source": None,
                 }
+        return results, failed_codes
 
-        if stop_event.is_set():
-            return results
-
-        progress.set_phase(2, "整理 AV-WIKI 搜尋結果")
-
-        # 第二階段：僅對可疑的 00xxx 番號追加 AV-WIKI 別名 fallback
-        alias_map = {}
-        alias_codes = []
+    def _build_cascade_alias_map(self, failed_codes: list[str]) -> tuple[dict[str, str], list[str]]:
+        alias_map: dict[str, str] = {}
+        alias_codes: list[str] = []
         for code in failed_codes:
             candidates = self._build_code_candidates(code)
             if len(candidates) > 1:
                 alias_code = candidates[1]
                 alias_map[code] = alias_code
                 alias_codes.append(alias_code)
+        return alias_map, list(dict.fromkeys(alias_codes))
 
-        if alias_codes and not stop_event.is_set():
-            unique_alias_codes = list(dict.fromkeys(alias_codes))
+    def _apply_cascade_alias_results(
+        self,
+        failed_codes: list[str],
+        alias_map: dict[str, str],
+        alias_results: dict[str, dict | None],
+        results: dict[str, dict],
+        progress,
+        result_callback=None,
+    ) -> list[str]:
+        remaining_failed_codes: list[str] = []
+        for code in failed_codes:
+            alias_code = alias_map.get(code)
+            alias_result = alias_results.get(alias_code) if alias_code else None
+            if alias_result and alias_result.get("actresses"):
+                results[code] = {
+                    **self._attach_alias_metadata(alias_result, code, alias_code),
+                    "tried_sources": ["AV-WIKI", f"AV-WIKI alias:{alias_code}"],
+                    "final_source": "AV-WIKI",
+                }
+                if result_callback:
+                    result_callback(code, results[code], None)
+                progress.update(
+                    code,
+                    is_success=True,
+                    source="AV-WIKI alias",
+                    increment=False,
+                )
+            else:
+                remaining_failed_codes.append(code)
+        return remaining_failed_codes
 
+    def batch_cascade_search(
+        self,
+        codes: list[str],
+        stop_event: threading.Event,
+        progress_callback=None,
+        result_callback=None,
+    ) -> dict[str, dict]:
+        """批次智慧搜尋：AV-WIKI 主流程 + alias fallback。"""
+        from utils.progress_tracker import SearchProgressInfo
+
+        if not codes:
+            return {}
+
+        total_codes = len(codes)
+        progress = SearchProgressInfo(total=total_codes)
+        if progress_callback:
+            progress_callback(f"\n{'=' * 60}\n")
+            progress_callback(f"📡 第一階段：AV-WIKI 批次併發搜尋 ({total_codes} 個番號)\n")
+            progress_callback(f"{'=' * 60}\n")
+        progress.set_phase(1, "AV-WIKI 批次搜尋", 2)
+
+        def phase1_callback(msg):
+            if progress_callback:
+                progress_callback(msg)
+
+        avwiki_results = self.batch_search_avwiki_concurrent(codes, stop_event, phase1_callback)
+        results, failed_codes = self._apply_cascade_avwiki_results(
+            codes, avwiki_results, progress, result_callback, stop_event
+        )
+
+        if stop_event.is_set():
+            return results
+
+        progress.set_phase(2, "整理 AV-WIKI 搜尋結果")
+        alias_map, unique_alias_codes = self._build_cascade_alias_map(failed_codes)
+        if unique_alias_codes and not stop_event.is_set():
             if progress_callback:
                 progress_callback(f"\n{'=' * 60}\n")
-                progress_callback(
-                    f"🧪 第二階段：可疑番號別名 fallback ({len(unique_alias_codes)} 個候選)\n"
-                )
+                progress_callback(f"🧪 第二階段：可疑番號別名 fallback ({len(unique_alias_codes)} 個候選)\n")
                 progress_callback(f"{'=' * 60}\n")
 
             alias_results = self.batch_search_avwiki_concurrent(
                 unique_alias_codes, stop_event, phase1_callback
             )
-
-            remaining_failed_codes = []
-            for code in failed_codes:
-                alias_code = alias_map.get(code)
-                alias_result = alias_results.get(alias_code) if alias_code else None
-                if alias_result and alias_result.get("actresses"):
-                    results[code] = {
-                        **self._attach_alias_metadata(alias_result, code, alias_code),
-                        "tried_sources": ["AV-WIKI", f"AV-WIKI alias:{alias_code}"],
-                        "final_source": "AV-WIKI",
-                    }
-                    if result_callback:
-                        result_callback(code, results[code], None)
-                    progress.update(
-                        code,
-                        is_success=True,
-                        source="AV-WIKI alias",
-                        increment=False,
-                    )
-                else:
-                    remaining_failed_codes.append(code)
-
-            failed_codes = remaining_failed_codes
+            failed_codes = self._apply_cascade_alias_results(
+                failed_codes, alias_map, alias_results, results, progress, result_callback
+            )
 
         for code in failed_codes:
             if result_callback:
                 result_callback(code, results[code], None)
             progress.update(code, is_success=False, increment=False)
 
-        # 輸出摘要
         if progress_callback:
             progress_callback(f"\n{progress.format_summary()}\n")
 
