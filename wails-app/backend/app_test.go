@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -30,6 +31,20 @@ func newTestApp(t *testing.T) *App {
 	app.mover.LogDir = filepath.Join(tmp, "logs")
 	app.Startup(context.Background())
 	return app
+}
+
+func withFakeExecutable(t *testing.T, exePath string) {
+	t.Helper()
+	old := osExecutable
+	osExecutable = func() (string, error) { return exePath, nil }
+	t.Cleanup(func() { osExecutable = old })
+}
+
+func writeExecutableScript(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("failed to write executable %s: %v", path, err)
+	}
 }
 
 // ============================================================================
@@ -379,6 +394,66 @@ func TestBatchSearchAVWiki_SuccessPreservesOtherSourceStatusAndUpdatesOverallSum
 	if video.Title != "Merged Title" {
 		t.Fatalf("expected title to update from source-specific success, got %q", video.Title)
 	}
+}
+
+func TestPythonSearch_UsesRealScriptPathAndSubprocess(t *testing.T) {
+	tmp := t.TempDir()
+	exeDir := filepath.Join(tmp, "bin")
+	scriptDir := filepath.Join(tmp, "src", "scrapers")
+	if err := os.MkdirAll(exeDir, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil { t.Fatal(err) }
+	fakeExe := filepath.Join(exeDir, "app.exe")
+	if err := os.WriteFile(fakeExe, []byte(""), 0o644); err != nil { t.Fatal(err) }
+	withFakeExecutable(t, fakeExe)
+
+	pythonDir := filepath.Join(tmp, "py")
+	if err := os.MkdirAll(pythonDir, 0o755); err != nil { t.Fatal(err) }
+	python3 := filepath.Join(pythonDir, "python3")
+	writeExecutableScript(t, python3, "#!/bin/sh\nscript=\"$3\"\ncode=\"$4\"\n[ -n \"$script\" ] || exit 2\n[ -f \"$script\" ] || exit 3\nprintf '{\\"code\\":\\"%s\\",\\"title\\":\\"real subprocess\\",\\"method\\":\\"python\\"}' \"$code\"\n")
+	oldPath := os.Getenv("PATH")
+	t.Setenv("PATH", pythonDir+string(os.PathListSeparator)+oldPath)
+
+	writeExecutableScript(t, filepath.Join(scriptDir, "run_search.py"), "#!/bin/sh\nexit 0\n")
+
+	app := newTestApp(t)
+	app.ctx = context.Background()
+	res, err := app.PythonSearch("ABP-123")
+	if err != nil {
+		t.Fatalf("PythonSearch() error = %v", err)
+	}
+	if res.Code != "ABP-123" || res.Title != "real subprocess" || res.Method != "python" {
+		t.Fatalf("PythonSearch() = %+v", res)
+	}
+}
+
+func TestBatchSearch_StreamsRealScriptOutputAndPersistsResults(t *testing.T) {
+	tmp := t.TempDir()
+	exeDir := filepath.Join(tmp, "bin")
+	scriptDir := filepath.Join(tmp, "src", "scrapers")
+	if err := os.MkdirAll(exeDir, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil { t.Fatal(err) }
+	fakeExe := filepath.Join(exeDir, "app.exe")
+	if err := os.WriteFile(fakeExe, []byte(""), 0o644); err != nil { t.Fatal(err) }
+	withFakeExecutable(t, fakeExe)
+
+	pythonDir := filepath.Join(tmp, "py")
+	if err := os.MkdirAll(pythonDir, 0o755); err != nil { t.Fatal(err) }
+	writeExecutableScript(t, filepath.Join(pythonDir, "python3"), "#!/bin/sh\nscript=\"$3\"\n[ -f \"$script\" ] || exit 3\nread -r input\nprintf '{\\"code\\":\\"%s\\",\\"title\\":\\"first\\",\\"method\\":\\"batch\\"}\\n' \"A1\"\nprintf '{\\"code\\":\\"%s\\",\\"error\\":\\"未找到結果\\",\\"error_kind\\":\\"not_found\\"}\\n' \"A2\"\n")
+	oldPath := os.Getenv("PATH")
+	t.Setenv("PATH", pythonDir+string(os.PathListSeparator)+oldPath)
+	writeExecutableScript(t, filepath.Join(scriptDir, "run_batch_search.py"), "#!/bin/sh\nexit 0\n")
+
+	app := newTestApp(t)
+	app.ctx = context.Background()
+	results := app.BatchSearchAVWiki([]string{"A1", "A2"}, 2)
+	if len(results) != 2 { t.Fatalf("expected 2 results, got %d", len(results)) }
+	if results[0].Code != "A1" || results[0].Title != "first" { t.Fatalf("unexpected first result: %+v", results[0]) }
+	video, err := app.db.GetVideo("A1")
+	if err != nil { t.Fatalf("expected persisted A1: %v", err) }
+	if video.AVWikiActressStatus != "found" { t.Fatalf("expected found status, got %q", video.AVWikiActressStatus) }
+	video2, err := app.db.GetVideo("A2")
+	if err != nil { t.Fatalf("expected persisted A2: %v", err) }
+	if video2.AVWikiActressStatus != "not_found" { t.Fatalf("expected not_found status, got %q", video2.AVWikiActressStatus) }
 }
 
 // ============================================================================
@@ -739,6 +814,51 @@ func TestListStudios_ReturnsSlice(t *testing.T) {
 	}
 }
 
+func TestLoadCodeStudioMap_FromRealFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "studios.json")
+	content := `{"SOD":["sod", "s1"], "MOODYZ":["mda", " md-01 "]}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := loadCodeStudioMap(path)
+	if got["SOD"] != "SOD" || got["S1"] != "SOD" || got["MDA"] != "MOODYZ" || got["MD-01"] != "MOODYZ" {
+		t.Fatalf("unexpected code studio map: %#v", got)
+	}
+}
+
+func TestGetStudioByCode_UsesLoadedMap(t *testing.T) {
+	app := newTestApp(t)
+	app.codeStudioMap = map[string]string{"STARS": "S1", "MIDE": "MOODYZ"}
+	app.majorStudios = map[string]bool{"S1": true, "MOODYZ": true}
+	if got := app.GetStudioByCode("STARS-707"); got != "S1" {
+		t.Fatalf("GetStudioByCode() = %q, want %q", got, "S1")
+	}
+	if got := app.GetStudioByCode("mide123"); got != "MOODYZ" {
+		t.Fatalf("GetStudioByCode() = %q, want %q", got, "MOODYZ")
+	}
+}
+
+func TestGetStudioByCode_ReturnsNonMajorStudioSentinel(t *testing.T) {
+	app := newTestApp(t)
+	app.codeStudioMap = map[string]string{"IDEA": "IDEAPOCKET"}
+	app.majorStudios = map[string]bool{"S1": true}
+	if got := app.GetStudioByCode("IDEA-001"); got != "單體企劃女優" {
+		t.Fatalf("GetStudioByCode() = %q, want %q", got, "單體企劃女優")
+	}
+}
+
+func TestGetStudiosByCodes_BatchMapping(t *testing.T) {
+	app := newTestApp(t)
+	app.codeStudioMap = map[string]string{"STARS": "S1", "MIDE": "MOODYZ"}
+	app.majorStudios = map[string]bool{"S1": true, "MOODYZ": true}
+	got := app.GetStudiosByCodes([]string{"STARS-707", "MIDE-001", "UNKNOWN-1"})
+	if got["STARS-707"] != "S1" || got["MIDE-001"] != "MOODYZ" || got["UNKNOWN-1"] != "" {
+		t.Fatalf("unexpected studio mapping: %#v", got)
+	}
+}
+
 // ============================================================================
 // ListOperations on empty log dir
 // ============================================================================
@@ -865,5 +985,363 @@ func TestBatchSearchFailureDetail_UsesFallbackWhenEmpty(t *testing.T) {
 	detail := batchSearchFailureDetail(nil, nil, "")
 	if detail != "Python batch search 子程序異常結束" {
 		t.Fatalf("expected fallback detail, got %q", detail)
+	}
+}
+
+func TestResolvePythonExe_PrefersFirstAvailableUnixBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix path lookup behavior differs on windows")
+	}
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(binDir, "python3")
+	if err := os.WriteFile(shim, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Setenv("PATH", oldPath)
+
+	if got := resolvePythonExe(); got != shim {
+		t.Fatalf("resolvePythonExe() = %q, want %q", got, shim)
+	}
+}
+
+func TestResolveRunSearchScript_PrefersExecutableRelativePath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test relies on POSIX executable shim")
+	}
+	tmp := t.TempDir()
+	fakeExe := filepath.Join(tmp, "bin", "backend-test")
+	if err := os.MkdirAll(filepath.Dir(fakeExe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fakeExe, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	relativeScript := filepath.Join(tmp, "bin", "src", "scrapers", "run_search.py")
+	if err := os.MkdirAll(filepath.Dir(relativeScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(relativeScript, []byte("print('ok')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldExecutable := osExecutable
+	osExecutable = func() (string, error) { return fakeExe, nil }
+	defer func() { osExecutable = oldExecutable }()
+
+	got := resolveRunSearchScript()
+	if got != relativeScript {
+		t.Fatalf("resolveRunSearchScript() = %q, want %q", got, relativeScript)
+	}
+}
+
+func TestPythonSearch_ExecutesRealScriptViaTempPython(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test relies on POSIX shell script shim")
+	}
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	scriptDir := filepath.Join(tmp, "src", "scrapers")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pythonShim := filepath.Join(binDir, "python3")
+	pythonScript := "#!/bin/sh\nshift 2\nscript=\"$1\"\ncode=\"$2\"\nexec /bin/sh \"$script\" \"$code\"\n"
+	if err := os.WriteFile(pythonShim, []byte(pythonScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	searchScript := filepath.Join(scriptDir, "run_search.py")
+	searchBody := "#!/bin/sh\ncat <<EOF\n{\"Code\":\"$1\",\"Title\":\"Title from script\",\"Method\":\"real-subprocess\"}\nEOF\n"
+	if err := os.WriteFile(searchScript, []byte(searchBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Setenv("PATH", oldPath)
+
+	oldExecutable := osExecutable
+	osExecutable = func() (string, error) { return filepath.Join(tmp, "backend-test"), nil }
+	defer func() { osExecutable = oldExecutable }()
+
+	app := &App{ctx: context.Background()}
+	result, err := app.PythonSearch("ABP-123")
+	if err != nil {
+		t.Fatalf("PythonSearch() error = %v", err)
+	}
+	if result.Code != "ABP-123" || result.Title != "Title from script" || result.Method != "real-subprocess" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestResolveRunBatchSearchScript_PrefersExecutableRelativePath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test relies on POSIX executable shim")
+	}
+	tmp := t.TempDir()
+	fakeExe := filepath.Join(tmp, "bin", "backend-test")
+	if err := os.MkdirAll(filepath.Dir(fakeExe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fakeExe, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	relativeScript := filepath.Join(tmp, "bin", "src", "scrapers", "run_batch_search.py")
+	if err := os.MkdirAll(filepath.Dir(relativeScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(relativeScript, []byte("print('ok')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldExecutable := osExecutable
+	osExecutable = func() (string, error) { return fakeExe, nil }
+	defer func() { osExecutable = oldExecutable }()
+
+	got := resolveRunBatchSearchScript()
+	if got != relativeScript {
+		t.Fatalf("resolveRunBatchSearchScript() = %q, want %q", got, relativeScript)
+	}
+}
+
+func TestResolveConfigPath_PrefersExecutableDirectoryConfig(t *testing.T) {
+	tmp := t.TempDir()
+	fakeExe := filepath.Join(tmp, "bin", "backend-test")
+	if err := os.MkdirAll(filepath.Dir(fakeExe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fakeExe, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exeConfig := filepath.Join(tmp, "bin", "config.ini")
+	if err := os.WriteFile(exeConfig, []byte("[database]\njson_data_dir = db\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldExecutable := osExecutable
+	osExecutable = func() (string, error) { return fakeExe, nil }
+	defer func() { osExecutable = oldExecutable }()
+
+	got := resolveConfigPath()
+	if got != exeConfig {
+		t.Fatalf("resolveConfigPath() = %q, want %q", got, exeConfig)
+	}
+}
+
+func TestResolveDataDirAndLogDir_UseConfigRelativeToConfigFile(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "conf", "config.ini")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "[database]\njson_data_dir = data/json_db\n[go_integration]\nlog_dir = logs/test\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := resolveDataDir(cfgPath); got != filepath.Join(tmp, "conf", "data", "json_db") {
+		t.Fatalf("resolveDataDir() = %q", got)
+	}
+	if got := resolveLogDir(cfgPath); got != filepath.Join(tmp, "conf", "logs", "test") {
+		t.Fatalf("resolveLogDir() = %q", got)
+	}
+}
+
+func TestLoadMajorStudios_NormalizesNames(t *testing.T) {
+	tmp := t.TempDir()
+	fakeExe := filepath.Join(tmp, "bin", "backend-test")
+	if err := os.MkdirAll(filepath.Dir(fakeExe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fakeExe, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	majorPath := filepath.Join(tmp, "bin", "major_studios.json")
+	if err := os.WriteFile(majorPath, []byte(`["sod", " Moodyz ", "ideapocket"]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldExecutable := osExecutable
+	osExecutable = func() (string, error) { return fakeExe, nil }
+	defer func() { osExecutable = oldExecutable }()
+
+	app := &App{}
+	got := app.loadMajorStudios()
+	for _, name := range []string{"SOD", "MOODYZ", "IDEAPOCKET"} {
+		if !got[name] {
+			t.Fatalf("expected major studio %q to be loaded, got %#v", name, got)
+		}
+	}
+}
+
+func TestCanonicalMajorStudio_LongestPrefixWins(t *testing.T) {
+	got, ok := canonicalMajorStudio("MOODYZ SPECIAL LABEL", map[string]bool{"MOODYZ": true, "MOODYZ SPECIAL": true})
+	if !ok {
+		t.Fatal("expected canonicalMajorStudio to match")
+	}
+	if got != "MOODYZ SPECIAL" {
+		t.Fatalf("canonicalMajorStudio() = %q, want %q", got, "MOODYZ SPECIAL")
+	}
+}
+
+func TestBatchSearch_RealSubprocessUsesResolvedExecutableAndScript(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test relies on POSIX shell script shims")
+	}
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	scriptDir := filepath.Join(binDir, "src", "scrapers")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pythonShim := filepath.Join(binDir, "python3")
+	pythonBody := "#!/bin/sh\nif [ \"$1\" = \"-X\" ]; then\n  shift 2\nfi\nexec /bin/sh \"$1\" \"$2\"\n"
+	if err := os.WriteFile(pythonShim, []byte(pythonBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	scriptPath := filepath.Join(scriptDir, "run_batch_search.py")
+	scriptBody := "#!/bin/sh\ncat <<'EOF'\n{\"Code\":\"REAL-001\",\"Title\":\"From real subprocess\",\"Method\":\"real-cli\"}\n{\"Code\":\"REAL-002\",\"Error\":\"未找到結果\",\"ErrorKind\":\"not_found\"}\nEOF\n"
+	if err := os.WriteFile(scriptPath, []byte(scriptBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Setenv("PATH", oldPath)
+
+	oldExecutable := osExecutable
+	osExecutable = func() (string, error) { return filepath.Join(binDir, "backend-test"), nil }
+	defer func() { osExecutable = oldExecutable }()
+
+	app := newTestApp(t)
+
+	results := app.BatchSearchAVWiki([]string{"REAL-001", "REAL-002"}, 1)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results from real subprocess, got %d", len(results))
+	}
+	if results[0].Code != "REAL-001" || results[1].Code != "REAL-002" {
+		t.Fatalf("unexpected results: %#v", results)
+	}
+}
+
+func TestBatchMoveJSON_RealFilesystemMovesNestedFiles(t *testing.T) {
+	app := newTestApp(t)
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "source")
+	dstDir := filepath.Join(tmp, "dest")
+	if err := os.MkdirAll(filepath.Join(srcDir, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "movie.mp4"), []byte("movie-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "nested", "poster.jpg"), []byte("poster-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := app.PlanDirMergeMoves([]DirMoveItem{{Source: srcDir, Destination: dstDir, OnConflict: "overwrite"}})
+	if err != nil {
+		t.Fatalf("PlanDirMergeMoves() error = %v", err)
+	}
+	payload, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	result := app.BatchMoveJSON(string(payload), "overwrite")
+	if result.Status != "success" {
+		t.Fatalf("BatchMoveJSON() status = %q, want success (failed=%d, success=%d)", result.Status, result.FailedCount, result.SuccessCount)
+	}
+	if result.SuccessCount != 2 {
+		t.Fatalf("BatchMoveJSON() success=%d, want 2", result.SuccessCount)
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "movie.mp4")); err != nil {
+		t.Fatalf("destination movie missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "nested", "poster.jpg")); err != nil {
+		t.Fatalf("destination nested poster missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(srcDir, "movie.mp4")); !os.IsNotExist(err) {
+		t.Fatalf("source movie should have been moved, stat err=%v", err)
+	}
+}
+
+func TestLoadCodeStudioMap_ParsesRealJSON(t *testing.T) {
+	tmp := t.TempDir()
+	mappingPath := filepath.Join(tmp, "studios.json")
+	content := `{"SOD":[" sod ","SOD-"],"MOODYZ":["moodyz"]}`
+	if err := os.WriteFile(mappingPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := loadCodeStudioMap(mappingPath)
+	if got["SOD"] != "SOD" || got["SOD-"] != "SOD" || got["MOODYZ"] != "MOODYZ" {
+		t.Fatalf("unexpected studio map: %#v", got)
+	}
+}
+
+func TestBatchSearchAVWiki_ExecutesRealBatchSubprocess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test relies on POSIX shell script shim")
+	}
+
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	scriptDir := filepath.Join(tmp, "src", "scrapers")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pythonShim := filepath.Join(binDir, "python3")
+	pythonBody := "#!/bin/sh\nshift 2\nscript=\"$1\"\nexec /bin/sh \"$script\"\n"
+	if err := os.WriteFile(pythonShim, []byte(pythonBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	batchScript := filepath.Join(scriptDir, "run_batch_search.py")
+	batchBody := "#!/bin/sh\ncat <<'EOF'\n{\"Code\":\"REAL-001\",\"Title\":\"first title\",\"Method\":\"batch-real\"}\n{\"Code\":\"REAL-002\",\"Title\":\"second title\",\"Method\":\"batch-real\"}\nEOF\n"
+	if err := os.WriteFile(batchScript, []byte(batchBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Setenv("PATH", oldPath)
+
+	oldExecutable := osExecutable
+	osExecutable = func() (string, error) { return filepath.Join(tmp, "backend-test"), nil }
+	defer func() { osExecutable = oldExecutable }()
+
+	app := &App{ctx: context.Background()}
+	results := app.BatchSearchAVWiki([]string{"REAL-001", "REAL-002"}, 1)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results from real subprocess, got %d", len(results))
+	}
+	if results[0].Code != "REAL-001" || results[1].Code != "REAL-002" {
+		t.Fatalf("unexpected results: %#v", results)
+	}
+	if results[0].Method != "batch-real" || results[1].Method != "batch-real" {
+		t.Fatalf("unexpected methods from real subprocess: %#v", results)
 	}
 }

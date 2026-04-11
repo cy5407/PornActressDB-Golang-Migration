@@ -24,6 +24,8 @@ import (
 	"wails-app/backend/services"
 )
 
+var osExecutable = os.Executable
+
 // App is the main application struct exposed as Wails bindings.
 type App struct {
 	ctx           context.Context
@@ -876,7 +878,13 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 	waitErr := cmd.Wait()
 	if scanErr != nil || waitErr != nil {
 		failureDetail := batchSearchFailureDetail(scanErr, waitErr, stderrBuf.String())
-		a.emitEvent("search:done", fmt.Sprintf("%d 成功 / %d 失敗（%s）", 0, total, failureDetail))
+		success := 0
+		for _, r := range results {
+			if r.Error == "" {
+				success++
+			}
+		}
+		a.emitEvent("search:done", fmt.Sprintf("%d 成功 / %d 失敗（%s）", success, total-success, failureDetail))
 		return results
 	}
 
@@ -1009,7 +1017,7 @@ func (a *App) resetDB() {
 
 func resolveConfigPath() string {
 	// Priority: exe dir → project root (dev: 3 levels up from build/bin) → CWD
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		exeDir := filepath.Dir(exe)
 		candidates := []string{
@@ -1028,7 +1036,7 @@ func resolveConfigPath() string {
 }
 
 func resolveStudiosPath() string {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "studios.json")
 		if _, err2 := os.Stat(candidate); err2 == nil {
@@ -1040,7 +1048,7 @@ func resolveStudiosPath() string {
 
 // resolveMajorStudiosPath 以與 resolveStudiosPath 相同邏輯尋找 major_studios.json。
 func resolveMajorStudiosPath() string {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "major_studios.json")
 		if _, err2 := os.Stat(candidate); err2 == nil {
@@ -1160,7 +1168,7 @@ func resolvePythonExe() string {
 
 func resolveRunSearchScript() string {
 	// Try project root relative to executable, then CWD
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "src", "scrapers", "run_search.py")
 		if _, err2 := os.Stat(candidate); err2 == nil {
@@ -1178,7 +1186,7 @@ func resolveRunSearchScript() string {
 }
 
 func resolveRunBatchSearchScript() string {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), "src", "scrapers", "run_batch_search.py")
 		if _, err2 := os.Stat(candidate); err2 == nil {

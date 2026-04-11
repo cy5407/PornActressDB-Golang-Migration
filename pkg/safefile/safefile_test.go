@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -35,6 +36,35 @@ func TestReadWriteFile(t *testing.T) {
 	}
 	if !bytes.Equal(got, updated) {
 		t.Fatalf("ReadFile() = %q, want %q", got, updated)
+	}
+}
+
+func TestReadFileViaSymlinkedDirectory(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink support varies on Windows CI")
+	}
+
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	linkDir := filepath.Join(root, "link")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	filePath := filepath.Join(linkDir, "payload.txt")
+	if err := os.WriteFile(filepath.Join(realDir, "payload.txt"), []byte("safe-read"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	got, err := ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != "safe-read" {
+		t.Fatalf("ReadFile() = %q, want %q", got, "safe-read")
 	}
 }
 
@@ -236,6 +266,43 @@ func TestMkdirAllAlreadyExists(t *testing.T) {
 	err := MkdirAll(existingDir, 0700)
 	if err != nil {
 		t.Fatalf("MkdirAll(已存在目錄) 不應回傳 error, 得到: %v", err)
+	}
+}
+
+func TestOpenFileViaSymlinkedDirectory(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink support varies on Windows CI")
+	}
+
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	linkDir := filepath.Join(root, "link")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	f, err := OpenFile(filepath.Join(linkDir, "payload.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatalf("OpenFile() error = %v", err)
+	}
+	if _, err := f.Write([]byte("safe-open")); err != nil {
+		_ = f.Close()
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(realDir, "payload.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != "safe-open" {
+		t.Fatalf("file contents = %q, want %q", got, "safe-open")
 	}
 }
 
