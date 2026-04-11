@@ -246,12 +246,9 @@ func (si *StudioIdentifier) NormalizeStudioName(studioName, videoCode string) st
 }
 
 // IsMajorStudio 判斷是否為大片商
-// 優先使用從 major_studios.json 載入的清單，若清單為空則回退到預設清單
+// 使用從 major_studios.json 載入的自訂清單；若檔案不存在，si.majorStudios 已於初始化時設為預設清單
 func (si *StudioIdentifier) IsMajorStudio(studioName string) bool {
-	if len(si.majorStudios) > 0 {
-		return si.majorStudios[studioName]
-	}
-	return defaultMajorStudios[studioName]
+	return si.majorStudios[studioName]
 }
 
 // GetAllStudios 取得所有片商名稱
