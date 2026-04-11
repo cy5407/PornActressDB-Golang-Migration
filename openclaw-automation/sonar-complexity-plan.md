@@ -161,19 +161,12 @@
 - [x] **JDB-1**：拆 `_parse_search_results()`
   - 已抽出 `_parse_search_result_item(item)`，主函式改為迭代聚合。
 
-- [ ] **JDB-2**：拆 `_parse_detail_page()`
-  - 抽出：
-    - title / cover helper
-    - panel parse helper（保留 `_apply_detail_panel()`）
-    - studio code from title helper
-    - result builder
+- [x] **JDB-2**：拆 `_parse_detail_page()`
+  - 已抽出 title / cover / studio code helper 與 result builder，detail page 主流程較線性。
 
-- [ ] **JDB-3**：拆 `search_video()`
-  - 分成：
-    - `_search_video_results(video_code)`
-    - `_load_first_detail_if_present(first_result)`
-    - `_finalize_search_video_result(...)`
-  - 讓主流程變成「搜尋 -> 取第一筆 -> 補詳情 -> 回傳」
+- [x] **JDB-3**：拆 `search_video()`
+  - 已拆成 `_search_video_results(video_code)`、`_finalize_search_video_result(...)`、`_build_empty_search_video_result(...)`
+  - 保留搜尋 -> 取第一筆 -> 補詳情 -> 回傳語義
 
 ### 驗收重點
 - 搜尋頁 fallback 與 detail page merge 邏輯不變

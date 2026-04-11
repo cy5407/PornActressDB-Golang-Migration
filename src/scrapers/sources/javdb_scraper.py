@@ -156,6 +156,15 @@ class JAVDBScraper(BaseScraper):
 
     def _parse_detail_page(self, soup: BeautifulSoup) -> dict[str, Any]:
         """解析詳情頁面"""
+        result = self._build_detail_page_result(soup)
+        result.update(
+            self._extract_detail_panel_data(soup.find_all("div", class_="panel-block"))
+        )
+        result["rating"] = self._extract_rating(soup.find("span", class_="score"))
+        result["studio_code"] = self._extract_studio_code_from_title(result["title"])
+        return result
+
+    def _build_detail_page_result(self, soup: BeautifulSoup) -> dict[str, Any]:
         result = {
             "actresses": [],
             "studio": None,
@@ -170,30 +179,23 @@ class JAVDBScraper(BaseScraper):
             "cover_url": None,
         }
 
-        # 提取標題
         title_element = soup.find("h2", class_="title")
         if title_element:
             result["title"] = title_element.text.strip()
 
-        # 提取封面圖片
         cover_element = soup.find("img", class_="video-cover")
         if cover_element:
             result["cover_url"] = cover_element.get("src")
 
-        result.update(
-            self._extract_detail_panel_data(soup.find_all("div", class_="panel-block"))
-        )
-
-        # 提取評分
-        result["rating"] = self._extract_rating(soup.find("span", class_="score"))
-
-        # 從標題中提取片商代碼
-        if result["title"]:
-            code_match = re.search(r"^([A-Z]+)-?\d+", result["title"])
-            if code_match:
-                result["studio_code"] = code_match.group(1)
-
         return result
+
+    @staticmethod
+    def _extract_studio_code_from_title(title: str | None) -> str | None:
+        if not title:
+            return None
+
+        code_match = re.search(r"^([A-Z]+)-?\d+", title)
+        return code_match.group(1) if code_match else None
 
     def _extract_detail_panel_data(
         self, info_panels: list[BeautifulSoup]
@@ -304,50 +306,47 @@ class JAVDBScraper(BaseScraper):
         search_url = f"{self.search_url}?q={quote(video_code)}&f=all"
 
         try:
-            # 執行安全爬取
-            result = await self.safe_scrape(search_url)
-
-            # 如果有搜尋結果，取第一個結果的詳情
+            result = await self._search_video_results(search_url)
             if "search_results" in result and result["search_results"]:
                 first_result = result["search_results"][0]
+                return await self._finalize_search_video_result(
+                    first_result, video_code, search_url
+                )
 
-                # 如果有詳情頁面URL，進一步獲取詳細資訊
-                if "detail_url" in first_result:
-                    detail_result = await self.safe_scrape(first_result["detail_url"])
-
-                    # 合併搜尋結果和詳情
-                    detail_result.update(
-                        {"video_code": video_code, "search_url": search_url}
-                    )
-
-                    # 驗證內容品質
-                    if detail_result.get("title"):
-                        content_quality = validate_japanese_content(
-                            detail_result["title"]
-                        )
-                        detail_result["content_quality"] = content_quality
-
-                    return detail_result
-                else:
-                    # 直接返回搜尋結果
-                    first_result.update(
-                        {"video_code": video_code, "search_url": search_url}
-                    )
-                    return first_result
-
-            # 沒有找到結果
-            return {
-                "video_code": video_code,
-                "search_url": search_url,
-                "actresses": [],
-                "message": f"未找到番號 {video_code} 的資訊",
-            }
+            return self._build_empty_search_video_result(video_code, search_url)
 
         except Exception as e:
             logger.error(f"搜尋 JAVDB 影片 {video_code} 失敗: {e}")
             raise ScrapingException(
                 f"搜尋失敗: {e}", ErrorType.UNKNOWN_ERROR, search_url
             ) from e
+
+    async def _search_video_results(self, search_url: str) -> dict[str, Any]:
+        return await self.safe_scrape(search_url)
+
+    async def _finalize_search_video_result(
+        self, first_result: dict[str, Any], video_code: str, search_url: str
+    ) -> dict[str, Any]:
+        if "detail_url" in first_result:
+            detail_result = await self.safe_scrape(first_result["detail_url"])
+            detail_result.update({"video_code": video_code, "search_url": search_url})
+            if detail_result.get("title"):
+                detail_result["content_quality"] = validate_japanese_content(
+                    detail_result["title"]
+                )
+            return detail_result
+
+        first_result.update({"video_code": video_code, "search_url": search_url})
+        return first_result
+
+    @staticmethod
+    def _build_empty_search_video_result(video_code: str, search_url: str) -> dict[str, Any]:
+        return {
+            "video_code": video_code,
+            "search_url": search_url,
+            "actresses": [],
+            "message": f"未找到番號 {video_code} 的資訊",
+        }
 
     async def get_actress_info(self, actress_name: str) -> dict[str, Any]:
         """獲取女優資訊"""
