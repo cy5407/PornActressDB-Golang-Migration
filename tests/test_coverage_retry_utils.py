@@ -83,6 +83,17 @@ def test_exponential_backoff_applies_jitter_factor(monkeypatch):
 # ──────────────────────────────
 
 
+def test_adaptive_concurrency_controller_initial_stats():
+    controller = AdaptiveConcurrencyController()
+    stats = controller.get_stats()
+
+    assert stats["current_concurrency"] == 15
+    assert stats["consecutive_successes"] == 0
+    assert stats["consecutive_failures"] == 0
+    assert stats["minimum"] == 2
+    assert stats["maximum"] == 30
+
+
 def test_adaptive_concurrency_controller_decreases_and_increases():
     controller = AdaptiveConcurrencyController(
         initial=10,
