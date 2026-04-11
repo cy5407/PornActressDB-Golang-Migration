@@ -42,11 +42,6 @@ var defaultMajorStudios = map[string]bool{
 	"WANZ":      true,
 }
 
-// MajorStudios 大片商清單（向後相容，建議改從 major_studios.json 集中維護）
-//
-// Deprecated: 請改用 major_studios.json 集中維護大片商清單
-var MajorStudios = defaultMajorStudios
-
 // NewStudioIdentifier 建立片商識別器
 func NewStudioIdentifier(rulesFile string) (*StudioIdentifier, error) {
 	si := &StudioIdentifier{

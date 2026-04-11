@@ -173,11 +173,6 @@ ROLE_TYPES = {
 DATA_DIR = "data/json_db"
 JSON_DB_FILE = "data/json_db/data.json"
 BACKUP_DIR = "data/json_db/backup"
-BACKUP_MANIFEST_FILE = "data/json_db/backup/BACKUP_MANIFEST.json"
-
-# 檔案鎖定
-READ_LOCK_TIMEOUT = 30  # 秒
-WRITE_LOCK_TIMEOUT = 60  # 秒
 
 # 備份設定
 MAX_BACKUP_AGE_DAYS = 30  # 天
@@ -209,20 +204,8 @@ class ValidationError(JSONDatabaseError):
     pass
 
 
-class LockError(JSONDatabaseError):
-    """檔案鎖定相關例外"""
-
-    pass
-
-
 class DataIntegrityError(JSONDatabaseError):
     """資料完整性檢查失敗例外"""
-
-    pass
-
-
-class BackupError(JSONDatabaseError):
-    """備份相關操作失敗例外"""
 
     pass
 
@@ -296,16 +279,3 @@ def get_empty_video() -> VideoDict:
         },
     }
 
-
-def get_empty_actress() -> ActressDict:
-    """取得空的女優資料結構"""
-    now = datetime.now(UTC).strftime(ISO_DATETIME_FORMAT)
-
-    return {
-        "id": "",
-        "name": "",
-        "aliases": [],
-        "video_count": 0,
-        "created_at": now,
-        "updated_at": now,
-    }

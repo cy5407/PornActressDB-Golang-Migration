@@ -71,7 +71,6 @@ class JSONDBManager:
     """
 
     # 常數定義
-    BACKUP_PATTERN = "backup_*.json"
     DEFAULT_BACKUP_DAYS = 30
     DEFAULT_BACKUP_MAX_COUNT = 50
 
