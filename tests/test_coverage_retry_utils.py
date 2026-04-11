@@ -20,6 +20,11 @@ def test_secure_uniform_returns_min_when_range_invalid():
     assert _secure_uniform(3.0, 2.0) == 3.0
 
 
+def test_secure_uniform_returns_value_within_range(monkeypatch):
+    monkeypatch.setattr("src.utils.retry_utils.randbelow", lambda _: 2500)
+    assert _secure_uniform(2.0, 6.0) == 3.0
+
+
 # ──────────────────────────────
 # ExponentialBackoff
 # ──────────────────────────────
