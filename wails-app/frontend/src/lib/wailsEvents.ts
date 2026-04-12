@@ -77,8 +77,9 @@ export function useWailsEvents() {
         if (result.error) {
           store.pushEvent('warning', `⚠ ${result.code}: ${result.error}`);
         } else {
-          const { progressCurrent, progressTotal } = store;
-          store.pushEvent('info', `(${progressCurrent}/${progressTotal}) 已搜尋到 ${result.code}`);
+          const current = result.current ?? 0;
+          const total = result.total ?? 0;
+          store.pushEvent('info', `(${current}/${total}) 已搜尋到 ${result.code}`);
         }
       }
     });

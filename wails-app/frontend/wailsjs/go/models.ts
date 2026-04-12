@@ -54,6 +54,8 @@ export namespace backend {
 	    method: string;
 	    error?: string;
 	    error_kind?: string;
+	    current?: number;
+	    total?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SearchResult(source);
@@ -70,6 +72,8 @@ export namespace backend {
 	        this.method = source["method"];
 	        this.error = source["error"];
 	        this.error_kind = source["error_kind"];
+	        this.current = source["current"];
+	        this.total = source["total"];
 	    }
 	}
 	export class StudioInfo {

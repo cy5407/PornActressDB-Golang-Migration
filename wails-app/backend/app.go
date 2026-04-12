@@ -32,6 +32,7 @@ type App struct {
 	extractor     *extractor.CodeExtractor
 	mover         *mover.Mover
 	db            *database.JSONDatabase
+	dbFileModTime time.Time
 	studio        *studio.StudioIdentifier
 	cfgSvc        *services.ConfigService
 	cfgPath       string
@@ -527,6 +528,8 @@ type SearchResult struct {
 	Method    string   `json:"method"`
 	Error     string   `json:"error,omitempty"`
 	ErrorKind string   `json:"error_kind,omitempty"`
+	Current   int      `json:"current,omitempty"`
+	Total     int      `json:"total,omitempty"`
 }
 
 type batchSearchRequest struct {
@@ -785,6 +788,8 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 				Method:    video.SearchMethod,
 			}
 			results = append(results, cached)
+			cached.Current = done
+			cached.Total = total
 			a.emitEvent("search:progress", done, total, code)
 			a.emitEvent("search:result", &cached)
 		} else {
@@ -811,6 +816,8 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 		current := done
 		mu.Unlock()
 
+		res.Current = current
+		res.Total = total
 		a.emitEvent("search:progress", current, total, res.Code)
 		a.emitEvent("search:result", &res)
 		a.persistBatchSearchResult(res, source)
@@ -998,21 +1005,35 @@ func loadCodeStudioMap(path string) map[string]string {
 func (a *App) ensureDB() {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
-	if a.db != nil {
-		return
-	}
 	dataDir := resolveDataDir(a.cfgPath)
-	a.db = database.NewJSONDatabase(dataDir)
-	_ = a.db.Load(context.Background())
-	// 啟動時若 journal 有未合併資料，立即寫入 data.json，
-	// 避免下次搜尋因全部命中快取（早期返回）而永遠跳過 Compact。
-	_, _ = a.db.CompactIfNeeded()
+	dataFile := filepath.Join(dataDir, "data.json")
+
+	if a.db != nil {
+		if info, err := os.Stat(dataFile); err == nil && !info.ModTime().Equal(a.dbFileModTime) {
+			a.db = nil
+		}
+	}
+
+	if a.db == nil {
+		a.db = database.NewJSONDatabase(dataDir)
+		_ = a.db.Load(context.Background())
+		// 啟動時若 journal 有未合併資料，立即寫入 data.json，
+		// 避免下次搜尋因全部命中快取（早期返回）而永遠跳過 Compact。
+		_, _ = a.db.CompactIfNeeded()
+	}
+
+	if info, err := os.Stat(dataFile); err == nil {
+		a.dbFileModTime = info.ModTime()
+	} else {
+		a.dbFileModTime = time.Time{}
+	}
 }
 
 func (a *App) resetDB() {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 	a.db = nil
+	a.dbFileModTime = time.Time{}
 }
 
 func resolveConfigPath() string {
