@@ -657,6 +657,16 @@ function ActionToolbar() {
           ? `${outputDir}\\未分類\\${actressName}`
           : `${outputDir}\\${studio}\\${actressName}`;
 
+      // 防止 dst 是 src 的子目錄（例如：未分類資料夾分類到自身底下）
+      const normSrc = actressDir.toLowerCase().split("\\").join("/");
+      const normDst = dst.toLowerCase().split("\\").join("/");
+      if (normDst === normSrc || normDst.startsWith(normSrc + "/")) {
+        pushEvent("warning", `⚠ 略過 ${actressName}：目標目錄是來源的子目錄`);
+        studioCounts[studio] = (studioCounts[studio] ?? 1) - 1;
+        if (studioCounts[studio] <= 0) delete studioCounts[studio];
+        continue;
+      }
+
       dirItems.push({ source: actressDir, destination: dst });
     }
 
