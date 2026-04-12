@@ -77,7 +77,8 @@ export function useWailsEvents() {
         if (result.error) {
           store.pushEvent('warning', `⚠ ${result.code}: ${result.error}`);
         } else {
-          store.pushEvent('debug', `[搜尋結果] ${result.code}: ${result.title || '找到結果'}`);
+          const { progressCurrent, progressTotal } = store;
+          store.pushEvent('info', `(${progressCurrent}/${progressTotal}) 已搜尋到 ${result.code}`);
         }
       }
     });
