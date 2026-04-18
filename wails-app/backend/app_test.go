@@ -397,23 +397,34 @@ func TestBatchSearchAVWiki_SuccessPreservesOtherSourceStatusAndUpdatesOverallSum
 }
 
 func TestPythonSearch_UsesRealScriptPathAndSubprocess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test relies on POSIX shell script shims")
+	}
 	tmp := t.TempDir()
 	exeDir := filepath.Join(tmp, "bin")
 	scriptDir := filepath.Join(tmp, "src", "scrapers")
-	if err := os.MkdirAll(exeDir, 0o755); err != nil { t.Fatal(err) }
-	if err := os.MkdirAll(scriptDir, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(exeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	fakeExe := filepath.Join(exeDir, "app.exe")
-	if err := os.WriteFile(fakeExe, []byte(""), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(fakeExe, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	withFakeExecutable(t, fakeExe)
 
 	pythonDir := filepath.Join(tmp, "py")
-	if err := os.MkdirAll(pythonDir, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(pythonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	python3 := filepath.Join(pythonDir, "python3")
-	writeExecutableScript(t, python3, "#!/bin/sh\nscript=\"$3\"\ncode=\"$4\"\n[ -n \"$script\" ] || exit 2\n[ -f \"$script\" ] || exit 3\nprintf '{\\"code\\":\\"%s\\",\\"title\\":\\"real subprocess\\",\\"method\\":\\"python\\"}' \"$code\"\n")
+	writeExecutableScript(t, python3, "#!/bin/sh\nif [ \"$1\" = \"-X\" ]; then\n  shift 2\nfi\nexec /bin/sh \"$1\" \"$2\"\n")
 	oldPath := os.Getenv("PATH")
 	t.Setenv("PATH", pythonDir+string(os.PathListSeparator)+oldPath)
 
-	writeExecutableScript(t, filepath.Join(scriptDir, "run_search.py"), "#!/bin/sh\nexit 0\n")
+	writeExecutableScript(t, filepath.Join(scriptDir, "run_search.py"), "#!/bin/sh\nprintf '{\"code\":\"%s\",\"title\":\"real subprocess\",\"method\":\"python\"}' \"$1\"\n")
 
 	app := newTestApp(t)
 	app.ctx = context.Background()
@@ -427,33 +438,56 @@ func TestPythonSearch_UsesRealScriptPathAndSubprocess(t *testing.T) {
 }
 
 func TestBatchSearch_StreamsRealScriptOutputAndPersistsResults(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test relies on POSIX shell script shims")
+	}
 	tmp := t.TempDir()
 	exeDir := filepath.Join(tmp, "bin")
 	scriptDir := filepath.Join(tmp, "src", "scrapers")
-	if err := os.MkdirAll(exeDir, 0o755); err != nil { t.Fatal(err) }
-	if err := os.MkdirAll(scriptDir, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(exeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	fakeExe := filepath.Join(exeDir, "app.exe")
-	if err := os.WriteFile(fakeExe, []byte(""), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(fakeExe, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	withFakeExecutable(t, fakeExe)
 
 	pythonDir := filepath.Join(tmp, "py")
-	if err := os.MkdirAll(pythonDir, 0o755); err != nil { t.Fatal(err) }
-	writeExecutableScript(t, filepath.Join(pythonDir, "python3"), "#!/bin/sh\nscript=\"$3\"\n[ -f \"$script\" ] || exit 3\nread -r input\nprintf '{\\"code\\":\\"%s\\",\\"title\\":\\"first\\",\\"method\\":\\"batch\\"}\\n' \"A1\"\nprintf '{\\"code\\":\\"%s\\",\\"error\\":\\"未找到結果\\",\\"error_kind\\":\\"not_found\\"}\\n' \"A2\"\n")
+	if err := os.MkdirAll(pythonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeExecutableScript(t, filepath.Join(pythonDir, "python3"), "#!/bin/sh\nif [ \"$1\" = \"-X\" ]; then\n  shift 2\nfi\nexec /bin/sh \"$1\" \"$2\"\n")
 	oldPath := os.Getenv("PATH")
 	t.Setenv("PATH", pythonDir+string(os.PathListSeparator)+oldPath)
-	writeExecutableScript(t, filepath.Join(scriptDir, "run_batch_search.py"), "#!/bin/sh\nexit 0\n")
+	writeExecutableScript(t, filepath.Join(scriptDir, "run_batch_search.py"), "#!/bin/sh\nread -r input\nprintf '{\"code\":\"%s\",\"title\":\"first\",\"method\":\"batch\"}\\n' \"A1\"\nprintf '{\"code\":\"%s\",\"error\":\"未找到結果\",\"error_kind\":\"not_found\"}\\n' \"A2\"\n")
 
 	app := newTestApp(t)
 	app.ctx = context.Background()
 	results := app.BatchSearchAVWiki([]string{"A1", "A2"}, 2)
-	if len(results) != 2 { t.Fatalf("expected 2 results, got %d", len(results)) }
-	if results[0].Code != "A1" || results[0].Title != "first" { t.Fatalf("unexpected first result: %+v", results[0]) }
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].Code != "A1" || results[0].Title != "first" {
+		t.Fatalf("unexpected first result: %+v", results[0])
+	}
 	video, err := app.db.GetVideo("A1")
-	if err != nil { t.Fatalf("expected persisted A1: %v", err) }
-	if video.AVWikiActressStatus != "found" { t.Fatalf("expected found status, got %q", video.AVWikiActressStatus) }
+	if err != nil {
+		t.Fatalf("expected persisted A1: %v", err)
+	}
+	if video.AVWikiActressStatus != "found" {
+		t.Fatalf("expected found status, got %q", video.AVWikiActressStatus)
+	}
 	video2, err := app.db.GetVideo("A2")
-	if err != nil { t.Fatalf("expected persisted A2: %v", err) }
-	if video2.AVWikiActressStatus != "not_found" { t.Fatalf("expected not_found status, got %q", video2.AVWikiActressStatus) }
+	if err != nil {
+		t.Fatalf("expected persisted A2: %v", err)
+	}
+	if video2.AVWikiActressStatus != "not_found" {
+		t.Fatalf("expected not_found status, got %q", video2.AVWikiActressStatus)
+	}
 }
 
 // ============================================================================
@@ -1265,8 +1299,8 @@ func TestBatchMoveJSON_RealFilesystemMovesNestedFiles(t *testing.T) {
 	}
 
 	result := app.BatchMoveJSON(string(payload), "overwrite")
-	if result.Status != "success" {
-		t.Fatalf("BatchMoveJSON() status = %q, want success (failed=%d, success=%d)", result.Status, result.FailedCount, result.SuccessCount)
+	if result.Status != "completed" {
+		t.Fatalf("BatchMoveJSON() status = %q, want completed (failed=%d, success=%d)", result.Status, result.FailedCount, result.SuccessCount)
 	}
 	if result.SuccessCount != 2 {
 		t.Fatalf("BatchMoveJSON() success=%d, want 2", result.SuccessCount)
