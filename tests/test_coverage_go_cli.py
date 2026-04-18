@@ -14,6 +14,7 @@ from src.services.go_cli import (
     GoNotFoundError,
     _find_exe_from_path,
     _find_exe_in_dir,
+    _wsl_to_posix_path,
     batch_move,
     cache_clear,
     cache_delete,
@@ -120,6 +121,24 @@ class TestResolveExe:
         self._reset_exe_cache()
 
 
+class TestWslPathHelpers:
+    def test_wsl_to_posix_path_returns_original_for_posix_path(self):
+        with patch("src.services.go_cli._running_under_wsl", return_value=True):
+            assert _wsl_to_posix_path("/mnt/c/Temp/demo.json") == "/mnt/c/Temp/demo.json"
+
+    def test_wsl_to_posix_path_converts_windows_path(self):
+        completed = subprocess.CompletedProcess(["wslpath", "-u", r"C:\\Temp\\demo.json"], 0, stdout="/mnt/c/Temp/demo.json\n", stderr="")
+        with patch("src.services.go_cli._running_under_wsl", return_value=True):
+            with patch("src.services.go_cli.subprocess.run", return_value=completed):
+                assert _wsl_to_posix_path(r"C:\Temp\demo.json") == "/mnt/c/Temp/demo.json"
+
+    def test_wsl_to_posix_path_returns_none_on_failed_conversion(self):
+        completed = subprocess.CompletedProcess(["wslpath", "-u", r"C:\\Temp\\demo.json"], 1, stdout="", stderr="bad path")
+        with patch("src.services.go_cli._running_under_wsl", return_value=True):
+            with patch("src.services.go_cli.subprocess.run", return_value=completed):
+                assert _wsl_to_posix_path(r"C:\Temp\demo.json") is None
+
+
 # ---------------------------------------------------------------------------
 # run()：GoNotFoundError / FileNotFoundError / TimeoutExpired（lines 103, 115）
 # ---------------------------------------------------------------------------
@@ -184,9 +203,10 @@ class TestDbBulkOps:
         with _mock_run_raise(GoError("delete failed")):
             assert db_delete_video("X-001") is False
 
-    def test_db_get_all_videos_error_returns_empty_list(self):
+    def test_db_get_all_videos_error_raises(self):
         with _mock_run_raise(GoError("list failed")):
-            assert db_get_all_videos() == []
+            with pytest.raises(GoError, match="list failed"):
+                db_get_all_videos()
 
     def test_db_get_all_videos_returns_list_directly(self):
         with _mock_run(["v1", "v2"]):
@@ -251,13 +271,15 @@ class TestCachePruneClear:
 # ---------------------------------------------------------------------------
 
 class TestDbBackup:
-    def test_db_backup_create_error_returns_empty_dict(self):
+    def test_db_backup_create_error_raises(self):
         with _mock_run_raise(GoError("backup failed")):
-            assert db_backup_create() == {}
+            with pytest.raises(GoError, match="backup failed"):
+                db_backup_create()
 
-    def test_db_backup_list_error_returns_empty_list(self):
+    def test_db_backup_list_error_raises(self):
         with _mock_run_raise(GoError("list failed")):
-            assert db_backup_list() == []
+            with pytest.raises(GoError, match="list failed"):
+                db_backup_list()
 
     def test_db_backup_list_returns_backups_from_dict(self):
         with _mock_run({"backups": ["/path/a.json", "/path/b.json"]}):
@@ -273,9 +295,10 @@ class TestDbBackup:
         with _mock_run_raise(GoError("restore failed")):
             assert db_backup_restore("/path/backup.json") == {}
 
-    def test_db_backup_cleanup_error_returns_zero(self):
+    def test_db_backup_cleanup_error_raises(self):
         with _mock_run_raise(GoError("cleanup failed")):
-            assert db_backup_cleanup() == 0
+            with pytest.raises(GoError, match="cleanup failed"):
+                db_backup_cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -293,10 +316,10 @@ class TestActressCRUD:
             result = db_get_actress("missing")
         assert result is None
 
-    def test_db_get_actress_other_error_returns_none(self):
+    def test_db_get_actress_other_error_raises(self):
         with _mock_run_raise(GoError("connection error")):
-            result = db_get_actress("actress-1")
-        assert result is None
+            with pytest.raises(GoError, match="connection error"):
+                db_get_actress("actress-1")
 
     def test_db_update_actress_success(self):
         with _mock_run({}):
@@ -448,15 +471,21 @@ class TestRemainingLines:
         with _mock_run({"id": "a1"}) as mock:
             result = db_get_actress("a1", data_dir="custom/dir")
         assert result == {"id": "a1"}
+        mock.assert_called_once_with(["db", "actress-get", "-data-dir", "custom/dir", "a1"])
 
     def test_db_update_actress_with_custom_data_dir(self):
         """data_dir != 預設值時應加上 -data-dir 旗標（line 424）"""
         with _mock_run({}) as mock:
             result = db_update_actress("a1", {"name": "Test"}, data_dir="custom/dir")
         assert result is True
+        called_args = mock.call_args.args[0]
+        assert called_args[:4] == ["db", "actress-update", "-data-dir", "custom/dir"]
+        assert called_args[4] == "a1"
+        assert called_args[5].endswith(".json")
 
     def test_db_delete_actress_with_custom_data_dir(self):
         """data_dir != 預設值時應加上 -data-dir 旗標（line 439）"""
         with _mock_run({}) as mock:
             result = db_delete_actress("a1", data_dir="custom/dir")
         assert result is True
+        mock.assert_called_once_with(["db", "actress-delete", "-data-dir", "custom/dir", "a1"])

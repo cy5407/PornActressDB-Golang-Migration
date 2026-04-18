@@ -1,5 +1,6 @@
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 
 from src.services import go_cli
@@ -74,7 +75,7 @@ def test_db_get_actress_uses_actress_get_subcommand(monkeypatch):
     result = go_cli.db_get_actress("actress-1", "custom_db")
 
     assert result == {"id": "actress-1", "name": "測試女優"}
-    assert captured["args"] == ["db", "actress-get", "actress-1", "-data-dir", "custom_db"]
+    assert captured["args"] == ["db", "actress-get", "-data-dir", "custom_db", "actress-1"]
 
 
 def test_db_update_actress_uses_actress_update_subcommand(monkeypatch):
@@ -89,9 +90,9 @@ def test_db_update_actress_uses_actress_update_subcommand(monkeypatch):
     result = go_cli.db_update_actress("actress-1", {"name": "測試女優"}, "custom_db")
 
     assert result is True
-    assert captured["args"][0:3] == ["db", "actress-update", "actress-1"]
-    assert captured["args"][4:] == ["-data-dir", "custom_db"]
-    assert captured["args"][3].endswith(".json")
+    assert captured["args"][0:4] == ["db", "actress-update", "-data-dir", "custom_db"]
+    assert captured["args"][4] == "actress-1"
+    assert captured["args"][5].endswith(".json")
 
 
 def test_db_delete_actress_uses_actress_delete_subcommand(monkeypatch):
@@ -106,7 +107,7 @@ def test_db_delete_actress_uses_actress_delete_subcommand(monkeypatch):
     result = go_cli.db_delete_actress("actress-1", "custom_db")
 
     assert result is True
-    assert captured["args"] == ["db", "actress-delete", "actress-1", "-data-dir", "custom_db"]
+    assert captured["args"] == ["db", "actress-delete", "-data-dir", "custom_db", "actress-1"]
 
 
 def test_db_backup_list_unwraps_backups_array(monkeypatch):
@@ -250,6 +251,7 @@ def test_db_update_video_writes_temp_json_and_cleans_up(monkeypatch):
         assert temp_path.exists()
         return subprocess.CompletedProcess(cmd, 0, stdout='{"success": true}', stderr="")
 
+    monkeypatch.setattr(go_cli, "_to_windows_cli_path", lambda path: path)
     monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
 
     video = {"code": "MIDV-567", "title": "作品標題"}
@@ -279,6 +281,42 @@ def test_db_update_video_still_cleans_temp_file_on_go_error(monkeypatch):
 
     assert result is False
     assert not captured["temp_path"].exists()
+
+
+def test_db_update_video_uses_windows_accessible_temp_file_when_running_wsl(monkeypatch):
+    _patch_exe(monkeypatch)
+    captured = {}
+
+    windows_temp_dir = Path("/mnt/c/Users/cy5407/AppData/Local/Temp")
+    converted_temp_file = r"C:\Users\cy5407\AppData\Local\Temp\tmp-test.json"
+    real_named_temporary_file = tempfile.NamedTemporaryFile
+
+    def fake_named_temporary_file(*args, **kwargs):
+        assert kwargs["dir"] == str(windows_temp_dir)
+        return real_named_temporary_file(*args, **kwargs)
+
+    def fake_subprocess_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"success": true}', stderr="")
+
+    monkeypatch.setattr(go_cli, "_running_under_wsl", lambda: True)
+    monkeypatch.setattr(go_cli, "_windows_temp_dir", lambda: str(windows_temp_dir))
+    monkeypatch.setattr(go_cli, "_to_windows_cli_path", lambda _path: converted_temp_file)
+    monkeypatch.setattr(go_cli.tempfile, "NamedTemporaryFile", fake_named_temporary_file)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.db_update_video("MIDV-567", {"title": "可寫入案例"})
+
+    assert result is True
+    assert captured["cmd"][-1] == converted_temp_file
+
+
+def test_windows_temp_dir_converts_windows_localappdata_under_wsl(monkeypatch):
+    monkeypatch.setattr(go_cli, "_running_under_wsl", lambda: True)
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\cy5407\AppData\Local")
+    monkeypatch.setattr(go_cli, "_wsl_to_posix_path", lambda path: "/mnt/c/Users/cy5407/AppData/Local/Temp")
+
+    assert go_cli._windows_temp_dir() == "/mnt/c/Users/cy5407/AppData/Local/Temp"
 
 
 def test_db_get_all_videos_handles_list_and_missing_videos_key(monkeypatch):
@@ -317,7 +355,7 @@ def test_move_file_returns_default_result_when_cli_returns_non_dict(monkeypatch)
     }
 
 
-def test_extract_code_and_identify_studio_return_none_on_go_error(monkeypatch):
+def test_extract_code_and_identify_studio_raise_on_go_error(monkeypatch):
     _patch_exe(monkeypatch)
 
     def fake_subprocess_run(cmd, **kwargs):
@@ -325,8 +363,12 @@ def test_extract_code_and_identify_studio_return_none_on_go_error(monkeypatch):
 
     monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
 
-    assert go_cli.extract_code("bad-file.mp4") is None
-    assert go_cli.identify_studio("BAD-001") is None
+    import pytest
+
+    with pytest.raises(go_cli.GoError, match="failed"):
+        go_cli.extract_code("bad-file.mp4")
+    with pytest.raises(go_cli.GoError, match="failed"):
+        go_cli.identify_studio("BAD-001")
 
 
 def test_normalize_studio_name_uses_identify_normalize_contract(monkeypatch):
@@ -359,10 +401,13 @@ def test_normalize_studio_name_uses_identify_normalize_contract(monkeypatch):
     ]
 
 
-def test_normalize_studio_name_returns_none_on_go_error(monkeypatch):
+def test_normalize_studio_name_raises_on_go_error(monkeypatch):
     def fake_run(args, *, timeout=30, exe_path=None):
         raise go_cli.GoError("normalize failed")
 
     monkeypatch.setattr(go_cli, "run", fake_run)
 
-    assert go_cli.normalize_studio_name("MOODYZ DIVA") is None
+    import pytest
+
+    with pytest.raises(go_cli.GoError, match="normalize failed"):
+        go_cli.normalize_studio_name("MOODYZ DIVA")

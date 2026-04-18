@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,86 @@ _JSON_SUFFIX = ".json"
 
 _EXE_SEARCH_DONE = False
 _EXE_PATH: Optional[str] = None
+
+
+def _running_under_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+
+
+def _windows_temp_dir() -> str | None:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        if local_app_data.startswith("/"):
+            local_temp = Path(local_app_data) / "Temp"
+            if local_temp.exists():
+                return str(local_temp)
+        else:
+            converted = _wsl_to_posix_path(os.path.join(local_app_data, "Temp"))
+            if converted and Path(converted).exists():
+                return converted
+
+    candidate = Path("/mnt/c/Users")
+    if not candidate.exists():
+        return None
+
+    for user_dir in candidate.iterdir():
+        temp_dir = user_dir / "AppData" / "Local" / "Temp"
+        if temp_dir.exists():
+            return str(temp_dir)
+    return None
+
+
+def _wsl_to_posix_path(path: str) -> str | None:
+    if not (_running_under_wsl() and path):
+        return path if path else None
+    if path.startswith("/"):
+        return path
+
+    result = subprocess.run(
+        ["wslpath", "-u", path],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+    )
+    if result.returncode == 0:
+        converted = result.stdout.strip()
+        if converted:
+            return converted
+    return None
+
+
+def _to_windows_cli_path(path: str) -> str:
+    if _running_under_wsl() and path.startswith("/"):
+        result = subprocess.run(
+            ["wslpath", "-w", path],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+        if result.returncode == 0:
+            converted = result.stdout.strip()
+            if converted:
+                return converted
+    return path
+
+
+def _named_temp_json_file():
+    kwargs: dict[str, Any] = {
+        "mode": "w",
+        "suffix": _JSON_SUFFIX,
+        "delete": False,
+        "encoding": "utf-8",
+    }
+    if _running_under_wsl():
+        temp_dir = _windows_temp_dir()
+        if temp_dir:
+            kwargs["dir"] = temp_dir
+    return tempfile.NamedTemporaryFile(**kwargs)
 
 
 def _is_executable_file(path: str) -> bool:
@@ -137,13 +218,9 @@ def run(
 # ---------------------------------------------------------------------------
 
 def extract_code(filename: str) -> Optional[str]:
-    """從檔案名稱提取番號，失敗回傳 None。"""
-    try:
-        data = run(["scan", "-extract", filename])
-        return data.get("code") or None
-    except GoError as e:
-        logger.debug(f"Go 番號提取失敗: {e}")
-        return None
+    """從檔案名稱提取番號；找不到番號時回傳 None，CLI 異常則拋出 GoError。"""
+    data = run(["scan", "-extract", filename])
+    return data.get("code") or None
 
 
 # ---------------------------------------------------------------------------
@@ -151,14 +228,10 @@ def extract_code(filename: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def identify_studio(code: str) -> Optional[str]:
-    """識別番號所屬片商，失敗回傳 None。"""
-    try:
-        data = run(["identify", code])
-        studio = data.get("studio", "UNKNOWN")
-        return studio if studio and studio != "UNKNOWN" else None
-    except GoError as e:
-        logger.debug(f"Go 片商識別失敗: {e}")
-        return None
+    """識別番號所屬片商；UNKNOWN/無結果回傳 None，CLI 異常則拋出 GoError。"""
+    data = run(["identify", code])
+    studio = data.get("studio", "UNKNOWN")
+    return studio if studio and studio != "UNKNOWN" else None
 
 
 def normalize_studio_name(
@@ -168,7 +241,7 @@ def normalize_studio_name(
     *,
     exe_path: str | None = None,
 ) -> Optional[str]:
-    """透過 Go CLI 標準化片商名稱；失敗回傳 None。"""
+    """透過 Go CLI 標準化片商名稱；UNKNOWN/無結果回傳 None，CLI 異常則拋出 GoError。"""
     args = ["identify", "-normalize"]
     if studio_name:
         args.extend(["-studio", studio_name])
@@ -176,13 +249,9 @@ def normalize_studio_name(
         args.extend(["-code", video_code])
     if rules_file and rules_file != "studios.json":
         args.extend(["-rules", rules_file])
-    try:
-        data = run(args, exe_path=exe_path)
-        studio = data.get("studio", "UNKNOWN")
-        return studio if studio and studio != "UNKNOWN" else None
-    except GoError as e:
-        logger.debug(f"Go 片商標準化失敗: {e}")
-        return None
+    data = run(args, exe_path=exe_path)
+    studio = data.get("studio", "UNKNOWN")
+    return studio if studio and studio != "UNKNOWN" else None
 
 
 # ---------------------------------------------------------------------------
@@ -208,16 +277,14 @@ def db_update_video(code: str, video: dict, data_dir: str = _DEFAULT_DATA_DIR) -
     """更新影片資訊，成功回傳 True。"""
     temp_file = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=_JSON_SUFFIX, delete=False, encoding="utf-8"
-        ) as f:
+        with _named_temp_json_file() as f:
             json.dump(video, f, ensure_ascii=False, indent=2)
             temp_file = f.name
 
         cmd = ["db", "update"]
         if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
-        cmd.extend([code, temp_file])
+        cmd.extend([code, _to_windows_cli_path(temp_file)])
         run(cmd)
         return True
     except GoError as e:
@@ -244,17 +311,13 @@ def db_delete_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
 
 def db_get_all_videos(data_dir: str = _DEFAULT_DATA_DIR) -> list[dict]:
     """取得所有影片清單。"""
-    try:
-        cmd = ["db", "list", "--full"]
-        if data_dir != _DEFAULT_DATA_DIR:
-            cmd.extend(["-data-dir", data_dir])
-        data = run(cmd)
-        if isinstance(data, list):
-            return data
-        return data.get("videos", []) if isinstance(data, dict) else []
-    except GoError as e:
-        logger.error(f"db_get_all_videos 失敗: {e}")
-        return []
+    cmd = ["db", "list", "--full"]
+    if data_dir != _DEFAULT_DATA_DIR:
+        cmd.extend(["-data-dir", data_dir])
+    data = run(cmd)
+    if isinstance(data, list):
+        return data
+    return data.get("videos", []) if isinstance(data, dict) else []
 
 
 def db_compact_journal(data_dir: str = _DEFAULT_DATA_DIR) -> bool:
@@ -369,29 +432,21 @@ def cache_clear(cache_dir: str = "cache", dry_run: bool = False) -> dict:
 
 
 def db_backup_create(data_dir: str = _DEFAULT_DATA_DIR) -> dict:
-    try:
-        cmd = ["db", "backup-create"]
-        if data_dir != _DEFAULT_DATA_DIR:
-            cmd.extend(["-data-dir", data_dir])
-        return run(cmd)
-    except GoError as e:
-        logger.error(f"db_backup_create 失敗: {e}")
-        return {}
+    cmd = ["db", "backup-create"]
+    if data_dir != _DEFAULT_DATA_DIR:
+        cmd.extend(["-data-dir", data_dir])
+    return run(cmd)
 
 
 def db_backup_list(data_dir: str = _DEFAULT_DATA_DIR) -> list:
-    try:
-        cmd = ["db", "backup-list"]
-        if data_dir != _DEFAULT_DATA_DIR:
-            cmd.extend(["-data-dir", data_dir])
-        data = run(cmd)
-        if isinstance(data, dict):
-            backups = data.get("backups")
-            return backups if isinstance(backups, list) else []
-        return data if isinstance(data, list) else []
-    except GoError as e:
-        logger.error(f"db_backup_list 失敗: {e}")
-        return []
+    cmd = ["db", "backup-list"]
+    if data_dir != _DEFAULT_DATA_DIR:
+        cmd.extend(["-data-dir", data_dir])
+    data = run(cmd)
+    if isinstance(data, dict):
+        backups = data.get("backups")
+        return backups if isinstance(backups, list) else []
+    return data if isinstance(data, list) else []
 
 
 def db_backup_restore(backup_file: str, data_dir: str = _DEFAULT_DATA_DIR) -> dict:
@@ -406,46 +461,42 @@ def db_backup_restore(backup_file: str, data_dir: str = _DEFAULT_DATA_DIR) -> di
 
 
 def db_backup_cleanup(data_dir: str = _DEFAULT_DATA_DIR, **kwargs) -> int:
-    try:
-        cmd = ["db", "backup-cleanup"]
-        if data_dir != _DEFAULT_DATA_DIR:
-            cmd.extend(["-data-dir", data_dir])
-        if "days" in kwargs:
-            cmd.extend(["-days", str(kwargs["days"])])
-        if "max_count" in kwargs:
-            cmd.extend(["-max-count", str(kwargs["max_count"])])
-        data = run(cmd)
-        return int(data.get("deleted", 0)) if isinstance(data, dict) else 0
-    except GoError as e:
-        logger.error(f"db_backup_cleanup 失敗: {e}")
-        return 0
+    cmd = ["db", "backup-cleanup"]
+    if data_dir != _DEFAULT_DATA_DIR:
+        cmd.extend(["-data-dir", data_dir])
+    if "days" in kwargs:
+        cmd.extend(["-days", str(kwargs["days"])])
+    if "max_count" in kwargs:
+        cmd.extend(["-max-count", str(kwargs["max_count"])])
+    data = run(cmd)
+    return int(data.get("deleted", 0)) if isinstance(data, dict) else 0
 
 
 def db_get_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> Optional[dict]:
     try:
-        cmd = ["db", "actress-get", name]
+        cmd = ["db", "actress-get"]
         if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
+        cmd.append(name)
         return run(cmd)
     except GoError as e:
         if "not found" in str(e).lower():
             return None
         logger.error(f"db_get_actress 失敗: {e}")
-        return None
+        raise
 
 
 def db_update_actress(name: str, data: dict, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
     temp_file = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=_JSON_SUFFIX, delete=False, encoding="utf-8"
-        ) as f:
+        with _named_temp_json_file() as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
             temp_file = f.name
 
-        cmd = ["db", "actress-update", name, temp_file]
+        cmd = ["db", "actress-update"]
         if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
+        cmd.extend([name, _to_windows_cli_path(temp_file)])
         run(cmd)
         return True
     except GoError as e:
@@ -458,9 +509,10 @@ def db_update_actress(name: str, data: dict, data_dir: str = _DEFAULT_DATA_DIR) 
 
 def db_delete_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
     try:
-        cmd = ["db", "actress-delete", name]
+        cmd = ["db", "actress-delete"]
         if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
+        cmd.append(name)
         run(cmd)
         return True
     except GoError as e:
@@ -519,13 +571,11 @@ def batch_move(
     """批次移動檔案，items 為 [{"source": ..., "destination": ...}, ...]。"""
     temp_file = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=_JSON_SUFFIX, delete=False, encoding="utf-8"
-        ) as f:
+        with _named_temp_json_file() as f:
             json.dump(items, f, ensure_ascii=False)
             temp_file = f.name
         data = run(
-            ["move", "-batch", temp_file, "-strategy", strategy, "-log-dir", log_dir],
+            ["move", "-batch", _to_windows_cli_path(temp_file), "-strategy", strategy, "-log-dir", log_dir],
             exe_path=exe_path,
         )
         if isinstance(data, dict):

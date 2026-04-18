@@ -235,6 +235,33 @@ class TestJSONDatabase:
 
         assert db_manager.cleanup_old_backups(days=5, max_count=8) == 4
 
+    def test_create_backup_raises_runtime_on_go_error(self, db_manager, monkeypatch):
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_backup_create",
+            lambda **_kwargs: (_ for _ in ()).throw(json_database._GoBridgeError("backup failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="Go backup-create 失敗"):
+            db_manager.create_backup()
+
+    def test_get_backup_list_raises_runtime_on_go_error(self, db_manager, monkeypatch):
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_backup_list",
+            lambda **_kwargs: (_ for _ in ()).throw(json_database._GoBridgeError("list failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="Go backup-list 失敗"):
+            db_manager.get_backup_list()
+
+    def test_cleanup_old_backups_raises_runtime_on_go_error(self, db_manager, monkeypatch):
+        monkeypatch.setattr(
+            "src.models.json_database._go_db_backup_cleanup",
+            lambda **_kwargs: (_ for _ in ()).throw(json_database._GoBridgeError("cleanup failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="Go backup-cleanup 失敗"):
+            db_manager.cleanup_old_backups(days=5, max_count=8)
+
     def test_legacy_video_actress_links_is_rejected(self, temp_db_dir):
         payload = get_empty_json_database()
         payload["video_actress_links"] = {"TEST-001": ["actress-1"]}

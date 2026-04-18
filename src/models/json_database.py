@@ -417,7 +417,10 @@ class JSONDBManager:
         Raises:
             BackupError: 若備份失敗
         """
-        result = _go_db_backup_create(data_dir=str(self.data_dir))
+        try:
+            result = _go_db_backup_create(data_dir=str(self.data_dir))
+        except _GoBridgeError as e:
+            raise RuntimeError(f"Go backup-create 失敗: {e}") from e
         if isinstance(result, dict) and result.get("path"):
             return result["path"]
         raise RuntimeError("Go backup-create 回傳空結果")
@@ -454,7 +457,10 @@ class JSONDBManager:
         Returns:
             備份檔案路徑清單 (按時間排序)
         """
-        result = _go_db_backup_list(data_dir=str(self.data_dir))
+        try:
+            result = _go_db_backup_list(data_dir=str(self.data_dir))
+        except _GoBridgeError as e:
+            raise RuntimeError(f"Go backup-list 失敗: {e}") from e
         if result is not None:
             return result
         raise RuntimeError("Go backup-list 回傳空結果")
@@ -477,9 +483,12 @@ class JSONDBManager:
         if max_count is None:
             max_count = MAX_BACKUP_COUNT
 
-        deleted = _go_db_backup_cleanup(
-            data_dir=str(self.data_dir), days=days, max_count=max_count
-        )
+        try:
+            deleted = _go_db_backup_cleanup(
+                data_dir=str(self.data_dir), days=days, max_count=max_count
+            )
+        except _GoBridgeError as e:
+            raise RuntimeError(f"Go backup-cleanup 失敗: {e}") from e
         return deleted
 
     # ========================================================================

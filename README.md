@@ -9,8 +9,10 @@
 ```
 actress-classifier.exe   ← 桌面 GUI（Go + React/TypeScript，Wails 框架）
 classifier.exe           ← Go CLI（掃描、移動、資料庫工具）
-Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透過 subprocess 呼叫
+Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透過 subprocess 呼叫 `run_search.py` / `run_batch_search.py`
 ```
+
+> Python 主要只保留搜尋 / 爬蟲用途；掃描、移動、資料庫、操作歷史與片商工具以 Go / Go CLI 為主。
 
 ## 主要功能
 
@@ -28,7 +30,7 @@ Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透
 
 1. 從 [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases) 下載：
    - `actress-classifier.exe`（主程式）
-   - `classifier.exe`（Go CLI，搜尋與資料庫加速）
+   - `classifier.exe`（Go CLI，掃描、移動、資料庫、快取 / 片商工具）
    - `major_studios.json`（大片商清單）
    - `studios.json`（片商識別規則）
 2. 安裝 Python 3.11+，執行：

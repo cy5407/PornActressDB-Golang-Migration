@@ -173,6 +173,42 @@ class TestStudioIdentifier:
             "rules_file": "studios.json",
         }
 
+    def test_default_rules_file_identify_raises_when_go_cli_fails(self, monkeypatch):
+        """預設規則檔若 Go CLI 執行失敗，應明確拋錯而非降級。"""
+        import src.services.go_cli as go_cli_module
+
+        def fake_identify(_code):
+            raise go_cli_module.GoError("identify failed")
+
+        monkeypatch.setattr(
+            go_cli_module,
+            "identify_studio",
+            fake_identify,
+            raising=False,
+        )
+        identifier = StudioIdentifier()
+
+        with pytest.raises(RuntimeError, match="Go 片商識別失敗"):
+            identifier.identify_studio("SSIS-123")
+
+    def test_default_rules_file_normalize_raises_when_go_cli_fails(self, monkeypatch):
+        """預設規則檔若 Go CLI 標準化失敗，應明確拋錯而非降級。"""
+        import src.services.go_cli as go_cli_module
+
+        def fake_normalize(_studio_name, video_code=None, rules_file="studios.json"):
+            raise go_cli_module.GoError("normalize failed")
+
+        monkeypatch.setattr(
+            go_cli_module,
+            "normalize_studio_name",
+            fake_normalize,
+            raising=False,
+        )
+        identifier = StudioIdentifier()
+
+        with pytest.raises(RuntimeError, match="Go 片商標準化失敗"):
+            identifier.normalize_studio_name("Wrong Name", "SSIS-123")
+
     def test_code_to_studio_map(self, identifier):
         """測試番號代碼到片商的對映"""
         assert identifier.code_to_studio.get("SSIS") == "S1"

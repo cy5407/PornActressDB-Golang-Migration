@@ -146,20 +146,19 @@ class StudioIdentifier:
     def identify_studio(self, code: str) -> str:
         """識別番號所屬片商。
 
-        優先委派給 Go CLI；自訂規則檔（非 studios.json）使用本機前綴對照表；
-        Go 不可用且為預設規則檔時回傳 UNKNOWN。
+        預設規則檔必須委派給 Go CLI；自訂規則檔（非 studios.json）才使用本機前綴對照表。
         """
+        if self.rules_file.name != _DEFAULT_RULES_FILE:
+            if code:
+                prefix = code.upper().split('-')[0]
+                return self.code_to_studio.get(prefix, "UNKNOWN")
+            return "UNKNOWN"
+
         go_result = self._identify_studio_via_go(code)
-        if go_result is not None:
-            return go_result
-        # 自訂規則檔：Go 不處理，從本機 code_to_studio 查詢前綴
-        if code and self.rules_file.name != _DEFAULT_RULES_FILE:
-            prefix = code.upper().split('-')[0]
-            return self.code_to_studio.get(prefix, "UNKNOWN")
-        return "UNKNOWN"
+        return go_result if go_result is not None else "UNKNOWN"
 
     def _identify_studio_via_go(self, code: str) -> str | None:
-        """嘗試透過 Go CLI 識別片商；若 Go 不可用或使用自訂規則檔則回傳 None。"""
+        """透過 Go CLI 識別片商；自訂規則檔回傳 None。Go CLI 失敗時明確拋錯。"""
         # 若使用自訂規則檔（非預設 studios.json），Go CLI 規則可能不一致，直接用 Python
         if self.rules_file.name != _DEFAULT_RULES_FILE:
             return None
@@ -171,13 +170,12 @@ class StudioIdentifier:
                 from src.services.go_cli import identify_studio as go_identify
             return go_identify(code)
         except Exception as e:
-            logger.debug(f"Go 片商識別失敗，降級至 Python: {e}")
-            return None
+            raise RuntimeError(f"Go 片商識別失敗: {e}") from e
 
     def _normalize_studio_name_via_go(
         self, studio_name: str, video_code: str | None = None
     ) -> str | None:
-        """嘗試透過 Go CLI 標準化片商名稱；若 Go 不可用或使用自訂規則檔則回傳 None。"""
+        """透過 Go CLI 標準化片商名稱；自訂規則檔回傳 None。Go CLI 失敗時明確拋錯。"""
         if self.rules_file.name != _DEFAULT_RULES_FILE:
             return None
 
@@ -192,6 +190,5 @@ class StudioIdentifier:
                 rules_file=self.rules_file.name,
             )
         except Exception as e:
-            logger.debug(f"Go 片商標準化失敗，降級至 Python: {e}")
-            return None
+            raise RuntimeError(f"Go 片商標準化失敗: {e}") from e
 

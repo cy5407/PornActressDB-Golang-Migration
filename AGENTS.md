@@ -11,11 +11,11 @@
 
 ## 專案現況
 
-**女優分類系統 (Actress Classifier)** 是一個以 **Wails (Go + React/TypeScript)** 為桌面 GUI、以 **Go CLI** 處理掃描 / 移動 / 資料庫、以 **Python** 負責搜尋與爬蟲的 Windows 桌面工具。
+**女優分類系統 (Actress Classifier)** 是一個以 **Wails (Go + React/TypeScript)** 為桌面 GUI、以 **Go CLI** 處理掃描 / 移動 / 資料庫等非搜尋主流程、以 **Python** 主要負責搜尋與爬蟲的 Windows 桌面工具。
 
 - **主 GUI**：`actress-classifier.exe`
 - **Go CLI**：`classifier.exe`
-- **Python 搜尋管線**：`src/scrapers/`、`src/services/web_searcher.py`
+- **Python 搜尋管線**：`src/scrapers/run_search.py`、`src/scrapers/run_batch_search.py`、`src/services/web_searcher.py`
 - **主進入點**：`run.py`（優先啟動已建好的 Wails 執行檔）
 
 ## 快速開始
