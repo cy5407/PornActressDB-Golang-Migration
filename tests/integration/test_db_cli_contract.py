@@ -4,7 +4,8 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-CLASSIFIER_EXE = ROOT_DIR / "classifier.exe"
+import sys as _sys
+CLASSIFIER_EXE = ROOT_DIR / ("classifier.exe" if _sys.platform == "win32" else "classifier")
 
 
 def _write_data_json(db_dir: Path, code: str) -> None:

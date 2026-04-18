@@ -4,7 +4,8 @@ from src.utils.scanner import UnifiedFileScanner
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-CLASSIFIER_EXE = ROOT_DIR / "classifier.exe"
+import sys as _sys
+CLASSIFIER_EXE = ROOT_DIR / ("classifier.exe" if _sys.platform == "win32" else "classifier")
 
 
 def test_scanner_scan_directory_uses_real_go_cli(tmp_path):

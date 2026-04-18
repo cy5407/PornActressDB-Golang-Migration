@@ -4,7 +4,8 @@ from src.services import go_cli
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-CLASSIFIER_EXE = ROOT_DIR / "classifier.exe"
+import sys as _sys
+CLASSIFIER_EXE = ROOT_DIR / ("classifier.exe" if _sys.platform == "win32" else "classifier")
 
 
 def test_go_cli_run_scan_returns_real_json_list(tmp_path):
