@@ -64,9 +64,13 @@ Set-Location wails-app
 go test .\backend -v
 ```
 
-## 待確認項目
+## 已確認決策
 
-以下兩項仍屬決策閘門，尚未視為已完成：
+1. **`video_actress_links` 正規化**：移除 Python 實作，完全委派 Go CLI；Python 層不保留 fallback。
+2. **搜尋 URL log 脫敏**：不啟用，保持現狀（URL 明文記錄於 log）。
 
-1. 是否還需要保留舊版 `video_actress_links` 正規化支援
-2. 搜尋 URL 是否要在 log 中預設脫敏
+## 測試基線（Linux 純環境）
+
+- Python：**918 passed，2 skipped（WSL 專屬），0 failed**
+- Go pkg：**全部 PASS**
+- Go cmd/scanner：**全部 PASS**
