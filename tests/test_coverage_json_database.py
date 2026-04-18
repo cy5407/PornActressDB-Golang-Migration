@@ -215,6 +215,16 @@ class TestBackupErrors:
         assert call_kwargs["days"] == JSONDBManager.DEFAULT_BACKUP_DAYS
         assert call_kwargs["max_count"] == JSONDBManager.DEFAULT_BACKUP_MAX_COUNT
 
+    def test_cleanup_old_backups_go_error_raises_runtime(self, tmp_path):
+        """Go backup-cleanup 錯誤應包裝成 RuntimeError。"""
+        mgr = _make_manager(tmp_path)
+        with patch(
+            "src.models.json_database._go_db_backup_cleanup",
+            side_effect=GoError("cleanup failed"),
+        ):
+            with pytest.raises(RuntimeError, match="Go backup-cleanup 失敗"):
+                mgr.cleanup_old_backups()
+
 
 # ---------------------------------------------------------------------------
 # add_or_update_video：各種驗證與錯誤路徑

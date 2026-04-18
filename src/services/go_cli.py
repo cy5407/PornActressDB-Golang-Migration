@@ -76,7 +76,9 @@ def _wsl_to_posix_path(path: str) -> str | None:
 
 
 def _to_windows_cli_path(path: str) -> str:
-    if _running_under_wsl() and path.startswith("/"):
+    resolved_exe = _resolve_exe()
+    uses_windows_exe = bool(resolved_exe and resolved_exe.lower().endswith(".exe"))
+    if _running_under_wsl() and uses_windows_exe and path.startswith("/"):
         result = subprocess.run(
             ["wslpath", "-w", path],
             capture_output=True,
@@ -98,7 +100,9 @@ def _named_temp_json_file():
         "delete": False,
         "encoding": "utf-8",
     }
-    if _running_under_wsl():
+    resolved_exe = _resolve_exe()
+    uses_windows_exe = bool(resolved_exe and resolved_exe.lower().endswith(".exe"))
+    if _running_under_wsl() and uses_windows_exe:
         temp_dir = _windows_temp_dir()
         if temp_dir:
             kwargs["dir"] = temp_dir
@@ -167,6 +171,11 @@ class GoError(Exception):
 
 class GoNotFoundError(GoError):
     """classifier 執行檔不存在。"""
+
+
+def _is_not_found_error(error: GoError) -> bool:
+    """判斷 Go CLI 錯誤是否表示資料不存在。"""
+    return "not found" in str(error).lower()
 
 
 def run(
@@ -267,7 +276,7 @@ def db_get_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> Optional[dict]
         cmd.append(code)
         return run(cmd)
     except GoError as e:
-        if "not found" in str(e).lower():
+        if _is_not_found_error(e):
             return None
         logger.error(f"db_get_video 失敗: {e}")
         raise
@@ -296,7 +305,7 @@ def db_update_video(code: str, video: dict, data_dir: str = _DEFAULT_DATA_DIR) -
 
 
 def db_delete_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
-    """刪除影片，成功回傳 True。"""
+    """刪除影片；不存在回傳 False，其餘 CLI 異常則拋出 GoError。"""
     try:
         cmd = ["db", "delete"]
         if data_dir != _DEFAULT_DATA_DIR:
@@ -305,8 +314,11 @@ def db_delete_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
         run(cmd)
         return True
     except GoError as e:
+        if _is_not_found_error(e):
+            logger.warning(f"db_delete_video 找不到目標: {code}")
+            return False
         logger.error(f"db_delete_video 失敗: {e}")
-        return False
+        raise
 
 
 def db_get_all_videos(data_dir: str = _DEFAULT_DATA_DIR) -> list[dict]:
@@ -480,7 +492,7 @@ def db_get_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> Optional[dic
         cmd.append(name)
         return run(cmd)
     except GoError as e:
-        if "not found" in str(e).lower():
+        if _is_not_found_error(e):
             return None
         logger.error(f"db_get_actress 失敗: {e}")
         raise
@@ -508,6 +520,7 @@ def db_update_actress(name: str, data: dict, data_dir: str = _DEFAULT_DATA_DIR) 
 
 
 def db_delete_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
+    """刪除女優；不存在回傳 False，其餘 CLI 異常則拋出 GoError。"""
     try:
         cmd = ["db", "actress-delete"]
         if data_dir != _DEFAULT_DATA_DIR:
@@ -516,8 +529,11 @@ def db_delete_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
         run(cmd)
         return True
     except GoError as e:
+        if _is_not_found_error(e):
+            logger.warning(f"db_delete_actress 找不到目標: {name}")
+            return False
         logger.error(f"db_delete_actress 失敗: {e}")
-        return False
+        raise
 
 
 # ---------------------------------------------------------------------------

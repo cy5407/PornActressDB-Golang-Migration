@@ -199,9 +199,14 @@ class TestDbGetVideo:
 # ---------------------------------------------------------------------------
 
 class TestDbBulkOps:
-    def test_db_delete_video_error_returns_false(self):
-        with _mock_run_raise(GoError("delete failed")):
+    def test_db_delete_video_not_found_returns_false(self):
+        with _mock_run_raise(GoError("video not found")):
             assert db_delete_video("X-001") is False
+
+    def test_db_delete_video_other_error_raises(self):
+        with _mock_run_raise(GoError("delete failed")):
+            with pytest.raises(GoError, match="delete failed"):
+                db_delete_video("X-001")
 
     def test_db_get_all_videos_error_raises(self):
         with _mock_run_raise(GoError("list failed")):
@@ -336,10 +341,15 @@ class TestActressCRUD:
             result = db_delete_actress("actress-1")
         assert result is True
 
-    def test_db_delete_actress_error_returns_false(self):
-        with _mock_run_raise(GoError("delete failed")):
+    def test_db_delete_actress_not_found_returns_false(self):
+        with _mock_run_raise(GoError("actress not found")):
             result = db_delete_actress("actress-1")
         assert result is False
+
+    def test_db_delete_actress_other_error_raises(self):
+        with _mock_run_raise(GoError("delete failed")):
+            with pytest.raises(GoError, match="delete failed"):
+                db_delete_actress("actress-1")
 
 
 # ---------------------------------------------------------------------------

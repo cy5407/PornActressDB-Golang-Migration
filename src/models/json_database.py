@@ -72,6 +72,9 @@ class JSONDBManager:
         data: 記憶體中的資料快取
     """
 
+    DEFAULT_BACKUP_DAYS = MAX_BACKUP_AGE_DAYS
+    DEFAULT_BACKUP_MAX_COUNT = MAX_BACKUP_COUNT
+
     # 常數定義（備份天數/數量使用 json_types.MAX_BACKUP_AGE_DAYS / MAX_BACKUP_COUNT）
 
     def __init__(self, data_dir: str = "data/json_db"):

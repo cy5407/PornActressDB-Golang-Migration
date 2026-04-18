@@ -311,6 +311,38 @@ def test_db_update_video_uses_windows_accessible_temp_file_when_running_wsl(monk
     assert captured["cmd"][-1] == converted_temp_file
 
 
+def test_db_update_video_keeps_posix_temp_file_when_running_wsl_with_linux_classifier(monkeypatch):
+    captured = {}
+    real_named_temporary_file = tempfile.NamedTemporaryFile
+
+    def fake_named_temporary_file(*args, **kwargs):
+        captured["temp_dir"] = kwargs.get("dir")
+        return real_named_temporary_file(*args, **kwargs)
+
+    def fake_subprocess_run(cmd, **kwargs):
+        if cmd[0] == "wslpath":
+            raise AssertionError("linux classifier 不應觸發 wslpath 轉換")
+        temp_path = Path(cmd[-1])
+        captured["cmd"] = cmd
+        captured["temp_path"] = temp_path
+        assert temp_path.exists()
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"success": true}', stderr="")
+
+    monkeypatch.setattr(go_cli, "_running_under_wsl", lambda: True)
+    monkeypatch.setattr(go_cli, "_resolve_exe", lambda exe_path=None: exe_path or "classifier")
+    monkeypatch.setattr(go_cli, "_windows_temp_dir", lambda: "/mnt/c/Users/cy5407/AppData/Local/Temp")
+    monkeypatch.setattr(go_cli.tempfile, "NamedTemporaryFile", fake_named_temporary_file)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.db_update_video("MIDV-567", {"title": "WSL native Linux classifier"})
+
+    assert result is True
+    assert captured["temp_dir"] is None
+    assert str(captured["temp_path"]).startswith("/")
+    assert captured["cmd"][-1] == str(captured["temp_path"])
+    assert not captured["temp_path"].exists()
+
+
 def test_windows_temp_dir_converts_windows_localappdata_under_wsl(monkeypatch):
     monkeypatch.setattr(go_cli, "_running_under_wsl", lambda: True)
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\cy5407\AppData\Local")
