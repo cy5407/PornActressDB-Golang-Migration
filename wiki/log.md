@@ -1,9 +1,46 @@
 # Log
 
-> append-only，每次 ingest / 重大更新 / 踩坑修復 後追加一筆。  
-> 格式：`## [YYYY-MM-DD] <類型> | <摘要>`  
-> 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`  
+> append-only，每次 ingest / 重大更新 / 踩坑修復 後追加一筆。
+> 格式：`## [YYYY-MM-DD] <類型> | <摘要>`
+> 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
+
+## [2026-04-19] docs | 自動漂移審計（drift audit）
+
+**觸發**：自動 cron 排程 drift audit
+**分支**：`refactor/sonar-cognitive-complexity`
+
+### 發現漂移
+
+| 檔案 | 問題描述 |
+|------|---------|
+| `wiki/architecture/overview.md` | 描述舊 Tkinter GUI / GoBridge / PyInstaller 架構（已於 W6 全數移除）；目錄結構含已刪除的 `src/ui/`、`dist/女優分類系統_修復版.exe`；快速開始仍列舊 PyInstaller 指令 |
+| `wiki/architecture/go-bridge.md` | 仍描述已移除的三層橋接架構（`go_bridge.py`→`go_api/*.py`→`go_runner.py`）；沒有反映現行 `go_cli.py` 為唯一入口 |
+| `wiki/patterns/add-gui-button.md` | 整份文件為 Tkinter `src/ui/main_gui.py` 寫法（已移除），未更新為 Wails/React 規範 |
+| `wiki/patterns/add-go-api-function.md` | 描述舊「三處同步」規則（`go_api/db.py` → `__init__.py` → `go_bridge.py`），但這些層已全數移除 |
+| `wiki/index.md` | architecture/overview.md 和 go-bridge.md 摘要描述舊架構；add-go-api-function.md 和 add-gui-button.md 摘要引用舊 GoBridge 概念 |
+
+### 已更新
+
+- `wiki/architecture/overview.md`：重寫為 Wails + Go + Python 三層現行架構
+- `wiki/architecture/go-bridge.md`：保留 Phase 歷史表格，更新架構圖和使用說明為 `go_cli.py`
+- `wiki/patterns/add-gui-button.md`：改寫為 Wails/React binding + EventsEmit 範本
+- `wiki/patterns/add-go-api-function.md`：改寫為 Wails binding vs go_cli.py 兩種情境
+- `wiki/index.md`：修正四個頁面摘要描述
+
+### 無需更新
+
+- `README.md`：架構描述正確，已反映 Wails + Go CLI + Python 現況
+- `MIGRATION_STATUS.md`：正確描述現況
+- `wiki/architecture/go-cli.md`：命令樹、子命令描述正確
+- `wiki/architecture/database.md`：DB schema、Journal 機制正確
+- `wiki/architecture/search-engine.md`：搜尋架構正確
+- `wiki/architecture/wails-gui.md`：Wails GUI 架構正確
+- `wiki/architecture/studio-classification.md`：片商分類架構正確
+- `wiki/patterns/add-go-cli-command.md`、`naming-conventions.md`、`zero-actress-retry.md`：無漂移
+- 所有 `wiki/pitfalls/` 檔案：歷史踩坑，無需更新
+
+---
 
 ## [2026-04-08] fix | DB journal 未合併、資料格式不一致、資料庫合併
 
@@ -41,7 +78,7 @@ Go backend 寫入 `"success"`，資料庫標準為 `"searched_found"`，造成�
 
 ## [2026-04-08] feature | W7 片商分類移動功能實作完成
 
-**branch**：`feature/w7-studio-classification`  
+**branch**：`feature/w7-studio-classification`
 **commits**：55fd292 → 62b6747（6 commits）
 
 ### 實作內容
@@ -75,7 +112,7 @@ Go backend 寫入 `"success"`，資料庫標準為 `"searched_found"`，造成�
 
 ## [2026-04-07] fix | Wails 六大問題全修復（T1-T6）
 
-**commit**：e2b0289  
+**commit**：e2b0289
 
 | Task | 說明 | 修改檔案 |
 |------|------|---------|
@@ -291,7 +328,7 @@ Go backend 寫入 `"success"`，資料庫標準為 `"searched_found"`，造成�
 - 理由：符合 Phase 6 原則（記憶體讀取，非 IO 操作）
 
 **設計原則確立**：
-> backup、cache cleanup 等「工具性功能」同樣適用 Phase 6 原則 —— 凡涉及磁碟寫入/刪除，Go 不可用時一律 `raise RuntimeError`，不接受降級。  
+> backup、cache cleanup 等「工具性功能」同樣適用 Phase 6 原則 —— 凡涉及磁碟寫入/刪除，Go 不可用時一律 `raise RuntimeError`，不接受降級。
 > 唯一合法的 Python fallback 是從 `self.data`（已載入記憶體）直接讀取，且僅限讀取操作。
 
 **測試結果**：226 passed，0 failed（1.78s）
@@ -409,14 +446,14 @@ Go backend 寫入 `"success"`，資料庫標準為 `"searched_found"`，造成�
 
 ## [2026-04-06] fix | JAVDB False Positive
 
-**涉及檔案**：`src/services/safe_javdb_searcher.py`  
+**涉及檔案**：`src/services/safe_javdb_searcher.py`
 **踩坑**：Issue 12（見 pitfalls/javdb-false-positive.md）
 
 ---
 
 ## [2026-04-06] fix | PyInstaller 打包路徑修正
 
-**涉及檔案**：`src/models/studio.py`  
+**涉及檔案**：`src/models/studio.py`
 **踩坑**：PyInstaller 打包後 studios.json 應從 sys._MEIPASS 讀取（見 pitfalls/pyinstaller-path.md）
 
 ---

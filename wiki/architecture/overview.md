@@ -1,44 +1,147 @@
 # 系統架構總覽
 
 > 來源：`README.md`、`AGENTS.md`  
-> 更新：2026-04-06
+> 更新：2026-04-19（drift audit：反映 Wails + Go-only 遷移完成後現況）
 
 ---
 
 ## 概述
 
-**女優分類系統 v6.0.0** — Windows 桌面影片整理工具。
+**女優分類系統** — Windows 桌面影片整理工具。
 
 - 從影片檔名提取番號
 - 搜尋女優資訊（AV-WIKI → JAVDB 級聯）
 - 依女優或片商自動分類到資料夾
 - 批次移動 + 操作歷史 + 回滾
 
-**規模**：61 個程式檔，20,712 行（Python: 16,844 + Go: 3,868）
-
 ---
 
-## 雙語言架構
+## 三層架構
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                Python 層（GUI + 邏輯）                │
-│  Tkinter GUI → ClassifierCore → WebSearcher → DB     │
-│                       ↓                              │
-│              GoBridge (Facade)                       │
-│         go_api/*.py → GoCommandRunner                │
+│       Wails 桌面應用（Go + React/TypeScript）         │
+│  actress-classifier.exe                              │
+│  wails-app/backend/app.go（Go Bindings）              │
+│  wails-app/frontend/src/（React 18 + TypeScript）     │
 └─────────────────────────────────────────────────────┘
-                        ↓ subprocess
+              ↓ Go 直接 import（零橋接）
 ┌─────────────────────────────────────────────────────┐
-│               Go 層（效能敏感操作）                   │
-│        classifier.exe（6 個子命令）                  │
-│  scan | move | history | db | identify | cache       │
+│               Go CLI + pkg/ 套件                     │
+│  classifier.exe（scan/move/history/db/identify/cache）│
+│  pkg/extractor / mover / database / studio / cache  │
+└─────────────────────────────────────────────────────┘
+              ↓ subprocess（搜尋專用）
+┌─────────────────────────────────────────────────────┐
+│        Python 搜尋管線（爬蟲專用）                    │
+│  src/scrapers/run_search.py / run_batch_search.py   │
+│  src/services/web_searcher.py                       │
+│  src/scrapers/ (AV-WIKI、JAVDB 爬蟲)                │
 └─────────────────────────────────────────────────────┘
 ```
 
 **分工**：
-- **Python**：GUI、搜尋流程、分類邏輯、資料庫整合
-- **Go**：高速掃描、批次移動、資料庫工具、操作歷史
+- **Go（Wails backend + pkg）**：GUI、掃描、移動、資料庫、操作歷史、片商識別
+- **Python**：搜尋 / 爬蟲管線（AV-WIKI → JAVDB）；非爬蟲層不保留 Python fallback
+
+> ⚠️ Python Tkinter GUI、`go_bridge.py`、`go_api/`、`go_runner.py` 已於 W6（2026-04-07）全數移除。
+
+---
+
+## 主要執行檔
+
+| 執行檔 | 說明 |
+|--------|------|
+| `actress-classifier.exe` | Wails 桌面 GUI（主程式） |
+| `classifier.exe` | Go CLI（掃描/移動/DB/快取/片商） |
+| `run.py` | 優先啟動 Wails GUI，開發用入口 |
+
+---
+
+## 目錄結構
+
+```
+專案根目錄/
+├── wails-app/                # Wails 桌面應用
+│   ├── main.go               # Wails 進入點
+│   ├── backend/
+│   │   ├── app.go            # 所有 Go Bindings
+│   │   ├── app_test.go       # backend 單元測試
+│   │   └── services/
+│   │       └── config.go     # config.ini 讀寫
+│   └── frontend/
+│       └── src/              # React 18 + TypeScript UI
+│
+├── cmd/scanner/              # classifier.exe 入口（多檔套件）
+├── pkg/                      # Go 套件庫
+│   ├── app/                  # 服務層（ScanService、MoveService）
+│   ├── cache/                # 快取管理
+│   ├── database/             # 增量 JSON DB
+│   ├── extractor/            # 番號提取器
+│   ├── mover/                # 檔案移動（含回滾歷史）
+│   ├── pathutil/             # 路徑工具
+│   ├── safefile/             # 安全檔案操作
+│   └── studio/               # 片商識別器
+│
+├── src/                      # Python 搜尋管線
+│   ├── scrapers/             # AV-WIKI、JAVDB 爬蟲
+│   ├── services/             # web_searcher、go_cli、快取服務
+│   ├── models/               # JSON DB 委派層
+│   └── utils/                # scanner 等工具模組
+│
+├── data/json_db/             # 資料庫（執行時產生）
+├── logs/                     # 操作歷史（Go 產生）
+└── wiki/                     # 本知識庫
+```
+
+---
+
+## 主要功能模組
+
+### Go 端（Wails backend + pkg）
+
+| 模組 | 職責 |
+|------|------|
+| `wails-app/backend/app.go` | 全部 Wails bindings：掃描、移動、DB、搜尋、片商、設定 |
+| `wails-app/backend/services/config.go` | config.ini 讀寫（ConfigService） |
+| `cmd/scanner/` | CLI 進入點，6 個子命令分派 |
+| `pkg/app/` | 服務層（業務邏輯抽象） |
+| `pkg/extractor/` | 番號提取（正則） |
+| `pkg/mover/` | 檔案移動（含回滾歷史） |
+| `pkg/database/` | 增量 JSON DB 操作 |
+| `pkg/cache/` | 快取 get/set/delete |
+| `pkg/studio/` | 片商識別 |
+| `pkg/pathutil/` | 統一巢狀路徑判定 |
+
+### Python 端（搜尋管線，爬蟲專用）
+
+| 模組 | 職責 |
+|------|------|
+| `src/services/go_cli.py` | Python 呼叫 `classifier.exe` 的唯一正式入口 |
+| `src/services/web_searcher.py` | 多源搜尋協調（AV-WIKI → JAVDB） |
+| `src/scrapers/run_search.py` | Wails subprocess 呼叫入口（單筆搜尋） |
+| `src/scrapers/run_batch_search.py` | 批次搜尋入口 |
+| `src/models/json_database.py` | Go-only JSON DB 委派層 |
+| `src/models/incremental_json_database.py` | 增量 DB / compact 委派層 |
+| `src/scrapers/cache_manager.py` | 爬蟲快取層（委派 Go CLI） |
+| `src/utils/scanner.py` | Go CLI 掃描薄適配層 |
+
+---
+
+## 快速開始
+
+```powershell
+# 建置 Go CLI（套件路徑，勿用 main.go）
+go build -o classifier.exe .\cmd\scanner
+
+# 建置 Wails 桌面應用
+cd wails-app
+wails build
+# → wails-app\build\bin\actress-classifier.exe
+
+# 啟動（開發用）
+python run.py
+```
 
 ---
 
@@ -53,84 +156,10 @@
 
 ---
 
-## 目錄結構
-
-```
-專案根目錄/
-├── src/                      # Python 核心
-│   ├── models/               # 資料模型（DB、Extractor、Studio）
-│   ├── services/             # 業務邏輯（GoBridge、WebSearcher、Core）
-│   │   └── go_api/           # Go CLI 領域 API 封裝
-│   ├── scrapers/             # 爬蟲（AV-WIKI、JAVDB）
-│   ├── ui/                   # Tkinter GUI
-│   └── utils/                # 工具模組
-│
-├── cmd/scanner/              # Go CLI 主程式（多檔套件）
-├── pkg/                      # Go 套件庫
-│   ├── app/                  # 服務層（ScanService、MoveService）
-│   ├── cache/                # 快取管理
-│   ├── database/             # 增量 JSON DB
-│   ├── extractor/            # 番號提取器
-│   ├── mover/                # 檔案移動器
-│   └── studio/               # 片商識別器
-│
-├── data/json_db/             # 資料庫檔案
-├── logs/                     # 操作歷史（Go 產生）
-├── dist/                     # 發行版
-│   ├── 女優分類系統_修復版.exe  # PyInstaller 打包
-│   └── classifier.exe        # Go CLI（需手動同步）
-└── wiki/                     # 本知識庫
-```
-
----
-
-## 主要功能模組
-
-### Python 端
-
-| 模組 | 職責 |
-|------|------|
-| `src/ui/main_gui.py` | Tkinter 主介面，所有按鈕與背景執行緒 |
-| `src/services/classifier_core.py` | 分類核心：掃描 → 搜尋 → 分類 |
-| `src/services/web_searcher.py` | 多源搜尋協調（AV-WIKI → JAVDB） |
-| `src/services/go_bridge.py` | GoBridge Facade，Go CLI 統一入口 |
-| `src/services/go_api/` | Go CLI 各子命令的 Python 封裝 |
-| `src/models/incremental_json_database.py` | 增量 JSON DB（40x 加速） |
-| `src/models/json_database.py` | 標準 JSON DB（委派給 Go） |
-
-### Go 端
-
-| 套件 | 職責 |
-|------|------|
-| `cmd/scanner/` | CLI 進入點，6 個子命令分派 |
-| `pkg/app/` | 服務層（業務邏輯抽象） |
-| `pkg/extractor/` | 番號提取（正則） |
-| `pkg/mover/` | 檔案移動（含回滾歷史） |
-| `pkg/database/` | 增量 JSON DB 操作 |
-| `pkg/cache/` | 快取 get/set/delete |
-| `pkg/studio/` | 片商識別 |
-
----
-
-## 快速開始
-
-```powershell
-# 執行程式
-python run.py
-
-# 建置 Go CLI（套件路徑，勿用 main.go）
-go build -o classifier.exe .\cmd\scanner
-
-# 建立 Windows 發行版
-python -m PyInstaller --clean --noconfirm "女優分類系統_修復版.spec"
-Copy-Item .\classifier.exe .\dist\classifier.exe -Force
-```
-
----
-
 ## 相關頁面
 
-- [go-bridge.md](go-bridge.md) — GoBridge 委派架構詳解
+- [go-bridge.md](go-bridge.md) — Python→Go 委派歷史與現況（go_cli.py）
 - [go-cli.md](go-cli.md) — Go CLI 命令參考
 - [database.md](database.md) — 增量 JSON DB 說明
 - [search-engine.md](search-engine.md) — 搜尋引擎架構
+- [wails-gui.md](wails-gui.md) — Wails GUI 架構

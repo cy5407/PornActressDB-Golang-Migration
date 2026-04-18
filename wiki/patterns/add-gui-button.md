@@ -1,100 +1,140 @@
-# 新增 GUI 按鈕
+# 新增 GUI 按鈕（Wails / React）
+
+> ⚠️ **注意**：Python Tkinter GUI（`src/ui/`）已於 2026-04-07 W6 完全移除。
+> 本文件已更新為 **Wails v2 + React/TypeScript** 規範。
+> 舊 Tkinter 版本請見 `docs/archive/`（若存在）。
 
 ---
 
-## 完整範本
+## 前提知識
 
-### 1. row3_frame 加按鈕
+- GUI 位於 `wails-app/frontend/src/`（React 18 + TypeScript）
+- Go bindings 定義於 `wails-app/backend/app.go`
+- 新增功能需要同時修改：**前端 React 元件** + **後端 Go binding**（若需要新 API）
 
-```python
-# src/ui/main_gui.py
+---
 
-# 若 row3 原本是 2 欄，改為 3 欄
-row3_frame.columnconfigure((0, 1, 2), weight=1)
+## 完整範本：新增一個操作按鈕
 
-self.my_btn = ttk.Button(
-    row3_frame, text="🔧 功能名稱", command=self.start_my_feature
-)
-self.my_btn.grid(row=0, column=2, padx=(2, 0), sticky="ew", ipady=5)
+### 1. 後端：在 `app.go` 新增 binding 方法
+
+```go
+// wails-app/backend/app.go
+
+// MyFeature 執行某項功能。
+func (a *App) MyFeature(param string) MyFeatureResult {
+    // 直接呼叫 pkg/ 套件
+    result, err := somePackage.DoSomething(param)
+    if err != nil {
+        return MyFeatureResult{Error: err.Error()}
+    }
+    return MyFeatureResult{Data: result}
+}
 ```
 
-### 2. `_toggle_buttons` 加入新按鈕
+### 2. 後端：定義回傳型別
 
-```python
-def _toggle_buttons(self, is_task_running: bool):
-    buttons = [
-        ...
-        self.my_btn,   # ← 加入
-    ]
+```go
+type MyFeatureResult struct {
+    Data  string `json:"data"`
+    Error string `json:"error,omitempty"`
+}
 ```
 
-### 3. 觸發方法（確認 bridge 可用，再啟動背景執行緒）
+### 3. 重新產生 TypeScript bindings
 
-```python
-def start_my_feature(self):
-    from services.go_bridge import get_bridge   # ← 正確取法
-    bridge = get_bridge()
-    if not bridge.is_available:
-        messagebox.showwarning("警告", "Go CLI 不可用")
-        return
-
-    self.clear_results()
-    self.update_progress("🔧 功能名稱\n" + "=" * 60 + "\n")
-
-    threading.Thread(
-        target=self._run_task,
-        args=(self._my_feature_worker,),
-        daemon=True,
-    ).start()
+```powershell
+cd wails-app
+wails build  # 或 wails generate
 ```
 
-### 4. Worker 方法（背景執行緒）
+這會自動更新 `frontend/src/wailsjs/go/backend/App.js` 及對應 `.d.ts`。
 
-```python
-def _my_feature_worker(self):
-    from services.go_bridge import get_bridge
-    self.status_var.set("執行中：功能名稱...")
-    try:
-        bridge = get_bridge()
+### 4. 前端：在 React 元件中呼叫
 
-        # 取得資料庫路徑（正確方式）
-        data_dir = str(getattr(self.core.db_manager, "data_dir", "data/json_db"))
+```tsx
+// wails-app/frontend/src/App.tsx（或對應元件）
 
-        result = bridge.some_api(data_dir=data_dir)
+import { MyFeature } from '../wailsjs/go/backend/App'
 
-        if not self.is_running:
-            return
+const handleMyFeature = async () => {
+  setLoading(true)
+  try {
+    const result = await MyFeature(param)
+    if (result.error) {
+      setStatus(`❌ 錯誤：${result.error}`)
+    } else {
+      setStatus(`✅ 完成`)
+    }
+  } catch (e) {
+    setStatus(`❌ 呼叫失敗：${e}`)
+  } finally {
+    setLoading(false)
+  }
+}
 
-        # 更新結果...
-        self.status_var.set("完成")
+// 在 JSX 中加入按鈕
+<button onClick={handleMyFeature} disabled={loading}>
+  🔧 功能名稱
+</button>
+```
 
-    except Exception as e:
-        if self.is_running:
-            self.update_progress(f"\n💥 未預期錯誤: {e}\n")
-            self.status_var.set(f"錯誤: {e}")
+### 5. 使用 Wails Events 推送進度（耗時操作）
+
+```go
+// app.go — 後端主動推送進度
+func (a *App) MyLongFeature(codes []string) {
+    for i, code := range codes {
+        // 處理 code...
+        wailsRuntime.EventsEmit(a.ctx, "myfeature:progress", map[string]interface{}{
+            "current": i + 1,
+            "total":   len(codes),
+            "code":    code,
+        })
+    }
+    wailsRuntime.EventsEmit(a.ctx, "myfeature:done", map[string]interface{}{
+        "total": len(codes),
+    })
+}
+```
+
+```tsx
+// 前端監聽事件
+import { EventsOn } from '../wailsjs/runtime/runtime'
+
+useEffect(() => {
+  const unsubProgress = EventsOn('myfeature:progress', (data) => {
+    setProgress(`${data.current} / ${data.total}`)
+  })
+  const unsubDone = EventsOn('myfeature:done', (data) => {
+    setStatus(`✅ 完成 ${data.total} 項`)
+  })
+  return () => { unsubProgress(); unsubDone() }
+}, [])
 ```
 
 ---
 
 ## ❌ 常見錯誤
 
-| 錯誤寫法 | 正確寫法 |
-|---------|---------|
-| `self.core.go_bridge` | `get_bridge()` from go_bridge |
-| `getattr(self.core, "db_path", ...)` | `self.core.db_manager.data_dir` |
-| 直接在主執行緒呼叫耗時操作 | 用 `threading.Thread` + `_run_task` |
-| `root.update()` 在 worker 中更新 UI | `self.update_progress(msg)` （已有 throttle 機制） |
+| 錯誤 | 說明 | 修正 |
+|------|------|------|
+| 直接在 Go binding 做耗時操作而不推送進度 | 前端顯示無回應 | 用 `EventsEmit` 推送中間狀態 |
+| TypeScript bindings 未重新產生 | 呼叫新函式報 undefined | 執行 `wails build` 或 `wails generate` |
+| 忘記定義回傳型別 | JSON 解析失敗 | 在 `app.go` 補上對應 struct |
+| 在 Goroutine 中直接寫 React state | 不適用，Wails 已有 Event 機制 | 改用 `EventsEmit` |
 
 ---
 
 ## GUI 執行緒規則
 
-- **主執行緒**：只做 UI 操作（按鈕、標籤、對話框）
-- **背景執行緒**：所有 I/O、Go CLI 呼叫、爬蟲
-- `update_progress()` 內部已透過 `root.after()` 安全回主執行緒
+- Go binding 函式預設在主 Goroutine 執行；耗時操作應用 `go func()` + `EventsEmit` 推送進度
+- `a.ctx` 須在 `Startup()` 後才可用；若在 `NewApp()` 時呼叫 `EventsEmit` 會 panic
+- 取消操作：使用 `a.cancelScan`（`context.CancelFunc`）搭配 `context.WithCancel`
 
 ---
 
-## 相關踩坑
+## 相關頁面
 
-- [GUI Bridge 取法錯誤](../pitfalls/gui-bridge-wrong-access.md)（Issue 13）
+- [wails-gui.md](../architecture/wails-gui.md) — Wails 架構與 Bindings 對照表
+- [add-go-cli-command.md](add-go-cli-command.md) — 若需同時新增 CLI 子命令

@@ -9,9 +9,9 @@
 
 | 頁面 | 摘要 |
 |------|------|
-| [架構總覽](architecture/overview.md) | Python + Go 混合架構、資料流、各層職責 |
+| [架構總覽](architecture/overview.md) | Wails + Go + Python 混合架構、資料流、各層職責 |
 | [Go CLI 設計](architecture/go-cli.md) | classifier.exe 命令結構、JSON 輸出規範 |
-| [Go Bridge](architecture/go-bridge.md) | Python→Go 橋接層三層結構與 fallback 機制 |
+| [Go Bridge](architecture/go-bridge.md) | Python→Go 橋接歷史（Phase 1~11 + W6）、現行 go_cli.py 用法 |
 | [資料庫系統](architecture/database.md) | IncrementalJSONDB / JSONDBManager / Journal 機制 |
 | [搜尋引擎](architecture/search-engine.md) | AV-WIKI → JAVDB 級聯搜尋架構 |
 | [技術選型決策](architecture/tech-stack-decisions.md) | 爬蟲/GUI 語言比較與 Wails 長期路線圖 |
@@ -24,10 +24,10 @@
 
 | 頁面 | 摘要 |
 |------|------|
-| [新增 Go API 函式](patterns/add-go-api-function.md) | **必讀**：新增函式須同步更新的三個地方 |
+| [新增 Go API 函式](patterns/add-go-api-function.md) | **必讀**：Wails binding（app.go）或 go_cli.py 呼叫路徑選擇 |
 | [新增 Go CLI 子命令](patterns/add-go-cli-command.md) | Go CLI 子命令標準寫法（含 -json flag） |
-| [新增 GUI 按鈕](patterns/add-gui-button.md) | GUI 背景執行緒、GoBridge 取法、db_manager 路徑 |
-| [PyInstaller 打包](patterns/pyinstaller.md) | spec 設定、sys._MEIPASS 路徑、dist 同步 |
+| [新增 GUI 按鈕](patterns/add-gui-button.md) | Wails/React 按鈕範本、EventsEmit 進度推送、binding 規範 |
+| [PyInstaller 打包](patterns/pyinstaller.md) | spec 設定、sys._MEIPASS 路徑、dist 同步（歷史參考） |
 | [零女優二次搜尋](patterns/zero-actress-retry.md) | 零女優自動清快取 + 第二輪 JAVDB 搜尋流程 |
 | [命名規範](patterns/naming-conventions.md) | Python/Go/JSON/CLI API 動詞與跨語言對應規則 |
 | [Python Fallback 移除](patterns/remove-python-fallback.md) | Phase 6 策略：寫入→RuntimeError、讀取→記憶體、整刪包裝類別 |
