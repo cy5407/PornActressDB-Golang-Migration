@@ -13,6 +13,11 @@ except ImportError:  # pragma: no cover
     from src.utils.json_utils import dump as json_dump
     from src.utils.json_utils import load as json_load
 
+try:
+    import src.services.go_cli as _go_cli_mod
+except ImportError:  # pragma: no cover
+    _go_cli_mod = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RULES_FILE = "studios.json"
@@ -163,12 +168,12 @@ class StudioIdentifier:
         if self.rules_file.name != _DEFAULT_RULES_FILE:
             return None
 
+        go_cli = _go_cli_mod
+        if go_cli is None:
+            return None
+
         try:
-            try:
-                from services.go_cli import identify_studio as go_identify
-            except ImportError:
-                from src.services.go_cli import identify_studio as go_identify
-            return go_identify(code)
+            return go_cli.identify_studio(code)
         except Exception as e:
             raise RuntimeError(f"Go 片商識別失敗: {e}") from e
 
@@ -179,12 +184,12 @@ class StudioIdentifier:
         if self.rules_file.name != _DEFAULT_RULES_FILE:
             return None
 
+        go_cli = _go_cli_mod
+        if go_cli is None:
+            return None
+
         try:
-            try:
-                from services.go_cli import normalize_studio_name as go_normalize
-            except ImportError:
-                from src.services.go_cli import normalize_studio_name as go_normalize
-            return go_normalize(
+            return go_cli.normalize_studio_name(
                 studio_name,
                 video_code=video_code,
                 rules_file=self.rules_file.name,

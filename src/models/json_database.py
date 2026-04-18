@@ -14,13 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-try:
-    import orjson as _orjson_impl  # noqa: F401 — 僅用於相容性檢測
-    _ORJSON_AVAILABLE = True
-except ImportError:
-    _orjson_impl = None  # type: ignore
-    _ORJSON_AVAILABLE = False
-
 import src.utils.json_utils as _json_utils
 # Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
 UTC = timezone.utc

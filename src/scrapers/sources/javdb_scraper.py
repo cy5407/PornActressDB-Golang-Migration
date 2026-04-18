@@ -347,3 +347,22 @@ class JAVDBScraper(BaseScraper):
             "actresses": [],
             "message": f"未找到番號 {video_code} 的資訊",
         }
+
+    async def get_actress_info(self, actress_name: str) -> dict:
+        """查詢女優資訊，回傳作品數與片商分布。例外時拋出 ScrapingException。"""
+        try:
+            result = await self.safe_scrape(actress_name)
+        except Exception as e:
+            raise ScrapingException(str(e), ErrorType.NETWORK_ERROR, actress_name) from e
+        search_results = result.get("search_results", [])
+        studio_distribution: dict[str, int] = {}
+        for item in search_results:
+            studio = item.get("studio")
+            if studio:
+                studio_distribution[studio] = studio_distribution.get(studio, 0) + 1
+        return {
+            "actress_name": actress_name,
+            "total_works": len(search_results),
+            "works": search_results,
+            "studio_distribution": studio_distribution,
+        }

@@ -300,6 +300,18 @@ class UnifiedCacheManager:
 
         return stats
 
+    def print_stats(self) -> None:
+        """印出所有快取統計報告到 stdout。"""
+        stats = self.get_stats()
+        print("=== 快取統計報告 ===")
+        for name, source_stats in stats.get("sources", {}).items():
+            if "error" in source_stats:
+                print(f"  [{name}] 錯誤: {source_stats['error']}")
+            else:
+                print(f"  [{name}] entries={source_stats.get('entries', 0)}, size_mb={source_stats.get('size_mb', 0.0):.2f}")
+        summary = stats.get("summary", {})
+        print(f"  總計: entries={summary.get('total_entries', 0)}, size_mb={summary.get('total_size_mb', 0.0):.2f}")
+
     def _get_source_stats(self, cache: Any) -> dict[str, Any]:
         """取得單一來源統計"""
         # CacheManager

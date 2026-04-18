@@ -659,6 +659,12 @@ class WebSearcher:
             if result and result.get("actresses"):
                 self.search_cache[code] = result
 
+    def search_japanese_sites_only(
+        self, code: str, stop_event: threading.Event
+    ) -> dict | None:
+        """search_japanese_sites 的別名，保持向下相容。"""
+        return self.search_japanese_sites(code, stop_event)
+
     def search_japanese_sites(
         self, code: str, stop_event: threading.Event
     ) -> dict | None:

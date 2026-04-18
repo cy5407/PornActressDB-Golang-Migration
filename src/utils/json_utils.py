@@ -22,6 +22,11 @@ except Exception:  # pragma: no cover
 
 
 
+def is_orjson_available() -> bool:
+    """回傳目前環境是否有 orjson 可用。"""
+    return _ORJSON_AVAILABLE
+
+
 def loads(data: str | bytes, /) -> Any:
     """解析 JSON 字串/位元組。"""
 

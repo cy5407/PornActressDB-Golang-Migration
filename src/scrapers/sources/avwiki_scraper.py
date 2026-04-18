@@ -713,3 +713,24 @@ class AVWikiScraper(BaseScraper):
             "error_type": error_type,
             "source": "AV-WIKI",
         }
+
+    async def get_actress_info(self, actress_name: str) -> dict:
+        """查詢女優資訊，回傳作品數與相關資料。"""
+        try:
+            result = await self.safe_scrape(actress_name)
+            search_results = result.get("search_results", [])
+            return {
+                "actress_name": actress_name,
+                "total_works": len(search_results),
+                "search_results": search_results,
+            }
+        except Exception as e:
+            return {
+                "actress_name": actress_name,
+                "total_works": 0,
+                "error": str(e),
+            }
+
+    async def search_batch_concurrent(self, codes: list, *, max_concurrent: int = 5, progress_callback=None) -> dict:
+        """batch_search_concurrent 的別名，保持向下相容。"""
+        return await self.batch_search_concurrent(codes, max_concurrent=max_concurrent, progress_callback=progress_callback)
