@@ -327,3 +327,42 @@ def test_extract_code_and_identify_studio_return_none_on_go_error(monkeypatch):
 
     assert go_cli.extract_code("bad-file.mp4") is None
     assert go_cli.identify_studio("BAD-001") is None
+
+
+def test_normalize_studio_name_uses_identify_normalize_contract(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30, exe_path=None):
+        captured["args"] = args
+        captured["timeout"] = timeout
+        captured["exe_path"] = exe_path
+        return {"studio": "MOODYZ"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.normalize_studio_name(
+        "MOODYZ DIVA",
+        video_code="SSIS-123",
+        rules_file="custom.json",
+    )
+
+    assert result == "MOODYZ"
+    assert captured["args"] == [
+        "identify",
+        "-normalize",
+        "-studio",
+        "MOODYZ DIVA",
+        "-code",
+        "SSIS-123",
+        "-rules",
+        "custom.json",
+    ]
+
+
+def test_normalize_studio_name_returns_none_on_go_error(monkeypatch):
+    def fake_run(args, *, timeout=30, exe_path=None):
+        raise go_cli.GoError("normalize failed")
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.normalize_studio_name("MOODYZ DIVA") is None

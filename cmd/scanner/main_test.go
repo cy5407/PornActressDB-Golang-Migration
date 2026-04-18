@@ -71,6 +71,31 @@ func TestParseIdentifyCommandOptions_ParsesFlagsAndArgs(t *testing.T) {
 	}
 }
 
+func TestParseIdentifyCommandOptions_ParsesNormalizeFlags(t *testing.T) {
+	opts, remaining := parseIdentifyCommandOptions([]string{
+		"-normalize",
+		"-studio", "MOODYZ DIVA",
+		"-code", "SSIS-123",
+		"-rules", "custom.json",
+	})
+
+	if !opts.normalizeStudio {
+		t.Fatal("normalizeStudio should be true")
+	}
+	if opts.normalizeInput != "MOODYZ DIVA" {
+		t.Fatalf("normalizeInput = %q, want MOODYZ DIVA", opts.normalizeInput)
+	}
+	if opts.normalizeCode != "SSIS-123" {
+		t.Fatalf("normalizeCode = %q, want SSIS-123", opts.normalizeCode)
+	}
+	if opts.rulesFile != "custom.json" {
+		t.Fatalf("rulesFile = %q, want custom.json", opts.rulesFile)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("remaining = %#v, want empty", remaining)
+	}
+}
+
 func TestBuildStudioFixPlan_RequiresForceForKnownStudio(t *testing.T) {
 	video := database.NewVideo("STARS-001")
 	video.Studio = "S1"

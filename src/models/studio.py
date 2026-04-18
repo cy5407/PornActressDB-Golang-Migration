@@ -78,6 +78,10 @@ class StudioIdentifier:
         Returns:
             標準化後的片商名稱
         """
+        go_result = self._normalize_studio_name_via_go(studio_name, video_code)
+        if go_result is not None:
+            return go_result
+
         # 優先使用番號判斷，確保核心大片商優先套用
         if video_code:
             studio_from_code = self.identify_studio(video_code)
@@ -168,5 +172,26 @@ class StudioIdentifier:
             return go_identify(code)
         except Exception as e:
             logger.debug(f"Go 片商識別失敗，降級至 Python: {e}")
+            return None
+
+    def _normalize_studio_name_via_go(
+        self, studio_name: str, video_code: str | None = None
+    ) -> str | None:
+        """嘗試透過 Go CLI 標準化片商名稱；若 Go 不可用或使用自訂規則檔則回傳 None。"""
+        if self.rules_file.name != _DEFAULT_RULES_FILE:
+            return None
+
+        try:
+            try:
+                from services.go_cli import normalize_studio_name as go_normalize
+            except ImportError:
+                from src.services.go_cli import normalize_studio_name as go_normalize
+            return go_normalize(
+                studio_name,
+                video_code=video_code,
+                rules_file=self.rules_file.name,
+            )
+        except Exception as e:
+            logger.debug(f"Go 片商標準化失敗，降級至 Python: {e}")
             return None
 

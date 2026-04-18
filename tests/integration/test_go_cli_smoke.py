@@ -48,6 +48,11 @@ def test_go_cli_identify_studio_uses_real_classifier():
     assert go_cli.identify_studio("UNKNOWN-001") is None
 
 
+def test_go_cli_normalize_studio_name_uses_real_classifier():
+    assert go_cli.normalize_studio_name("MOODYZ DIVA") == "MOODYZ"
+    assert go_cli.normalize_studio_name("Unknown Studio", video_code="SSIS-123") == "S1"
+
+
 def test_go_cli_cache_round_trip_uses_real_classifier(tmp_path):
     cache_dir = tmp_path / "cache"
     payload = "真實 cache round-trip".encode("utf-8")

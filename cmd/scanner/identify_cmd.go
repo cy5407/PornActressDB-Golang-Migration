@@ -11,12 +11,15 @@ import (
 )
 
 type identifyCommandOptions struct {
-	batchFile    string
-	rulesFile    string
-	showPrefixes bool
-	listStudios  bool
-	checkMajor   bool
-	jsonOutput   bool
+	batchFile       string
+	rulesFile       string
+	showPrefixes    bool
+	listStudios     bool
+	checkMajor      bool
+	jsonOutput      bool
+	normalizeStudio bool
+	normalizeInput  string
+	normalizeCode   string
 }
 
 func identifyCmd(args []string) {
@@ -24,6 +27,10 @@ func identifyCmd(args []string) {
 	identifier, err := studio.NewStudioIdentifier(opts.rulesFile)
 	if err != nil {
 		printWarning("無法載入片商規則檔案，使用預設規則: %v", err)
+	}
+	if opts.normalizeStudio {
+		runIdentifyNormalize(opts, remaining, identifier)
+		return
 	}
 	if handleIdentifyListing(opts, remaining, identifier) {
 		return
@@ -43,14 +50,20 @@ func parseIdentifyCommandOptions(args []string) (identifyCommandOptions, []strin
 	listStudios := fs.Bool("list", false, "列出所有片商")
 	checkMajor := fs.Bool("major", false, "檢查是否為大片商")
 	jsonOutput := fs.Bool("json", false, "以 JSON 格式輸出")
+	normalizeStudio := fs.Bool("normalize", false, "標準化片商名稱")
+	normalizeInput := fs.String("studio", "", "要標準化的片商名稱")
+	normalizeCode := fs.String("code", "", "用來推斷片商的番號")
 	parseFlagsOrExit(fs, args)
 	return identifyCommandOptions{
-		batchFile:    *batchFile,
-		rulesFile:    *rulesFile,
-		showPrefixes: *showPrefixes,
-		listStudios:  *listStudios,
-		checkMajor:   *checkMajor,
-		jsonOutput:   *jsonOutput,
+		batchFile:       *batchFile,
+		rulesFile:       *rulesFile,
+		showPrefixes:    *showPrefixes,
+		listStudios:     *listStudios,
+		checkMajor:      *checkMajor,
+		jsonOutput:      *jsonOutput,
+		normalizeStudio: *normalizeStudio,
+		normalizeInput:  *normalizeInput,
+		normalizeCode:   *normalizeCode,
 	}, fs.Args()
 }
 
@@ -127,6 +140,30 @@ func buildIdentifyBatchResults(raw string, checkMajor bool, identifier *studio.S
 		results = append(results, result)
 	}
 	return results
+}
+
+func runIdentifyNormalize(opts identifyCommandOptions, remaining []string, identifier *studio.StudioIdentifier) {
+	studioName := resolveNormalizeStudioInput(opts, remaining)
+	if studioName == "" && opts.normalizeCode == "" {
+		printError("請指定 -studio、位置參數或 -code", "用法: classifier.exe identify -normalize -studio <片商名稱> [-code 番號]")
+		os.Exit(1)
+	}
+	result := map[string]any{
+		"input":  studioName,
+		"code":   opts.normalizeCode,
+		"studio": identifier.NormalizeStudioName(studioName, opts.normalizeCode),
+	}
+	outputJSON(result)
+}
+
+func resolveNormalizeStudioInput(opts identifyCommandOptions, remaining []string) string {
+	if opts.normalizeInput != "" {
+		return opts.normalizeInput
+	}
+	if len(remaining) > 0 {
+		return remaining[0]
+	}
+	return ""
 }
 
 func runIdentifySingle(opts identifyCommandOptions, remaining []string, identifier *studio.StudioIdentifier) {

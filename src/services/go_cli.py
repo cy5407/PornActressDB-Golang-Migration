@@ -161,6 +161,30 @@ def identify_studio(code: str) -> Optional[str]:
         return None
 
 
+def normalize_studio_name(
+    studio_name: str,
+    video_code: str | None = None,
+    rules_file: str = "studios.json",
+    *,
+    exe_path: str | None = None,
+) -> Optional[str]:
+    """透過 Go CLI 標準化片商名稱；失敗回傳 None。"""
+    args = ["identify", "-normalize"]
+    if studio_name:
+        args.extend(["-studio", studio_name])
+    if video_code:
+        args.extend(["-code", video_code])
+    if rules_file and rules_file != "studios.json":
+        args.extend(["-rules", rules_file])
+    try:
+        data = run(args, exe_path=exe_path)
+        studio = data.get("studio", "UNKNOWN")
+        return studio if studio and studio != "UNKNOWN" else None
+    except GoError as e:
+        logger.debug(f"Go 片商標準化失敗: {e}")
+        return None
+
+
 # ---------------------------------------------------------------------------
 # 資料庫操作
 # ---------------------------------------------------------------------------

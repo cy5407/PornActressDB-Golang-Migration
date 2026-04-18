@@ -146,6 +146,33 @@ class TestStudioIdentifier:
             # 應該建立預設檔案
             assert non_existent.exists()
 
+    def test_default_rules_file_normalize_uses_go_cli(self, monkeypatch):
+        """測試預設規則檔的片商標準化會優先委派 Go CLI"""
+        import src.services.go_cli as go_cli_module
+
+        captured = {}
+
+        def fake_normalize(studio_name, video_code=None, rules_file="studios.json"):
+            captured["studio_name"] = studio_name
+            captured["video_code"] = video_code
+            captured["rules_file"] = rules_file
+            return "S1"
+
+        monkeypatch.setattr(
+            go_cli_module,
+            "normalize_studio_name",
+            fake_normalize,
+            raising=False,
+        )
+        identifier = StudioIdentifier()
+
+        assert identifier.normalize_studio_name("Wrong Name", "SSIS-123") == "S1"
+        assert captured == {
+            "studio_name": "Wrong Name",
+            "video_code": "SSIS-123",
+            "rules_file": "studios.json",
+        }
+
     def test_code_to_studio_map(self, identifier):
         """測試番號代碼到片商的對映"""
         assert identifier.code_to_studio.get("SSIS") == "S1"
