@@ -1,7 +1,8 @@
 # ============================================================
-# 女優分類系統 — 安裝依賴腳本（Windows PowerShell）
+# 女優分類系統 — 建置腳本（Windows PowerShell）
+# 建置 classifier.exe 與 actress-classifier.exe 到專案根目錄
 # ============================================================
-# 使用方式：在 repo 根目錄以系統管理員或一般使用者身份執行
+# 使用方式：
 #   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned  (首次需執行)
 #   .\setup.ps1
 # ============================================================
@@ -14,29 +15,8 @@ function Write-Step($n, $msg) {
     Write-Host "=== [$n] $msg ===" -ForegroundColor Cyan
 }
 
-# ── [1/4] Python ────────────────────────────────────────────
-Write-Step "1/4" "檢查 Python 版本"
-try {
-    $pyVer = python --version
-    Write-Host $pyVer
-} catch {
-    Write-Host "❌ 找不到 python，請先安裝 Python 3.10+ 並加入 PATH" -ForegroundColor Red
-    exit 1
-}
-
-Write-Step "2/4" "安裝 Python 相依套件"
-Set-Location $RepoRoot
-if (-not (Test-Path "venv")) {
-    Write-Host "建立虛擬環境 venv\ ..."
-    python -m venv venv
-}
-& .\venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-Write-Host "✅ Python 相依安裝完成" -ForegroundColor Green
-
-# ── [2/4] Go ────────────────────────────────────────────────
-Write-Step "3/4" "安裝 Go 相依 & 建置 classifier.exe"
+# ── [1/3] Go 版本檢查 ─────────────────────────────────────────
+Write-Step "1/3" "檢查 Go 版本"
 try {
     $goVer = go version
     Write-Host $goVer
@@ -46,41 +26,55 @@ try {
     exit 1
 }
 
+# ── [2/3] 建置 classifier.exe ────────────────────────────────
+Write-Step "2/3" "建置 classifier.exe → 專案根目錄"
 Set-Location $RepoRoot
 go mod download
+go build -o "$RepoRoot\classifier.exe" .\cmd\scanner
+Write-Host "✅ classifier.exe 建置完成" -ForegroundColor Green
 
-Set-Location "$RepoRoot\wails-app"
-go mod download
+# ── [3/3] 建置 actress-classifier.exe ───────────────────────
+Write-Step "3/3" "建置 actress-classifier.exe → 專案根目錄"
 
-Set-Location $RepoRoot
-go build -o classifier.exe .\cmd\scanner
-Write-Host "✅ Go 相依 & classifier.exe 建置完成" -ForegroundColor Green
-
-# ── [3/4] Node / Frontend ───────────────────────────────────
-Write-Step "4/4" "安裝 Frontend Node 相依"
 try {
-    $nodeVer = node --version
-    Write-Host "Node $nodeVer"
+    node --version | Out-Null
 } catch {
     Write-Host "❌ 找不到 node，請先安裝 Node.js 18+" -ForegroundColor Red
     exit 1
 }
 
-Set-Location "$RepoRoot\wails-app\frontend"
-npm install
+try {
+    wails version | Out-Null
+} catch {
+    Write-Host "❌ 找不到 wails，請執行：go install github.com/wailsapp/wails/v2/cmd/wails@latest" -ForegroundColor Red
+    exit 1
+}
+
+Set-Location "$RepoRoot\wails-app"
+go mod download
+wails build
 Set-Location $RepoRoot
-Write-Host "✅ Frontend 相依安裝完成" -ForegroundColor Green
+
+$WailsOutput = "$RepoRoot\wails-app\build\bin\actress-classifier.exe"
+if (Test-Path $WailsOutput) {
+    Copy-Item $WailsOutput "$RepoRoot\actress-classifier.exe" -Force
+    Write-Host "✅ actress-classifier.exe 建置完成" -ForegroundColor Green
+} else {
+    Write-Host "❌ Wails build 完成但找不到輸出：$WailsOutput" -ForegroundColor Red
+    exit 1
+}
 
 # ── 完成 ─────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Yellow
-Write-Host "✅ 所有依賴安裝完成！" -ForegroundColor Green
+Write-Host "✅ 建置完成！" -ForegroundColor Green
 Write-Host ""
-Write-Host "啟動方式："
-Write-Host "  .\venv\Scripts\Activate.ps1"
-Write-Host "  python run.py"
+Write-Host "  classifier.exe          Go CLI"
+Write-Host "  actress-classifier.exe  Wails GUI"
 Write-Host ""
-Write-Host "建置 Wails GUI："
-Write-Host "  Set-Location wails-app"
-Write-Host "  wails build"
+Write-Host "啟動 GUI："
+Write-Host "  .\actress-classifier.exe"
+Write-Host ""
+Write-Host "Python 搜尋功能需另外安裝相依："
+Write-Host "  pip install -r requirements.txt"
 Write-Host "============================================" -ForegroundColor Yellow

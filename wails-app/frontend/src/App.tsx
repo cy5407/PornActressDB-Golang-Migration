@@ -114,6 +114,7 @@ function ActionToolbar() {
     pushEvent,
     resetProgress,
     clearSearchResults,
+    addSearchResult,
     setLastBatchResult,
     setShowSearchResults,
   } = useTaskStore();
@@ -129,7 +130,6 @@ function ActionToolbar() {
     searchFn: (codes: string[], workers: number) => Promise<backend.SearchResult[]>
   ) {
     setStatus('searching');
-    clearSearchResults();
     resetProgress();
     pushEvent('info', `🔍 ${source} 開始搜尋 ${codes.length} 筆番號…`);
     setStatusMessage(`${source} 搜尋中：0 / ${codes.length}`, 'info');
@@ -424,7 +424,11 @@ function ActionToolbar() {
       })
     );
 
-    // 跳過：任一來源已找到女優資料（無論搜尋順序）
+    // 分成：已有快取 vs 需要搜尋
+    const alreadyCached = videoStates.filter(({ video }) =>
+      isFoundSearchStatus(video?.['avwiki_actress_status']) ||
+      isFoundSearchStatus(video?.['javdb_actress_status'])
+    );
     const codes = videoStates
       .filter(
         ({ video }) =>
@@ -432,6 +436,24 @@ function ActionToolbar() {
           !isFoundSearchStatus(video?.['javdb_actress_status'])
       )
       .map(({ code }) => code);
+
+    // 已快取項目補進 searchResults，讓後續分類不遺漏
+    const existingCodes = new Set(searchResults.map((sr) => sr.code));
+    for (const { code, video } of alreadyCached) {
+      if (video && !existingCodes.has(code)) {
+        addSearchResult({
+          code,
+          title: video.title ?? '',
+          studio: video.studio ?? '',
+          release_date: video.release_date ?? '',
+          url: video.url ?? '',
+          actresses: video.actresses ?? [],
+          method: video.search_method ?? '',
+          error: '',
+        });
+        existingCodes.add(code);
+      }
+    }
 
     if (codes.length === 0) {
       setStatusMessage(`${source}：沒有需要重新搜尋的項目`, 'warning');
