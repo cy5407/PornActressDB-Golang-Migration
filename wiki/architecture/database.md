@@ -13,7 +13,7 @@
 |------|------|
 | 格式 | JSON（人類可讀） |
 | 備份 | 複製單一 `data.json` 即可 |
-| 並行 | filelock 機制防止競態 |
+| 並行 | 重試（retry）機制，filelock 已於 p13 移除 |
 | 效能 | Journal 機制提升寫入速度 40x |
 | Go 加速 | 查詢/更新委派給 Go CLI（78,000x 讀取加速） |
 
@@ -90,7 +90,7 @@ db.compact_if_needed()
 ```python
 from models.json_database import JSONDBManager
 
-db = JSONDBManager('data/json_db/data.json')
+db = JSONDBManager('data/json_db')
 
 # 以下方法在 Go 可用時委派給 Go CLI
 db.get_video_info('STARS-707')         # → Go: db get STARS-707

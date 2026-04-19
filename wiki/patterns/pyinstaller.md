@@ -1,3 +1,8 @@
+> [!NOTE]
+> 此文件為歷史存檔。PyInstaller 打包流程已於 W1~W6 重構中移除。
+> 目前發行版由 Wails 建置（`wails build`），產出 actress-classifier.exe。
+> 本頁內容僅供參考舊版相容性，請勿作為目前的重建指引。
+
 # PyInstaller 打包指南
 
 > 來源：`女優分類系統_修復版.spec`  

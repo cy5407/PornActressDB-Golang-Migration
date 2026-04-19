@@ -2,6 +2,12 @@
 category: Go
 date: 2026-04-06
 ---
+
+> [!NOTE]
+> 此 pitfall 在移除 go_api/go_runner 架構後已不適用。
+> 目前 go_cli.py 的 run() 不自動附加 -json 旗標，新增 Go 子命令無需宣告 no-op -json flag。
+> 本頁保留作歷史參考。
+
 # Issue 15：Go CLI 未定義 -json flag → ExitOnError 靜默退出
 
 **日期**：2026-04-06  

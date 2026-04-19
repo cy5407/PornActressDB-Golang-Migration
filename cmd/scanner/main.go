@@ -75,9 +75,11 @@ func printUsage() {
   scan      掃描目錄中的影片檔案，提取番號
   move      移動檔案（單檔或批次）
   history   查看操作歷史或回滾
-  db        資料庫操作（get, update, delete, list, stats, merge）
+  db        資料庫操作（get, update, delete, list, stats, merge, compact,
+            fix-studios, actress-get/update/delete/list,
+            backup-create/backup-restore/backup-list/backup-cleanup）
   identify  識別番號所屬片商
-  cache     快取管理（stats, prune, clear）
+  cache     快取管理（stats, prune, clear, get, set, delete）
 
 範例:
   classifier.exe scan -dir "D:\Videos"
@@ -88,14 +90,28 @@ func printUsage() {
   classifier.exe history rollback abc123
   classifier.exe db get STARS-707
   classifier.exe db update STARS-707 video.json
+  classifier.exe db delete STARS-707
   classifier.exe db list
   classifier.exe db stats
   classifier.exe db merge -source dist\data\json_db\data.json
+  classifier.exe db compact
+  classifier.exe db fix-studios
+  classifier.exe db actress-get "Julia"
+  classifier.exe db actress-update "Julia" actress.json
+  classifier.exe db actress-delete "Julia"
+  classifier.exe db actress-list
+  classifier.exe db backup-create
+  classifier.exe db backup-restore backup-2026-01-01.json
+  classifier.exe db backup-list
+  classifier.exe db backup-cleanup
   classifier.exe identify SONE-123
   classifier.exe identify -batch codes.txt
   classifier.exe cache stats
   classifier.exe cache prune -ttl-days 7
-  classifier.exe cache clear -confirm`)
+  classifier.exe cache clear -confirm
+  classifier.exe cache get "search:STARS-707"
+  classifier.exe cache set "key" "value"
+  classifier.exe cache delete "search:STARS-707"`)
 }
 
 // === Scan 命令 ===

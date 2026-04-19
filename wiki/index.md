@@ -68,7 +68,7 @@
 - **CI/CD 故障排查** → [pitfalls/github-actions-issues.md](pitfalls/github-actions-issues.md)（Issue 1-22）
 - **新增 Go API 功能** → [patterns/add-go-api-function.md](patterns/add-go-api-function.md)
 - **新增 GUI 按鈕** → [patterns/add-gui-button.md](patterns/add-gui-button.md)
-- **Rebuild EXE** → [patterns/pyinstaller.md](patterns/pyinstaller.md)
+- **Rebuild EXE（Wails）** → 執行 `wails build`（參見 [README.md](../README.md)）｜[歷史存檔：PyInstaller](patterns/pyinstaller.md)
 - **命名規範檢查** → [patterns/naming-conventions.md](patterns/naming-conventions.md)
 - **搜尋架構理解** → [architecture/search-engine.md](architecture/search-engine.md)
 - **完整茶包射手** → [docs/茶包射手/github-actions-workflow.md](../docs/茶包射手/github-actions-workflow.md) | [wails-e2e-scan.md](../docs/茶包射手/wails-e2e-scan.md)

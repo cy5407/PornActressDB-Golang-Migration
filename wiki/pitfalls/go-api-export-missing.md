@@ -2,6 +2,11 @@
 category: Go
 date: 2026-04-06
 ---
+
+> [!NOTE]
+> 此 pitfall 已不適用。go_api/ 套件已於 W1~W6 重構中完全移除。
+> 本頁保留作歷史參考。
+
 # Issue 14：go_api 匯出遺漏 → AttributeError
 
 **日期**：2026-04-06  
