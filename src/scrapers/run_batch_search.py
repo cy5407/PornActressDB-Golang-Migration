@@ -90,7 +90,7 @@ def _normalize(raw: dict, code: str) -> dict:
         "release_date": raw.get("release_date") or raw.get("releaseDate") or "",
         "url": raw.get("url") or "",
         "actresses": actresses,
-        "method": raw.get("search_method") or raw.get("method") or "",
+        "search_method": raw.get("search_method") or raw.get("method") or "",
         "error": "",
         "error_kind": raw.get("error_kind") or "",
     }
@@ -104,7 +104,7 @@ def _build_error_result(code: str, message: str, error_kind: str) -> dict:
         "release_date": "",
         "url": "",
         "actresses": [],
-        "method": "",
+        "search_method": "",
         "error": message,
         "error_kind": error_kind,
     }

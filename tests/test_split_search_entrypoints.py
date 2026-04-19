@@ -168,7 +168,7 @@ def test_run_batch_search_search_one_preserves_search_error_semantics(monkeypatc
     assert result["error_kind"] == "error"
     assert result["title"] == ""
     assert result["actresses"] == []
-    assert result["method"] == ""
+    assert result["search_method"] == ""
 
 
 def test_run_batch_search_search_one_marks_exception_with_error_kind(monkeypatch):

@@ -26,13 +26,7 @@ sys.modules['models.config'] = models_config
 
 models_json_types = types.ModuleType('models.json_types')
 def get_empty_video():
-    return {
-        'code': '', 'title': '', 'studio': '', 'release_date': '', 'url': '',
-        'actresses': [], 'method': '', 'error': '',
-        'avwiki_actress_status': '', 'avwiki_last_search_date': '',
-        'javdb_actress_status': '', 'javdb_last_search_date': '',
-        'created_at': '', 'updated_at': '',
-    }
+    return {\n        'code': '', 'title': '', 'studio': '', 'release_date': '', 'url': '',\n        'actresses': [], 'search_method': '', 'error': '',\n        'avwiki_actress_status': '', 'avwiki_last_search_date': '',\n        'javdb_actress_status': '', 'javdb_last_search_date': '',\n        'created_at': '', 'updated_at': '',\n    }
 models_json_types.get_empty_video = get_empty_video
 sys.modules['models.json_types'] = models_json_types
 
@@ -61,7 +55,6 @@ class WebSearcher:
             'release_date': '2026-04-11',
             'url': 'https://example.invalid/' + code,
             'actresses': ['Actor A'],
-            'method': 'FAKE',
             'search_method': 'FAKE',
         }
         self.search_avwiki_only = self.search_info
@@ -92,7 +85,7 @@ def test_run_search_subprocess_smoke_success(tmp_path):
     payload = json.loads(proc.stdout.strip())
     assert payload["code"] == "ABC-123"
     assert payload["title"] == "Fake Title"
-    assert payload["method"] == "FAKE"
+    assert payload["search_method"] == "FAKE"
     assert payload["error"] == ""
 
 
