@@ -43,18 +43,39 @@ Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透
 
 ### 開發者（自行建置）
 
+#### 一鍵安裝依賴
+
+```powershell
+# Windows（PowerShell）
+.\setup.ps1
+```
+
+```bash
+# Linux / macOS
+chmod +x setup.sh && ./setup.sh
+```
+
+腳本會自動完成：建立 Python venv、安裝 pip 套件、`go mod download`、建置 `classifier(.exe)`、`npm install`。
+
+#### 手動步驟
+
 ```powershell
 # 1. Clone 專案
 git clone https://github.com/cy5407/PornActressDB-Golang-Migration
 cd PornActressDB-Golang-Migration
 
 # 2. 安裝 Python 爬蟲相依套件
+python -m venv venv
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
 # 3. 建置 Go CLI
 go build -o classifier.exe .\cmd\scanner
 
-# 4. 建置 Wails 桌面應用
+# 4. 安裝 Frontend 相依
+cd wails-app\frontend && npm install && cd ..\..
+
+# 5. 建置 Wails 桌面應用
 cd wails-app
 wails build
 # → wails-app\build\bin\actress-classifier.exe
@@ -148,6 +169,8 @@ major_studios.json        # 大片商清單
 studios.json              # 片商識別規則
 config.ini                # 設定檔（從 config.ini.example 複製）
 requirements.txt          # Python 爬蟲相依套件
+setup.ps1                 # 一鍵安裝依賴（Windows PowerShell）
+setup.sh                  # 一鍵安裝依賴（Linux / macOS）
 │
 wails-app\                # Wails 桌面應用原始碼
 │   backend\app.go        # Go 後端 bindings
@@ -226,9 +249,28 @@ Major studios are defined in `major_studios.json`, while broader studio identifi
 
 ## Building from Source
 
+### One-command setup
+
+```powershell
+# Windows (PowerShell)
+.\setup.ps1
+```
+
+```bash
+# Linux / macOS
+chmod +x setup.sh && ./setup.sh
+```
+
+The scripts create a Python venv, install pip packages, run `go mod download`, build `classifier(.exe)`, and run `npm install` automatically.
+
+### Manual steps
+
 ```powershell
 # Go CLI
 go build -o classifier.exe .\cmd\scanner
+
+# Frontend dependencies
+cd wails-app\frontend && npm install && cd ..\..
 
 # Wails desktop app
 cd wails-app
