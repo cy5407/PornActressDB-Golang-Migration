@@ -59,6 +59,8 @@
 | [Extractor `[CODE]` 格式被清空](pitfalls/go-extractor-bracket-format.md) | `[SKMJ-310] 標題.mp4` 格式的番號被 bracketRe 誤清除；同時修正 PPV 位數判斷 | 2026-04-08 |
 | [Wails dist 缺少片商資料](pitfalls/wails-dist-missing-studio-data.md) | `studios.json` / `major_studios.json` 不會自動複製到 dist/，片商分類整體失效 | 2026-04-08 |
 | [**Wails 片商名稱正規化錯誤**](pitfalls/wails-studio-canonical-match.md) | `canonicalMajorStudio()` 大小寫不敏感缺失 → SOD star 歸錯資料夾；路徑解析需往上三層找專案根 | W8 |
+| [**來源搜尋清空結果致未分類**](pitfalls/wails-source-search-clears-results.md) | `runSourceSearch` 清空前輪結果 + 快取番號 filter 後從未進 store；已修復（`20602f2`） | 2026-04-19 |
+| [**Python 欄位 method vs search_method 不一致**](pitfalls/python-search-method-field-mismatch.md) | `run_batch_search.py` 輸出 `"method"` 但 Go handler 期望 `"search_method"`，導致搜尋來源永遠空白；已修復（`b496dd5`） | 2026-04-20 |
 
 ---
 

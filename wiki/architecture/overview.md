@@ -1,7 +1,7 @@
 # 系統架構總覽
 
 > 來源：`README.md`、`AGENTS.md`  
-> 更新：2026-04-19（drift audit：反映 Wails + Go-only 遷移完成後現況）
+> 更新：2026-04-20（補充 setup.sh / setup.ps1 一鍵安裝說明）
 
 ---
 
@@ -129,6 +129,22 @@
 ---
 
 ## 快速開始
+
+### 一鍵安裝依賴（推薦）
+
+```powershell
+# Windows（PowerShell）
+.\setup.ps1
+```
+
+```bash
+# Linux / macOS
+chmod +x setup.sh && ./setup.sh
+```
+
+腳本會自動完成：建立 Python venv、安裝 pip 套件、`go mod download`、建置 `classifier(.exe)`、`npm install`。
+
+### 手動步驟
 
 ```powershell
 # 建置 Go CLI（套件路徑，勿用 main.go）

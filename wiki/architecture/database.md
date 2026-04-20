@@ -1,7 +1,7 @@
 # 資料庫架構
 
-> 來源：`src/models/incremental_json_database.py`、`MIGRATION_STATUS.md`  
-> 更新：2026-04-06
+> 來源：`src/models/incremental_json_database.py`、`MIGRATION_STATUS.md`、`INTERFACE_AUDIT.md`  
+> 更新：2026-04-20（新增 error / error_kind / search_error_reason 欄位）
 
 ---
 
@@ -124,7 +124,9 @@ classifier.exe db fix-studios -studios studios.json
   "title": "影片標題",
   "search_status": "searched_found",
   "search_method": "AV-WIKI",
-  "last_search_date": "2026-01-01T00:00:00"
+  "last_search_date": "2026-01-01T00:00:00",
+  "error": "",
+  "error_kind": ""
 }
 ```
 
@@ -140,12 +142,25 @@ classifier.exe db fix-studios -studios studios.json
 ### search_method 枚舉
 
 | 值 | 說明 |
-|----|------|
+|----------------|------|
 | `AV-WIKI` | 從 AV-WIKI 找到 |
 | `JAVDB` | 從 JAVDB 找到 |
 | `JAVDB (二次搜尋)` | 零女優二次搜尋成功 |
 | `cascade` | 級聯搜尋 |
 | `legacy-import` | 舊版匯入 |
+
+### error / error_kind 欄位
+
+> 新增於 `f61001a`（2026-04-20）
+
+| 欄位 | 說明 |
+|------|------|
+| `error` | 搜尋失敗時的錯誤訊息（來自 Python `run_batch_search.py` 的 `_build_error_result()`） |
+| `error_kind` | 錯誤類型分類（如 `timeout`、`parse_error` 等） |
+
+這兩個欄位僅在 `search_status == "search_error"` 時有意義；搜尋成功時為空字串。
+
+> ⚠️ 注意：`search_error_reason` 是 Python 搜尋管線的**暫時欄位**（見 `src/services/web_searcher.py`），**不會**持久化到 Go DB。Go DB 只持久化 `error` 和 `error_kind`。
 
 ---
 

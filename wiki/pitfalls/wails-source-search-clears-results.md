@@ -1,6 +1,7 @@
 ---
 category: Wails
 date: 2026-04-19
+fixed_in: 20602f2
 ---
 # 來源搜尋（AV-WIKI / JAVDB）導致部分番號落入 未分類
 
@@ -124,3 +125,5 @@ JAVDB   → 快取 A,B,C,D 補入 store（去重）+ 新搜 E,F → store:[A,B,C
   - `runSourceSearch()`：移除 `clearSearchResults()`
   - `handleSourceSearch()`：補入已快取番號到 `searchResults`
 - `wails-app/frontend/src/stores/taskStore.ts` — `searchResults` store、`addSearchResult`
+
+> ✅ **已修復**：commit `20602f2` `fix(frontend): 修正來源搜尋導致番號落入未分類的兩個 Bug`（2026-04-19）

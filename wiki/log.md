@@ -5,6 +5,30 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-04-20] ingest | 跨層介面修復、新欄位、一鍵安裝腳本
+
+**commits**：`f61001a`（error 欄位持久化）、`b496dd5`（search_method 欄位修正）、`278b69e`（INTERFACE_AUDIT.md 建立）、`20602f2`（來源搜尋 Bug 修復）、`bda23a9`（setup.sh / setup.ps1）
+
+### 更新內容
+
+| 檔案 | 變更 |
+|------|------|
+| `wiki/architecture/database.md` | Schema 新增 `error`、`error_kind` 兩個欄位說明（commit `f61001a`）；補充說明 `search_error_reason` 僅為 Python 管線暫時欄位，不持久化至 Go DB |
+| `wiki/architecture/overview.md` | 快速開始新增 `setup.sh` / `setup.ps1` 一鍵安裝說明（commit `bda23a9`） |
+| `wiki/pitfalls/python-search-method-field-mismatch.md` | **新增**：Python 輸出 `"method"` 而 Go 期望 `"search_method"` 導致欄位遺失（commit `b496dd5`） |
+| `wiki/pitfalls/wails-source-search-clears-results.md` | 新增 `fixed_in: 20602f2` frontmatter 並在末尾追加「已修復」標記 |
+| `wiki/index.md` | 踩坑表格補上 `python-search-method-field-mismatch` 與 `wails-source-search-clears-results` 條目 |
+
+### 背景
+
+- **f61001a**：Go `pkg/database/types.go` 新增 `Error`、`ErrorKind` 欄位；`journal.go` 新增對應 handler，確保 Python 搜尋失敗時的 error 資訊能持久化到 DB
+- **b496dd5**：完整介面審查（`INTERFACE_AUDIT.md`）確認 Bug 1：Python 輸出欄位名 `method` 與 Go handler key `search_method` 不符，修正後搜尋來源可正確寫入 DB。注意：`run_search.py` 的 `_error()` 路徑目前仍輸出 `"method"`，為已知殘留問題
+- **278b69e**：建立 `INTERFACE_AUDIT.md`，完整記錄 Python → Go 跨層介面契約（JSON 欄位、函式簽名、binding），作為 TDD 契約測試的基準文件
+- **20602f2**：修復來源搜尋（AV-WIKI / JAVDB）兩個獨立 Bug，避免已搜尋番號在重開程式後落入未分類資料夾
+- **bda23a9**：新增 `setup.sh`（Linux/macOS）與 `setup.ps1`（Windows）一鍵安裝腳本
+
+---
+
 ## [2026-04-19] docs | 自動漂移審計（drift audit）
 
 **觸發**：自動 cron 排程 drift audit
