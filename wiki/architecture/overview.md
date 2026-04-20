@@ -142,7 +142,7 @@
 chmod +x setup.sh && ./setup.sh
 ```
 
-腳本會自動完成：建立 Python venv、安裝 pip 套件、`go mod download`、建置 `classifier(.exe)`、`npm install`。
+腳本會自動完成：`go mod download`、建置 `classifier(.exe)`（Windows 另加 Wails `actress-classifier.exe`）。Python 搜尋功能需另外執行 `pip install -r requirements.txt`。
 
 ### 手動步驟
 
