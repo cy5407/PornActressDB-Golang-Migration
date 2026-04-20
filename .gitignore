@@ -50,6 +50,10 @@ Desktop.ini
 # 本機設定（含路徑等敏感資訊，請使用 config.ini.example 作為範本）
 config.ini
 
+# 本地保留的過時文件（不再作為正式版控內容）
+QUICK_START_GUIDE.md
+docs/MIGRATION_STATUS.md
+
 # Agent 運行時產生的臨時檔案
 .call_count
 .circuit_breaker_history
@@ -60,6 +64,8 @@ config.ini
 .ralph_session
 .ralph_session_history
 .response_analysis
+.audit_report.json
+.audit_report.txt
 progress.json
 status.json
 monitor_ralph.sh
