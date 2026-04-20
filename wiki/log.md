@@ -5,6 +5,30 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-04-21] docs | 自動漂移審計（drift audit）
+
+**觸發**：自動 cron 排程 drift audit（refactor/sonar-cognitive-complexity）
+**分支**：`refactor/sonar-cognitive-complexity`
+
+### 發現漂移
+
+| 檔案 | 問題描述 |
+|------|---------|
+| `wiki/architecture/database.md` | 缺少 W8（2026-04-20 21:54）新增的 `error` 和 `error_kind` 欄位文件；schema JSON 範例未包含新欄位；error_kind 枚舉（timeout, stderr, json_parse）未記錄 |
+
+### 已更新
+
+- `wiki/architecture/database.md`：新增 `error` 和 `error_kind` 欄位至 schema JSON 範例和欄位說明
+
+### 無需更新
+
+- README.md：大片商數量描述（13 個）正確，與 major_studios.json 相符
+- MIGRATION_STATUS.md：跨層漂移檢查無發現
+- wiki/patterns/*.md：模式指引與現行實作相符
+- wiki/architecture/go-*.md：架構描述與實作相符
+
+---
+
 ## [2026-04-19] docs | 自動漂移審計（drift audit）
 
 **觸發**：自動 cron 排程 drift audit

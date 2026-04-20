@@ -1,7 +1,7 @@
 # 資料庫架構
 
 > 來源：`src/models/incremental_json_database.py`、`MIGRATION_STATUS.md`  
-> 更新：2026-04-06
+> 更新：2026-04-21（drift audit：新增 W8 error_kind 欄位文件）
 
 ---
 
@@ -124,7 +124,9 @@ classifier.exe db fix-studios -studios studios.json
   "title": "影片標題",
   "search_status": "searched_found",
   "search_method": "AV-WIKI",
-  "last_search_date": "2026-01-01T00:00:00"
+  "last_search_date": "2026-01-01T00:00:00",
+  "error": "Optional error message if search failed",
+  "error_kind": "timeout"
 }
 ```
 
@@ -146,6 +148,17 @@ classifier.exe db fix-studios -studios studios.json
 | `JAVDB (二次搜尋)` | 零女優二次搜尋成功 |
 | `cascade` | 級聯搜尋 |
 | `legacy-import` | 舊版匯入 |
+
+### error_kind 枚舉（搜尋失敗原因分類，W8 新增）
+
+| 值 | 說明 |
+|----|------|
+| `` (空) | 無錯誤 |
+| `timeout` | 搜尋超時（Python subprocess 執行逾時） |
+| `stderr` | Python 標準錯誤輸出（爬蟲異常） |
+| `json_parse` | JSON 解析失敗（爬蟲輸出格式錯誤） |
+
+> **注意**：`error` 欄位存放具體錯誤訊息，`error_kind` 用於分類。兩者僅在 `search_status == "search_error"` 時填入。
 
 ---
 
