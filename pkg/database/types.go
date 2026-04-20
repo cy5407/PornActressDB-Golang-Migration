@@ -87,6 +87,8 @@ type VideoData struct {
 	OriginalFilename     string   `json:"original_filename,omitempty"`
 	FilePath             string   `json:"file_path,omitempty"`
 	SearchMethod         string   `json:"search_method,omitempty"`
+	Error                string   `json:"error,omitempty"`
+	ErrorKind            string   `json:"error_kind,omitempty"`
 }
 
 // GetCode 取得影片番號（優先 code，其次 id）
@@ -268,6 +270,8 @@ func GetEmptyVideo() *VideoData {
 			Source:     "",
 			Confidence: 0.0,
 		},
+		Error:     "",
+		ErrorKind: "",
 	}
 }
 
@@ -293,6 +297,8 @@ func NewVideo(code string) *VideoData {
 			Source:     "",
 			Confidence: 0.0,
 		},
+		Error:     "",
+		ErrorKind: "",
 	}
 }
 

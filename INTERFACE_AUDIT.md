@@ -22,7 +22,7 @@ return {
     "release_date": raw.get("release_date") or raw.get("releaseDate") or "",
     "url": raw.get("url") or "",
     "actresses": actresses,
-    "method": raw.get("search_method") or raw.get("method") or "",  # ← 輸出欄位名稱
+    "search_method": raw.get("search_method") or raw.get("method") or "",
     "error": "",
     "error_kind": raw.get("error_kind") or "",
 }
@@ -40,7 +40,7 @@ return {
     "release_date": "",
     "url": "",
     "actresses": [],
-    "method": "",  # ← 輸出欄位名稱
+    "search_method": "",
     "error": message,
     "error_kind": error_kind,
 }
@@ -77,43 +77,33 @@ return {
 | `release_date` | `"release_date"` | `video.ReleaseDate` | ✅ |
 | `url` | `"url"` | `video.URL` | ✅ |
 | `actresses` | `"actresses"` | `video.Actresses` | ✅ |
-| **`method`** | **`"search_method"`** | **`video.SearchMethod`** | ❌ **欄位名不一致** |
-| `error` | （無） | — | ❌ **Go 無對應 handler** |
-| `error_kind` | （無） | — | ❌ **Go 無對應 handler** |
+| `search_method` | `"search_method"` | `video.SearchMethod` | ✅ |
+| `error` | `"error"` | `video.Error` | ✅ |
+| `error_kind` | `"error_kind"` | `video.ErrorKind` | ✅ |
 | （新增）`search_status` | `"search_status"` | `video.SearchStatus` | ✅ |
 | （新增）`last_search_date` | `"last_search_date"` | `video.LastSearchDate` | ✅ |
 
 ### 1.3 已知 Bug 清單
 
-#### Bug 1: Python 輸出 `"method"` vs Go 期望 `"search_method"`
+#### Bug 1: Python 輸出 `"method"` vs Go 期望 `"search_method"`（已修復）
 
-- **位置**：
-  - Python: `src/scrapers/run_batch_search.py:93` 輸出 `"method"`
-  - Go: `pkg/database/journal.go:274` 只有 `"search_method"` handler
-  
-- **影響**：
-  - Python 傳給 Go 的 `"method"` 欄位被 journal handler 無視
-  - DB 裡 `search_method` 永遠空白
-  - 分類時無法取得搜尋來源資訊
+- **現況**：
+  - Python 已改為輸出 `"search_method"`
+  - Go 既有 `"search_method"` handler 可正確持久化
 
-- **修復方案**：
-  - 選項 A：Python 改輸出 `"search_method"` 而非 `"method"`
-  - 選項 B：Go 加入 `"method"` handler 並對應到 `SearchMethod`
-  - **建議**：選項 A（統一用 `search_method`）
+- **結果**：
+  - `search_method` 可正常進入 DB
+  - 與前端 / Wails 端欄位映射保持一致
 
-#### Bug 2: Python 輸出 `"error"` 和 `"error_kind"` vs Go 無對應 handler
+#### Bug 2: Python 輸出 `"error"` 和 `"error_kind"` vs Go 無對應 handler（已修復）
 
-- **位置**：
-  - Python: `src/scrapers/run_batch_search.py:108-109` 輸出 error 資訊
-  - Go: `pkg/database/journal.go` 沒有對應的 handler
-  
-- **影響**：
-  - 搜尋錯誤資訊無法進入 DB
-  - 前端無法顯示搜尋失敗原因
+- **現況**：
+  - `VideoData` 已新增 `error` / `error_kind` 欄位
+  - Go journal handler 已新增對應 `"error"` / `"error_kind"` 更新器
 
-- **修復方案**：
-  - Go 在 journal handler map 新增 `"error"` 和 `"error_kind"` handler
-  - 對應到 `VideoData` 新欄位或現有欄位
+- **結果**：
+  - 搜尋錯誤資訊可持久化進 DB
+  - 舊資料缺少這兩欄時仍可相容讀取，預設為空字串
 
 ---
 
@@ -263,8 +253,8 @@ JAVDB source     → store: [A,B,C,D,E,F,G,H]（保留所有結果，加入新�
 
 | 優先度 | 項目 | 檔案 | 問題 | 修復方案 |
 |--------|------|------|------|---------|
-| 🔴 高 | Python 輸出 `"method"` vs Go 期望 `"search_method"` | `run_batch_search.py:93` | JSON 欄位名不一致 | 改 Python 輸出 `"search_method"` |
-| 🔴 高 | Go 無對應 handler for `error` 和 `error_kind` | `pkg/database/journal.go` | 搜尋錯誤無法進 DB | Go 新增 handler 或忽略 |
+| 🟢 低 | Python 輸出 `"method"` vs Go 期望 `"search_method"` | `run_batch_search.py` | 已修復 | ✅ 完成 |
+| 🟢 低 | Go 無對應 handler for `error` 和 `error_kind` | `pkg/database/journal.go` | 已修復 | ✅ 完成 |
 | 🟢 低 | 前端搜尋流程邏輯 | `wails-app/frontend/src/App.tsx` | 已於 20602f2 修復 | ✅ 完成 |
 | 🟢 低 | 函式簽名 `stop_event` | `src/services/web_searcher.py` | 所有呼叫端已同步 | ✅ 一致 |
 
@@ -301,4 +291,3 @@ JAVDB source     → store: [A,B,C,D,E,F,G,H]（保留所有結果，加入新�
 - **建檔日期**：2026-04-20
 - **最後更新**：2026-04-20
 - **審查人**：Agent（自動掃描 + 人工確認）
-

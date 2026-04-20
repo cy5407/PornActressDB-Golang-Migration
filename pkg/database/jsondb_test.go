@@ -728,6 +728,37 @@ func TestUpdateVideoFields_ReloadPreservesSourceSpecificSearchFields(t *testing.
 	}
 }
 
+func TestUpdateVideoFields_ReloadPreservesErrorFields(t *testing.T) {
+	db, tempDir := setupTestDB(t)
+
+	video := NewVideo("ERROR-001")
+	if err := db.UpdateVideo("ERROR-001", video); err != nil {
+		t.Fatalf("UpdateVideo failed: %v", err)
+	}
+	if err := db.UpdateVideoFields("ERROR-001", map[string]any{
+		"error":      "AV-WIKI 暫時異常",
+		"error_kind": "error",
+	}); err != nil {
+		t.Fatalf("UpdateVideoFields failed: %v", err)
+	}
+
+	reloaded := NewJSONDatabase(tempDir)
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+
+	got, err := reloaded.GetVideo("ERROR-001")
+	if err != nil {
+		t.Fatalf("GetVideo after reload failed: %v", err)
+	}
+	if got.Error != "AV-WIKI 暫時異常" {
+		t.Fatalf("Error = %q, want AV-WIKI 暫時異常", got.Error)
+	}
+	if got.ErrorKind != "error" {
+		t.Fatalf("ErrorKind = %q, want error", got.ErrorKind)
+	}
+}
+
 // ─── GetActressPrimaryStudio 測試 ────────────────────────────────────────────
 
 func TestGetActressPrimaryStudio_SingleStudio(t *testing.T) {

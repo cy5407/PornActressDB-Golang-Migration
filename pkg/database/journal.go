@@ -276,6 +276,16 @@ var videoFieldUpdateHandlers = map[string]func(*VideoData, any){
 			video.SearchMethod = v
 		}
 	},
+	"error": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.Error = v
+		}
+	},
+	"error_kind": func(video *VideoData, value any) {
+		if v, ok := value.(string); ok {
+			video.ErrorKind = v
+		}
+	},
 }
 
 func (db *JSONDatabase) applyVideoJournalAdd(entry *JournalEntry) {
