@@ -139,52 +139,12 @@ SEARCH_METHODS = {
     "CASCADE": "cascade",
 }
 
-VIDEO_ALLOWED_FIELDS = {
-    "code",
-    "title",
-    "studio",
-    "release_date",
-    "url",
-    "actresses",
-    "search_status",
-    "search_method",
-    "last_search_date",
-    "avwiki_actress_status",
-    "avwiki_last_search_date",
-    "javdb_actress_status",
-    "javdb_last_search_date",
-    "created_at",
-    "updated_at",
-    "original_filename",
-    "file_path",
-    "search_error_reason",
-    "original_actress_count",
-    "metadata",
-}
-
-# 角色類型
-ROLE_TYPES = {
-    "MAIN": "主演",
-    "SUPPORTING": "配角",
-    "GUEST": "客串",
-}
-
-# 檔案路徑
-DATA_DIR = "data/json_db"
-JSON_DB_FILE = "data/json_db/data.json"
-BACKUP_DIR = "data/json_db/backup"
 
 # 備份設定
 MAX_BACKUP_AGE_DAYS = 30  # 天
 MAX_BACKUP_COUNT = 50  # 個
 
-# 驗證相關
-MAX_STRING_LENGTH = 2000  # 字串最大長度
-MAX_ACTRESSES_PER_VIDEO = 20  # 每部影片最多女優數
-MAX_ALIASES_PER_ACTRESS = 10  # 每位女優最多別名數
-
 # 日期格式
-ISO_DATE_FORMAT = "%Y-%m-%d"
 ISO_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # ============================================================================
