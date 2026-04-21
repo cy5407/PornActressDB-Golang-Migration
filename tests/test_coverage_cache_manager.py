@@ -678,3 +678,43 @@ def test_get_async_delegates(tmp_path, monkeypatch):
     monkeypatch.setattr(mgr, "get", lambda key: {"cached": True})
     result = asyncio.run(mgr.get_async("key"))
     assert result == {"cached": True}
+
+
+def test_delete_async_delegates(tmp_path, monkeypatch):
+    mgr = _make_cache_manager(tmp_path, monkeypatch)
+    monkeypatch.setattr(mgr, "delete", lambda key: True)
+    result = asyncio.run(mgr.delete_async("key"))
+    assert result is True
+
+
+# ============================================================
+# 已有 running loop 環境下呼叫 set_async / get_async / delete_async
+# （對應 get_event_loop → get_running_loop 修改）
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_set_async_inside_running_loop(tmp_path, monkeypatch):
+    """在已有 running loop 的 async 函式內呼叫 set_async，不得拋 DeprecationWarning 或 RuntimeError。"""
+    mgr = _make_cache_manager(tmp_path, monkeypatch)
+    monkeypatch.setattr(mgr, "set", lambda key, value, ttl=None: True)
+    result = await mgr.set_async("key", "value")
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_get_async_inside_running_loop(tmp_path, monkeypatch):
+    """在已有 running loop 的 async 函式內呼叫 get_async，不得拋 DeprecationWarning 或 RuntimeError。"""
+    mgr = _make_cache_manager(tmp_path, monkeypatch)
+    monkeypatch.setattr(mgr, "get", lambda key: {"cached": True})
+    result = await mgr.get_async("key")
+    assert result == {"cached": True}
+
+
+@pytest.mark.asyncio
+async def test_delete_async_inside_running_loop(tmp_path, monkeypatch):
+    """在已有 running loop 的 async 函式內呼叫 delete_async，不得拋 DeprecationWarning 或 RuntimeError。"""
+    mgr = _make_cache_manager(tmp_path, monkeypatch)
+    monkeypatch.setattr(mgr, "delete", lambda key: True)
+    result = await mgr.delete_async("key")
+    assert result is True
