@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ _DEFAULT_DATA_DIR = "data/json_db"
 _JSON_SUFFIX = ".json"
 
 _EXE_SEARCH_DONE = False
-_EXE_PATH: Optional[str] = None
+_EXE_PATH: str | None = None
 
 
 def _running_under_wsl() -> bool:
@@ -113,7 +113,7 @@ def _is_executable_file(path: str) -> bool:
     return os.path.isfile(path) and os.access(path, os.X_OK)
 
 
-def _find_exe_in_dir(base_dir: str) -> Optional[str]:
+def _find_exe_in_dir(base_dir: str) -> str | None:
     for name in (_CLASSIFIER_EXE, "classifier"):
         candidate = os.path.join(base_dir, name)
         if _is_executable_file(candidate):
@@ -121,7 +121,7 @@ def _find_exe_in_dir(base_dir: str) -> Optional[str]:
     return None
 
 
-def _find_exe_from_path() -> Optional[str]:
+def _find_exe_from_path() -> str | None:
     for name in (_CLASSIFIER_EXE, "classifier"):
         found = shutil.which(name)
         if found:
@@ -129,7 +129,7 @@ def _find_exe_from_path() -> Optional[str]:
     return None
 
 
-def _resolve_exe(exe_path: str | None = None) -> Optional[str]:
+def _resolve_exe(exe_path: str | None = None) -> str | None:
     """尋找 classifier 執行檔路徑（快取結果）。"""
     global _EXE_SEARCH_DONE, _EXE_PATH
     if exe_path:
@@ -226,7 +226,7 @@ def run(
 # 掃描 / 番號提取
 # ---------------------------------------------------------------------------
 
-def extract_code(filename: str) -> Optional[str]:
+def extract_code(filename: str) -> str | None:
     """從檔案名稱提取番號；找不到番號時回傳 None，CLI 異常則拋出 GoError。"""
     data = run(["scan", "-extract", filename])
     return data.get("code") or None
@@ -236,7 +236,7 @@ def extract_code(filename: str) -> Optional[str]:
 # 片商識別
 # ---------------------------------------------------------------------------
 
-def identify_studio(code: str) -> Optional[str]:
+def identify_studio(code: str) -> str | None:
     """識別番號所屬片商；UNKNOWN/無結果回傳 None，CLI 異常則拋出 GoError。"""
     data = run(["identify", code])
     studio = data.get("studio", "UNKNOWN")
@@ -249,7 +249,7 @@ def normalize_studio_name(
     rules_file: str = "studios.json",
     *,
     exe_path: str | None = None,
-) -> Optional[str]:
+) -> str | None:
     """透過 Go CLI 標準化片商名稱；UNKNOWN/無結果回傳 None，CLI 異常則拋出 GoError。"""
     args = ["identify", "-normalize"]
     if studio_name:
@@ -267,7 +267,7 @@ def normalize_studio_name(
 # 資料庫操作
 # ---------------------------------------------------------------------------
 
-def db_get_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> Optional[dict]:
+def db_get_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> dict | None:
     """取得影片資訊，找不到回傳 None。"""
     try:
         cmd = ["db", "get"]
@@ -349,7 +349,7 @@ def db_compact_journal(data_dir: str = _DEFAULT_DATA_DIR) -> bool:
 # 快取操作
 # ---------------------------------------------------------------------------
 
-def cache_get(key: str, cache_dir: str = "cache") -> Optional[bytes]:
+def cache_get(key: str, cache_dir: str = "cache") -> bytes | None:
     """從 Go 快取讀取值，找不到或失敗時回傳 None。"""
     import base64
     try:
@@ -484,7 +484,7 @@ def db_backup_cleanup(data_dir: str = _DEFAULT_DATA_DIR, **kwargs) -> int:
     return int(data.get("deleted", 0)) if isinstance(data, dict) else 0
 
 
-def db_get_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> Optional[dict]:
+def db_get_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> dict | None:
     try:
         cmd = ["db", "actress-get"]
         if data_dir != _DEFAULT_DATA_DIR:
