@@ -31,10 +31,10 @@ jobs:
       # ─── 建置 Go CLI ───
       - name: Build classifier CLI
         run: |
-          go build -o classifier.exe ./cmd/scanner
-          chmod +x classifier.exe
-          echo "✅ classifier.exe 建置成功"
-          ./classifier.exe help
+          go build -o classifier ./cmd/scanner
+          chmod +x classifier
+          echo "✅ classifier 建置成功"
+          ./classifier help
 
       # ─── 執行 Go 測試（含覆蓋率）───
       - name: Run Go tests
@@ -61,12 +61,12 @@ jobs:
       - name: Verify Go CLI availability
         env:
           PYTHONPATH: ${{ github.workspace }}
-          CLASSIFIER_EXE: ${{ github.workspace }}/classifier.exe
+          CLASSIFIER_EXE: ${{ github.workspace }}/classifier
         run: |
           python -c "
           import os, sys
           sys.path.insert(0, '.')
-          os.environ['CLASSIFIER_EXE'] = './classifier.exe'
+          os.environ['CLASSIFIER_EXE'] = './classifier'
           from src.services.go_cli import is_available
           available = is_available()
           print(f'Go CLI 可用: {available}')
@@ -78,7 +78,7 @@ jobs:
       - name: Run e2e integration tests (tests/integration/)
         env:
           PYTHONPATH: ${{ github.workspace }}
-          CLASSIFIER_EXE: ${{ github.workspace }}/classifier.exe
+          CLASSIFIER_EXE: ${{ github.workspace }}/classifier
         run: |
           python -m pytest tests/integration/ \
             -v \
@@ -89,7 +89,7 @@ jobs:
       - name: Run focused Go CLI tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-          CLASSIFIER_EXE: ${{ github.workspace }}/classifier.exe
+          CLASSIFIER_EXE: ${{ github.workspace }}/classifier
         run: |
           python -m pytest tests/integration/test_go_cli_smoke.py tests/integration/test_db_cli_contract.py tests/test_go_cli_contracts.py tests/test_incremental_db.py tests/test_json_database.py \
             -v \
@@ -101,7 +101,7 @@ jobs:
       - name: Run full test suite
         env:
           PYTHONPATH: ${{ github.workspace }}
-          CLASSIFIER_EXE: ${{ github.workspace }}/classifier.exe
+          CLASSIFIER_EXE: ${{ github.workspace }}/classifier
         run: |
           python -m pytest tests/ \
             -v \

@@ -43,8 +43,8 @@ jobs:
 
       - name: Build classifier CLI
         run: |
-          go build -o classifier.exe ./cmd/scanner
-          chmod +x classifier.exe
+          go build -o classifier ./cmd/scanner
+          chmod +x classifier
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
@@ -63,7 +63,7 @@ jobs:
       - name: Run Python unit tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-          CLASSIFIER_EXE: ${{ github.workspace }}/classifier.exe
+          CLASSIFIER_EXE: ${{ github.workspace }}/classifier
         run: |
           python -m pytest tests/ \
             -v \
