@@ -51,8 +51,17 @@ import contextlib
 from .rate_limiter import RateLimiter, get_global_rate_limiter
 ```
 
-**結論：✅ 可安全刪除 `RateLimiter`，保留 `get_global_rate_limiter`**  
-全檔搜尋確認 `RateLimiter` 類別在 import 行以外無任何使用。`get_global_rate_limiter` 則確實在爬蟲邏輯中被調用，必須保留。  
+**結論：✅ 可安全從 `async_scraper.py` 移除 `RateLimiter` import，但 `RateLimiter` 類別本身仍活躍**
+
+`async_scraper.py` 全檔確認 `RateLimiter` 未被使用，但需注意跨模組全景：
+
+| 位置 | 用途 |
+|------|------|
+| `src/scrapers/__init__.py:12` | re-export 為 scrapers 套件的公開 API |
+| `src/scrapers/base_scraper.py:18, 390` | import 並用作型別標註參數 |
+| `tests/test_code_review_regressions.py:20` | 直接 import 測試 |
+
+**`RateLimiter` 類別不可刪除**；只是 `async_scraper.py` 這一份 import 是冗餘的，移除後不影響其他模組。  
 修改後應改為：
 ```python
 from .rate_limiter import get_global_rate_limiter
@@ -208,6 +217,25 @@ from src.utils.retry_utils import _secure_uniform  # re-export
 | `config.py` 的 `json_dump`/`json_load` 跨檔比對 | 其他檔案（`safe_searcher.py`、`studio.py`、`cache_manager.py` 等）雖也使用相同別名，但為各自獨立 import，與 `config.py` 是否刪除無關 ✅ |
 
 **二次核查後所有原始結論維持不變。**
+
+---
+
+## 補充驗證（2026-04-21 三次核查）
+
+擴大搜尋範圍，查核 `.go` 檔、`__init__.py` re-export 及測試跨模組引用：
+
+| 項目 | 驗證結果 |
+|------|----------|
+| Go 檔案搜尋 Python 常數名稱 | 無任何 Go 檔引用這些 Python 常數 ✅ |
+| `src/models/__init__.py` | 為空（無 re-export），不影響常數刪除 ✅ |
+| `src/scrapers/__init__.py` | **re-export `RateLimiter`** 為套件公開 API，並在 `__all__` 中宣告 ⚠️ |
+| `base_scraper.py:18, 390` | import 並使用 `RateLimiter` 作型別標註 ⚠️ |
+| `tests/test_code_review_regressions.py:20` | 直接 import `RateLimiter` 並測試 ⚠️ |
+
+**修正說明**：初版描述「可安全刪除 `RateLimiter`」措辭不夠精確。正確說法是：  
+`RateLimiter` **類別本身仍活躍**，不可刪除；只有 `async_scraper.py` 第 19 行對它的 **冗餘 import** 可以移除。已於本報告主體段落修正。
+
+**三次核查後結論：同上，但措辭更精確。**
 
 ---
 
