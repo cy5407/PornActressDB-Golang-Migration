@@ -3,8 +3,6 @@
 提供搜尋進度追蹤、時間預估與格式化輸出
 """
 
-import builtins
-import contextlib
 import threading
 import time
 from dataclasses import dataclass, field
