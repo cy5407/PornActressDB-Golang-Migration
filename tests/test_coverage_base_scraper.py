@@ -88,10 +88,9 @@ def test_apply_healthy_update_increments_successes():
         "consecutive_successes": 1,
         "consecutive_failures": 2,
         "total_failures": 2,
-        "_domain_hint": "test.com",
     }
 
-    hc._apply_healthy_update(info)
+    hc._apply_healthy_update("test.com", info)
 
     assert info["consecutive_successes"] == 2
     assert info["consecutive_failures"] == 0
@@ -105,10 +104,9 @@ def test_apply_unhealthy_update_increments_failures():
         "consecutive_failures": 1,
         "consecutive_successes": 0,
         "total_failures": 1,
-        "_domain_hint": "test.com",
     }
 
-    hc._apply_unhealthy_update(info)
+    hc._apply_unhealthy_update("test.com", info)
 
     assert info["consecutive_failures"] == 2
     assert info["consecutive_successes"] == 0
@@ -148,3 +146,14 @@ def test_check_domain_health_returns_false_on_exception():
         result = asyncio.run(hc.check_domain_health("broken.example.com"))
 
     assert result is False
+
+
+def test_get_health_report_domain_details_do_not_expose_domain_hint():
+    domain = "nohint.example.com"
+    hc = _make_health_checker(failure_threshold=1)
+
+    asyncio.run(hc.update_domain_health(domain, False))
+
+    report = hc.get_health_report()
+
+    assert "_domain_hint" not in report["domain_details"][domain]
