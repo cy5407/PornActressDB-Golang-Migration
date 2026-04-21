@@ -16,7 +16,7 @@ import aiohttp
 from src.utils.log_sanitizer import sanitize_url_for_log
 from .cache_manager import CacheManager, get_global_cache_manager
 from .encoding_utils import EncodingDetector, install_encoding_warning_filter
-from .rate_limiter import RateLimiter, get_global_rate_limiter
+from .rate_limiter import get_global_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -312,31 +312,25 @@ class AsyncWebScraper:
     ) -> list[ScrapingResult]:
         """同步介面的併發爬取"""
         try:
-            # 嘗試獲取現有的事件循環
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # 如果已經在事件循環中，使用新的事件循環
-                import concurrent.futures
+            asyncio.get_running_loop()
+            # 已在事件循環中 → 用 thread 跑新 loop
+            import concurrent.futures
 
-                def run_in_thread():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        return new_loop.run_until_complete(
-                            self.scrape_multiple(urls, progress_callback)
-                        )
-                    finally:
-                        new_loop.close()
+            def run_in_thread():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    return new_loop.run_until_complete(
+                        self.scrape_multiple(urls, progress_callback)
+                    )
+                finally:
+                    new_loop.close()
 
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(run_in_thread)
-                    return future.result()
-            else:
-                return loop.run_until_complete(
-                    self.scrape_multiple(urls, progress_callback)
-                )
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_in_thread)
+                return future.result()
         except RuntimeError:
-            # 沒有事件循環，創建新的
+            # 沒有 running loop → 直接 asyncio.run()
             return asyncio.run(self.scrape_multiple(urls, progress_callback))
 
     def _update_stats(

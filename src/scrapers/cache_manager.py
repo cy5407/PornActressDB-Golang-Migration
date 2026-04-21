@@ -709,17 +709,17 @@ class CacheManager:
         self, key: str, value: Any, ttl_hours: int | None = None
     ) -> bool:
         """非同步設置快取值"""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.set, key, value, ttl_hours)
 
     async def get_async(self, key: str) -> Any | None:
         """非同步獲取快取值"""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.get, key)
 
     async def delete_async(self, key: str) -> bool:
         """非同步刪除快取值"""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.delete, key)
 
 

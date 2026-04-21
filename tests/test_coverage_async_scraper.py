@@ -629,3 +629,30 @@ def test_scrape_multiple_sync_loop_is_running(scraper):
             with patch("concurrent.futures.ThreadPoolExecutor", return_value=mock_executor):
                 results = scraper.scrape_multiple_sync(["http://a.com"])
     assert results == ok_result
+
+
+# ──────────────────────────────
+# scrape_multiple_sync：對應 get_running_loop 重構的新行為測試
+# ──────────────────────────────
+
+
+def test_scrape_multiple_sync_no_running_loop_uses_asyncio_run(scraper):
+    """無 running loop（get_running_loop 拋 RuntimeError）時走 asyncio.run() 路徑。"""
+    ok_result = [ScrapingResult(url="http://b.com", success=True)]
+    with patch.object(scraper, "scrape_multiple", new=AsyncMock(return_value=ok_result)):
+        with patch("asyncio.get_running_loop", side_effect=RuntimeError("no running loop")):
+            with patch("asyncio.run", return_value=ok_result) as mock_run:
+                results = scraper.scrape_multiple_sync(["http://b.com"])
+    mock_run.assert_called_once()
+    assert results == ok_result
+
+
+@pytest.mark.asyncio
+async def test_scrape_multiple_sync_with_running_loop_uses_thread(scraper):
+    """已有 running loop 時，scrape_multiple_sync 應透過 ThreadPoolExecutor 在新 loop 中執行，回傳正確結果。"""
+    ok_result = [ScrapingResult(url="http://c.com", success=True)]
+    with patch.object(scraper, "scrape_multiple", new=AsyncMock(return_value=ok_result)):
+        # 在 async 函式中呼叫，asyncio.get_running_loop() 不會拋例外
+        results = scraper.scrape_multiple_sync(["http://c.com"])
+    assert len(results) == 1
+    assert results[0].url == "http://c.com"

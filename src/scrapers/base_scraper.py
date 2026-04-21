@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from secrets import randbelow
+from src.utils.retry_utils import _secure_uniform
 from typing import Any
 
 from .cache_manager import CacheManager, get_global_cache_manager
@@ -19,15 +19,6 @@ from .rate_limiter import RateLimiter, get_global_rate_limiter
 
 logger = logging.getLogger(__name__)
 
-
-def _secure_uniform(min_value: float, max_value: float) -> float:
-    """產生非安全用途的均勻抖動值，避免 Bandit 對 random 的告警。"""
-    if max_value <= min_value:
-        return min_value
-
-    scale = 10_000
-    fraction = randbelow(scale + 1) / scale
-    return min_value + (max_value - min_value) * fraction
 
 
 class ErrorType(Enum):
@@ -482,13 +473,3 @@ class BaseScraper(ABC):
             self.stats["failed_requests"] += 1
             raise e
 
-    def get_comprehensive_stats(self) -> dict[str, Any]:
-        """獲取綜合統計資訊"""
-        return {
-            "scraper_stats": self.stats,
-            "encoding_stats": self.encoding_detector.get_stats(),
-            "rate_limiter_stats": self.rate_limiter.get_stats(),
-            "cache_stats": self.cache_manager.get_stats(),
-            "retry_stats": self.retry_manager.get_stats(),
-            "health_stats": self.health_checker.get_health_report(),
-        }

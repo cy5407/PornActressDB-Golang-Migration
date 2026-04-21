@@ -8,13 +8,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-try:
-    from utils.json_utils import dump as json_dump
-    from utils.json_utils import load as json_load
-except ImportError:  # pragma: no cover
-    from src.utils.json_utils import dump as json_dump
-    from src.utils.json_utils import load as json_load
-
 logger = logging.getLogger(__name__)
 
 
