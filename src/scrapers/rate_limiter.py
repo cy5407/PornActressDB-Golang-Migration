@@ -9,20 +9,11 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from secrets import randbelow
 from urllib.parse import urlparse
 
+from src.utils.retry_utils import _secure_uniform
+
 logger = logging.getLogger(__name__)
-
-
-def _secure_uniform(min_value: float, max_value: float) -> float:
-    """產生非安全用途的抖動值，避免 Bandit 對 random 的告警。"""
-    if max_value <= min_value:
-        return min_value
-
-    scale = 10_000
-    fraction = randbelow(scale + 1) / scale
-    return min_value + (max_value - min_value) * fraction
 
 
 @dataclass
