@@ -240,6 +240,14 @@ class RetryManager:
 class HealthChecker:
     """健康檢查器"""
 
+    _INITIAL_HEALTH_INFO = {
+        "healthy": True,
+        "consecutive_failures": 0,
+        "consecutive_successes": 0,
+        "total_checks": 0,
+        "total_failures": 0,
+    }
+
     def __init__(self, config: HealthCheckConfig = None):
         self.config = config or HealthCheckConfig()
         self.domain_health = {}  # 域名健康狀態
@@ -271,45 +279,49 @@ class HealthChecker:
     async def update_domain_health(self, domain: str, is_healthy: bool):
         """更新域名健康狀態"""
         async with self.lock:
-            if domain not in self.domain_health:
-                self.domain_health[domain] = {
-                    "healthy": True,
-                    "consecutive_failures": 0,
-                    "consecutive_successes": 0,
+            health_info = self.domain_health.setdefault(
+                domain,
+                {
+                    **self._INITIAL_HEALTH_INFO,
                     "last_check": time.time(),
-                    "total_checks": 0,
-                    "total_failures": 0,
-                }
-
-            health_info = self.domain_health[domain]
+                    "_domain_hint": domain,
+                },
+            )
+            health_info["_domain_hint"] = domain
             health_info["last_check"] = time.time()
             health_info["total_checks"] += 1
 
             if is_healthy:
-                health_info["consecutive_successes"] += 1
-                health_info["consecutive_failures"] = 0
-
-                # 恢復健康狀態
-                if (
-                    not health_info["healthy"]
-                    and health_info["consecutive_successes"]
-                    >= self.config.recovery_threshold
-                ):
-                    health_info["healthy"] = True
-                    logger.info(f"✅ 域名 {domain} 已恢復健康")
+                self._apply_healthy_update(health_info)
             else:
-                health_info["consecutive_failures"] += 1
-                health_info["consecutive_successes"] = 0
-                health_info["total_failures"] += 1
+                self._apply_unhealthy_update(health_info)
 
-                # 標記為不健康
-                if (
-                    health_info["healthy"]
-                    and health_info["consecutive_failures"]
-                    >= self.config.failure_threshold
-                ):
-                    health_info["healthy"] = False
-                    logger.warning(f"⚠️ 域名 {domain} 被標記為不健康")
+    def _apply_healthy_update(self, health_info: dict) -> None:
+        """處理成功回應：遞增連續成功數，若達門檻則恢復健康"""
+        health_info["consecutive_successes"] += 1
+        health_info["consecutive_failures"] = 0
+
+        if (
+            not health_info["healthy"]
+            and health_info["consecutive_successes"] >= self.config.recovery_threshold
+        ):
+            health_info["healthy"] = True
+            domain = health_info.get("_domain_hint", "?")
+            logger.info(f"✅ 域名 {domain} 已恢復健康")
+
+    def _apply_unhealthy_update(self, health_info: dict) -> None:
+        """處理失敗回應：遞增連續失敗數，若達門檻則標記不健康"""
+        health_info["consecutive_failures"] += 1
+        health_info["consecutive_successes"] = 0
+        health_info["total_failures"] += 1
+
+        if (
+            health_info["healthy"]
+            and health_info["consecutive_failures"] >= self.config.failure_threshold
+        ):
+            health_info["healthy"] = False
+            domain = health_info.get("_domain_hint", "?")
+            logger.warning(f"⚠️ 域名 {domain} 被標記為不健康")
 
     def is_domain_healthy(self, domain: str) -> bool:
         """檢查域名是否健康"""

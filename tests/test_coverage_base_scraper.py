@@ -81,6 +81,41 @@ def test_update_domain_health_recovers_after_threshold():
     assert health_info["total_failures"] == 1
 
 
+def test_apply_healthy_update_increments_successes():
+    hc = _make_health_checker(recovery_threshold=2)
+    info = {
+        "healthy": False,
+        "consecutive_successes": 1,
+        "consecutive_failures": 2,
+        "total_failures": 2,
+        "_domain_hint": "test.com",
+    }
+
+    hc._apply_healthy_update(info)
+
+    assert info["consecutive_successes"] == 2
+    assert info["consecutive_failures"] == 0
+    assert info["healthy"] is True
+
+
+def test_apply_unhealthy_update_increments_failures():
+    hc = _make_health_checker(failure_threshold=2)
+    info = {
+        "healthy": True,
+        "consecutive_failures": 1,
+        "consecutive_successes": 0,
+        "total_failures": 1,
+        "_domain_hint": "test.com",
+    }
+
+    hc._apply_unhealthy_update(info)
+
+    assert info["consecutive_failures"] == 2
+    assert info["consecutive_successes"] == 0
+    assert info["total_failures"] == 2
+    assert info["healthy"] is False
+
+
 def test_is_domain_healthy_unknown_domain_returns_true():
     hc = _make_health_checker()
 
