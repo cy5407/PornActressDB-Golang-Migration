@@ -194,4 +194,21 @@ from src.utils.retry_utils import _secure_uniform  # re-export
 
 ---
 
+---
+
+## 補充驗證（2026-04-21 二次核查）
+
+初次審查時 `progress_tracker.py`（254 行）與 `async_scraper.py`（462 行）僅讀取前 30/40 行，存在殘餘盲點。補充全檔 grep 驗證如下：
+
+| 項目 | 補充驗證結果 |
+|------|-------------|
+| `progress_tracker.py` 全檔搜尋 `builtins`/`contextlib` | 僅出現在第 6-7 行 import，全檔無任何使用，結論不變 ✅ |
+| `async_scraper.py` 全檔搜尋 `RateLimiter` | 僅出現在第 19 行 import，全檔無任何使用，結論不變 ✅ |
+| 全專案搜尋萬用字元 `from ... json_types import *` | 無任何萬用字元 import，常數清單的搜尋結果可信 ✅ |
+| `config.py` 的 `json_dump`/`json_load` 跨檔比對 | 其他檔案（`safe_searcher.py`、`studio.py`、`cache_manager.py` 等）雖也使用相同別名，但為各自獨立 import，與 `config.py` 是否刪除無關 ✅ |
+
+**二次核查後所有原始結論維持不變。**
+
+---
+
 *審查完成。所有結論均基於全專案 `.py` 檔的靜態搜尋驗證，非推測。*
