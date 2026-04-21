@@ -4,6 +4,9 @@ version = "6.0.0"
 description = "女優分類系統 - Wails GUI、Go CLI 與 Python 搜尋管線"
 requires-python = ">=3.11"
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [tool.ruff]
 # 基本設定
 line-length = 88

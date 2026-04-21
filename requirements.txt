@@ -18,6 +18,7 @@ orjson>=3.9.0          # 高效能 JSON 序列化
 
 # 測試相關
 pytest>=7.0.0
+pytest-asyncio>=0.21.0
 pytest-cov>=4.0.0
 pytest-mock>=3.10.0
 pytest-timeout>=2.1.0
