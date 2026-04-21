@@ -473,13 +473,3 @@ class BaseScraper(ABC):
             self.stats["failed_requests"] += 1
             raise e
 
-    def get_comprehensive_stats(self) -> dict[str, Any]:
-        """獲取綜合統計資訊"""
-        return {
-            "scraper_stats": self.stats,
-            "encoding_stats": self.encoding_detector.get_stats(),
-            "rate_limiter_stats": self.rate_limiter.get_stats(),
-            "cache_stats": self.cache_manager.get_stats(),
-            "retry_stats": self.retry_manager.get_stats(),
-            "health_stats": self.health_checker.get_health_report(),
-        }
