@@ -2,6 +2,8 @@
 
 > 來源：`src/models/incremental_json_database.py`、`MIGRATION_STATUS.md`、`INTERFACE_AUDIT.md`  
 > 更新：2026-04-20（新增 error / error_kind / search_error_reason 欄位）
+> 來源：`src/models/incremental_json_database.py`、`MIGRATION_STATUS.md`  
+> 更新：2026-04-21（drift audit：新增 W8 error_kind 欄位文件）
 
 ---
 
@@ -127,6 +129,8 @@ classifier.exe db fix-studios -studios studios.json
   "last_search_date": "2026-01-01T00:00:00",
   "error": "",
   "error_kind": ""
+  "error": "Optional error message if search failed",
+  "error_kind": "timeout"
 }
 ```
 
@@ -161,6 +165,16 @@ classifier.exe db fix-studios -studios studios.json
 這兩個欄位僅在 `search_status == "search_error"` 時有意義；搜尋成功時為空字串。
 
 > ⚠️ 注意：`search_error_reason` 是 Python 搜尋管線的**暫時欄位**（見 `src/services/web_searcher.py`），**不會**持久化到 Go DB。Go DB 只持久化 `error` 和 `error_kind`。
+### error_kind 枚舉（搜尋失敗原因分類，W8 新增）
+
+| 值 | 說明 |
+|----|------|
+| `` (空) | 無錯誤 |
+| `timeout` | 搜尋超時（Python subprocess 執行逾時） |
+| `stderr` | Python 標準錯誤輸出（爬蟲異常） |
+| `json_parse` | JSON 解析失敗（爬蟲輸出格式錯誤） |
+
+> **注意**：`error` 欄位存放具體錯誤訊息，`error_kind` 用於分類。兩者僅在 `search_status == "search_error"` 時填入。
 
 ---
 

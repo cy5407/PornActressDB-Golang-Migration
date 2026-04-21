@@ -26,6 +26,27 @@
 - **278b69e**：建立 `INTERFACE_AUDIT.md`，完整記錄 Python → Go 跨層介面契約（JSON 欄位、函式簽名、binding），作為 TDD 契約測試的基準文件
 - **20602f2**：修復來源搜尋（AV-WIKI / JAVDB）兩個獨立 Bug，避免已搜尋番號在重開程式後落入未分類資料夾
 - **bda23a9**：新增 `setup.sh`（Linux/macOS）與 `setup.ps1`（Windows）一鍵安裝腳本
+## [2026-04-21] docs | 自動漂移審計（drift audit）
+
+**觸發**：自動 cron 排程 drift audit（refactor/sonar-cognitive-complexity）
+**分支**：`refactor/sonar-cognitive-complexity`
+
+### 發現漂移
+
+| 檔案 | 問題描述 |
+|------|---------|
+| `wiki/architecture/database.md` | 缺少 W8（2026-04-20 21:54）新增的 `error` 和 `error_kind` 欄位文件；schema JSON 範例未包含新欄位；error_kind 枚舉（timeout, stderr, json_parse）未記錄 |
+
+### 已更新
+
+- `wiki/architecture/database.md`：新增 `error` 和 `error_kind` 欄位至 schema JSON 範例和欄位說明
+
+### 無需更新
+
+- README.md：大片商數量描述（13 個）正確，與 major_studios.json 相符
+- MIGRATION_STATUS.md：跨層漂移檢查無發現
+- wiki/patterns/*.md：模式指引與現行實作相符
+- wiki/architecture/go-*.md：架構描述與實作相符
 
 ---
 
