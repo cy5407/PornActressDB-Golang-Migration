@@ -20,10 +20,17 @@ import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
 import {
   buildCodeToActressMap,
+  collectMultiActressCandidates,
   isFoundSearchStatus,
   mergeSearchResultsWithCachedVideos,
+  shouldFetchCachedVideoFallback,
 } from '@/lib/classification';
-import type { CachedVideoLookup, CachedVideoLookupError, VideoDataWithSourceStatus } from '@/lib/classification';
+import type {
+  CachedVideoLookup,
+  CachedVideoLookupError,
+  MultiActressCandidate,
+  VideoDataWithSourceStatus,
+} from '@/lib/classification';
 import { ScanDirectory, BatchSearch, BatchSearchAVWiki, BatchSearchJAVDB, BatchMove, BatchMoveDirs, CheckDirConflicts, CancelOperation, GetActressPrimaryStudios, GetStudiosByCodes, CheckConflicts, PlanDirMergeMoves, DbGetVideo } from '../wailsjs/go/backend/App';
 import { backend, mover } from '../wailsjs/go/models';
 import type { database } from '../wailsjs/go/models';
@@ -483,47 +490,10 @@ function ActionToolbar() {
       return lastDot > lastSep ? p.slice(lastDot) : '';
     };
 
-    // code → 女優名映射
-    // 若番號有多位女優，先詢問使用者要分到哪裡
-    const multiActressSearchResults = searchResults.filter(
-      (sr) => (sr.actresses?.length ?? 0) > 1
-    );
-    // 只保留本次移動目標中有多女優的項目
-    const targetCodes = new Set(targets.map((r) => r.code));
-    const multiActressTargets = multiActressSearchResults.filter((sr) =>
-      targetCodes.has(sr.code)
-    );
-
-    // 若有多女優項目，彈出選擇對話框
-    let multiActressChoices = new Map<string, string>();
-    if (multiActressTargets.length > 0) {
-      const dialogItems: MultiActressItem[] = multiActressTargets.map((sr) => ({
-        code: sr.code,
-        path: targets.find((r) => r.code === sr.code)?.path ?? sr.code,
-        actresses: sr.actresses ?? [],
-      }));
-      const resolutions = await waitForMultiActressResolution(dialogItems);
-      if (resolutions === null) {
-        // 使用者取消
-        setStatus('idle');
-        resetProgress();
-        return;
-      }
-      for (const r of resolutions) {
-        const choice: ActressChoice = r.choice;
-        if (choice.type === 'actress') {
-          multiActressChoices.set(r.code, choice.name);
-        } else if (choice.type === 'multi') {
-          multiActressChoices.set(r.code, choice.label);
-        } else {
-          multiActressChoices.set(r.code, '未分類');
-        }
-      }
-    }
-
+    const searchResultByCode = new Map(searchResults.map((sr) => [sr.code, sr]));
     const cachedVideos: CachedVideoLookup[] = [];
     const fallbackErrors: CachedVideoLookupError[] = [];
-    for (const { code } of targets.filter((r) => !searchResults.some((sr) => sr.code === r.code))) {
+    for (const { code } of targets.filter((r) => shouldFetchCachedVideoFallback(searchResultByCode.get(r.code)))) {
       try {
         const video = await DbGetVideo(code);
         cachedVideos.push({ code, video: video as VideoDataWithSourceStatus | null });
@@ -544,6 +514,40 @@ function ActionToolbar() {
       setStatus('error');
       resetProgress();
       return;
+    }
+
+    const multiActressCandidates: MultiActressCandidate[] = collectMultiActressCandidates(
+      targets,
+      searchResults,
+      cachedVideos
+    );
+    const multiActressTargets = multiActressCandidates.filter((item) => item.actresses.length > 1);
+
+    // 若有多女優項目，彈出選擇對話框
+    let multiActressChoices = new Map<string, string>();
+    if (multiActressTargets.length > 0) {
+      const dialogItems: MultiActressItem[] = multiActressTargets.map((item) => ({
+        code: item.code,
+        path: item.path,
+        actresses: item.actresses,
+      }));
+      const resolutions = await waitForMultiActressResolution(dialogItems);
+      if (resolutions === null) {
+        // 使用者取消
+        setStatus('idle');
+        resetProgress();
+        return;
+      }
+      for (const r of resolutions) {
+        const choice: ActressChoice = r.choice;
+        if (choice.type === 'actress') {
+          multiActressChoices.set(r.code, choice.name);
+        } else if (choice.type === 'multi') {
+          multiActressChoices.set(r.code, choice.label);
+        } else {
+          multiActressChoices.set(r.code, '未分類');
+        }
+      }
     }
 
     const codeToActress = buildCodeToActressMap(targets, searchResults, cachedVideos);
