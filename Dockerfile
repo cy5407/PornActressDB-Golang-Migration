@@ -47,7 +47,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY Dockerfile ./Dockerfile
 COPY .github/ ./.github/
 COPY pkg/ ./pkg/
-COPY docs/ ./docs/
 COPY src/ ./src/
 COPY tests/ ./tests/
 COPY tools/ ./tools/

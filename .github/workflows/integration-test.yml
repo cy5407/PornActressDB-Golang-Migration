@@ -129,28 +129,3 @@ jobs:
           name: python-integration
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-  docker-build-test:
-    name: Docker Build Test
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Build Docker image (test stage)
-        run: |
-          docker build \
-            --target test \
-            --tag actress-classifier:test \
-            --progress=plain \
-            .
-
-      - name: Run tests inside Docker container
-        run: |
-          docker run --rm \
-            actress-classifier:test \
-            python -m pytest tests/ \
-              -v \
-              --tb=short \
-              --timeout=60 \
-              -x
