@@ -223,19 +223,16 @@ class TestExtractActressNameElements:
         elements = []
         seen = set()
         s._extract_actress_name_elements(_soup(html), elements, seen)
-        # no link with actress path found; text fallback should run
-        assert len(elements) == 1  # from text fallback
-        assert elements[0]["source"] == "actress-name-class"
+        assert elements == []
 
     def test_text_fallback_when_no_links(self):
-        """沒有連結時應使用文字回退（lines 229-237）"""
+        """沒有結構化連結時不應回退到純文字（避免污染）"""
         s = _make_scraper()
         html = '<div class="actress-name">田中みな実</div>'
         elements = []
         seen = set()
         s._extract_actress_name_elements(_soup(html), elements, seen)
-        assert len(elements) == 1
-        assert elements[0]["source"] == "actress-name-class"
+        assert elements == []
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +343,7 @@ class TestExtractDetailActresses:
         html = '<div class="actress-name">田中みな実</div>'
         s._extract_actresses_from_text = MagicMock(return_value=["田中みな実"])
         result = s._extract_detail_actresses(_soup(html), "田中みな実 text content")
-        # actress-name text fallback via _is_valid
-        assert "田中みな実" in result
+        assert result == []
 
 
 # ---------------------------------------------------------------------------

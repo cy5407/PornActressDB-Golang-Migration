@@ -763,6 +763,67 @@ def test_search_av_wiki_actresses_found():
     assert "鈴木あい" in result["actresses"]
 
 
+def test_extract_avwiki_actresses_uses_actress_name_links_when_tag_links_missing():
+    s = _make_searcher()
+    soup = _make_soup(
+        """
+        <html><body>
+          <div class="actress-name">
+            <a href="https://av-wiki.net/av-actress/tanaka-minami/">田中みな実</a>
+          </div>
+        </body></html>
+        """
+    )
+
+    assert s._extract_avwiki_actresses(soup) == ["田中みな実"]
+
+
+def test_extract_avwiki_actresses_merges_tag_and_actress_name_links():
+    s = _make_searcher()
+    soup = _make_soup(
+        """
+        <html><body>
+          <a rel="tag" href="https://av-wiki.net/av-actress/suzuki-ai/">鈴木あい</a>
+          <div class="actress-name">
+            <a href="https://av-wiki.net/av-actress/tanaka-minami/">田中みな実</a>
+          </div>
+        </body></html>
+        """
+    )
+
+    assert s._extract_avwiki_actresses(soup) == ["鈴木あい", "田中みな実"]
+
+
+def test_search_av_wiki_does_not_use_text_scan_when_structured_links_missing():
+    s = _make_searcher()
+    s.japanese_headers = {}
+    s.timeout = 5
+    soup = _make_soup(
+        """
+        <html><body>
+          <div class="column-flex">SSIS-123 可愛い メイド 交わる体液</div>
+        </body></html>
+        """
+    )
+    s.safe_searcher = SimpleNamespace(safe_request=lambda fn, url: soup)
+    s._extract_studio_info = lambda soup, code: {}
+    s._extract_avwiki_detail_url = lambda soup, code: None
+
+    scan_called = False
+
+    def _unexpected_text_scan(_soup, _code):
+        nonlocal scan_called
+        scan_called = True
+        return ["可愛い"]
+
+    s._scan_avwiki_text_for_actresses = _unexpected_text_scan
+
+    result = s._search_av_wiki("SSIS-123", threading.Event())
+
+    assert result is None
+    assert scan_called is False
+
+
 def test_search_av_wiki_exception_returns_error():
     s = _make_searcher()
     s.japanese_headers = {}

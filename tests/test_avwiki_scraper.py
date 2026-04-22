@@ -93,6 +93,44 @@ def test_extract_search_result_actress_elements_only_uses_text_fallback_when_no_
     ]
 
 
+def test_extract_search_result_actress_elements_ignores_plain_text_without_structured_links():
+    scraper = AVWikiScraper()
+    scraper._is_valid_actress_name = lambda _name: True
+    soup = BeautifulSoup(
+        """
+        <html>
+          <body>
+            <div class="actress-name">不應混入的純文字女優</div>
+          </body>
+        </html>
+        """,
+        "html.parser",
+    )
+
+    actress_elements = scraper._extract_search_result_actress_elements(soup)
+
+    assert actress_elements == []
+
+
+def test_extract_detail_actresses_ignores_text_fallback_without_structured_links():
+    scraper = AVWikiScraper()
+    scraper._is_valid_actress_name = lambda _name: True
+    scraper._extract_actresses_from_text = lambda _text: ["可愛い"]
+    soup = BeautifulSoup(
+        """
+        <html>
+          <body>
+            <div class="actress-name">可愛い</div>
+            <p>SSIS-123 可愛い メイド 交わる体液</p>
+          </body>
+        </html>
+        """,
+        "html.parser",
+    )
+
+    assert scraper._extract_detail_actresses(soup, soup.get_text()) == []
+
+
 def test_build_batch_search_result_sets_status_for_multiple_actresses():
     scraper = AVWikiScraper()
 

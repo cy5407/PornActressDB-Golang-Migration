@@ -542,6 +542,17 @@ class WebSearcher:
                 seen_actresses.add(text)
                 actresses.append(text)
                 logger.info(f"AV-WIKI 提取到女優: {text} (來自 {href})")
+
+        actress_name_elements = soup.find_all(class_="actress-name")
+        for element in actress_name_elements:
+            for link in element.find_all("a"):
+                href = link.get("href", "")
+                text = link.get_text(strip=True)
+                if "/av-actress/" not in href or not text or text in seen_actresses:
+                    continue
+                seen_actresses.add(text)
+                actresses.append(text)
+                logger.info(f"AV-WIKI 提取到女優: {text} (來自 {href})")
         return actresses
 
     def _fetch_avwiki_detail_studio_info(self, soup: BeautifulSoup, code: str) -> dict:
@@ -602,8 +613,7 @@ class WebSearcher:
             actresses = self._extract_avwiki_actresses(soup)
             logger.info(f"AV-WIKI 最終找到 {len(actresses)} 位女優: {actresses}")
             if not actresses:
-                logger.warning(f"AV-WIKI 未找到女優名稱，HTML開頭: {str(soup)[:200]}...")
-                actresses = self._scan_avwiki_text_for_actresses(soup, code)
+                logger.warning(f"AV-WIKI 未找到結構化女優名稱，HTML開頭: {str(soup)[:200]}...")
             studio_info = self._fetch_avwiki_detail_studio_info(soup, code)
             return self._finalize_avwiki_search_result(code, actresses, studio_info)
         except Exception as e:

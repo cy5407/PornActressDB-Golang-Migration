@@ -170,9 +170,6 @@ class AVWikiScraper(BaseScraper):
             self._extract_tag_link_actresses,
             self._extract_actress_name_elements,
             self._extract_article_tag_actresses,
-            lambda s, _, seen: self._extract_text_scan_actresses(
-                page_text, actress_elements, seen
-            ),
         )
 
         for strategy in extraction_strategies:
@@ -225,16 +222,6 @@ class AVWikiScraper(BaseScraper):
 
         if actress_elements:
             return
-
-        for element in actress_name_elements:
-            actress_name = element.text.strip()
-            if self._is_valid_actress_name(actress_name):
-                self._append_unique_actress_element(
-                    actress_elements,
-                    seen_actresses,
-                    actress_name,
-                    "actress-name-class",
-                )
 
     def _extract_article_tag_actresses(
         self,
@@ -298,12 +285,9 @@ class AVWikiScraper(BaseScraper):
                     actresses.append(text)
             if actresses:
                 break
-            actress_name = element.text.strip()
-            if actress_name and self._is_valid_actress_name(actress_name):
-                actresses.append(actress_name)
         if actresses:
             return actresses
-        return self._extract_actresses_from_text(page_text)
+        return []
 
     def _parse_detail_page(self, soup: BeautifulSoup) -> dict[str, Any]:
         """解析詳情頁面"""
