@@ -329,20 +329,20 @@ class TestExtractDetailActresses:
     def test_extracts_from_tag_links(self):
         s = _make_scraper()
         html = '<a rel="tag" href="/av-actress/tanaka">田中みな実</a>'
-        result = s._extract_detail_actresses(_soup(html), "")
+        result = s._extract_detail_actresses(_soup(html))
         assert "田中みな実" in result
 
     def test_extracts_from_actress_name_class_links(self):
         s = _make_scraper()
         html = '<div class="actress-name"><a href="/av-actress/tanaka">田中みな実</a></div>'
-        result = s._extract_detail_actresses(_soup(html), "")
+        result = s._extract_detail_actresses(_soup(html))
         assert "田中みな実" in result
 
     def test_text_fallback_when_no_links(self):
         s = _make_scraper()
         html = '<div class="actress-name">田中みな実</div>'
         s._extract_actresses_from_text = MagicMock(return_value=["田中みな実"])
-        result = s._extract_detail_actresses(_soup(html), "田中みな実 text content")
+        result = s._extract_detail_actresses(_soup(html))
         assert result == []
 
 

@@ -128,7 +128,7 @@ def test_extract_detail_actresses_ignores_text_fallback_without_structured_links
         "html.parser",
     )
 
-    assert scraper._extract_detail_actresses(soup, soup.get_text()) == []
+    assert scraper._extract_detail_actresses(soup) == []
 
 
 def test_build_batch_search_result_sets_status_for_multiple_actresses():
