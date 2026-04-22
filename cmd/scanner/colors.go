@@ -39,7 +39,7 @@ func colorize(code, s string) string {
 func colorSuccess(s string) string { return colorize(ansiGreen, s) }
 func colorErr(s string) string     { return colorize(ansiRed, s) }
 func colorWarn(s string) string    { return colorize(ansiYellow, s) }
-func colorDim(s string) string { return colorize(ansiDim+ansiGray, s) }
+func colorDim(s string) string     { return colorize(ansiDim+ansiGray, s) }
 
 func printSuccess(format string, args ...any) {
 	fmt.Fprintln(os.Stderr, colorSuccess("✅ "+fmt.Sprintf(format, args...)))
