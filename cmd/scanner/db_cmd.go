@@ -19,6 +19,7 @@ type dbCommandOptions struct {
 	fullOutput     bool
 	actressStats   bool
 	studioStats    bool
+	write          bool
 	backupPath     string
 	backupDays     int
 	backupMaxCount int
@@ -27,6 +28,16 @@ type dbCommandOptions struct {
 type dbCommandContext struct {
 	db   *database.JSONDatabase
 	opts dbCommandOptions
+}
+
+type dbCleanActressesResult struct {
+	Success          bool                            `json:"success"`
+	DryRun           bool                            `json:"dry_run"`
+	BackupPath       string                          `json:"backup_path,omitempty"`
+	ScannedVideos    int                             `json:"scanned_videos"`
+	ChangedVideos    int                             `json:"changed_videos"`
+	RemovedActresses int                             `json:"removed_actresses"`
+	Changes          []database.ActressCleanupChange `json:"changes"`
 }
 
 type changeEntry struct {
@@ -105,6 +116,7 @@ func parseDBCommandOptions(subCmd string, args []string) (dbCommandOptions, []st
 	fullOutput := fs.Bool("full", false, "輸出完整影片資料（僅 list 子命令）")
 	actressStats := fs.Bool("actress", false, "顯示女優統計")
 	studioStats := fs.Bool("studio", false, "顯示片商統計")
+	write := fs.Bool("write", false, "真正寫入資料庫（預設為 dry-run）")
 	backupPath := fs.String("backup-path", "", "備份檔案路徑（用於 backup-restore）")
 	backupDays := fs.Int("days", 30, "備份保留天數（用於 backup-cleanup）")
 	backupMaxCount := fs.Int("max-count", 50, "最大備份數量（用於 backup-cleanup）")
@@ -115,6 +127,7 @@ func parseDBCommandOptions(subCmd string, args []string) (dbCommandOptions, []st
 		fullOutput:     *fullOutput,
 		actressStats:   *actressStats,
 		studioStats:    *studioStats,
+		write:          *write,
 		backupPath:     *backupPath,
 		backupDays:     *backupDays,
 		backupMaxCount: *backupMaxCount,
@@ -131,20 +144,21 @@ func loadDBOrExit(dataDir string) *database.JSONDatabase {
 }
 
 var dbHandlers = map[string]func(dbCommandContext, []string){
-	"get":            runDBGet,
-	"update":         runDBUpdate,
-	"delete":         runDBDelete,
-	"list":           runDBList,
-	"stats":          runDBStats,
-	"compact":        runDBCompact,
-	"actress-get":    runDBActressGet,
-	"actress-update": runDBActressUpdate,
-	"actress-delete": runDBActressDelete,
-	"actress-list":   runDBActressList,
-	"backup-create":  runDBBackupCreate,
-	"backup-restore": runDBBackupRestore,
-	"backup-list":    runDBBackupList,
-	"backup-cleanup": runDBBackupCleanup,
+	"get":             runDBGet,
+	"update":          runDBUpdate,
+	"delete":          runDBDelete,
+	"list":            runDBList,
+	"stats":           runDBStats,
+	"compact":         runDBCompact,
+	"actress-get":     runDBActressGet,
+	"actress-update":  runDBActressUpdate,
+	"actress-delete":  runDBActressDelete,
+	"actress-list":    runDBActressList,
+	"clean-actresses": runDBCleanActresses,
+	"backup-create":   runDBBackupCreate,
+	"backup-restore":  runDBBackupRestore,
+	"backup-list":     runDBBackupList,
+	"backup-cleanup":  runDBBackupCleanup,
 }
 
 func runDBGet(ctx dbCommandContext, remaining []string) {
@@ -314,6 +328,50 @@ func runDBActressList(ctx dbCommandContext, _ []string) {
 		os.Exit(1)
 	}
 	outputJSON(ids)
+}
+
+func runDBCleanActresses(ctx dbCommandContext, _ []string) {
+	result, err := cleanActressesAction(ctx.db, ctx.opts.write)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "清洗女優資料失敗: %v\n", err)
+		os.Exit(1)
+	}
+	outputJSON(result)
+}
+
+func cleanActressesAction(db *database.JSONDatabase, write bool) (*dbCleanActressesResult, error) {
+	cleaner := database.NewActressCleaner()
+	result := &dbCleanActressesResult{
+		Success: true,
+		DryRun:  !write,
+		Changes: []database.ActressCleanupChange{},
+	}
+
+	if write {
+		backupPath, err := db.BackupCreate()
+		if err != nil {
+			return nil, err
+		}
+		result.BackupPath = backupPath
+	}
+
+	report, err := cleaner.ApplyToDatabase(db, write)
+	if err != nil {
+		return nil, err
+	}
+
+	result.ScannedVideos = report.ScannedVideos
+	result.ChangedVideos = report.ChangedVideos
+	result.RemovedActresses = report.RemovedActresses
+	result.Changes = report.Changes
+
+	if write && report.ChangedVideos > 0 {
+		if err := db.CompactJournal(); err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
 }
 
 func runDBBackupCreate(ctx dbCommandContext, _ []string) {

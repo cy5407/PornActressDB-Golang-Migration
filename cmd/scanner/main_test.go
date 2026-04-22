@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"actress-classifier/pkg/database"
@@ -116,5 +119,101 @@ func TestBuildStudioFixPlan_UpdatesUnknownStudio(t *testing.T) {
 	}
 	if plan.change.From != "UNKNOWN" || plan.change.To != "S1" {
 		t.Fatalf("change = %#v, want UNKNOWN -> S1", plan.change)
+	}
+}
+
+func TestCleanActressesActionDryRunDoesNotBackupOrMutate(t *testing.T) {
+	db, dir := setupScannerTestDB(t)
+	video := database.NewVideo("ABF-062")
+	video.Actresses = []string{"蒼乃美月", "顔射の美学", "蒼乃美月蒼乃美月"}
+	if err := db.UpdateVideo("ABF-062", video); err != nil {
+		t.Fatalf("Failed to seed video: %v", err)
+	}
+	if err := db.CompactJournal(); err != nil {
+		t.Fatalf("Failed to compact seed data: %v", err)
+	}
+
+	result, err := cleanActressesAction(db, false)
+	if err != nil {
+		t.Fatalf("cleanActressesAction returned error: %v", err)
+	}
+
+	if !result.DryRun {
+		t.Fatalf("expected dry-run result")
+	}
+	if result.BackupPath != "" {
+		t.Fatalf("expected no backup path during dry-run, got %q", result.BackupPath)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "backup")); !os.IsNotExist(err) {
+		t.Fatalf("expected backup dir to be absent, got err=%v", err)
+	}
+
+	reloaded := database.NewJSONDatabase(dir)
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatalf("Failed to reload db: %v", err)
+	}
+	current, err := reloaded.GetVideo("ABF-062")
+	if err != nil {
+		t.Fatalf("Failed to fetch video: %v", err)
+	}
+	assertActressesEqual(t, current.Actresses, []string{"蒼乃美月", "顔射の美学", "蒼乃美月蒼乃美月"})
+}
+
+func TestCleanActressesActionWriteBacksUpAndMutates(t *testing.T) {
+	db, dir := setupScannerTestDB(t)
+	video := database.NewVideo("ABF-177")
+	video.Actresses = []string{"絶対", "瀧本雫葉", "リミットブレイク"}
+	if err := db.UpdateVideo("ABF-177", video); err != nil {
+		t.Fatalf("Failed to seed video: %v", err)
+	}
+	if err := db.CompactJournal(); err != nil {
+		t.Fatalf("Failed to compact seed data: %v", err)
+	}
+
+	result, err := cleanActressesAction(db, true)
+	if err != nil {
+		t.Fatalf("cleanActressesAction returned error: %v", err)
+	}
+
+	if result.DryRun {
+		t.Fatalf("expected write result")
+	}
+	if result.BackupPath == "" {
+		t.Fatalf("expected backup path to be populated")
+	}
+	if _, err := os.Stat(result.BackupPath); err != nil {
+		t.Fatalf("expected backup file to exist: %v", err)
+	}
+
+	reloaded := database.NewJSONDatabase(dir)
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatalf("Failed to reload db: %v", err)
+	}
+	current, err := reloaded.GetVideo("ABF-177")
+	if err != nil {
+		t.Fatalf("Failed to fetch video: %v", err)
+	}
+	assertActressesEqual(t, current.Actresses, []string{"瀧本雫葉"})
+}
+
+func setupScannerTestDB(t *testing.T) (*database.JSONDatabase, string) {
+	t.Helper()
+	dir := t.TempDir()
+	db := database.NewJSONDatabase(dir)
+	if err := db.Load(context.Background()); err != nil {
+		t.Fatalf("Failed to load db: %v", err)
+	}
+	return db, dir
+}
+
+func assertActressesEqual(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected %#v, got %#v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected %#v, got %#v", want, got)
+		}
 	}
 }

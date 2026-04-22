@@ -76,7 +76,7 @@ func printUsage() {
   move      移動檔案（單檔或批次）
   history   查看操作歷史或回滾
   db        資料庫操作（get, update, delete, list, stats, merge, compact,
-            fix-studios, actress-get/update/delete/list,
+            fix-studios, actress-get/update/delete/list, clean-actresses,
             backup-create/backup-restore/backup-list/backup-cleanup）
   identify  識別番號所屬片商
   cache     快取管理（stats, prune, clear, get, set, delete）
@@ -100,6 +100,8 @@ func printUsage() {
   classifier.exe db actress-update "Julia" actress.json
   classifier.exe db actress-delete "Julia"
   classifier.exe db actress-list
+  classifier.exe db clean-actresses
+  classifier.exe db clean-actresses -write
   classifier.exe db backup-create
   classifier.exe db backup-restore backup-2026-01-01.json
   classifier.exe db backup-list
