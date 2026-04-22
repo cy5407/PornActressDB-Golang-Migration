@@ -131,11 +131,27 @@ func (c *ActressCleaner) shouldRemove(name string, present map[string]struct{}) 
 	if _, ok := c.blockedExact[name]; ok {
 		return true
 	}
+	if isAllAsterisks(name) {
+		return true
+	}
 	if name == "三田" {
 		_, hasCanonical := present["三田真鈴"]
 		return hasCanonical
 	}
 	return isRepeatedConcatenation(name, present)
+}
+
+// isAllAsterisks 判斷是否為全形或半形星號組成的垃圾值（如 ＊＊＊、***）。
+func isAllAsterisks(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if r != '＊' && r != '*' {
+			return false
+		}
+	}
+	return true
 }
 
 func isRepeatedConcatenation(name string, present map[string]struct{}) bool {

@@ -944,6 +944,10 @@ func (a *App) GetActressPrimaryStudios(actressNames []string) map[string]string 
 			continue
 		}
 		seen[name] = true
+		if isGarbageActressName(name) {
+			result[name] = "" // 垃圾值（如 ＊＊＊），不分類
+			continue
+		}
 		studio := a.db.GetActressPrimaryStudio(name)
 		switch {
 		case studio == "":
@@ -956,6 +960,19 @@ func (a *App) GetActressPrimaryStudios(actressNames []string) map[string]string 
 		}
 	}
 	return result
+}
+
+// isGarbageActressName 判斷是否為明顯垃圾值（全形或半形星號組成，如 ＊＊＊）。
+func isGarbageActressName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if r != '＊' && r != '*' {
+			return false
+		}
+	}
+	return true
 }
 
 // GetStudioByCode 依番號前綴查片商名稱（真實來源：studios.json）。
