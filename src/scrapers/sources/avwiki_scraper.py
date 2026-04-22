@@ -162,7 +162,6 @@ class AVWikiScraper(BaseScraper):
     def _extract_search_result_actress_elements(
         self, soup: BeautifulSoup
     ) -> list[dict[str, Any]]:
-        page_text = soup.get_text()
         actress_elements: list[dict[str, Any]] = []
         seen_actresses: set[str] = set()
 
@@ -267,7 +266,7 @@ class AVWikiScraper(BaseScraper):
         title_element = soup.find("h1") or soup.find("h2", class_="entry-title") or soup.find("title")
         return title_element.text.strip() if title_element else None
 
-    def _extract_detail_actresses(self, soup: BeautifulSoup, page_text: str) -> list[str]:
+    def _extract_detail_actresses(self, soup: BeautifulSoup) -> list[str]:
         actresses: list[str] = []
         for link in soup.find_all("a", rel="tag"):
             href = link.get("href", "")
@@ -293,7 +292,7 @@ class AVWikiScraper(BaseScraper):
         """解析詳情頁面"""
         page_text = soup.get_text()
         result = {
-            "actresses": self._extract_detail_actresses(soup, page_text),
+            "actresses": self._extract_detail_actresses(soup),
             "studio": None,
             "studio_code": None,
             "title": self._extract_detail_title(soup),
