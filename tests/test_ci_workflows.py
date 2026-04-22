@@ -12,7 +12,7 @@ def test_python_test_workflow_builds_classifier_before_pytest():
 
     assert "uses: actions/setup-go@v6" in workflow
     assert "Build classifier CLI" in workflow
-    assert "go build -o classifier.exe ./cmd/scanner" in workflow
+    assert "go build -o classifier ./cmd/scanner" in workflow
     assert 'CLASSIFIER_EXE: ""' not in workflow
 
 

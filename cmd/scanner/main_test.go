@@ -144,13 +144,13 @@ func TestCleanActressesActionDryRunDoesNotBackupOrMutate(t *testing.T) {
 	if result.BackupPath != "" {
 		t.Fatalf("expected no backup path during dry-run, got %q", result.BackupPath)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "backup")); !os.IsNotExist(err) {
-		t.Fatalf("expected backup dir to be absent, got err=%v", err)
+	if _, statErr := os.Stat(filepath.Join(dir, "backup")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected backup dir to be absent, got err=%v", statErr)
 	}
 
 	reloaded := database.NewJSONDatabase(dir)
-	if err := reloaded.Load(context.Background()); err != nil {
-		t.Fatalf("Failed to reload db: %v", err)
+	if loadErr := reloaded.Load(context.Background()); loadErr != nil {
+		t.Fatalf("Failed to reload db: %v", loadErr)
 	}
 	current, err := reloaded.GetVideo("ABF-062")
 	if err != nil {
@@ -181,13 +181,13 @@ func TestCleanActressesActionWriteBacksUpAndMutates(t *testing.T) {
 	if result.BackupPath == "" {
 		t.Fatalf("expected backup path to be populated")
 	}
-	if _, err := os.Stat(result.BackupPath); err != nil {
-		t.Fatalf("expected backup file to exist: %v", err)
+	if _, statErr := os.Stat(result.BackupPath); statErr != nil {
+		t.Fatalf("expected backup file to exist: %v", statErr)
 	}
 
 	reloaded := database.NewJSONDatabase(dir)
-	if err := reloaded.Load(context.Background()); err != nil {
-		t.Fatalf("Failed to reload db: %v", err)
+	if loadErr := reloaded.Load(context.Background()); loadErr != nil {
+		t.Fatalf("Failed to reload db: %v", loadErr)
 	}
 	current, err := reloaded.GetVideo("ABF-177")
 	if err != nil {
