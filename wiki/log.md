@@ -5,6 +5,69 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-04-22] docs | README / wiki 補上 Go 版 DB 清洗工具
+
+**觸發**：審閱 `copilot-session-0137f107-5126-4fb8-8708-e4a3090810c2.md` 後，將新完成的 DB 清洗工具回寫到正式文件
+**範圍**：`README.md`、`wiki/architecture/go-cli.md`、`wiki/architecture/database.md`
+
+### 已更新
+
+| 檔案 | 修正內容 |
+|------|---------|
+| `README.md` | 將 `classifier.exe db clean-actresses` 補進 CLI 範例與「資料庫維護」段落，改用目前正式 Go 工具說明 dry-run / `-write` / backup / restore |
+| `wiki/architecture/go-cli.md` | `db` 子命令表新增 `clean-actresses [-write]`，補上輸出 JSON、寫入流程與通用旗標說明 |
+| `wiki/architecture/database.md` | 新增 `clean-actresses` 工具段落，說明它是目前正式 DB 清洗入口、規則類型與 backup/compact 行為 |
+
+### 摘要
+
+- 目前正式 DB 清洗工具已從散落腳本收斂為 Go CLI：`classifier.exe db clean-actresses`
+- 預設為 dry-run；加 `-write` 才會先備份再寫回 DB
+- 這次文件以 live code 為準，沒有沿用舊的 Python 正規化腳本描述
+- 審閱 session 後另記一個殘留落差：CLI help 內仍有一處 `backup-restore` 範例未帶 `-backup-path`，文件已先按真實實作寫正
+
+---
+
+## [2026-04-22] pitfall | 女優分類污染候選、DB fallback 與 AV-WIKI 純文字 fallback 連鎖問題
+
+**commits**：`fd1685b`（DB fallback 失敗即中止分類）、`6967dd9`（補回 move fallback 與多人共演選擇）、`8b75e75`（先清洗候選名單再判斷多人共演）、`d1e9d99`（AV-WIKI 只吃結構化 actress link，停用純文字 / 全文 fallback）
+
+### 已更新
+
+| 檔案 | 變更 |
+|------|------|
+| `wiki/pitfalls/wails-actress-classification-polluted-candidates.md` | **新增**：整理這次 Windows 實機發現的連鎖問題，包含 `searchResults` 缺口、`ensureDB()` 吃錯、多人共演判斷順序錯誤，以及 AV-WIKI 上游 text fallback 污染 |
+| `wiki/index.md` | 踩坑表格新增 `女優分類污染候選與 AV-WIKI 純文字 fallback` 條目 |
+
+### 摘要
+
+- 真正問題不是單一 fallback 壞掉，而是「原始 `actresses` 已被污染 + 前端在清洗前就判斷多人共演 + DB fallback 失敗又被誤當成沒資料」
+- Wails / Windows 主線 AV-WIKI 實際走 `src/services/web_searcher.py`，不能只修另一套 `AVWikiScraper`
+- AV-WIKI 現在改成像 JAVDB 一樣只接受結構化 actress link；沒有結構化證據就 fail-closed，不再靠全文猜名字
+- 本輪 Python 驗證結果：`178 passed`
+
+---
+
+## [2026-04-22] docs | 漂移審計修正 README、搜尋架構與資料庫文件
+
+**觸發**：drift audit / docs correction update
+**範圍**：`README.md`、`wiki/architecture/search-engine.md`、`wiki/architecture/database.md`
+
+### 已更新
+
+| 檔案 | 修正內容 |
+|------|---------|
+| `README.md` | 校正安裝 / 建置描述，使其與 `setup.ps1`、`setup.sh` 實際行為一致；補充正式入口與 Windows-first GUI 建置說明 |
+| `wiki/architecture/search-engine.md` | 更新為現行 source-specific search 架構，補上 `BatchSearchAVWiki` / `BatchSearchJAVDB`、`source_mode` 與來源專屬狀態欄位說明 |
+| `wiki/architecture/database.md` | 修正 schema/header 漂移，更新根層與影片欄位定義、JSON 範例、`error` / `error_kind` 與來源搜尋相關欄位說明 |
+
+### 摘要
+
+- README 安裝 / 建置 wording 已對齊 `setup.ps1` / `setup.sh`，不再誤述會自動建立 venv、安裝 requirements 或執行 `npm install`
+- 搜尋架構頁已反映目前主線 cascade 搜尋加上 AV-WIKI-only / JAVDB-only 的來源限定搜尋
+- 資料庫頁已修正 schema、範例與欄位表述漂移，避免 header / sample / 現行實作不一致
+
+---
+
 ## [2026-04-20] ingest | 跨層介面修復、新欄位、一鍵安裝腳本
 
 **commits**：`f61001a`（error 欄位持久化）、`b496dd5`（search_method 欄位修正）、`278b69e`（INTERFACE_AUDIT.md 建立）、`20602f2`（來源搜尋 Bug 修復）、`bda23a9`（setup.sh / setup.ps1）

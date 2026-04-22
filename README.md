@@ -2,6 +2,8 @@
 
 專為 **Windows 桌面**設計的影片整理工具。
 
+> 正式桌面建置 / 發行目標為 Windows；Linux / macOS 目前主要用於 Go CLI、文件與測試驗證。
+
 從影片檔名提取番號，自動搜尋女優資訊，依女優或片商將影片整理到對應資料夾。
 
 ## 架構
@@ -19,7 +21,7 @@ Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透
 | 功能 | 說明 |
 |------|------|
 | 掃描 | 從資料夾批次提取番號，使用 Go 並發掃描 |
-| 搜尋 | 依序查詢 AV-WIKI → JAVDB，結果寫入 JSON 資料庫 |
+| 搜尋 | 預設主流程為級聯搜尋（主線仍是 AV-WIKI → JAVDB）；Wails 也提供 AV-WIKI-only / JAVDB-only 來源限定搜尋，方便針對性重跑或補查，結果寫入 JSON 資料庫 |
 | 移動 | 依女優分類：`outputDir\女優名\番號.ext` |
 | 🏢 片商分類 | 依片商分層：`outputDir\片商名\女優名\番號.ext` |
 | 回滾 | 查看操作歷史，一鍵還原移動結果 |
@@ -37,13 +39,19 @@ Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透
    ```powershell
    pip install -r requirements.txt
    ```
-3. 將 `actress-classifier.exe`、`classifier.exe`、`major_studios.json`、`studios.json` 放在同一目錄，雙擊啟動
+3. 將 `actress-classifier.exe`、`classifier.exe`、`major_studios.json`、`studios.json` 放在同一目錄，雙擊執行 `actress-classifier.exe`
 
 > Python 環境只用於搜尋爬蟲；GUI 本身不需要 Python 即可啟動，但搜尋功能需要。
 
+#### 執行入口
+
+- 正式釋出 / 一般使用：`actress-classifier.exe`
+- CLI / 輔助工具：`classifier.exe`（Windows）或 `classifier`（Linux / macOS）
+- 開發 / 輔助啟動入口：`python run.py`（會優先尋找並啟動已建好的 Wails 執行檔）
+
 ### 開發者（自行建置）
 
-#### 一鍵安裝依賴
+#### 建置腳本
 
 ```powershell
 # Windows（PowerShell）
@@ -55,7 +63,12 @@ Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透
 chmod +x setup.sh && ./setup.sh
 ```
 
-腳本會自動完成：建立 Python venv、安裝 pip 套件、`go mod download`、建置 `classifier(.exe)`、`npm install`。
+腳本的實際行為如下：
+
+- `setup.ps1`：執行 `go mod download`，建置 `classifier.exe`，再建置並複製 `actress-classifier.exe` 到專案根目錄
+- `setup.sh`：執行 `go mod download`，只建置 `classifier`（Linux / macOS）；Wails GUI 仍以 Windows 為正式桌面建置目標
+
+> 這兩個腳本都不會建立 Python venv、不會安裝 `requirements.txt`、也不會替 `wails-app/frontend` 執行 `npm install`。
 
 #### 手動步驟
 
@@ -81,6 +94,8 @@ wails build
 # → wails-app\build\bin\actress-classifier.exe
 ```
 
+> 若是首次建置或前端套件尚未安裝，請先手動執行 `wails-app\frontend` 內的 `npm install`；`setup.ps1` / `setup.sh` 不會代為安裝。
+
 > 建置 `classifier.exe` 時請使用套件路徑，不要直接指定 `main.go`，否則會漏掉同套件的輔助檔案。
 >
 > 建置或釋出 Wails 應用時，請另外確認 `classifier.exe`、`major_studios.json`、`studios.json` 是否也放在預期位置，避免 GUI 啟動後部分功能可開啟但搜尋 / 片商分類失效。
@@ -90,7 +105,8 @@ wails build
 1. 啟動 `actress-classifier.exe`
 2. 設定輸入資料夾（掃描來源）與輸出資料夾（移動目標）
 3. 點「掃描」提取所有番號
-4. 點「搜尋」查詢女優資訊（結果自動寫入資料庫）
+4. 點「搜尋」執行預設級聯搜尋主流程（主線為 AV-WIKI → JAVDB，結果自動寫入資料庫）
+   - 另外，Wails 前後端也提供 AV-WIKI-only 與 JAVDB-only 的來源限定批次搜尋，可用於針對性重跑、補查，或比對單一來源結果。
 5. 點「移動」或「🏢 片商分類」整理檔案
 6. 如需還原，點「操作歷史」選擇回滾
 
@@ -125,13 +141,19 @@ classifier.exe db get STARS-707
 classifier.exe db compact
 classifier.exe db merge -source other\data.json
 classifier.exe db merge -source other\data.json -overwrite
+classifier.exe db clean-actresses
+classifier.exe db clean-actresses -write
 ```
 
 ## JSON 資料庫
 
 預設位置：`data\json_db\data.json`
 
-主要欄位：`code`、`title`、`studio`、`actresses`、`search_status`、`search_method`、`file_path`
+README 這裡只列常用欄位摘要；完整 schema 與欄位說明請見 `wiki/architecture/database.md`。
+
+主要欄位摘要：`code`、`title`、`studio`、`actresses`、`search_status`、`last_search_date`、`search_method`、`avwiki_actress_status`、`avwiki_last_search_date`、`javdb_actress_status`、`javdb_last_search_date`、`file_path`、`error`、`error_kind`
+
+其中 `avwiki_*` / `javdb_*` 欄位會分別記錄來源限定搜尋的狀態與最後搜尋時間，方便針對單一來源重跑後追蹤結果。
 
 | `search_status` | 說明 |
 |----------------|------|
@@ -153,12 +175,27 @@ classifier.exe db merge -source other\data.json -overwrite
 # 驗證格式
 python tools\verify\verify_json_db_schema.py data\json_db\data.json
 
-# 預覽正規化（不改檔）
-python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --dry-run
+# 女優名單清洗（dry-run；只輸出變更，不寫入）
+classifier.exe db clean-actresses
 
-# 直接正規化（自動備份）
-python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --write
+# 真正寫入清洗結果（會先自動建立 backup）
+classifier.exe db clean-actresses -write
+
+# 列出既有 backup
+classifier.exe db backup-list
+
+# 還原指定 backup（注意：這裡必須用 -backup-path）
+classifier.exe db backup-restore -backup-path data\json_db\backup\backup_YYYY-MM-DD_HH-MM-SS.json
 ```
+
+`clean-actresses` 是目前正式的 DB 清洗工具，會掃描所有影片的 `actresses` 欄位，移除已知污染字串、重複拼接名稱，以及像 `三田` 這種在 `三田真鈴` 同時存在時才應清掉的片段名稱。
+
+行為重點：
+- 預設是 dry-run，不會修改 DB
+- 加 `-write` 才會真的寫入
+- `-write` 時會先呼叫 `backup-create` 自動備份，再把變更 compact 回主 DB
+- 輸出 JSON 會包含 `scanned_videos`、`changed_videos`、`removed_actresses` 與逐筆 `changes`
+- 目前屬於高信心規則清洗，不是通用全文正規化器；若要擴規則，請同步更新 `pkg/database/actress_cleaner.go` 與對應測試
 
 ## 專案結構
 
@@ -169,8 +206,8 @@ major_studios.json        # 大片商清單
 studios.json              # 片商識別規則
 config.ini                # 設定檔（從 config.ini.example 複製）
 requirements.txt          # Python 爬蟲相依套件
-setup.ps1                 # 一鍵安裝依賴（Windows PowerShell）
-setup.sh                  # 一鍵安裝依賴（Linux / macOS）
+setup.ps1                 # Windows 建置腳本（建置 classifier.exe 與 actress-classifier.exe）
+setup.sh                  # Linux / macOS 建置腳本（建置 classifier）
 │
 wails-app\                # Wails 桌面應用原始碼
 │   backend\app.go        # Go 後端 bindings
@@ -214,7 +251,9 @@ MIT License — 詳見 `LICENSE`
 
 A Windows desktop tool for organizing video files by actress and studio.
 
-Extracts video codes from filenames, searches actress information from AV-WIKI and JAVDB, then moves files into organized folder structures.
+> Windows is the formal desktop build/release target. Linux/macOS are currently used mainly for the Go CLI, documentation, and test verification.
+
+Extracts video codes from filenames, runs the default cascade search flow (mainline AV-WIKI → JAVDB), and also supports AV-WIKI-only / JAVDB-only reruns for targeted checks before moving files into organized folder structures.
 
 ## Architecture
 
@@ -228,11 +267,17 @@ Extracts video codes from filenames, searches actress information from AV-WIKI a
 2. Install Python 3.11+ and run `pip install -r requirements.txt` (required for search functionality)
 3. Keep these files in the same directory, then launch `actress-classifier.exe`
 
+Run entry points:
+
+- Release / normal desktop entry: `actress-classifier.exe`
+- CLI / helper entry: `classifier.exe` (Windows) or `classifier` (Linux/macOS)
+- Dev / helper launcher: `python run.py` (prefers an already-built Wails executable)
+
 ## Workflow
 
 1. Set input folder (scan source) and output folder (move target)
 2. **Scan** — extract video codes from filenames
-3. **Search** — fetch actress info from AV-WIKI → JAVDB, write to JSON database
+3. **Search** — the default/mainline flow is cascade search (AV-WIKI → JAVDB); Wails also exposes AV-WIKI-only and JAVDB-only batch search for targeted reruns or supplementary checks, with results written to the JSON database
 4. **Move** → `outputDir\actress\code.ext`
    **Studio Classify** → `outputDir\studio\actress\code.ext`
 5. Use **Operation History** to rollback if needed
@@ -249,7 +294,7 @@ Major studios are defined in `major_studios.json`, while broader studio identifi
 
 ## Building from Source
 
-### One-command setup
+### Build scripts
 
 ```powershell
 # Windows (PowerShell)
@@ -261,7 +306,12 @@ Major studios are defined in `major_studios.json`, while broader studio identifi
 chmod +x setup.sh && ./setup.sh
 ```
 
-The scripts create a Python venv, install pip packages, run `go mod download`, build `classifier(.exe)`, and run `npm install` automatically.
+Actual script behavior:
+
+- `setup.ps1`: runs `go mod download`, builds `classifier.exe`, then builds and copies `actress-classifier.exe` to the repo root
+- `setup.sh`: runs `go mod download` and builds only `classifier` on Linux/macOS; the Wails GUI remains a Windows-first desktop build target
+
+These scripts do not create a Python venv, do not install `requirements.txt`, and do not run `npm install` in `wails-app/frontend`.
 
 ### Manual steps
 
@@ -276,6 +326,8 @@ cd wails-app\frontend && npm install && cd ..\..
 cd wails-app
 wails build
 ```
+
+Install frontend dependencies manually before the first Wails build. Python search dependencies also still require a separate `pip install -r requirements.txt`.
 
 ## License
 

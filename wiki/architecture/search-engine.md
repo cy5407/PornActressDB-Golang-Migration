@@ -1,169 +1,279 @@
 # 搜尋引擎架構
 
-> 來源：`src/scrapers/sources/avwiki_scraper.py`、`README.md`  
-> 更新：2026-04-06
+> 來源：`wails-app/backend/app.go`、`src/scrapers/run_search.py`、`src/scrapers/run_batch_search.py`、`src/services/web_searcher.py`、`wails-app/frontend/src/App.tsx`
+> 更新：2026-04-22
 
 ---
 
-## 搜尋策略：AV-WIKI → JAVDB 級聯
+## 搜尋架構總覽
 
-```
-番號列表
+目前的搜尋主流程仍是同一條 Python 搜尋管線，由 Wails backend 依需求用不同 API 入口呼叫：
+
+```text
+Wails UI / Backend
    ↓
-【第一層：AV-WIKI】
-   ├─ 找到 → 儲存，標記 search_method: "AV-WIKI"
-   └─ 未找到 ↓
-【第二層：JAVDB】
-   ├─ 找到 → 儲存，標記 search_method: "JAVDB"
-   └─ 未找到 → 標記 searched_not_found
+BatchSearch / BatchSearchAVWiki / BatchSearchJAVDB
+   ↓
+run_batch_search.py（單一 Python 批次子程序）
+   ↓
+WebSearcher
+   ├─ cascade: search_info()
+   ├─ avwiki:  search_avwiki_only()
+   └─ javdb:   search_javdb_only()
 ```
 
-> ⚠️ chiba-f.net 已從搜尋來源移除（歷史資料中的 `chiba-f.net` search_method 仍保留）
+單筆搜尋時，`run_search.py` 也使用同樣的 `source_mode` 概念：
+- `cascade`：主線級聯搜尋
+- `avwiki`：只跑 AV-WIKI
+- `javdb`：只跑 JAVDB
+
+也就是說，來源專用搜尋不是另一套 crawler 架構，而是同一組腳本與 `WebSearcher` 在不同 `source_mode` 下的定向執行方式。
 
 ---
 
-## WebSearcher
+## 主線策略：預設 BatchSearch / `search_info()`
 
-**位置**：`src/services/web_searcher.py`
+### 1. Wails 預設批次 API
 
-核心方法：
+`wails-app/backend/app.go` 的：
+- `BatchSearch(codes, workers)`
 
-```python
-# 批次級聯搜尋
-result = web_searcher.batch_cascade_search(
-    codes,           # 番號列表
-    stop_event,      # threading.Event，可中斷
-    progress_callback,
-    enable_javdb=True
-)
+會呼叫：
+- `batchSearch(codes, workers, "")`
+- 再由 backend 將請求序列化為 `source_mode` 空字串
+- Python 端把空字串正規化為 `cascade`
+
+### 2. Python 主線模式
+
+`src/scrapers/run_search.py` 與 `src/scrapers/run_batch_search.py` 都將以下別名正規化到預設模式：
+- `""`
+- `cascade`
+- `all`
+- `default`
+
+正規化後會走：
+- `WebSearcher.search_info(code, stop_event)`
+
+### 3. 目前 cascade 的實際順序
+
+`src/services/web_searcher.py` 中，`search_info()` 的主線是：
+
+```text
+番號
+  ↓
+AV-WIKI
+  ├─ 找到且有 actresses → 回傳成功
+  └─ 否則 ↓
+JAVDB
+  ├─ 找到且有 actresses → 回傳成功
+  └─ 否則 → 回傳 None
 ```
+
+補充：
+- `search_info()` 會先建立番號候選（例如特定 `00xxx` alias fallback）。
+- AV-WIKI 命中後就不再往下跑 JAVDB。
+- 若 AV-WIKI 未命中，才會進入 JAVDB。
+- 這就是目前文件中應稱為「主線級聯搜尋」的部分。
+
+### 4. 預設批次 API 的資料庫行為
+
+`BatchSearch` 與來源專用 API 的差異，不只在搜尋來源，也在 DB 快取策略：
+
+- `BatchSearch` 會先查 DB
+- 若既有影片 `search_status == "searched_found"`，會直接當作整體快取結果回傳
+- 只有未命中的番號才會送進 `run_batch_search.py`
+- Python 回傳成功結果後，backend 會更新整體欄位：
+  - `search_status = "searched_found"`
+  - `search_method`
+  - `last_search_date`
+  - 以及標題、片商、網址、女優等主資料
+
+因此預設 `BatchSearch` 代表的是「整體搜尋主線」，不是單一來源重跑。
 
 ---
 
-## AV-WIKI 爬蟲
+## 來源專用 API：補搜 / 定向重跑入口
 
-**位置**：`src/scrapers/sources/avwiki_scraper.py`  
-**基底**：`BaseScraper`  
-**協定**：非同步 `aiohttp`
+### Wails backend API
 
-### Headers 設定
+`wails-app/backend/app.go` 另外提供：
+- `BatchSearchAVWiki(codes, workers)`
+- `BatchSearchJAVDB(codes, workers)`
 
-```python
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...",
-    "Accept-Language": "ja-JP,ja;q=0.9,en;q=0.8",  # 日語優先
-    "Accept-Encoding": "gzip, deflate, br",          # 不用 identity，支援壓縮
-}
-```
+兩者都仍然進入同一個 `batchSearch(...)`，只是帶入不同 `source`：
+- `avwiki`
+- `javdb`
 
-### 高併發支援
+backend 會把這個值寫進批次請求的 `source_mode` 欄位，交給 `run_batch_search.py`。
 
-```python
-# AV-WIKI 支援高併發（config.ini）
-avwiki_concurrent_enabled = true
-avwiki_max_concurrent = 15   # 最大同時請求數
-```
+### 這些 API 的定位
 
----
+這兩個 API 的定位是：
+- 針對特定來源補搜
+- 針對特定來源重跑
+- 更新該來源自己的狀態欄位
 
-## JAVDB 爬蟲
+它們不是：
+- 獨立於主線之外的另一套搜尋架構
+- 新增另一條 crawler pipeline
 
-**位置**：`src/scrapers/sources/javdb_scraper.py`  
-**專用搜尋器**：`src/services/safe_javdb_searcher.py`  
-**協定**：同步 requests（SafeSearcher 封裝）
+### 與預設 BatchSearch 的關鍵差異
 
-### False Positive 防護
+來源專用 API 會刻意略過舊的整體快取捷徑：
+- `BatchSearchAVWiki` / `BatchSearchJAVDB` 不使用 `search_status == "searched_found"` 的 legacy cache 直接返回
+- 即使 DB 已有整體成功資料，仍會重跑指定來源
 
-**關鍵邏輯**（2026-04 修正）：
-
-```python
-# ❌ 舊邏輯（Issue 12）：無精確匹配時取第一筆
-if not best_match_url:
-    best_match_url = video_links[0].get("href")  # 產生 false positive
-
-# ✅ 新邏輯：無精確匹配直接回傳 None
-if not best_match_url:
-    logger.debug(f"🔍 JAVDB 未找到 {video_id} 精確匹配，視為未找到")
-    return None
-```
-
-**詳情頁二次驗證**：
-
-```python
-# 從標題提取番號，與搜尋目標比對
-if page_code != video_id.upper():
-    logger.warning(f"⚠️ 詳情頁番號不符: {video_id} vs {page_code}")
-    return None
-```
-
-→ 詳見 [pitfalls/javdb-false-positive.md](../pitfalls/javdb-false-positive.md)
+這表示它們是主線搜尋之外的「補充性 / 定向 rerun」能力，而不是取代主線。
 
 ---
 
-## SafeSearcher
+## `source_mode` 對應關係
 
-**位置**：`src/services/safe_searcher.py`
+`run_search.py` 與 `run_batch_search.py` 目前都支援相同的來源模式：
 
-特性：
-- 速率限制（配置化延遲）
-- 重試機制（指數退避）
-- 快取（避免重複請求）
+| `source_mode` | Python 實際呼叫 | 用途 |
+|---|---|---|
+| `cascade` | `search_info()` | 預設主線級聯搜尋 |
+| `avwiki` | `search_avwiki_only()` | 只跑 AV-WIKI 的補搜 / 重跑 |
+| `javdb` | `search_javdb_only()` | 只跑 JAVDB 的補搜 / 重跑 |
 
-**JAVDB 專用設定**（`config.ini`）：
-
-```ini
-[search]
-batch_size = 10
-thread_count = 5
-batch_delay = 2.0
-request_timeout = 20
-```
+其中：
+- `run_search.py` 用於單筆子程序包裝
+- `run_batch_search.py` 用於批次子程序包裝
+- 兩者都共用 `run_search.py` 內的 `_normalize_source_mode()` 與 `_search_with_mode()`
 
 ---
 
-## 零女優二次搜尋
+## `WebSearcher` 中各模式的實際行為
 
-當第一輪搜尋結果女優列表為空（零女優）時，自動進行第二輪：
+### `search_info()`
 
-1. 清除該番號的 JAVDB 快取（`clear_cache_for_code()`）
-2. 重新搜尋
-3. 找到則覆寫資料庫，標記 `search_method: "JAVDB (二次搜尋)"`
+主線級聯模式：
+1. 先嘗試 AV-WIKI
+2. AV-WIKI 沒有女優結果時，再嘗試 JAVDB
+3. 任一來源成功即回傳
 
-**提升效果**：搜尋成功率 +3-5%，零女優番號處理率 +10-15%
+### `search_avwiki_only()`
 
-→ 詳見 [patterns/zero-actress-retry.md](../patterns/zero-actress-retry.md)
+來源專用模式，直接呼叫：
+- `search_japanese_sites(code, stop_event)`
 
----
+目前這條路徑只做 AV-WIKI 搜尋，不會再串接 JAVDB。
 
-## 編碼處理
+### `search_javdb_only()`
 
-日文網站需要特別處理編碼：
+來源專用模式，直接：
+- 建立番號候選
+- 呼叫 `_search_candidates_in_javdb(...)`
 
-```python
-from ..encoding_utils import create_safe_soup
-
-# 自動偵測 Shift_JIS / EUC-JP / UTF-8
-soup, encoding = create_safe_soup(content_bytes)
-```
-
-JAVDB 使用 `Accept-Encoding: identity`（明確拒絕 Brotli 壓縮）。
+目前這條路徑只做 JAVDB 搜尋，不會回退到 AV-WIKI。
 
 ---
 
-## 快取管理
+## 批次腳本與主流程的關係
 
-**位置**：`src/scrapers/cache_manager.py`  
-**Go 加速**：Phase 4A 後 get/set/delete 委派 Go CLI
+### `run_batch_search.py`
 
-```bash
-classifier.exe cache stats
-classifier.exe cache prune -ttl-days 7
-classifier.exe cache clear -confirm
-```
+`run_batch_search.py` 的角色是：
+- 一次接收多個 `codes`
+- 啟動單一 Python 子程序
+- 在子程序內用 `ThreadPoolExecutor` 平行處理
+- 每個 thread 各自建立 `WebSearcher`
+- 逐筆輸出 JSON Lines，讓 Go/Wails 即時收到進度與結果
+
+它本身不是另一套搜尋策略；真正的來源選擇仍由 `source_mode` 決定。
+
+### `batch_cascade_search()` 的位置
+
+`WebSearcher.batch_cascade_search()` 仍存在，且語意是：
+- 以 AV-WIKI 為主體的批次級聯/別名 fallback 流程
+- 主要處理 AV-WIKI 批次併發與 alias fallback
+
+但目前 Wails `BatchSearch` 主流程實際呼叫的是：
+- `run_batch_search.py`
+- 再由每筆工作依 `source_mode` 進入 `search_info()` / `search_avwiki_only()` / `search_javdb_only()`
+
+因此文件應將 `batch_cascade_search()` 視為 `WebSearcher` 內部仍存在的批次能力，而不是當前 Wails 搜尋 UI 的唯一主入口。
 
 ---
 
-## 相關頁面
+## 來源專用狀態欄位
 
-- [wiki/pitfalls/javdb-false-positive.md](../pitfalls/javdb-false-positive.md)
-- [wiki/patterns/zero-actress-retry.md](../patterns/zero-actress-retry.md)
+目前 source-specific 搜尋會另外維護來源自己的狀態欄位。
+
+### Backend 對應欄位
+
+`wails-app/backend/app.go`：
+- `avwiki` → `avwiki_actress_status`, `avwiki_last_search_date`
+- `javdb` → `javdb_actress_status`, `javdb_last_search_date`
+
+### 狀態值
+
+backend 會依 `SearchResult` 推導來源狀態：
+- `found`
+- `not_found`
+- `error`
+
+### 寫入規則
+
+來源專用批次搜尋時：
+- 成功找到資料：
+  - 更新來源專屬狀態欄位
+  - 也會同步更新整體資料欄位（title/studio/url/actresses 等）
+  - 並把整體 `search_status` 設為 `searched_found`
+- 未找到或發生錯誤：
+  - 至少會更新該來源的 `*_actress_status` 與 `*_last_search_date`
+  - 不會把另一個來源的狀態欄位洗掉
+
+`run_search.py` 也有相同概念：
+- `avwiki` 模式更新 `avwiki_*`
+- `javdb` 模式更新 `javdb_*`
+- `cascade` 模式不走這組來源專屬欄位寫入
+
+這也是來源專用 API 與主線 `BatchSearch` 的重要區別。
+
+---
+
+## Wails UI 的來源專用按鈕
+
+`wails-app/frontend/src/App.tsx` 目前將：
+- `BatchSearchAVWiki`
+- `BatchSearchJAVDB`
+
+包裝成 UI 上的來源專用搜尋按鈕。
+
+它們的角色應理解為：
+- 提供使用者做定向補搜 / rerun
+- 後端仍是同一個 batch search API 家族
+- 並非代表 UI 另外接了一套 AV-WIKI crawler 或 JAVDB crawler 架構
+
+另外，現有 UI 邏輯在呼叫來源專用搜尋前，會先讀取 DB：
+- 若 `avwiki_actress_status` 或 `javdb_actress_status` 任一方已是 found 類狀態，該項目會先被視為已有結果而略過
+- 只有尚未被任一來源標記為 found 的項目，才會送去做來源專用搜尋
+
+因此目前 UI 上的來源按鈕更接近「補充搜尋入口」，而不是完全獨立的搜尋模式切換器。
+
+---
+
+## 現行文件應避免的誤解
+
+以下說法已不夠精確，應避免：
+
+- 「搜尋架構只有 AV-WIKI → JAVDB 兩層，沒有其他 API 分流」
+  - 不精確，因為現在已有 `BatchSearchAVWiki` / `BatchSearchJAVDB` 這類來源專用 rerun API。
+
+- 「AV-WIKI 與 JAVDB 是兩套彼此分離的 crawler 架構」
+  - 不精確，因為目前仍是同一條 Wails → Python wrapper → `WebSearcher` 管線，只是 `source_mode` 不同。
+
+- 「來源專用搜尋只影響整體 `search_status`」
+  - 不精確，因為現在也會更新 `avwiki_*` / `javdb_*` 狀態欄位。
+
+---
+
+## 相關檔案
+
+- `wails-app/backend/app.go`
+- `src/scrapers/run_search.py`
+- `src/scrapers/run_batch_search.py`
+- `src/services/web_searcher.py`
+- `wails-app/frontend/src/App.tsx`

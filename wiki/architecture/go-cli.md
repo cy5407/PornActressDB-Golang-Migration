@@ -111,12 +111,48 @@ classifier.exe db <子命令> [選項]
 | `actress-update <id> <json>` | 新增/更新女優 |
 | `actress-delete <id>` | 刪除女優 |
 | `actress-list` | 列出所有女優 ID |
+| `clean-actresses [-write]` | 清洗影片 `actresses` 欄位中的高信心污染名稱；預設 dry-run，加 `-write` 才寫回 DB |
 | `backup-create` | 建立時間戳備份（data.json → backup/backup_YYYY-MM-DD_HH-MM-SS.json） |
 | `backup-restore -backup-path <path>` | 從備份還原 |
 | `backup-list` | 列出所有備份檔 |
 | `backup-cleanup [-days N] [-max-count N]` | 清理過期/超量備份（預設 30 天、50 個） |
 
-**fix-studios 旗標**：
+### `clean-actresses` 行為
+
+- 真正實作位於：`pkg/database/actress_cleaner.go`
+- CLI 入口位於：`cmd/scanner/db_cmd.go::runDBCleanActresses()`
+- 預設為 dry-run：只回傳 JSON 報告，不改 DB
+- 加 `-write` 後才會：
+  1. 先建立 backup
+  2. 套用清洗規則到所有影片
+  3. 若有變更，再執行 `CompactJournal()` 寫回主 DB
+
+輸出 JSON 欄位：
+- `success`
+- `dry_run`
+- `backup_path`（只有 `-write` 時會有）
+- `scanned_videos`
+- `changed_videos`
+- `removed_actresses`
+- `changes[]`（每筆包含 `code`、`before`、`after`、`removed`）
+
+目前規則屬於「高信心清洗」而非通用 NLP 正規化，包含：
+- 精準黑名單污染字串移除
+- 已知合法女優名保留
+- `三田` 只有在同一筆同時存在 `三田真鈴` 時才移除
+- `蒼乃美月蒼乃美月` 這類重複拼接名稱，只有基底名已存在時才移除
+
+**通用 db 旗標**：
+| 旗標 | 說明 |
+|------|------|
+| `-data-dir` | 資料庫目錄（預設 `data/json_db`） |
+| `-json` | 以 JSON 格式輸出 |
+| `-write` | 真正寫入資料庫（`clean-actresses` 預設為 dry-run） |
+| `-backup-path` | 指定還原備份路徑（用於 `backup-restore`） |
+| `-days` | 備份保留天數（用於 `backup-cleanup`） |
+| `-max-count` | 最大備份數量（用於 `backup-cleanup`） |
+
+**fix-studios 專用旗標**：
 | 旗標 | 說明 |
 |------|------|
 | `-data-dir` | 資料庫目錄（預設 `data/json_db`） |
