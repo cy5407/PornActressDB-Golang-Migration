@@ -91,7 +91,10 @@ func parseIni(content string, p *services.Preferences) {
 // Startup is called when the app starts.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	a.ensureDB()
+	if err := a.ensureDB(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to initialize database: %v\n", err)
+		a.emitEvent("error", fmt.Sprintf("資料庫初始化失敗：%v", err))
+	}
 }
 
 func (a *App) emitEvent(eventName string, optionalData ...interface{}) {
@@ -403,7 +406,9 @@ type VideoData = database.VideoData
 
 // DbGetVideo retrieves a video record by its code.
 func (a *App) DbGetVideo(code string) (*VideoData, error) {
-	a.ensureDB()
+	if err := a.ensureDB(); err != nil {
+		return nil, err
+	}
 	return a.db.GetVideo(code)
 }
 
@@ -420,7 +425,9 @@ func (a *App) DbUpdateVideo(code string, fieldsJSON string) error {
 
 // DbListVideos returns all video records in the database.
 func (a *App) DbListVideos() ([]*VideoData, error) {
-	a.ensureDB()
+	if err := a.ensureDB(); err != nil {
+		return nil, err
+	}
 	return a.db.GetAllVideos()
 }
 
@@ -769,7 +776,11 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 	}
 
 	// --- DB 快取過濾：舊 BatchSearch 才使用整體 cache；source-specific API 必須重跑該來源 ---
-	a.ensureDB()
+	if err := a.ensureDB(); err != nil {
+		a.emitEvent("error", fmt.Sprintf("資料庫初始化失敗：%v", err))
+		a.emitEvent("search:done", fmt.Sprintf("0 成功 / %d 失敗（資料庫初始化失敗）", total))
+		return nil
+	}
 	results := make([]SearchResult, 0, total)
 	codesToSearch := make([]string, 0, len(codes))
 	done := 0
@@ -921,8 +932,12 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 //   - 非大片商或跨多片商（作品最多但不是大片商）→ "單體企劃女優"
 //   - 無任何 studio 記錄 → ""（前端應歸入「未分類」）
 func (a *App) GetActressPrimaryStudios(actressNames []string) map[string]string {
-	a.ensureDB()
 	result := make(map[string]string, len(actressNames))
+	if err := a.ensureDB(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to initialize database for actress studio lookup: %v\n", err)
+		a.emitEvent("error", fmt.Sprintf("資料庫初始化失敗：%v", err))
+		return result
+	}
 	seen := map[string]bool{}
 	for _, name := range actressNames {
 		if seen[name] {
@@ -1002,7 +1017,7 @@ func loadCodeStudioMap(path string) map[string]string {
 	return result
 }
 
-func (a *App) ensureDB() {
+func (a *App) ensureDB() error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 	dataDir := resolveDataDir(a.cfgPath)
@@ -1015,11 +1030,20 @@ func (a *App) ensureDB() {
 	}
 
 	if a.db == nil {
-		a.db = database.NewJSONDatabase(dataDir)
-		_ = a.db.Load(context.Background())
+		db := database.NewJSONDatabase(dataDir)
+		if err := db.Load(context.Background()); err != nil {
+			a.db = nil
+			a.dbFileModTime = time.Time{}
+			return err
+		}
 		// 啟動時若 journal 有未合併資料，立即寫入 data.json，
 		// 避免下次搜尋因全部命中快取（早期返回）而永遠跳過 Compact。
-		_, _ = a.db.CompactIfNeeded()
+		if _, err := db.CompactIfNeeded(); err != nil {
+			a.db = nil
+			a.dbFileModTime = time.Time{}
+			return err
+		}
+		a.db = db
 	}
 
 	if info, err := os.Stat(dataFile); err == nil {
@@ -1027,6 +1051,7 @@ func (a *App) ensureDB() {
 	} else {
 		a.dbFileModTime = time.Time{}
 	}
+	return nil
 }
 
 func (a *App) resetDB() {

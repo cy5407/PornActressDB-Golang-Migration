@@ -18,6 +18,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
+import {
+  buildCodeToActressMap,
+  isFoundSearchStatus,
+  mergeSearchResultsWithCachedVideos,
+} from '@/lib/classification';
+import type { CachedVideoLookup, CachedVideoLookupError, VideoDataWithSourceStatus } from '@/lib/classification';
 import { ScanDirectory, BatchSearch, BatchSearchAVWiki, BatchSearchJAVDB, BatchMove, BatchMoveDirs, CheckDirConflicts, CancelOperation, GetActressPrimaryStudios, GetStudiosByCodes, CheckConflicts, PlanDirMergeMoves, DbGetVideo } from '../wailsjs/go/backend/App';
 import { backend, mover } from '../wailsjs/go/models';
 import type { database } from '../wailsjs/go/models';
@@ -27,13 +33,6 @@ type ScanResult = backend.ScanResult;
 type ConflictStrategy = 'skip' | 'overwrite' | 'rename';
 type ConflictDialogMode = 'file' | 'directory';
 type SearchSource = 'AV-WIKI' | 'JAVDB';
-type SearchStatusField = 'avwiki_actress_status' | 'javdb_actress_status';
-type VideoDataWithSourceStatus = database.VideoData & Partial<Record<SearchStatusField, string>>;
-const FOUND_SEARCH_STATUSES = new Set(['found', 'searched_found']);
-
-function isFoundSearchStatus(status?: string): boolean {
-  return status !== undefined && FOUND_SEARCH_STATUSES.has(status);
-}
 
 function emptyBatchResult(): mover.BatchResult {
   return mover.BatchResult.createFrom({
@@ -438,20 +437,13 @@ function ActionToolbar() {
       .map(({ code }) => code);
 
     // 已快取項目補進 searchResults，讓後續分類不遺漏
-    const existingCodes = new Set(searchResults.map((sr) => sr.code));
-    for (const { code, video } of alreadyCached) {
-      if (video && !existingCodes.has(code)) {
-        addSearchResult({
-          code,
-          title: video.title ?? '',
-          studio: video.studio ?? '',
-          release_date: video.release_date ?? '',
-          url: video.url ?? '',
-          actresses: video.actresses ?? [],
-          method: video.search_method ?? '',
-          error: '',
-        });
-        existingCodes.add(code);
+    const mergedResults = mergeSearchResultsWithCachedVideos(
+      searchResults,
+      alreadyCached.map(({ code, video }) => ({ code, video }))
+    );
+    if (mergedResults.length !== searchResults.length) {
+      for (const sr of mergedResults.slice(searchResults.length)) {
+        addSearchResult(sr);
       }
     }
 
@@ -529,16 +521,35 @@ function ActionToolbar() {
       }
     }
 
-    const codeToActress = new Map<string, string>(
-      searchResults.map((sr) => {
-        // 多女優項目使用使用者選擇的結果
-        if (multiActressChoices.has(sr.code)) {
-          return [sr.code, multiActressChoices.get(sr.code)!];
-        }
-        // 單女優或無結果
-        return [sr.code, sr.actresses?.[0] ?? '未分類'];
-      })
-    );
+    const cachedVideos: CachedVideoLookup[] = [];
+    const fallbackErrors: CachedVideoLookupError[] = [];
+    for (const { code } of targets.filter((r) => !searchResults.some((sr) => sr.code === r.code))) {
+      try {
+        const video = await DbGetVideo(code);
+        cachedVideos.push({ code, video: video as VideoDataWithSourceStatus | null });
+      } catch (error) {
+        fallbackErrors.push({ code, error });
+      }
+    }
+
+    if (fallbackErrors.length > 0) {
+      const failedCodes = fallbackErrors.map(({ code }) => code);
+      const detail = fallbackErrors[0]?.error instanceof Error
+        ? fallbackErrors[0].error.message
+        : String(fallbackErrors[0]?.error ?? '未知錯誤');
+      const msg = `❌ 讀取資料庫失敗，已中止女優分類（${failedCodes.length} 筆）：${failedCodes.join('、')}`;
+      setStatusMessage(msg, 'error');
+      pushEvent('error', msg);
+      pushEvent('debug', `[女優分類中止] DB fallback 失敗：${detail}`);
+      setStatus('error');
+      resetProgress();
+      return;
+    }
+
+    const codeToActress = buildCodeToActressMap(targets, searchResults, cachedVideos);
+    for (const [code, actress] of multiActressChoices.entries()) {
+      codeToActress.set(code, actress);
+    }
 
     // T6 預覽：計算實際資料夾分配並顯示
     const folderSet = new Set(targets.map((r) => codeToActress.get(r.code) ?? '未分類'));

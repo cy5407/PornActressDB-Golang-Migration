@@ -349,6 +349,7 @@ func TestBatchSearchJAVDB_NotFoundPreservesExistingOverallSuccess(t *testing.T) 
 	}
 }
 
+
 func TestBatchSearchAVWiki_SuccessPreservesOtherSourceStatusAndUpdatesOverallSummary(t *testing.T) {
 	app := newTestApp(t)
 	if err := app.db.AddVideo(&database.VideoData{
@@ -393,6 +394,107 @@ func TestBatchSearchAVWiki_SuccessPreservesOtherSourceStatusAndUpdatesOverallSum
 	}
 	if video.Title != "Merged Title" {
 		t.Fatalf("expected title to update from source-specific success, got %q", video.Title)
+	}
+}
+
+func TestDbGetVideo_ReturnsEnsureDBLoadError(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.ini")
+	dbDir := filepath.Join(tmp, "db")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
+		t.Fatalf("failed to write broken data.json: %v", err)
+	}
+
+	app := NewApp()
+	app.cfgPath = cfgPath
+
+	_, err := app.DbGetVideo("BROKEN-001")
+	if err == nil {
+		t.Fatal("expected DbGetVideo to surface ensureDB load error")
+	}
+	if !strings.Contains(err.Error(), "failed to parse database JSON") {
+		t.Fatalf("expected parse error from ensureDB, got %v", err)
+	}
+}
+
+func TestEnsureDB_ClearsInstanceWhenLoadFails(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.ini")
+	dbDir := filepath.Join(tmp, "db")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
+		t.Fatalf("failed to write broken data.json: %v", err)
+	}
+
+	app := NewApp()
+	app.cfgPath = cfgPath
+	if err := app.ensureDB(); err == nil {
+		t.Fatal("expected ensureDB to return error on load failure")
+	}
+	if app.db != nil {
+		t.Fatal("expected ensureDB to clear db instance after load failure")
+	}
+}
+
+func TestBatchSearch_ReturnsNoResultsWhenEnsureDBFails(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.ini")
+	dbDir := filepath.Join(tmp, "db")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
+		t.Fatalf("failed to write broken data.json: %v", err)
+	}
+
+	app := NewApp()
+	app.cfgPath = cfgPath
+	results := app.BatchSearch([]string{"BROKEN-001"}, 1)
+	if len(results) != 0 {
+		t.Fatalf("expected BatchSearch to abort on ensureDB failure, got %d results", len(results))
+	}
+	if app.db != nil {
+		t.Fatal("expected db to remain nil after failed BatchSearch init")
+	}
+}
+
+func TestGetActressPrimaryStudios_ReturnsEmptyWhenEnsureDBFails(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.ini")
+	dbDir := filepath.Join(tmp, "db")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
+		t.Fatalf("failed to write broken data.json: %v", err)
+	}
+
+	app := NewApp()
+	app.cfgPath = cfgPath
+	result := app.GetActressPrimaryStudios([]string{"葵司"})
+	if len(result) != 0 {
+		t.Fatalf("expected empty result when ensureDB fails, got %#v", result)
 	}
 }
 
