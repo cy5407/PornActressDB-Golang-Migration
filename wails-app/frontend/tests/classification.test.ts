@@ -131,8 +131,8 @@ function makeVideo(source: Partial<database.VideoData>): database.VideoData {
 })();
 
 (function testSanitizeActressNamesKeepsTrustedNames() {
-  const sanitized = sanitizeActressNames(['瀧本雫葉', '蒼乃美月', '綾瀬天', '東雲すみれ', '三田']);
-  assert.deepEqual(sanitized, ['瀧本雫葉', '蒼乃美月', '綾瀬天', '東雲すみれ', '三田']);
+  const sanitized = sanitizeActressNames(['瀧本雫葉', '蒼乃美月', '綾瀬天', '東雲すみれ', '五芭', '天然美月']);
+  assert.deepEqual(sanitized, ['瀧本雫葉', '蒼乃美月', '綾瀬天', '東雲すみれ', '五芭', '天然美月']);
 })();
 
 (function testSanitizeActressNamesKeepsRepeatedFormStageNames() {
@@ -142,14 +142,21 @@ function makeVideo(source: Partial<database.VideoData>): database.VideoData {
 
 (function testSanitizeActressNamesRejectsKnownPollutionStrings() {
   const sanitized = sanitizeActressNames([
-    'かどわかし', 'そ・・そこ', 'キス', 'コスプ', 'ミルクラ', '快感', '乳首', '相部屋', '専属', '敏感',
-    'スレンダー女子マネージャーは', 'セックスが本当に好きな', 'ねっちょりセックスに溺れる文', 'ポルチオ開発おま',
-    'ある夏の熱帯夜', '一ヶ月禁欲し', '台本一切無し', '再婚相', '唾液マ', '究極性交', '手を繋', '小さい頃',
-    'クリエイト', '種の媚', '応募', '体験撮影', '初撮り', '無限聖水', 'ドスケベ乳', 'プレステージ専属デビュ',
-    '絶対忠実秘書', '風俗タワー', '性感フルコース', '唇が溶けるほどのベロキス性交', '天然成分由来', 'リミットブレイク', '憑依バカッター',
-    '瀧本雫葉瀧本雫葉', '蒼乃美月蒼乃美月', '綾瀬天綾瀬天', '瀧本雫葉汁'
+    'ゆうきすず', '周年だよん', '限界突破', 'スペンス乳腺', '三田', 'ウブ女生徒に好かれ理性なくし',
+    'アルバイト先の真面目なアノ娘', '白くて', '濃密セックス', '交わる体液', '可愛い', '優しい', 'いつ',
+    '男クンのお宅に', '快感に逆らえずビックンガック', '気が弱い', 'よりシコい女体', 'おっ', 'メイド', '気持',
+    '絶倫上司と新入', 'スプラッシュ雫葉', '汗だ', 'パンチラで誘惑するからかい上', '普通', '童貞君チ',
+    'ヨダレだらだらナースの接吻と', '担任教師の僕は生徒の誘惑に負', '澪が気持ちよ', '主人', 'の指マンがストライクすぎ',
+    '無防備すぎる幼馴染のノーブラ', 'ビンビン敏感チクビを澪が優', '究極の美肌スレンダー肉体の質', '嫁の連れ子を',
+    '週間お貸ししま', 'みおっち激しゃぶフェラフェラ', '日曜の朝', '寝起きの澪が可愛く', '奇跡', '絶対',
+    '舐めるのスキだからベロベロ', '顔射の美学', 'おねだりチ'
   ]);
   assert.deepEqual(sanitized, []);
+})();
+
+(function testSanitizeActressNamesRejectsMitaButKeepsMitaMarin() {
+  const sanitized = sanitizeActressNames(['三田', '三田真鈴']);
+  assert.deepEqual(sanitized, ['三田真鈴']);
 })();
 
 (function testBuildCodeToActressMapFallsBackToCachedWhenLiveResultSanitizesEmpty() {
@@ -208,11 +215,11 @@ function makeVideo(source: Partial<database.VideoData>): database.VideoData {
 })();
 
 (function testCollectMultiActressCandidatesDoesNotTreatSingleValidNamePlusJunkAsMulti() {
-  const scanResults = [makeScanResult({ code: 'JUBE-034', path: 'Z:/分類/JUBE-034.mp4' })];
+  const scanResults = [makeScanResult({ code: 'ABF-171', path: 'Z:/分類/ABF-171.mp4' })];
   const searchResults = [
     makeSearchResult({
-      code: 'JUBE-034',
-      actresses: ['瀧本雫葉', '手を繋', 'キス'],
+      code: 'ABF-171',
+      actresses: ['天然美月', '可愛い', 'メイド'],
     }),
   ];
 
@@ -220,7 +227,7 @@ function makeVideo(source: Partial<database.VideoData>): database.VideoData {
   assert.deepEqual(candidates, []);
 
   const codeToActress = buildCodeToActressMap(scanResults, searchResults, []);
-  assert.equal(codeToActress.get('JUBE-034'), '瀧本雫葉');
+  assert.equal(codeToActress.get('ABF-171'), '天然美月');
 })();
 
 (function testCollectMultiActressCandidatesKeepsTrueMultiAfterFilteringJunk() {
@@ -228,13 +235,29 @@ function makeVideo(source: Partial<database.VideoData>): database.VideoData {
   const searchResults = [
     makeSearchResult({
       code: 'MIDV-488',
-      actresses: ['瀧本雫葉', '蒼乃美月', '性感フルコース'],
+      actresses: ['瀧本雫葉', '蒼乃美月', '可愛い'],
     }),
   ];
 
   const candidates = collectMultiActressCandidates(scanResults, searchResults, []);
   assert.equal(candidates.length, 1);
   assert.deepEqual(candidates[0].actresses, ['瀧本雫葉', '蒼乃美月']);
+})();
+
+(function testCollectMultiActressCandidatesDoesNotTreatTruncatedMitaAsIndependentActress() {
+  const scanResults = [makeScanResult({ code: 'MIDA-367', path: 'Z:/分類/MIDA-367.mp4' })];
+  const searchResults = [
+    makeSearchResult({
+      code: 'MIDA-367',
+      actresses: ['三田真鈴', '三田'],
+    }),
+  ];
+
+  const candidates = collectMultiActressCandidates(scanResults, searchResults, []);
+  assert.deepEqual(candidates, []);
+
+  const codeToActress = buildCodeToActressMap(scanResults, searchResults, []);
+  assert.equal(codeToActress.get('MIDA-367'), '三田真鈴');
 })();
 
 console.log('classification tests passed');
