@@ -109,3 +109,31 @@ func assertStringSliceEqual(t *testing.T, got, want []string) {
 		t.Fatalf("expected %#v, got %#v", want, got)
 	}
 }
+
+func TestActressCleaner_RemovesFullWidthAsterisks(t *testing.T) {
+	cleaner := NewActressCleaner()
+
+	cleaned, removed := cleaner.CleanActresses([]string{"＊＊＊", "石川澪"})
+
+	assertStringSliceEqual(t, cleaned, []string{"石川澪"})
+	assertStringSliceEqual(t, removed, []string{"＊＊＊"})
+}
+
+func TestActressCleaner_RemovesHalfWidthAsterisks(t *testing.T) {
+	cleaner := NewActressCleaner()
+
+	cleaned, removed := cleaner.CleanActresses([]string{"***", "宇野みれい"})
+
+	assertStringSliceEqual(t, cleaned, []string{"宇野みれい"})
+	assertStringSliceEqual(t, removed, []string{"***"})
+}
+
+func TestActressCleaner_RemovesSingleAsterisk(t *testing.T) {
+	cleaner := NewActressCleaner()
+
+	cleaned, removed := cleaner.CleanActresses([]string{"＊", "天羽りりか"})
+
+	assertStringSliceEqual(t, cleaned, []string{"天羽りりか"})
+	assertStringSliceEqual(t, removed, []string{"＊"})
+}
+
