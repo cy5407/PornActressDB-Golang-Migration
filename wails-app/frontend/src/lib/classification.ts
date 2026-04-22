@@ -21,12 +21,26 @@ const TITLE_KEYWORDS = [
   'キメセク', '洗脳', 'ドキュメント', '企画', 'ガチ', '帰省', '成長期', '田舎', '中年', 'オジ', 'おじさん',
 ];
 const TITLE_KEYWORDS_ZH = ['中出', '解禁', '初體驗', '新人', '巨乳', '美乳', '美腿', '學園', '學校', '溫泉', '制服', '泳裝', '共演'];
+const TRUSTED_EXACT_NAMES = new Set(['瀧本雫葉', '蒼乃美月', '綾瀬天', '東雲すみれ', '三田']);
+const KNOWN_POLLUTION_STRINGS = new Set([
+  'かどわかし', 'そ・・そこ', 'キス', 'コスプ', 'ミルクラ', '快感', '乳首', '相部屋', '専属', '敏感',
+  'スレンダー女子マネージャーは', 'セックスが本当に好きな', 'ねっちょりセックスに溺れる文', 'ポルチオ開発おま',
+  'ある夏の熱帯夜', '一ヶ月禁欲し', '台本一切無し', '再婚相', '唾液マ', '究極性交', '手を繋', '小さい頃',
+  'クリエイト', '種の媚', '応募', '体験撮影', '初撮り', '無限聖水', 'ドスケベ乳', 'プレステージ専属デビュ',
+  '絶対忠実秘書', '風俗タワー', '性感フルコース', '唇が溶けるほどのベロキス性交', '天然成分由来', 'リミットブレイク', '憑依バカッター',
+  '瀧本雫葉瀧本雫葉', '蒼乃美月蒼乃美月', '綾瀬天綾瀬天', '瀧本雫葉汁'
+]);
+const SUSPICIOUS_SUFFIXES = ['汁'];
 const VERB_PATTERNS = [/^て$/, /^つい/, /られ/, /させ/, /ちゃ/, /しちゃ/, /^した/, /^する/, /され/, /^を/, /^が/, /で$/];
 const SENTENCE_FRAGMENT_PATTERNS = [/した/, /して/, /てる/, /たら/, /のに/, /れて/, /っ子/, /がお/, /を/];
 const NAME_SPLIT_PATTERN = /[#／/,，、&＆]+/;
 
 export function isFoundSearchStatus(status?: string): boolean {
   return status !== undefined && FOUND_SEARCH_STATUSES.has(status);
+}
+
+function hasSuspiciousSuffix(name: string): boolean {
+  return SUSPICIOUS_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
 function containsKeyword(name: string, keywords: string[]): boolean {
@@ -85,7 +99,16 @@ export function isValidActressName(name: string): boolean {
   if (!normalized || normalized.length < 2 || normalized.length > 15) {
     return false;
   }
+  if (TRUSTED_EXACT_NAMES.has(normalized)) {
+    return true;
+  }
+  if (KNOWN_POLLUTION_STRINGS.has(normalized)) {
+    return false;
+  }
   if (normalized.includes('#')) {
+    return false;
+  }
+  if (hasSuspiciousSuffix(normalized)) {
     return false;
   }
   if (containsKeyword(normalized, TITLE_KEYWORDS) || containsKeyword(normalized, TITLE_KEYWORDS_ZH)) {

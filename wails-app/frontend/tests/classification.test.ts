@@ -130,6 +130,28 @@ function makeVideo(source: Partial<database.VideoData>): database.VideoData {
   assert.deepEqual(sanitized, ['RION', 'AIKA', 'JULIA', 'Rio']);
 })();
 
+(function testSanitizeActressNamesKeepsTrustedNames() {
+  const sanitized = sanitizeActressNames(['瀧本雫葉', '蒼乃美月', '綾瀬天', '東雲すみれ', '三田']);
+  assert.deepEqual(sanitized, ['瀧本雫葉', '蒼乃美月', '綾瀬天', '東雲すみれ', '三田']);
+})();
+
+(function testSanitizeActressNamesKeepsRepeatedFormStageNames() {
+  const sanitized = sanitizeActressNames(['COCO', 'MIMI']);
+  assert.deepEqual(sanitized, ['COCO', 'MIMI']);
+})();
+
+(function testSanitizeActressNamesRejectsKnownPollutionStrings() {
+  const sanitized = sanitizeActressNames([
+    'かどわかし', 'そ・・そこ', 'キス', 'コスプ', 'ミルクラ', '快感', '乳首', '相部屋', '専属', '敏感',
+    'スレンダー女子マネージャーは', 'セックスが本当に好きな', 'ねっちょりセックスに溺れる文', 'ポルチオ開発おま',
+    'ある夏の熱帯夜', '一ヶ月禁欲し', '台本一切無し', '再婚相', '唾液マ', '究極性交', '手を繋', '小さい頃',
+    'クリエイト', '種の媚', '応募', '体験撮影', '初撮り', '無限聖水', 'ドスケベ乳', 'プレステージ専属デビュ',
+    '絶対忠実秘書', '風俗タワー', '性感フルコース', '唇が溶けるほどのベロキス性交', '天然成分由来', 'リミットブレイク', '憑依バカッター',
+    '瀧本雫葉瀧本雫葉', '蒼乃美月蒼乃美月', '綾瀬天綾瀬天', '瀧本雫葉汁'
+  ]);
+  assert.deepEqual(sanitized, []);
+})();
+
 (function testBuildCodeToActressMapFallsBackToCachedWhenLiveResultSanitizesEmpty() {
   const scanResults = [makeScanResult({ code: 'SSIS-001', path: 'Z:/分類/SSIS-001.mp4' })];
   const live = [
@@ -183,6 +205,36 @@ function makeVideo(source: Partial<database.VideoData>): database.VideoData {
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0].code, 'MIDE-001');
   assert.deepEqual(candidates[0].actresses, ['森沢かな', '橘メアリー']);
+})();
+
+(function testCollectMultiActressCandidatesDoesNotTreatSingleValidNamePlusJunkAsMulti() {
+  const scanResults = [makeScanResult({ code: 'JUBE-034', path: 'Z:/分類/JUBE-034.mp4' })];
+  const searchResults = [
+    makeSearchResult({
+      code: 'JUBE-034',
+      actresses: ['瀧本雫葉', '手を繋', 'キス'],
+    }),
+  ];
+
+  const candidates = collectMultiActressCandidates(scanResults, searchResults, []);
+  assert.deepEqual(candidates, []);
+
+  const codeToActress = buildCodeToActressMap(scanResults, searchResults, []);
+  assert.equal(codeToActress.get('JUBE-034'), '瀧本雫葉');
+})();
+
+(function testCollectMultiActressCandidatesKeepsTrueMultiAfterFilteringJunk() {
+  const scanResults = [makeScanResult({ code: 'MIDV-488', path: 'Z:/分類/MIDV-488.mp4' })];
+  const searchResults = [
+    makeSearchResult({
+      code: 'MIDV-488',
+      actresses: ['瀧本雫葉', '蒼乃美月', '性感フルコース'],
+    }),
+  ];
+
+  const candidates = collectMultiActressCandidates(scanResults, searchResults, []);
+  assert.equal(candidates.length, 1);
+  assert.deepEqual(candidates[0].actresses, ['瀧本雫葉', '蒼乃美月']);
 })();
 
 console.log('classification tests passed');
