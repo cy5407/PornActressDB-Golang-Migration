@@ -128,6 +128,8 @@ export namespace database {
 	    original_filename?: string;
 	    file_path?: string;
 	    search_method?: string;
+	    error?: string;
+	    error_kind?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new VideoData(source);
@@ -155,6 +157,8 @@ export namespace database {
 	        this.original_filename = source["original_filename"];
 	        this.file_path = source["file_path"];
 	        this.search_method = source["search_method"];
+	        this.error = source["error"];
+	        this.error_kind = source["error_kind"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
