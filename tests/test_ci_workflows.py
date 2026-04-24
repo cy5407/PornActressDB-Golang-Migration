@@ -56,6 +56,29 @@ def test_integration_workflow_includes_windows_validation():
     assert "CLASSIFIER_EXE: ${{ github.workspace }}\\classifier.exe" in workflow
 
 
+def test_portable_release_workflow_builds_and_smoke_tests_bundle():
+    workflow = (WORKFLOWS_DIR / "portable-release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "runs-on: windows-latest" in workflow
+    assert "run: .\\setup.ps1" in workflow
+    assert "dist\\portable\\Start-ActressClassifier.bat" in workflow
+    assert "dist\\portable\\Setup-SearchRuntime.ps1" in workflow
+    assert "dist\\portable\\src\\scrapers\\run_search.py" in workflow
+    assert ".\\Setup-SearchRuntime.ps1" in workflow
+    assert "dist/PornActressDB-windows-portable.zip" in workflow
+
+
+def test_setup_ps1_packages_user_friendly_portable_launcher():
+    setup_script = (ROOT_DIR / "setup.ps1").read_text(encoding="utf-8")
+
+    assert "Start-ActressClassifier.bat" in setup_script
+    assert "Setup-SearchRuntime.ps1" in setup_script
+    assert "PornActressDB-windows-portable.zip" in setup_script
+    assert "Compress-Archive" in setup_script
+
+
 def test_workflows_do_not_use_node20_warned_action_versions():
     forbidden_versions = [
         "actions/checkout@v4",

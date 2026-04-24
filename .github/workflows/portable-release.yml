@@ -1,0 +1,77 @@
+name: Portable Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows-portable:
+    name: Build Windows Portable Bundle
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'wails-app/frontend/package-lock.json'
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Run portable build script
+        shell: pwsh
+        run: .\setup.ps1
+
+      - name: Verify portable bundle
+        shell: pwsh
+        run: |
+          $required = @(
+            "dist\portable\actress-classifier.exe",
+            "dist\portable\classifier.exe",
+            "dist\portable\Start-ActressClassifier.bat",
+            "dist\portable\Setup-SearchRuntime.ps1",
+            "dist\portable\requirements.txt",
+            "dist\portable\src\scrapers\run_search.py",
+            "dist\portable\src\scrapers\run_batch_search.py",
+            "dist\PornActressDB-windows-portable.zip"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) {
+              throw "Missing portable artifact: $path"
+            }
+          }
+
+      - name: Smoke test search runtime bootstrap
+        shell: pwsh
+        run: |
+          Set-Location dist\portable
+          .\Setup-SearchRuntime.ps1
+          if (-not (Test-Path ".venv\Scripts\python.exe")) {
+            throw "Runtime bootstrap did not create .venv"
+          }
+
+      - name: Upload portable zip
+        uses: actions/upload-artifact@v6
+        with:
+          name: PornActressDB-windows-portable
+          path: dist/PornActressDB-windows-portable.zip
+          if-no-files-found: error
+

@@ -30,29 +30,30 @@ Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透
 
 ### 使用者（無需安裝開發工具）
 
-1. 取得**完整 portable bundle**。
-   - 若 repo 已提供 [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases)，請下載其中的 portable bundle。
-   - 若目前尚未提供 Releases，請先依下方「開發者（自行建置）」執行 `.\setup.ps1`，使用輸出的 `dist\portable\`。
+1. 取得 **Windows portable zip**。
+   - 若 repo 已提供 [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases)，請下載 `PornActressDB-windows-portable.zip`。
+   - 若目前尚未提供 Releases，請先依下方「開發者（自行建置）」執行 `.\setup.ps1`，使用輸出的 `dist\PornActressDB-windows-portable.zip`。
 2. 確認 bundle 內至少包含以下內容，並保留原本目錄結構：
    - `actress-classifier.exe`
    - `classifier.exe`
+   - `Start-ActressClassifier.bat`
+   - `Setup-SearchRuntime.ps1`
    - `major_studios.json`
    - `studios.json`
    - `src\`（搜尋腳本與 Python 模組）
    - `requirements.txt`
-3. 安裝 Python 3.11+，在 bundle 根目錄執行：
-   ```powershell
-   pip install -r requirements.txt
-   ```
-4. 在 bundle 根目錄雙擊執行 `actress-classifier.exe`
+3. 解壓縮後，雙擊 `Start-ActressClassifier.bat`。
+   - 第一次啟動會自動建立 `.venv` 並安裝搜尋依賴。
+   - 之後會直接使用同一份 `.venv`，不需要重複安裝。
 
-> Python 環境只用於搜尋爬蟲；GUI 本身不需要 Python 即可啟動，但搜尋功能需要。
+> Python 環境只用於搜尋爬蟲；GUI 本身不需要 Python 即可啟動，但搜尋功能需要。若電腦完全沒有 Python 3.11+，啟動器會提示安裝 Python。
 >
 > 重要：搜尋功能會直接呼叫 `src\scrapers\run_search.py` / `run_batch_search.py`，因此**不要只單獨複製 exe**。
 
 #### 執行入口
 
-- 正式釋出 / 一般使用：`actress-classifier.exe`
+- 正式釋出 / 一般使用：`Start-ActressClassifier.bat`
+- 已完成搜尋環境設定後可直接啟動：`actress-classifier.exe`
 - CLI / 輔助工具：`classifier.exe`（Windows）或 `classifier`（Linux / macOS）
 - 開發 / 輔助啟動入口：`python run.py`（會優先尋找並啟動已建好的 Wails 執行檔）
 
@@ -72,10 +73,10 @@ chmod +x setup.sh && ./setup.sh
 
 腳本的實際行為如下：
 
-- `setup.ps1`：執行 `go mod download`，建置 `classifier.exe`，再建置並複製 `actress-classifier.exe` 到專案根目錄，最後輸出 `dist\portable\` 完整 bundle（含 `src\`、資料檔與 `requirements.txt`）
+- `setup.ps1`：執行 `go mod download`，建置 `classifier.exe`，再建置並複製 `actress-classifier.exe` 到專案根目錄，最後輸出 `dist\portable\` 與 `dist\PornActressDB-windows-portable.zip`（含啟動器、`src\`、資料檔與 `requirements.txt`）
 - `setup.sh`：執行 `go mod download`，只建置 `classifier`（Linux / macOS）；Wails GUI 仍以 Windows 為正式桌面建置目標
 
-> 這兩個腳本都不會建立 Python venv、不會安裝 `requirements.txt`、也不會替 `wails-app/frontend` 執行 `npm install`。
+> `setup.ps1` 會把使用者啟動器放入 portable bundle；使用者第一次執行 `Start-ActressClassifier.bat` 時會建立 `.venv` 並安裝 `requirements.txt`。開發者仍需先準備 Wails / Node / Go 建置工具。
 
 #### 手動步驟
 
@@ -105,7 +106,7 @@ wails build
 
 > 建置 `classifier.exe` 時請使用套件路徑，不要直接指定 `main.go`，否則會漏掉同套件的輔助檔案。
 >
-> 建置或釋出 Wails 應用時，請分發 `dist\portable\` 的完整內容；除了 `classifier.exe`、`major_studios.json`、`studios.json` 外，搜尋功能也需要同目錄的 `src\` 與 `requirements.txt`。
+> 建置或釋出 Wails 應用時，請分發 `dist\PornActressDB-windows-portable.zip`。除了 `classifier.exe`、`major_studios.json`、`studios.json` 外，搜尋功能也需要同目錄的 `src\`、`requirements.txt` 與啟動器腳本。
 
 ## 操作流程
 
@@ -270,19 +271,20 @@ Extracts video codes from filenames, runs the default cascade search flow (mainl
 
 ## Quick Start
 
-1. Get a **complete portable bundle**.
-   If the repo has published [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases), download the portable bundle there.
-   If no release is published yet, build locally and use the generated `dist\portable\` output from `.\setup.ps1`.
-2. Keep the bundle directory structure intact. Search requires:
-   `actress-classifier.exe`, `classifier.exe`, `major_studios.json`, `studios.json`, `src\`, and `requirements.txt`.
-3. Install Python 3.11+ in the bundle root and run `pip install -r requirements.txt` (required for search functionality).
-4. Launch `actress-classifier.exe` from the bundle root.
+1. Get the **Windows portable zip**.
+   If the repo has published [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases), download `PornActressDB-windows-portable.zip`.
+   If no release is published yet, build locally and use the generated `dist\PornActressDB-windows-portable.zip` output from `.\setup.ps1`.
+2. Extract the zip and keep the bundle directory structure intact. Search requires:
+   `actress-classifier.exe`, `classifier.exe`, `Start-ActressClassifier.bat`, `Setup-SearchRuntime.ps1`, `major_studios.json`, `studios.json`, `src\`, and `requirements.txt`.
+3. Double-click `Start-ActressClassifier.bat`.
+   The first run creates `.venv`, installs search dependencies, and launches the app.
 
 > Search is implemented by directly invoking `src/scrapers/run_search.py` and `run_batch_search.py`, so copying only the EXE files is not enough.
 
 Run entry points:
 
-- Release / normal desktop entry: `actress-classifier.exe`
+- Release / normal desktop entry: `Start-ActressClassifier.bat`
+- Direct app entry after search runtime is ready: `actress-classifier.exe`
 - CLI / helper entry: `classifier.exe` (Windows) or `classifier` (Linux/macOS)
 - Dev / helper launcher: `python run.py` (prefers an already-built Wails executable)
 
@@ -321,10 +323,10 @@ chmod +x setup.sh && ./setup.sh
 
 Actual script behavior:
 
-- `setup.ps1`: runs `go mod download`, builds `classifier.exe`, builds and copies `actress-classifier.exe` to the repo root, then assembles a complete `dist\portable\` bundle for redistribution
+- `setup.ps1`: runs `go mod download`, builds `classifier.exe`, builds and copies `actress-classifier.exe` to the repo root, then assembles `dist\portable\` and `dist\PornActressDB-windows-portable.zip` for redistribution
 - `setup.sh`: runs `go mod download` and builds only `classifier` on Linux/macOS; the Wails GUI remains a Windows-first desktop build target
 
-These scripts do not create a Python venv, do not install `requirements.txt`, and do not run `npm install` in `wails-app/frontend`.
+`setup.ps1` includes the user-facing runtime bootstrap scripts in the portable bundle. Developers still need local Go, Node, Wails, and Python build tools before running it.
 
 ### Manual steps
 
@@ -340,8 +342,8 @@ cd wails-app
 wails build
 ```
 
-Install frontend dependencies manually before the first Wails build. Python search dependencies also still require a separate `pip install -r requirements.txt`.
-When redistributing the Wails app, ship the entire `dist\portable\` directory instead of only the EXE files.
+Install frontend dependencies manually before the first Wails build. The portable launcher installs Python search dependencies on first run.
+When redistributing the Wails app, ship `dist\PornActressDB-windows-portable.zip` instead of only the EXE files.
 
 ## License
 
