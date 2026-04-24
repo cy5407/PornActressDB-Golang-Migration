@@ -5,6 +5,18 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-04-24] ingest | 批次爬蟲效能模式
+
+**涉及檔案**：
+- `wiki/patterns/batch-scraper-performance.md` — 新增 AV-WIKI async 批次、共享連線池、自適應併發與 Go/Python 分工模式
+- `wiki/architecture/search-engine.md` — 補充 AV-WIKI 批次併發效能邊界與 JAVDB 保守策略
+- `wiki/index.md` — 加入批次爬蟲效能頁與快速查找
+- `wiki/wiki-data.js` — 由 `wiki/gen_data.py` 重新產生
+
+**踩坑**：無；本次為效能模式整理與實作前置文件更新。
+
+---
+
 ## [2026-04-22] docs | README / wiki 補上 Go 版 DB 清洗工具
 
 **觸發**：審閱 `copilot-session-0137f107-5126-4fb8-8708-e4a3090810c2.md` 後，將新完成的 DB 清洗工具回寫到正式文件

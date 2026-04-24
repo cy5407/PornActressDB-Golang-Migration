@@ -28,8 +28,7 @@ type CodeExtractor struct {
 	hyphenRe     *regexp.Regexp
 
 	// normalizeCode 用正規表達式
-	letterRe *regexp.Regexp
-	digitRe  *regexp.Regexp
+	compactCodeRe *regexp.Regexp
 
 	// validateCode 用正規表達式
 	hasLetterRe *regexp.Regexp
@@ -61,8 +60,7 @@ func NewCodeExtractor() *CodeExtractor {
 		hyphenRe:     regexp.MustCompile(`-+`),
 
 		// normalizeCode 用正規表達式
-		letterRe: regexp.MustCompile(`[A-Z]+`),
-		digitRe:  regexp.MustCompile(`\d+`),
+		compactCodeRe: regexp.MustCompile(`^([A-Z]{2,6})(\d{3,5})$`),
 
 		// validateCode 用正規表達式
 		hasLetterRe: regexp.MustCompile(`[A-Z]`),
@@ -74,6 +72,7 @@ func NewCodeExtractor() *CodeExtractor {
 
 	// Code patterns (in priority order)
 	e.codePatterns = []codePattern{
+		{regexp.MustCompile(`(\d{2,4}[A-Z]{2,6}-\d{3,5})`), "MGS數字前綴格式"},
 		{regexp.MustCompile(`([A-Z]{2,6}-\d{3,5})`), "標準格式"},
 		{regexp.MustCompile(`([A-Z]{2,6}-\d{3,5})[A-Z]*`), "標準格式帶後綴"},
 		{regexp.MustCompile(`([A-Z]{2,6}\d{3,5})`), "無橫槓格式"},
@@ -83,6 +82,7 @@ func NewCodeExtractor() *CodeExtractor {
 
 	// Validation patterns
 	e.validPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`^\d{2,4}[A-Z]{2,6}-\d{3,5}$`),
 		regexp.MustCompile(`^[A-Z]{2,6}-\d{3,5}$`),
 		regexp.MustCompile(`^[A-Z]{2,6}\d{3,5}$`),
 		regexp.MustCompile(`^\d{6}-\d{3}$`),
@@ -171,11 +171,8 @@ func (e *CodeExtractor) normalizeCode(code string) string {
 
 	// Add hyphen if missing (e.g., STARS707 -> STARS-707)
 	if !strings.Contains(code, "-") {
-		letters := e.letterRe.FindString(code)
-		digits := e.digitRe.FindString(code)
-
-		if letters != "" && digits != "" {
-			code = letters + "-" + digits
+		if match := e.compactCodeRe.FindStringSubmatch(code); match != nil {
+			code = match[1] + "-" + match[2]
 		}
 	}
 

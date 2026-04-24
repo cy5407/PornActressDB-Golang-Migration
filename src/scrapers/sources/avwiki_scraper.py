@@ -49,41 +49,19 @@ class AVWikiScraper(BaseScraper):
 
         logger.info("📚 AV-WIKI 爬蟲已初始化")
 
-    async def scrape_url(self, url: str) -> dict[str, Any]:
+    async def scrape_url(
+        self, url: str, session: aiohttp.ClientSession | None = None
+    ) -> dict[str, Any]:
         """爬取 AV-WIKI URL"""
         try:
-            timeout = aiohttp.ClientTimeout(total=30)
+            if session is not None:
+                return await self._scrape_url_with_session(url, session)
 
+            timeout = aiohttp.ClientTimeout(total=30)
             async with aiohttp.ClientSession(
                 headers=self.headers, timeout=timeout
-            ) as session, session.get(url) as response:
-                if response.status == 404:
-                    raise ScrapingException(
-                        "頁面不存在", ErrorType.CLIENT_ERROR, url, 404
-                    )
-                elif response.status >= 500:
-                    raise ScrapingException(
-                        "伺服器錯誤", ErrorType.SERVER_ERROR, url, response.status
-                    )
-                elif response.status == 429:
-                    raise ScrapingException(
-                        "請求過於頻繁", ErrorType.RATE_LIMIT_ERROR, url, 429
-                    )
-
-                response.raise_for_status()
-
-                # 讀取內容並進行編碼檢測
-                content_bytes = await response.read()
-                soup, encoding = create_safe_soup(content_bytes)
-
-                logger.debug(f"✅ AV-WIKI 頁面載入成功，編碼: {encoding}")
-
-                # 解析內容
-                parsed_data = self.parse_content(str(soup), url)
-                parsed_data["source"] = "AV-WIKI"
-                parsed_data["encoding"] = encoding
-
-                return parsed_data
+            ) as local_session:
+                return await self._scrape_url_with_session(url, local_session)
 
         except aiohttp.ClientError as e:
             raise ScrapingException(f"網路連線錯誤: {e}", ErrorType.NETWORK_ERROR, url) from e
@@ -91,6 +69,34 @@ class AVWikiScraper(BaseScraper):
             if isinstance(e, ScrapingException):
                 raise
             raise ScrapingException(f"未知錯誤: {e}", ErrorType.UNKNOWN_ERROR, url) from e
+
+    async def _scrape_url_with_session(
+        self, url: str, session: aiohttp.ClientSession
+    ) -> dict[str, Any]:
+        async with session.get(url) as response:
+            if response.status == 404:
+                raise ScrapingException("頁面不存在", ErrorType.CLIENT_ERROR, url, 404)
+            if response.status >= 500:
+                raise ScrapingException(
+                    "伺服器錯誤", ErrorType.SERVER_ERROR, url, response.status
+                )
+            if response.status == 429:
+                raise ScrapingException(
+                    "請求過於頻繁", ErrorType.RATE_LIMIT_ERROR, url, 429
+                )
+
+            response.raise_for_status()
+
+            content_bytes = await response.read()
+            soup, encoding = create_safe_soup(content_bytes)
+
+            logger.debug(f"✅ AV-WIKI 頁面載入成功，編碼: {encoding}")
+
+            parsed_data = self.parse_content(str(soup), url)
+            parsed_data["source"] = "AV-WIKI"
+            parsed_data["encoding"] = encoding
+
+            return parsed_data
 
     def parse_content(self, content: str, url: str) -> dict[str, Any]:
         """解析 AV-WIKI 頁面內容"""
@@ -433,6 +439,13 @@ class AVWikiScraper(BaseScraper):
             ) from e
 
     def _is_temporary_batch_search_error(self, error: Exception) -> bool:
+        if isinstance(error, ScrapingException):
+            return error.error_type in (
+                ErrorType.NETWORK_ERROR,
+                ErrorType.TIMEOUT_ERROR,
+                ErrorType.RATE_LIMIT_ERROR,
+                ErrorType.SERVER_ERROR,
+            )
         if isinstance(error, aiohttp.ClientResponseError):
             return error.status in (429, 500, 502, 503, 504)
         return isinstance(error, (TimeoutError, aiohttp.ClientConnectionError))
@@ -462,6 +475,7 @@ class AVWikiScraper(BaseScraper):
         concurrency_controller: AdaptiveConcurrencyController,
         backoff: ExponentialBackoff,
         started_count_ref: list[int],
+        session: aiohttp.ClientSession | None = None,
     ) -> tuple[str, dict[str, Any]]:
         async with shared_semaphore:
             async with count_lock:
@@ -478,7 +492,12 @@ class AVWikiScraper(BaseScraper):
                     f"[批次搜尋] 開始搜尋番號 {code}, URL: {sanitize_url_for_log(search_url)}"
                 )
 
-                result = await self.scrape_url(search_url)
+                try:
+                    result = await self.scrape_url(search_url, session=session)
+                except TypeError as e:
+                    if "session" not in str(e):
+                        raise
+                    result = await self.scrape_url(search_url)
                 concurrency_controller.report_success()
                 backoff.reset()
                 return code, self._build_batch_search_result(
@@ -490,6 +509,7 @@ class AVWikiScraper(BaseScraper):
                 TimeoutError,
                 aiohttp.ClientResponseError,
                 aiohttp.ClientConnectionError,
+                ScrapingException,
             ) as e:
                 error_type = type(e).__name__
                 is_temporary = self._is_temporary_batch_search_error(e)
@@ -577,6 +597,9 @@ class AVWikiScraper(BaseScraper):
         Returns:
             Dict[番號, 搜尋結果]
         """
+        if not video_codes:
+            return {}
+
         total_count = len(video_codes)
         count_lock = asyncio.Lock()
         concurrency_controller = AdaptiveConcurrencyController(
@@ -585,27 +608,50 @@ class AVWikiScraper(BaseScraper):
             maximum=max_concurrent,
         )
         backoff = ExponentialBackoff(base_delay=0.5, max_delay=10.0)
-        shared_semaphore = asyncio.Semaphore(max_concurrent)
         started_count_ref = [0]
-
-        tasks = [
-            self._search_single_video_batch(
-                code,
-                total_count,
-                shared_semaphore,
-                count_lock,
-                progress_callback,
-                concurrency_controller,
-                backoff,
-                started_count_ref,
-            )
-            for code in video_codes
-        ]
 
         logger.info(
             f"🚀 開始批次搜尋 {total_count} 個番號，併發數: {max_concurrent}（繞過 rate_limiter）"
         )
-        completed_results = await asyncio.gather(*tasks, return_exceptions=True)
+        completed_results: list[Any] = []
+        pending_codes = list(video_codes)
+        timeout = aiohttp.ClientTimeout(total=30)
+        connector = aiohttp.TCPConnector(
+            limit=max_concurrent * 2,
+            limit_per_host=max_concurrent,
+            ttl_dns_cache=300,
+            use_dns_cache=True,
+        )
+
+        async with aiohttp.ClientSession(
+            headers=self.headers, timeout=timeout, connector=connector
+        ) as session:
+            while pending_codes:
+                current_concurrency = max(
+                    1,
+                    min(max_concurrent, concurrency_controller.get_concurrency()),
+                )
+                wave_codes = pending_codes[:current_concurrency]
+                pending_codes = pending_codes[current_concurrency:]
+                shared_semaphore = asyncio.Semaphore(current_concurrency)
+                tasks = [
+                    self._search_single_video_batch(
+                        code,
+                        total_count,
+                        shared_semaphore,
+                        count_lock,
+                        progress_callback,
+                        concurrency_controller,
+                        backoff,
+                        started_count_ref,
+                        session=session,
+                    )
+                    for code in wave_codes
+                ]
+                completed_results.extend(
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                )
+
         results, success_count, error_count, no_actress_count = (
             self._summarize_batch_search_results(completed_results)
         )

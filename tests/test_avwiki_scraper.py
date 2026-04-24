@@ -34,6 +34,51 @@ def test_batch_search_concurrent_respects_max_concurrency():
     assert observed <= 2
 
 
+def test_batch_search_concurrent_applies_adaptive_concurrency_next_wave():
+    async def run_test():
+        scraper = AVWikiScraper()
+        wave_limits = []
+        call_count = 0
+
+        async def fake_search_single(
+            code,
+            _total_count,
+            shared_semaphore,
+            _count_lock,
+            _progress_callback,
+            concurrency_controller,
+            _backoff,
+            _started_count_ref,
+            session=None,
+        ):
+            nonlocal call_count
+            wave_limits.append(shared_semaphore._value)
+            call_count += 1
+            if call_count <= 3:
+                concurrency_controller.report_failure()
+                return code, scraper._build_batch_error_result(
+                    code, "timeout", "TimeoutError"
+                )
+            concurrency_controller.report_success()
+            return code, scraper._build_batch_search_result(
+                code=code,
+                search_url=f"https://av-wiki.net/?s={code}&post_type=product",
+                raw_result={"found": True, "unique_actresses": ["範例女優"]},
+            )
+
+        scraper._search_single_video_batch = fake_search_single
+        codes = [f"TEST-{index:03d}" for index in range(6)]
+
+        await scraper.batch_search_concurrent(codes, max_concurrent=4)
+
+        return wave_limits
+
+    observed = asyncio.run(run_test())
+
+    assert observed[:4] == [4, 4, 4, 4]
+    assert observed[4:] == [2, 2]
+
+
 def test_extract_search_result_actress_elements_uses_tag_links_first():
     scraper = AVWikiScraper()
     soup = BeautifulSoup(

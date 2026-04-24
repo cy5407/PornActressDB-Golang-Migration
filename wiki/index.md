@@ -13,7 +13,7 @@
 | [Go CLI 設計](architecture/go-cli.md) | classifier.exe 命令結構、JSON 輸出規範 |
 | [Go Bridge](architecture/go-bridge.md) | Python→Go 橋接歷史（Phase 1~11 + W6）、現行 go_cli.py 用法 |
 | [資料庫系統](architecture/database.md) | IncrementalJSONDB / JSONDBManager / Journal 機制 |
-| [搜尋引擎](architecture/search-engine.md) | AV-WIKI → JAVDB 級聯搜尋架構 |
+| [搜尋引擎](architecture/search-engine.md) | AV-WIKI → JAVDB 級聯搜尋、來源專用 API 與批次併發邊界 |
 | [技術選型決策](architecture/tech-stack-decisions.md) | 爬蟲/GUI 語言比較與 Wails 長期路線圖 |
 | [**Wails GUI 架構**](architecture/wails-gui.md) | Wails v2 + React 架構、Bindings 對照、W6 清理紀錄 |
 | [**片商分類架構**](architecture/studio-classification.md) | W7/W8 番號前綴直查（studios.json）+ DB fallback + major_studios 雙層判定 |
@@ -29,6 +29,7 @@
 | [新增 GUI 按鈕](patterns/add-gui-button.md) | Wails/React 按鈕範本、EventsEmit 進度推送、binding 規範 |
 | [PyInstaller 打包](patterns/pyinstaller.md) | spec 設定、sys._MEIPASS 路徑、dist 同步（歷史參考） |
 | [零女優二次搜尋](patterns/zero-actress-retry.md) | 零女優自動清快取 + 第二輪 JAVDB 搜尋流程 |
+| [批次爬蟲效能](patterns/batch-scraper-performance.md) | AV-WIKI async 批次、共享連線池、自適應併發與 Go/Python 分工 |
 | [命名規範](patterns/naming-conventions.md) | Python/Go/JSON/CLI API 動詞與跨語言對應規則 |
 | [Python Fallback 移除](patterns/remove-python-fallback.md) | Phase 6 策略：寫入→RuntimeError、讀取→記憶體、整刪包裝類別 |
 | [Session Cleaner 工作流](patterns/session-cleaner-workflow.md) | 壓縮 Copilot CLI /share session 紀錄、保留策略、使用情境 |
@@ -74,4 +75,5 @@
 - **Rebuild EXE（Wails）** → 執行 `wails build`（參見 [README.md](../README.md)）｜[歷史存檔：PyInstaller](patterns/pyinstaller.md)
 - **命名規範檢查** → [patterns/naming-conventions.md](patterns/naming-conventions.md)
 - **搜尋架構理解** → [architecture/search-engine.md](architecture/search-engine.md)
+- **批次爬蟲效能** → [patterns/batch-scraper-performance.md](patterns/batch-scraper-performance.md)
 - **完整茶包射手** → [docs/茶包射手/github-actions-workflow.md](../docs/茶包射手/github-actions-workflow.md) | [wails-e2e-scan.md](../docs/茶包射手/wails-e2e-scan.md)

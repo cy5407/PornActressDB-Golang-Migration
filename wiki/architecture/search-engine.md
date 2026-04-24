@@ -1,7 +1,7 @@
 # 搜尋引擎架構
 
 > 來源：`wails-app/backend/app.go`、`src/scrapers/run_search.py`、`src/scrapers/run_batch_search.py`、`src/services/web_searcher.py`、`wails-app/frontend/src/App.tsx`
-> 更新：2026-04-22
+> 更新：2026-04-24
 
 ---
 
@@ -195,6 +195,19 @@ backend 會把這個值寫進批次請求的 `source_mode` 欄位，交給 `run_
 
 因此文件應將 `batch_cascade_search()` 視為 `WebSearcher` 內部仍存在的批次能力，而不是當前 Wails 搜尋 UI 的唯一主入口。
 
+### AV-WIKI 批次併發的效能邊界
+
+AV-WIKI 批次搜尋是目前最適合加速的來源。正確優化方向不是單純把 worker 開大，而是：
+
+- 批次內共用 `aiohttp.ClientSession`
+- 透過 `aiohttp.TCPConnector` 控制 connection pool 與 `limit_per_host`
+- 以 `asyncio` 分波執行，讓自適應併發的升降載能影響下一波請求
+- 對 timeout、429、5xx 等暫時性錯誤降載並退避
+
+這表示「高併發」應該是受控併發，而不是無限制平行請求。若網站開始 server throttling，客戶端應降載而不是持續加壓。
+
+JAVDB 則不適合套用同一組高併發策略。JAVDB 的安全搜尋器包含 session 重建、冷卻與反爬處理，因此應以低併發、快取與錯誤狀態紀錄為主。
+
 ---
 
 ## 來源專用狀態欄位
@@ -276,4 +289,5 @@ backend 會依 `SearchResult` 推導來源狀態：
 - `src/scrapers/run_search.py`
 - `src/scrapers/run_batch_search.py`
 - `src/services/web_searcher.py`
+- `src/scrapers/sources/avwiki_scraper.py`
 - `wails-app/frontend/src/App.tsx`
