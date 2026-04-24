@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from src.utils.stdio import DEFAULT_TEXT_ENCODING, PYTHON_UTF8_MODE
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 RUN_SEARCH = ROOT_DIR / "src" / "scrapers" / "run_search.py"
@@ -66,14 +67,14 @@ sys.modules['services.web_searcher'] = services_web_searcher
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(tmp_path)
-    env["PYTHONIOENCODING"] = "utf-8"
-    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = DEFAULT_TEXT_ENCODING
+    env["PYTHONUTF8"] = PYTHON_UTF8_MODE
 
     proc = subprocess.run(
         [sys.executable, str(script), *args],
         input=stdin,
         text=True,
-        encoding="utf-8",
+        encoding=DEFAULT_TEXT_ENCODING,
         capture_output=True,
         env=env,
         check=False,

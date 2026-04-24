@@ -31,11 +31,6 @@ import sys
 import threading
 from datetime import UTC, datetime
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8")
-
 # ---------------------------------------------------------------------------
 # Ensure project root is on sys.path so src.* imports work correctly when
 # this script is invoked from any working directory.
@@ -47,6 +42,10 @@ _SRC_DIR = os.path.join(_PROJECT_ROOT, "src")
 for _path in (_SRC_DIR, _PROJECT_ROOT):
     if _path not in sys.path:
         sys.path.insert(0, _path)
+
+from utils.stdio import configure_standard_streams  # noqa: E402
+
+configure_standard_streams()
 
 
 DEFAULT_SOURCE_MODE = "cascade"

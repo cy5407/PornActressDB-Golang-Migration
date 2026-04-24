@@ -1,8 +1,8 @@
 import json
 import sys
 import threading
-from types import ModuleType
-from types import SimpleNamespace
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -10,6 +10,48 @@ from src.models.json_types import get_empty_video
 from src.scrapers import run_batch_search as run_batch_search_module
 from src.scrapers import run_search as run_search_module
 from src.services.web_searcher import WebSearcher
+
+
+@pytest.mark.parametrize(
+    "module",
+    [run_search_module, run_batch_search_module],
+)
+def test_search_entrypoints_resolve_project_config_before_cwd(
+    tmp_path, monkeypatch, module
+):
+    project_root = tmp_path / "project"
+    cwd = tmp_path / "cwd"
+    project_root.mkdir()
+    cwd.mkdir()
+    project_config = project_root / "config.ini"
+    cwd_config = cwd / "config.ini"
+    project_config.write_text("[settings]\n", encoding="utf-8")
+    cwd_config.write_text("[settings]\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "_PROJECT_ROOT", str(project_root))
+    monkeypatch.chdir(cwd)
+
+    assert Path(module._resolve_config_path()) == project_config
+
+
+@pytest.mark.parametrize(
+    "module",
+    [run_search_module, run_batch_search_module],
+)
+def test_search_entrypoints_resolve_cwd_config_when_project_config_missing(
+    tmp_path, monkeypatch, module
+):
+    project_root = tmp_path / "project"
+    cwd = tmp_path / "cwd"
+    project_root.mkdir()
+    cwd.mkdir()
+    cwd_config = cwd / "config.ini"
+    cwd_config.write_text("[settings]\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "_PROJECT_ROOT", str(project_root))
+    monkeypatch.chdir(cwd)
+
+    assert Path(module._resolve_config_path()) == cwd_config
 
 
 def test_web_searcher_search_avwiki_only_returns_search_error_without_caching():
@@ -124,6 +166,84 @@ def test_run_batch_search_search_one_accepts_source_mode(monkeypatch):
 
     assert result["actresses"] == ["A"]
     assert "method" not in called
+
+
+def test_run_batch_search_get_searcher_reuses_thread_local_instance(monkeypatch):
+    fake_config_module = ModuleType("models.config")
+    fake_searcher_module = ModuleType("services.web_searcher")
+    config_paths = []
+
+    class FakeConfigManager:
+        def __init__(self, path):
+            config_paths.append(path)
+
+    class FakeWebSearcher:
+        def __init__(self, config):
+            self.config = config
+            self.japanese_searcher = SimpleNamespace(
+                config=SimpleNamespace(min_interval=9.0, max_interval=9.0)
+            )
+            self.safe_searcher = SimpleNamespace(
+                config=SimpleNamespace(min_interval=9.0, max_interval=9.0)
+            )
+
+    fake_config_module.ConfigManager = FakeConfigManager
+    fake_searcher_module.WebSearcher = FakeWebSearcher
+
+    monkeypatch.setitem(sys.modules, "models.config", fake_config_module)
+    monkeypatch.setitem(sys.modules, "services.web_searcher", fake_searcher_module)
+    monkeypatch.setattr(run_batch_search_module, "_thread_local", threading.local())
+    monkeypatch.setattr(
+        run_batch_search_module, "_resolve_config_path", lambda: "config.ini"
+    )
+
+    first = run_batch_search_module._get_searcher()
+    second = run_batch_search_module._get_searcher()
+
+    assert first is second
+    assert config_paths == ["config.ini"]
+    assert first.japanese_searcher.config.min_interval == 0.0
+    assert first.japanese_searcher.config.max_interval == 0.0
+    assert first.safe_searcher.config.min_interval == 0.0
+    assert first.safe_searcher.config.max_interval == 0.0
+
+
+def test_run_batch_search_normalize_accepts_legacy_field_names():
+    result = run_batch_search_module._normalize(
+        {
+            "title": "Title",
+            "studio": "Studio",
+            "releaseDate": "2026-04-24",
+            "url": "https://example.com",
+            "actresses": " A, , B ",
+            "method": "JAVDB",
+            "error_kind": "not_found",
+        },
+        "ABC-123",
+    )
+
+    assert result == {
+        "code": "ABC-123",
+        "title": "Title",
+        "studio": "Studio",
+        "release_date": "2026-04-24",
+        "url": "https://example.com",
+        "actresses": ["A", "B"],
+        "search_method": "JAVDB",
+        "error": "",
+        "error_kind": "not_found",
+    }
+
+
+def test_run_batch_search_build_error_result():
+    result = run_batch_search_module._build_error_result(
+        "ABC-123", "搜尋來源異常", "error"
+    )
+
+    assert result["code"] == "ABC-123"
+    assert result["error"] == "搜尋來源異常"
+    assert result["error_kind"] == "error"
+    assert result["actresses"] == []
 
 
 def test_run_batch_search_search_one_marks_not_found_with_error_kind(monkeypatch):
@@ -245,6 +365,38 @@ def test_run_batch_search_main_handles_invalid_source_mode(monkeypatch, capsys):
     assert captured.out == ""
 
 
+def test_run_batch_search_main_handles_invalid_json(monkeypatch, capsys):
+    monkeypatch.setattr(
+        run_batch_search_module.sys,
+        "stdin",
+        SimpleNamespace(read=lambda: "{broken"),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_batch_search_module.main()
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "JSON 輸入解析失敗:" in captured.err
+    assert captured.out == ""
+
+
+def test_run_batch_search_main_exits_cleanly_for_empty_codes(monkeypatch, capsys):
+    monkeypatch.setattr(
+        run_batch_search_module.sys,
+        "stdin",
+        SimpleNamespace(read=lambda: json.dumps({"codes": [], "workers": 5})),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_batch_search_module.main()
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 0
+    assert captured.out == ""
+    assert captured.err == ""
+
+
 def test_run_search_main_handles_invalid_source_mode_without_traceback(
     monkeypatch, capsys
 ):
@@ -268,6 +420,137 @@ def test_run_search_main_handles_invalid_source_mode_without_traceback(
     assert payload["code"] == "ABC-123"
     assert payload["error"] == "搜尋時發生例外: 不支援的搜尋來源模式: invalid"
     assert captured.err == ""
+
+
+def test_run_search_status_helpers_cover_modes_and_string_actresses():
+    assert run_search_module._resolve_source_status_fields("avwiki") == (
+        "avwiki_actress_status",
+        "avwiki_last_search_date",
+    )
+    assert run_search_module._resolve_source_status_fields("javdb") == (
+        "javdb_actress_status",
+        "javdb_last_search_date",
+    )
+    assert run_search_module._resolve_source_status_fields("cascade") is None
+    assert run_search_module._determine_source_status(
+        {"actresses": " A, , B "}
+    ) == "found"
+    assert run_search_module._determine_source_status({"actresses": ""}) == "not_found"
+    assert run_search_module._determine_source_status(
+        {"search_status": "search_error", "actresses": ["A"]}
+    ) == "error"
+
+
+def test_run_search_update_status_ignores_cascade_mode():
+    fake_db = SimpleNamespace(
+        get_video_info=lambda _code: (_ for _ in ()).throw(
+            AssertionError("cascade should not touch db")
+        ),
+    )
+
+    run_search_module._update_source_search_status(
+        "ABC-123", {"actresses": ["A"]}, "cascade", db=fake_db
+    )
+
+
+def test_run_search_update_status_swallows_database_errors():
+    fake_db = SimpleNamespace(
+        get_video_info=lambda _code: (_ for _ in ()).throw(RuntimeError("db down")),
+    )
+
+    run_search_module._update_source_search_status(
+        "ABC-123", {"actresses": ["A"]}, "avwiki", db=fake_db
+    )
+
+
+def test_run_search_main_reports_usage_for_missing_code(monkeypatch, capsys):
+    monkeypatch.setattr(run_search_module.sys, "argv", ["run_search.py"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_search_module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out.strip())
+    assert exc_info.value.code == 1
+    assert payload["code"] == ""
+    assert payload["error"] == "Usage: run_search.py <video_code> [source_mode]"
+
+
+def test_run_search_main_rejects_empty_code(monkeypatch, capsys):
+    monkeypatch.setattr(run_search_module.sys, "argv", ["run_search.py", "  "])
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_search_module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out.strip())
+    assert exc_info.value.code == 0
+    assert payload["code"] == ""
+    assert payload["error"] == "番號不得為空"
+
+
+def test_run_search_main_outputs_normalized_success(monkeypatch, capsys):
+    fake_config_module = ModuleType("models.config")
+    fake_searcher_module = ModuleType("services.web_searcher")
+    fake_config_module.ConfigManager = lambda _path: object()
+    fake_searcher_module.WebSearcher = lambda _config: SimpleNamespace(
+        search_info=lambda *_args: {
+            "title": "Title",
+            "studio": "Studio",
+            "releaseDate": "2026-04-24",
+            "url": "https://example.com",
+            "actresses": " A, , B ",
+            "method": "Cascade",
+        }
+    )
+    updated = {}
+
+    monkeypatch.setitem(sys.modules, "models.config", fake_config_module)
+    monkeypatch.setitem(sys.modules, "services.web_searcher", fake_searcher_module)
+    monkeypatch.setattr(
+        run_search_module, "_update_source_search_status", lambda *args: updated.setdefault("args", args)
+    )
+    monkeypatch.setattr(
+        run_search_module, "_resolve_config_path", lambda: "config.ini"
+    )
+    monkeypatch.setattr(run_search_module.sys, "argv", ["run_search.py", "ABC-123"])
+
+    run_search_module.main()
+
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload == {
+        "code": "ABC-123",
+        "title": "Title",
+        "studio": "Studio",
+        "release_date": "2026-04-24",
+        "url": "https://example.com",
+        "actresses": ["A", "B"],
+        "search_method": "Cascade",
+        "error": "",
+    }
+    assert updated["args"][0] == "ABC-123"
+
+
+def test_run_search_main_reports_not_found(monkeypatch, capsys):
+    fake_config_module = ModuleType("models.config")
+    fake_searcher_module = ModuleType("services.web_searcher")
+    fake_config_module.ConfigManager = lambda _path: object()
+    fake_searcher_module.WebSearcher = lambda _config: SimpleNamespace(
+        search_info=lambda *_args: None
+    )
+
+    monkeypatch.setitem(sys.modules, "models.config", fake_config_module)
+    monkeypatch.setitem(sys.modules, "services.web_searcher", fake_searcher_module)
+    monkeypatch.setattr(run_search_module, "_update_source_search_status", lambda *_args: None)
+    monkeypatch.setattr(run_search_module.sys, "argv", ["run_search.py", "ABC-123"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_search_module.main()
+
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert exc_info.value.code == 0
+    assert payload["code"] == "ABC-123"
+    assert payload["error"] == "未找到結果"
 
 
 def test_web_searcher_search_javdb_only_uses_alias_candidates():

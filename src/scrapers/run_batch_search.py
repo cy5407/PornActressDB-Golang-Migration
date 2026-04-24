@@ -20,11 +20,6 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8")
-
 # ---------------------------------------------------------------------------
 # sys.path 設定
 # ---------------------------------------------------------------------------
@@ -35,6 +30,10 @@ _SRC_DIR = os.path.join(_PROJECT_ROOT, "src")
 for _path in (_SRC_DIR, _PROJECT_ROOT):
     if _path not in sys.path:
         sys.path.insert(0, _path)
+
+from utils.stdio import configure_standard_streams  # noqa: E402
+
+configure_standard_streams()
 
 from scrapers.run_search import (  # noqa: E402
     DEFAULT_CONFIG_FILE,

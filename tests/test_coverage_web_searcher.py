@@ -15,8 +15,8 @@ _SRC_DIR = str(Path(__file__).resolve().parents[1] / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from src.services.web_searcher import WebSearcher
-
+from src.services import web_searcher as web_searcher_module  # noqa: E402
+from src.services.web_searcher import WebSearcher  # noqa: E402
 
 # ---------- helpers ----------
 
@@ -46,6 +46,75 @@ def _make_searcher(**attrs) -> WebSearcher:
     for k, v in defaults.items():
         setattr(searcher, k, v)
     return searcher
+
+
+def test_web_searcher_init_wires_safe_searchers_and_cache_manager(monkeypatch):
+    safe_instances = []
+    registered_sources = []
+
+    class FakeConfig:
+        def getfloat(self, _section, _key, fallback):
+            return fallback
+
+        def getboolean(self, _section, _key, fallback):
+            return fallback
+
+        def getint(self, _section, _key, fallback):
+            return fallback
+
+        def get(self, _section, _key, fallback=None):
+            return fallback
+
+    class FakeSafeSearcher:
+        def __init__(self, config):
+            self.config = config
+            self.cache = {}
+            safe_instances.append(self)
+
+        def get_headers(self):
+            return {"User-Agent": "Fake"}
+
+    class FakeJAVDBSearcher:
+        def __init__(self, cache_dir):
+            self.cache_dir = cache_dir
+            self.cache = {}
+
+    class FakeShiroutoWikiScraper:
+        def __init__(self, safe_searcher, headers, timeout):
+            self.safe_searcher = safe_searcher
+            self.headers = headers
+            self.timeout = timeout
+
+    class FakeCacheManager:
+        def register_cache_source(self, name, source):
+            registered_sources.append((name, source))
+
+    monkeypatch.setattr(web_searcher_module, "SafeSearcher", FakeSafeSearcher)
+    monkeypatch.setattr(web_searcher_module, "SafeJAVDBSearcher", FakeJAVDBSearcher)
+    monkeypatch.setattr(
+        web_searcher_module, "ShiroutoWikiScraper", FakeShiroutoWikiScraper
+    )
+    monkeypatch.setattr(
+        web_searcher_module,
+        "StudioIdentifier",
+        lambda: SimpleNamespace(normalize_studio_name=lambda studio, _code: studio),
+    )
+    monkeypatch.setattr(
+        web_searcher_module, "get_cache_manager", lambda _config: FakeCacheManager()
+    )
+
+    searcher = WebSearcher(FakeConfig())
+
+    assert len(safe_instances) == 2
+    assert searcher.headers == {"User-Agent": "Fake"}
+    assert searcher.batch_size == 10
+    assert searcher.thread_count == 5
+    assert searcher.avwiki_max_concurrent == 15
+    assert searcher.shiroutowiki_scraper.timeout == 20
+    assert [name for name, _source in registered_sources] == [
+        "web_searcher",
+        "javdb_searcher",
+    ]
 
 
 # ============================================================
@@ -341,6 +410,90 @@ def test_extract_avwiki_detail_url_relative_href():
     assert url == "https://av-wiki.net/ssis-123/"
 
 
+def test_fetch_avwiki_detail_studio_info_merges_detail_page_fields():
+    s = _make_searcher()
+    search_soup = _make_soup('<a href="/ssis-123/">続きを読む</a>')
+    detail_soup = _make_soup("detail")
+    calls = []
+
+    def extract_studio_info(soup, _code):
+        calls.append(soup)
+        if soup is detail_soup:
+            return {
+                "studio": "S1",
+                "studio_code": "SSIS",
+                "release_date": "2026-04-24",
+            }
+        return {"studio": None, "studio_code": None, "release_date": None}
+
+    s._extract_studio_info = extract_studio_info
+    s.safe_searcher = SimpleNamespace(safe_request=lambda _fn, _url: detail_soup)
+
+    result = s._fetch_avwiki_detail_studio_info(search_soup, "SSIS-123")
+
+    assert calls == [search_soup, detail_soup]
+    assert result == {
+        "studio": "S1",
+        "studio_code": "SSIS",
+        "release_date": "2026-04-24",
+    }
+
+
+def test_fetch_avwiki_detail_studio_info_keeps_search_page_studio():
+    s = _make_searcher()
+    soup = _make_soup("<html><body>search page</body></html>")
+    s._extract_studio_info = lambda _soup, _code: {
+        "studio": "S1",
+        "studio_code": "SSIS",
+        "release_date": None,
+    }
+    s._extract_avwiki_detail_url = lambda *_args: (_ for _ in ()).throw(
+        AssertionError("detail page should not be fetched")
+    )
+
+    result = s._fetch_avwiki_detail_studio_info(soup, "SSIS-123")
+
+    assert result["studio"] == "S1"
+    assert result["studio_code"] == "SSIS"
+
+
+def test_scan_avwiki_text_for_actresses_near_code():
+    s = _make_searcher()
+    s._is_valid_actress_name = lambda name: name == "葵つかさ"
+    soup = _make_soup(
+        """
+        <html><body>
+        <p>葵つかさ</p>
+        <p>SSIS-123</p>
+        </body></html>
+        """
+    )
+
+    assert s._scan_avwiki_text_for_actresses(soup, "SSIS-123") == ["葵つかさ"]
+
+
+def test_finalize_avwiki_search_result_normalizes_studio():
+    s = _make_searcher(
+        studio_identifier=SimpleNamespace(
+            normalize_studio_name=lambda studio, code: f"{studio}:{code}"
+        )
+    )
+
+    result = s._finalize_avwiki_search_result(
+        "SSIS-123",
+        ["葵つかさ"],
+        {"studio": "S1", "studio_code": "SSIS", "release_date": "2026-04-24"},
+    )
+
+    assert result == {
+        "source": "AV-WIKI (安全增強版)",
+        "actresses": ["葵つかさ"],
+        "studio": "S1:SSIS-123",
+        "studio_code": "SSIS",
+        "release_date": "2026-04-24",
+    }
+
+
 # ============================================================
 # _extract_studio_code_from_number
 # ============================================================
@@ -594,6 +747,109 @@ def test_get_all_search_stats():
     assert stats["local_cache_entries"] == 1
 
 
+def test_split_cached_avwiki_codes_preserves_input_order():
+    s = _make_searcher()
+    cached = {"actresses": ["A"]}
+    s.search_cache["A-001"] = cached
+
+    uncached, cached_results = s._split_cached_avwiki_codes(
+        ["A-001", "B-002", "C-003"]
+    )
+
+    assert uncached == ["B-002", "C-003"]
+    assert cached_results == {"A-001": cached}
+
+
+def test_build_avwiki_progress_callback_deduplicates_codes():
+    messages = []
+    callback = WebSearcher._build_avwiki_progress_callback(messages.append, 2)
+
+    callback(1, 2, "A-001")
+    callback(1, 2, "A-001")
+    callback(2, 2, "B-002")
+
+    assert messages == ["[1/2] 搜尋 A-001\n", "[2/2] 搜尋 B-002\n"]
+
+
+def test_build_avwiki_progress_callback_none():
+    assert WebSearcher._build_avwiki_progress_callback(None, 2) is None
+
+
+def test_cache_avwiki_batch_results_only_caches_successes():
+    s = _make_searcher()
+
+    s._cache_avwiki_batch_results(
+        {
+            "A-001": {"actresses": ["A"]},
+            "B-002": {"actresses": []},
+            "C-003": None,
+        }
+    )
+
+    assert list(s.search_cache) == ["A-001"]
+
+
+def test_batch_search_avwiki_concurrent_empty_codes():
+    s = _make_searcher()
+
+    assert s.batch_search_avwiki_concurrent([], threading.Event()) == {}
+
+
+def test_batch_search_avwiki_concurrent_returns_cached_results_only():
+    s = _make_searcher()
+    s.search_cache["A-001"] = {"actresses": ["A"]}
+    messages = []
+
+    result = s.batch_search_avwiki_concurrent(
+        ["A-001"], threading.Event(), progress_callback=messages.append
+    )
+
+    assert result == {"A-001": {"actresses": ["A"]}}
+    assert messages == ["📦 使用快取: 1 個番號\n"]
+
+
+def test_batch_search_avwiki_concurrent_success(monkeypatch):
+    s = _make_searcher(avwiki_max_concurrent=3)
+    messages = []
+
+    async def fake_batch_search(codes, _stop_event, _progress_callback):
+        return {
+            codes[0]: {"actresses": ["A"]},
+            codes[1]: {"actresses": []},
+        }
+
+    s._run_avwiki_batch_search = fake_batch_search
+
+    result = s.batch_search_avwiki_concurrent(
+        ["A-001", "B-002"], threading.Event(), progress_callback=messages.append
+    )
+
+    assert result["A-001"]["actresses"] == ["A"]
+    assert result["B-002"]["actresses"] == []
+    assert s.search_cache["A-001"]["actresses"] == ["A"]
+    assert any("開始 AV-WIKI" in message for message in messages)
+    assert any("1/2" in message for message in messages)
+
+
+def test_batch_search_avwiki_concurrent_returns_cached_on_error():
+    s = _make_searcher()
+    cached = {"actresses": ["A"]}
+    s.search_cache["A-001"] = cached
+
+    async def fake_batch_search(*_args):
+        raise RuntimeError("batch down")
+
+    s._run_avwiki_batch_search = fake_batch_search
+    messages = []
+
+    result = s.batch_search_avwiki_concurrent(
+        ["A-001", "B-002"], threading.Event(), progress_callback=messages.append
+    )
+
+    assert result == {"A-001": cached}
+    assert any("批次搜尋失敗" in message for message in messages)
+
+
 def test_clear_all_cache():
     s = _make_searcher()
     s.search_cache["SSIS-123"] = {}
@@ -675,7 +931,7 @@ def test_batch_search_with_progress_and_result_callbacks():
     def on_result(item, result, err):
         result_calls.append((item, err))
 
-    results = s.batch_search(
+    s.batch_search(
         ["SSIS-001", "SSIS-002"],
         task,
         threading.Event(),
@@ -685,6 +941,55 @@ def test_batch_search_with_progress_and_result_callbacks():
 
     assert any("✅" in m for m in progress_msgs)
     assert any("⚠️" in m for m in progress_msgs)
+
+
+def test_batch_search_progress_for_not_found_and_batch_delay(monkeypatch):
+    s = _make_searcher()
+    s.batch_size = 1
+    s.thread_count = 1
+    s.batch_delay = 0.25
+    progress_msgs = []
+    sleeps = []
+    monkeypatch.setattr(web_searcher_module.time, "sleep", sleeps.append)
+
+    result = s.batch_search(
+        ["A-001", "B-002"],
+        lambda _item, _stop: {"actresses": []},
+        threading.Event(),
+        progress_callback=progress_msgs.append,
+    )
+
+    assert set(result) == {"A-001", "B-002"}
+    assert any("❌" in message for message in progress_msgs)
+    assert sleeps == [0.25]
+
+
+def test_search_shiroutowiki_only_stop_event():
+    s = _make_searcher()
+    stop = threading.Event()
+    stop.set()
+
+    assert s.search_shiroutowiki_only("SSIS-123", stop) is None
+
+
+def test_search_shiroutowiki_only_cache_hit():
+    s = _make_searcher()
+    cached = {"actresses": ["A"]}
+    s.search_cache["SSIS-123"] = cached
+
+    assert s.search_shiroutowiki_only("SSIS-123", threading.Event()) is cached
+
+
+def test_search_shiroutowiki_only_returns_error_on_exception():
+    s = _make_searcher()
+    s._build_shiroutowiki_candidates = lambda _code: (_ for _ in ()).throw(
+        RuntimeError("shirouto down")
+    )
+
+    result = s.search_shiroutowiki_only("SSIS-123", threading.Event())
+
+    assert result["source"] == "shiroutowiki"
+    assert result["search_status"] == "search_error"
 
 
 # ============================================================
@@ -944,3 +1249,97 @@ def test_force_decompress_all_fail():
     bad_data = b"definitely not compressed data"
     result = s._force_decompress(bad_data)
     assert isinstance(result, bytes)
+
+
+def test_extract_studio_info_from_icon_link_with_code_and_date():
+    s = _make_searcher()
+    soup = _make_soup(
+        """
+        <html><body>
+          <li><i class="fa-clone"></i><a>S1 NO.1 STYLE - SSIS</a></li>
+          <p>發售日: 2026-04-24</p>
+        </body></html>
+        """
+    )
+
+    result = s._extract_studio_info(soup, "SSIS-123")
+
+    assert result == {
+        "studio": "S1 NO.1 STYLE",
+        "studio_code": "SSIS",
+        "release_date": "2026-04-24",
+    }
+
+
+def test_extract_studio_info_from_text_pattern_and_dot_date():
+    s = _make_searcher()
+    soup = _make_soup("<html><body>メーカー: MOODYZ<br>2026.04.24</body></html>")
+
+    result = s._extract_studio_info(soup, "MIDV-123")
+
+    assert result["studio"] == "MOODYZ"
+    assert result["studio_code"] == "MOODYZ"
+    assert result["release_date"] == "2026.04.24"
+
+
+def test_extract_studio_info_falls_back_to_code_mapping():
+    s = _make_searcher(_studio_code_mapping={"SSIS": "S1"})
+    soup = _make_soup("<html><body>2026-04-24</body></html>")
+
+    result = s._extract_studio_info(soup, "SSIS-123")
+
+    assert result["studio"] == "S1"
+    assert result["studio_code"] == "SSIS"
+    assert result["release_date"] == "2026-04-24"
+
+
+def test_get_studio_name_by_code_falls_back_to_code():
+    s = _make_searcher(_studio_code_mapping={"SSIS": "S1"})
+
+    assert s._get_studio_name_by_code("ssis") == "S1"
+    assert s._get_studio_name_by_code("ABCD") == "ABCD"
+
+
+def test_cascade_search_single_cache_hit():
+    s = _make_searcher()
+    s.search_cache["SSIS-123"] = {"actresses": ["A"], "source": "AV-WIKI"}
+
+    result = s.cascade_search_single("SSIS-123", threading.Event())
+
+    assert result["tried_sources"] == ["cache"]
+    assert result["final_source"] == "cache"
+
+
+def test_cascade_search_single_success_caches_result():
+    s = _make_searcher()
+    s._search_av_wiki = lambda _code, _stop: {
+        "actresses": ["A"],
+        "source": "AV-WIKI",
+    }
+
+    result = s.cascade_search_single("SSIS-123", threading.Event())
+
+    assert result["tried_sources"] == ["avwiki"]
+    assert result["final_source"] == "avwiki"
+    assert s.search_cache["SSIS-123"]["actresses"] == ["A"]
+
+
+def test_cascade_search_single_returns_not_found_after_exception():
+    s = _make_searcher()
+    s._search_av_wiki = lambda *_args: (_ for _ in ()).throw(RuntimeError("boom"))
+
+    result = s.cascade_search_single("SSIS-123", threading.Event())
+
+    assert result["status"] == "not_found"
+    assert result["tried_sources"] == ["avwiki"]
+
+
+def test_cascade_search_single_stops_before_source():
+    s = _make_searcher()
+    stop = threading.Event()
+    stop.set()
+
+    result = s.cascade_search_single("SSIS-123", stop)
+
+    assert result["status"] == "not_found"
+    assert result["tried_sources"] == []
