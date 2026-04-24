@@ -251,7 +251,6 @@ class SafeJAVDBSearcher:
 
                 response = session.get(url)
                 self._record_request_sent()
-
                 status = response.status_code
 
                 if status == 200:
@@ -259,66 +258,28 @@ class SafeJAVDBSearcher:
                     logger.debug("✅ JAVDB 請求成功: %s", status)
                     return response
 
-                if status == 403:
-                    consecutive_errors = self._increment_consecutive_errors()
-                    logger.warning(
-                        f"⚠️ 收到 403，連續錯誤 {consecutive_errors} 次"
-                    )
-                    if current_retry < 2:
-                        wait_time = 30 + _random_delay(15, 45)
-                        if wait_time <= self.max_retry_wait_seconds:
-                            self._recreate_session()
-                            logger.info(
-                                f"🔄 更換瀏覽器指紋，等待 {wait_time:.1f} 秒後重試..."
-                            )
-                            time.sleep(wait_time)
-                            current_retry += 1
-                            continue
-                    logger.error("❌ 403 重試失敗，JAVDB 可能需要更強的反爬蟲策略")
+                next_retry = self._handle_error_status(status, current_retry)
+                if next_retry is None:
                     return None
-
-                if status == 429:
-                    self._increment_consecutive_errors()
-                    if current_retry < 3:
-                        wait_time = 20 + _random_delay(10, 30)
-                        if wait_time <= self.max_retry_wait_seconds:
-                            logger.warning(
-                                f"⚠️ 收到 429，等待 {wait_time:.1f} 秒後重試..."
-                            )
-                            time.sleep(wait_time)
-                            current_retry += 1
-                            continue
-                    logger.error("❌ 429 重試次數過多，放棄請求")
-                    return None
-
-                logger.warning(f"⚠️ JAVDB 請求失敗: {status}")
-                return None
+                current_retry = next_retry
 
             except httpx.TimeoutException:
-                logger.warning("⏰ JAVDB 請求超時")
-                self._increment_consecutive_errors()
-                if current_retry < 2:
-                    current_retry += 1
-                    continue
-                return None
+                next_retry = self._handle_timeout_error(current_retry)
+                if next_retry is None:
+                    return None
+                current_retry = next_retry
 
             except httpx.ConnectError:
-                logger.warning("🔌 JAVDB 連線失敗")
-                self._increment_consecutive_errors()
-                if current_retry < 2:
-                    time.sleep(10 + current_retry * 5)
-                    current_retry += 1
-                    continue
-                return None
+                next_retry = self._handle_connect_error(current_retry)
+                if next_retry is None:
+                    return None
+                current_retry = next_retry
 
             except Exception as e:
-                logger.error(f"❌ JAVDB 請求過程中出錯: {e}")
-                self._increment_consecutive_errors()
-                if current_retry < 1:
-                    time.sleep(5)
-                    current_retry += 1
-                    continue
-                return None
+                next_retry = self._handle_unknown_error(e, current_retry)
+                if next_retry is None:
+                    return None
+                current_retry = next_retry
 
     def _prepare_request_context(self) -> tuple[Any | None, int]:
         with self._lock:
@@ -374,6 +335,61 @@ class SafeJAVDBSearcher:
     def _recreate_session(self) -> None:
         with self._lock:
             self.create_session()
+
+    def _handle_error_status(self, status: int, current_retry: int) -> int | None:
+        if status == 403:
+            return self._handle_403(current_retry)
+        if status == 429:
+            return self._handle_429(current_retry)
+        logger.warning(f"⚠️ JAVDB 請求失敗: {status}")
+        return None
+
+    def _handle_403(self, current_retry: int) -> int | None:
+        consecutive_errors = self._increment_consecutive_errors()
+        logger.warning(f"⚠️ 收到 403，連續錯誤 {consecutive_errors} 次")
+        if current_retry < 2:
+            wait_time = 30 + _random_delay(15, 45)
+            if wait_time <= self.max_retry_wait_seconds:
+                self._recreate_session()
+                logger.info(f"🔄 更換瀏覽器指紋，等待 {wait_time:.1f} 秒後重試...")
+                time.sleep(wait_time)
+                return current_retry + 1
+        logger.error("❌ 403 重試失敗，JAVDB 可能需要更強的反爬蟲策略")
+        return None
+
+    def _handle_429(self, current_retry: int) -> int | None:
+        self._increment_consecutive_errors()
+        if current_retry < 3:
+            wait_time = 20 + _random_delay(10, 30)
+            if wait_time <= self.max_retry_wait_seconds:
+                logger.warning(f"⚠️ 收到 429，等待 {wait_time:.1f} 秒後重試...")
+                time.sleep(wait_time)
+                return current_retry + 1
+        logger.error("❌ 429 重試次數過多，放棄請求")
+        return None
+
+    def _handle_timeout_error(self, current_retry: int) -> int | None:
+        logger.warning("⏰ JAVDB 請求超時")
+        self._increment_consecutive_errors()
+        if current_retry < 2:
+            return current_retry + 1
+        return None
+
+    def _handle_connect_error(self, current_retry: int) -> int | None:
+        logger.warning("🔌 JAVDB 連線失敗")
+        self._increment_consecutive_errors()
+        if current_retry < 2:
+            time.sleep(10 + current_retry * 5)
+            return current_retry + 1
+        return None
+
+    def _handle_unknown_error(self, e: Exception, current_retry: int) -> int | None:
+        logger.error(f"❌ JAVDB 請求過程中出錯: {e}")
+        self._increment_consecutive_errors()
+        if current_retry < 1:
+            time.sleep(5)
+            return current_retry + 1
+        return None
 
     def clear_cache_for_code(self, video_id: str) -> bool:
         """清除特定番號的快取 - 用於二次搜尋"""

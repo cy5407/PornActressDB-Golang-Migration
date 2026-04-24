@@ -10,18 +10,18 @@
 
 ## 契約保留清單（實作完成後逐項對照）
 
-- [ ] `safe_request` 對外簽名不變：`(self, url: str, retry_count: int = 0) -> Any | None`
-- [ ] 永不 raise，所有錯誤仍在內部吞掉
-- [ ] 副作用順序不動：`_prepare_request_context` → `_apply_cooldown_if_needed` → `_calculate_request_delay` + `time.sleep` → `session.get()` → `_record_request_sent` → status 判斷
-- [ ] 200 的 `_reset_consecutive_errors()` 位置不動
-- [ ] 403 log 含 `_increment_consecutive_errors()` 回傳的連續錯誤次數
-- [ ] 403 retry 前仍呼叫 `_recreate_session()`
-- [ ] 429 log 不含連續錯誤次數（原本就沒捕捉回傳值）
-- [ ] Timeout 達上限只保留最初的 warning，不補 error log
-- [ ] ConnectError 重試前 `time.sleep(10 + current_retry * 5)` 指數退避
-- [ ] Exception 路徑用 `logger.error`
-- [ ] 日限觸發（`_prepare_request_context` 回傳 `None`）直接 return，不 retry
-- [ ] 鎖的粒度不變：helper 不持有 `self._lock`，state 更新仍走 `_increment_consecutive_errors` 等子函式
+- [x] `safe_request` 對外簽名不變：`(self, url: str, retry_count: int = 0) -> Any | None`
+- [x] 永不 raise，所有錯誤仍在內部吞掉
+- [x] 副作用順序不動：`_prepare_request_context` → `_apply_cooldown_if_needed` → `_calculate_request_delay` + `time.sleep` → `session.get()` → `_record_request_sent` → status 判斷
+- [x] 200 的 `_reset_consecutive_errors()` 位置不動
+- [x] 403 log 含 `_increment_consecutive_errors()` 回傳的連續錯誤次數
+- [x] 403 retry 前仍呼叫 `_recreate_session()`
+- [x] 429 log 不含連續錯誤次數（原本就沒捕捉回傳值）
+- [x] Timeout 達上限只保留最初的 warning，不補 error log
+- [x] ConnectError 重試前 `time.sleep(10 + current_retry * 5)` 指數退避
+- [x] Exception 路徑用 `logger.error`
+- [x] 日限觸發（`_prepare_request_context` 回傳 `None`）直接 return，不 retry
+- [x] 鎖的粒度不變：helper 不持有 `self._lock`，state 更新仍走 `_increment_consecutive_errors` 等子函式
 
 ---
 
@@ -144,25 +144,28 @@ def safe_request(self, url: str, retry_count: int = 0) -> Any | None:
 
 ### 3.1 必須通過的既有測試（`tests/test_safe_javdb_searcher.py`）
 
-- [ ] `test_403_retry_wait_over_limit_should_give_up_without_long_sleep` — 驗證 `wait_time > max_retry_wait_seconds` 時直接放棄、不長 sleep
-- [ ] `test_403_retry_can_reenter_without_deadlock` — 驗證 sleep 序列 `[0.0, 30.0, 2.0]`
-- [ ] `test_create_session_closes_previous_client` — 此測試與重構無關,但必須仍綠
-- [ ] `test_consecutive_errors_trigger_cooldown_and_reset` — 驗證連續錯誤達 5 時 cooldown 並重置
-- [ ] `test_safe_request_does_not_hold_lock_during_cooldown_sleep` — 驗證 cooldown 期間不持有 lock
-- [ ] `test_search_javdb_no_fallback_on_mismatch` — mock `safe_request` 的行為契約
-- [ ] `test_search_javdb_detail_page_code_mismatch_returns_none` — 同上
+- [x] `test_403_retry_wait_over_limit_should_give_up_without_long_sleep` — 驗證 `wait_time > max_retry_wait_seconds` 時直接放棄、不長 sleep
+- [x] `test_403_retry_can_reenter_without_deadlock` — 驗證 sleep 序列 `[0.0, 30.0, 2.0]`
+- [x] `test_create_session_closes_previous_client` — 此測試與重構無關,但必須仍綠
+- [x] `test_consecutive_errors_trigger_cooldown_and_reset` — 驗證連續錯誤達 5 時 cooldown 並重置
+- [x] `test_safe_request_does_not_hold_lock_during_cooldown_sleep` — 驗證 cooldown 期間不持有 lock
+- [x] `test_search_javdb_no_fallback_on_mismatch` — mock `safe_request` 的行為契約
+- [x] `test_search_javdb_detail_page_code_mismatch_returns_none` — 同上
 
 ### 3.2 執行指令
 
 ```powershell
 # 單元測試
 python -m pytest tests\test_safe_javdb_searcher.py -q -p no:cacheprovider
+# 本輪已執行：python -m pytest tests\test_safe_javdb_searcher.py tests\test_coverage_safe_javdb_searcher.py -q -p no:cacheprovider
 
 # 全量測試
 python -m pytest tests\ -q -p no:cacheprovider
+# 本輪已執行：python -m pytest tests\ -q -p no:cacheprovider
 
 # Sonar 驗證（依專案實際 CI 設定）
 # 確認 safe_request 與六個 helper 的 CC 都 < 15
+# 本輪未在本機執行 Sonar，保留給 CI 驗證
 ```
 
 ---
