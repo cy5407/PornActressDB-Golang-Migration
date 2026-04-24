@@ -5,6 +5,19 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-04-24] docs | scan 番號提取契約與批次爬蟲實測補充
+
+**涉及檔案**：
+- `wiki/architecture/go-cli.md` — 補充 `scan -extract` 與 `pkg/extractor.CodeExtractor` 的番號提取契約，包含 MGS 數字前綴格式
+- `wiki/pitfalls/go-extractor-bracket-format.md` — 補充 `200GANA-3376` / `259LUXU-1880` / `300MIUM-1357` 這類 MGS 數字前綴修正
+- `wiki/patterns/batch-scraper-performance.md` — 補 262 筆 AV-WIKI 實測吞吐與商業高併發定位
+- `wiki/index.md` — 更新 Go CLI 與 extractor 條目摘要，加入番號提取契約快速查找
+- `wiki/wiki-data.js` — 由 `wiki/gen_data.py` 重新產生
+
+**踩坑**：MGS / 素人系數字前綴是番號本體，不可被 extractor 正規化時切掉；這次已在 Go extractor 測試與 wiki 契約中固定。
+
+---
+
 ## [2026-04-24] ingest | 批次爬蟲效能模式
 
 **涉及檔案**：

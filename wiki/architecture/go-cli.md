@@ -1,7 +1,7 @@
 # Go CLI 命令參考
 
 > 來源：`cmd/scanner/main.go`、`go.mod`  
-> 更新：2026-04-06
+> 更新：2026-04-24
 
 ---
 
@@ -50,7 +50,28 @@ classifier.exe scan [選項]
 ```bash
 classifier.exe scan -dir "D:\Videos" -workers 10 -recursive=true
 classifier.exe scan -extract "STARS-707.mp4"
+classifier.exe scan -extract "200GANA-3376.mp4"
 ```
+
+### 番號提取契約
+
+`scan` 與 `scan -extract` 共用 `pkg/extractor.CodeExtractor`。目前支援的主要格式：
+
+| 格式 | 範例 | 輸出 |
+|------|------|------|
+| 標準片商格式 | `STARS-707.mp4` | `STARS-707` |
+| 無橫槓格式 | `STARS707.mp4` | `STARS-707` |
+| 點/底線分隔 | `CAWD.456.mp4` / `IPX_123.mp4` | `CAWD-456` / `IPX-123` |
+| 技術尾碼 | `SONE-240-60FPS.mp4` | `SONE-240` |
+| 網站前綴 | `489155.com@MIMK-273.mp4` | `MIMK-273` |
+| 括號番號 | `[SKMJ-310] title.mp4` | `SKMJ-310` |
+| MGS 數字前綴 | `200GANA-3376.mp4` | `200GANA-3376` |
+
+MGS / 素人系的 `數字 + 字母前綴 + - + 數字` 是有效番號本體，不能被正規化成 `GANA-3376` / `LUXU-1880` / `MIUM-1357`。對應測試位於 `pkg/extractor/extractor_test.go`。
+
+已知仍需另案評估的邊界：
+- 單字母前綴如 `G-487`、`Y-091`
+- 尾碼字母保留如 `IBW-1006Z`
 
 ---
 

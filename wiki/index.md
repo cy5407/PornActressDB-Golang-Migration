@@ -10,7 +10,7 @@
 | 頁面 | 摘要 |
 |------|------|
 | [架構總覽](architecture/overview.md) | Wails + Go + Python 混合架構、資料流、各層職責 |
-| [Go CLI 設計](architecture/go-cli.md) | classifier.exe 命令結構、JSON 輸出規範 |
+| [Go CLI 設計](architecture/go-cli.md) | classifier.exe 命令結構、JSON 輸出規範、scan 番號提取契約 |
 | [Go Bridge](architecture/go-bridge.md) | Python→Go 橋接歷史（Phase 1~11 + W6）、現行 go_cli.py 用法 |
 | [資料庫系統](architecture/database.md) | IncrementalJSONDB / JSONDBManager / Journal 機制 |
 | [搜尋引擎](architecture/search-engine.md) | AV-WIKI → JAVDB 級聯搜尋、來源專用 API 與批次併發邊界 |
@@ -57,7 +57,7 @@
 | [Wails 快取狀態判定不一致](pitfalls/wails-cache-status-mismatch.md) | Go 後端只看 search_status，前端還要 actresses.length > 0；search_status 雙值問題 | 2026-04-07 |
 | [Wails DB 資料格式不一致](pitfalls/wails-db-format-migration.md) | Go 寫入 `"success"`、Python 標準 `"searched_found"`、`searched_multiple` 等非標準值；含資料合併紀錄 | 2026-04-08 |
 | [**同路徑移動永久刪除檔案**](pitfalls/wails-move-same-path-delete.md) | 輸入==輸出目錄時二次移動觸發偽衝突，覆蓋策略下 `os.Remove(src==dst)` 永久刪除檔案；三層修復 + 垃圾桶 | 2026-04-08 |
-| [Extractor `[CODE]` 格式被清空](pitfalls/go-extractor-bracket-format.md) | `[SKMJ-310] 標題.mp4` 格式的番號被 bracketRe 誤清除；同時修正 PPV 位數判斷 | 2026-04-08 |
+| [Extractor `[CODE]` 格式被清空](pitfalls/go-extractor-bracket-format.md) | `[SKMJ-310]`、PPV 位數、MGS 數字前綴等番號提取邊界 | 2026-04-08 / 2026-04-24 |
 | [Wails dist 缺少片商資料](pitfalls/wails-dist-missing-studio-data.md) | `studios.json` / `major_studios.json` 不會自動複製到 dist/，片商分類整體失效 | 2026-04-08 |
 | [**Wails 片商名稱正規化錯誤**](pitfalls/wails-studio-canonical-match.md) | `canonicalMajorStudio()` 大小寫不敏感缺失 → SOD star 歸錯資料夾；路徑解析需往上三層找專案根 | W8 |
 | [**來源搜尋清空結果致未分類**](pitfalls/wails-source-search-clears-results.md) | `runSourceSearch` 清空前輪結果 + 快取番號 filter 後從未進 store；已修復（`20602f2`） | 2026-04-19 |
@@ -71,6 +71,7 @@
 - **Python Fallback 移除** → [patterns/remove-python-fallback.md](patterns/remove-python-fallback.md)（Phase 6 完整策略）
 - **CI/CD 故障排查** → [pitfalls/github-actions-issues.md](pitfalls/github-actions-issues.md)（Issue 1-22）
 - **新增 Go API 功能** → [patterns/add-go-api-function.md](patterns/add-go-api-function.md)
+- **Go CLI / 番號提取契約** → [architecture/go-cli.md](architecture/go-cli.md)
 - **新增 GUI 按鈕** → [patterns/add-gui-button.md](patterns/add-gui-button.md)
 - **Rebuild EXE（Wails）** → 執行 `wails build`（參見 [README.md](../README.md)）｜[歷史存檔：PyInstaller](patterns/pyinstaller.md)
 - **命名規範檢查** → [patterns/naming-conventions.md](patterns/naming-conventions.md)
