@@ -39,4 +39,7 @@ wails build
 - `classifier.exe`
 - `major_studios.json`
 - `studios.json`
+- `src/`（搜尋腳本與 Python 模組）
 - Python 執行環境與 `requirements.txt` 依賴
+
+建議直接分發根目錄 `dist\portable\` 的完整內容，不要只複製 `actress-classifier.exe`。

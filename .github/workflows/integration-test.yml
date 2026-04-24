@@ -129,3 +129,54 @@ jobs:
           name: python-integration
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  windows-validation:
+    name: Windows Validation
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Build classifier CLI
+        shell: pwsh
+        run: |
+          go build -o classifier.exe .\cmd\scanner
+
+      - name: Run Go tests
+        shell: pwsh
+        run: |
+          go test .\pkg\... -v
+          go test .\cmd\scanner -v
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: pip install -r requirements.txt
+
+      - name: Run Wails backend tests
+        shell: pwsh
+        run: |
+          Set-Location wails-app
+          go test .\backend -v
+
+      - name: Run Windows-focused Python tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          CLASSIFIER_EXE: ${{ github.workspace }}\classifier.exe
+        shell: pwsh
+        run: |
+          python -m pytest tests\ `
+            -v `
+            --tb=short `
+            -p no:cacheprovider `
+            --timeout=120

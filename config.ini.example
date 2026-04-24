@@ -13,6 +13,7 @@ batch_delay = 2.0
 request_timeout = 20
 avwiki_concurrent_enabled = true
 avwiki_max_concurrent = 15
+; python_exe_path =  # 留空則依序嘗試同目錄 venv、專案 venv 與 PATH
 
 [classification]
 mode = interactive

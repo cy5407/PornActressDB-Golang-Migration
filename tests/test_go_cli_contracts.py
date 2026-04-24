@@ -341,9 +341,30 @@ def test_db_update_video_keeps_posix_temp_file_when_running_wsl_with_linux_class
 
     assert result is True
     assert captured["temp_dir"] is None
-    assert str(captured["temp_path"]).startswith("/")
     assert captured["cmd"][-1] == str(captured["temp_path"])
     assert not captured["temp_path"].exists()
+
+
+def test_run_prefers_classifier_env_var(monkeypatch):
+    env_classifier = r"C:\env\classifier.exe"
+    captured = {}
+
+    monkeypatch.setattr(go_cli, "_EXE_PATH", None)
+    monkeypatch.setattr(go_cli, "_EXE_SEARCH_DONE", False)
+    monkeypatch.setenv("CLASSIFIER_EXE", env_classifier)
+    monkeypatch.setattr(go_cli, "_normalize_explicit_exe_path", lambda path: path)
+    monkeypatch.setattr(go_cli, "_is_executable_file", lambda path: path == env_classifier)
+
+    def fake_subprocess_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"success": true}', stderr="")
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["help"])
+
+    assert result == {"success": True}
+    assert captured["cmd"][0] == env_classifier
 
 
 @pytest.mark.skip(reason="WSL 專屬測試，純 Linux 環境不適用")

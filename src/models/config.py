@@ -71,6 +71,7 @@ class ConfigManager:
                 "request_timeout": "20",
                 "avwiki_concurrent_enabled": "true",
                 "avwiki_max_concurrent": "15",
+                "python_exe_path": "",
             },
             "classification": {"mode": "interactive", "auto_apply_preferences": "true"},
             "cache": {

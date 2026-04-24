@@ -556,7 +556,7 @@ func buildBatchSearchInput(codes []string, workers int, source string) ([]byte, 
 // PythonSearch invokes src/scrapers/run_search.py to search metadata for a video code.
 // Failure is classified into three kinds: timeout, stderr, json_parse.
 func (a *App) PythonSearch(code string) (*SearchResult, error) {
-	pythonExe := resolvePythonExe()
+	pythonExe := resolvePythonExe(a.cfgPath)
 	scriptPath := resolveRunSearchScript()
 
 	ctx, cancel := context.WithTimeout(a.ctx, searchTimeout)
@@ -857,7 +857,7 @@ func (a *App) batchSearch(codes []string, workers int, source string) []SearchRe
 	}
 
 	scriptPath := resolveRunBatchSearchScript()
-	pythonExe := resolvePythonExe()
+	pythonExe := resolvePythonExe(a.cfgPath)
 
 	input, err := buildBatchSearchInput(codesToSearch, workers, source)
 	if err != nil {
@@ -1208,25 +1208,115 @@ func resolveLogDir(cfgPath string) string {
 	return dir
 }
 
-func resolvePythonExe() string {
+func resolvePythonExe(cfgPath string) string {
+	if configured := resolveConfiguredPythonExe(cfgPath); configured != "" {
+		return configured
+	}
+
+	if resolved := resolveBundledPythonExe(); resolved != "" {
+		return resolved
+	}
+
 	if runtime.GOOS == "windows" {
-		// Windows：依序嘗試 venv、python、py
-		candidates := []string{"python", "python3", "py"}
-		for _, c := range candidates {
+		for _, c := range []string{"python", "python3", "py"} {
 			if path, err := exec.LookPath(c); err == nil {
 				return path
 			}
 		}
 		return "python"
 	}
-	// Unix：優先使用 venv 的 python3，其次是系統 python3/python
-	candidates := []string{"python3", "python3.11", "python3.10", "python3.9", "python"}
-	for _, c := range candidates {
+
+	for _, c := range []string{"python3", "python3.11", "python3.10", "python3.9", "python"} {
 		if path, err := exec.LookPath(c); err == nil {
 			return path
 		}
 	}
 	return "python3"
+}
+
+func resolveConfiguredPythonExe(cfgPath string) string {
+	if strings.TrimSpace(cfgPath) == "" {
+		return ""
+	}
+	prefs, _ := services.NewConfigService(cfgPath).Load()
+	return resolveExecutablePath(strings.TrimSpace(prefs.PythonExePath), cfgPath)
+}
+
+func resolveBundledPythonExe() string {
+	exe, err := osExecutable()
+	baseDirs := make([]string, 0, 3)
+	if err == nil {
+		exeDir := filepath.Dir(exe)
+		baseDirs = append(baseDirs, exeDir)
+		baseDirs = append(baseDirs, filepath.Join(exeDir, "..", "..", ".."))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		baseDirs = append(baseDirs, cwd)
+	}
+
+	seen := make(map[string]bool, len(baseDirs))
+	candidates := make([]string, 0, len(baseDirs)*4)
+	for _, baseDir := range baseDirs {
+		absBase, err := filepath.Abs(baseDir)
+		if err != nil || seen[absBase] {
+			continue
+		}
+		seen[absBase] = true
+		if runtime.GOOS == "windows" {
+			candidates = append(candidates,
+				filepath.Join(absBase, "venv", "Scripts", "python.exe"),
+				filepath.Join(absBase, ".venv", "Scripts", "python.exe"),
+			)
+			continue
+		}
+		candidates = append(candidates,
+			filepath.Join(absBase, "venv", "bin", "python3"),
+			filepath.Join(absBase, "venv", "bin", "python"),
+			filepath.Join(absBase, ".venv", "bin", "python3"),
+			filepath.Join(absBase, ".venv", "bin", "python"),
+		)
+	}
+
+	for _, candidate := range candidates {
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func resolveExecutablePath(value, cfgPath string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	if filepath.IsAbs(trimmed) {
+		if fileExists(trimmed) {
+			return trimmed
+		}
+		return ""
+	}
+	if strings.ContainsAny(trimmed, `/\`) {
+		if cfgPath != "" && cfgPath != "config.ini" {
+			resolved := filepath.Join(filepath.Dir(cfgPath), trimmed)
+			if abs, err := filepath.Abs(resolved); err == nil && fileExists(abs) {
+				return abs
+			}
+		}
+		if abs, err := filepath.Abs(trimmed); err == nil && fileExists(abs) {
+			return abs
+		}
+		return ""
+	}
+	if path, err := exec.LookPath(trimmed); err == nil {
+		return path
+	}
+	return ""
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func resolveRunSearchScript() string {

@@ -349,7 +349,6 @@ func TestBatchSearchJAVDB_NotFoundPreservesExistingOverallSuccess(t *testing.T) 
 	}
 }
 
-
 func TestBatchSearchAVWiki_SuccessPreservesOtherSourceStatusAndUpdatesOverallSummary(t *testing.T) {
 	app := newTestApp(t)
 	if err := app.db.AddVideo(&database.VideoData{
@@ -917,6 +916,7 @@ func TestBuildIni_RoundTrip(t *testing.T) {
 	original := defaultPreferences()
 	original.BatchSize = 7
 	original.Mode = "auto"
+	original.PythonExePath = `venv\Scripts\python.exe`
 
 	iniContent := buildIni(original)
 
@@ -928,6 +928,9 @@ func TestBuildIni_RoundTrip(t *testing.T) {
 	}
 	if parsed.Mode != "auto" {
 		t.Errorf("Mode round-trip failed: got %s", parsed.Mode)
+	}
+	if parsed.PythonExePath != `venv\Scripts\python.exe` {
+		t.Errorf("PythonExePath round-trip failed: got %q", parsed.PythonExePath)
 	}
 }
 
@@ -1143,8 +1146,72 @@ func TestResolvePythonExe_PrefersFirstAvailableUnixBinary(t *testing.T) {
 	}
 	defer os.Setenv("PATH", oldPath)
 
-	if got := resolvePythonExe(); got != shim {
-		t.Fatalf("resolvePythonExe() = %q, want %q", got, shim)
+	if got := resolvePythonExe(""); got != shim {
+		t.Fatalf("resolvePythonExe(\"\") = %q, want %q", got, shim)
+	}
+}
+
+func TestResolvePythonExe_PrefersConfiguredRelativePath(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "config.ini")
+	pythonDir := filepath.Join(tmp, "venv", "Scripts")
+	if runtime.GOOS != "windows" {
+		pythonDir = filepath.Join(tmp, "venv", "bin")
+	}
+	if err := os.MkdirAll(pythonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pythonExe := filepath.Join(pythonDir, "python.exe")
+	configValue := filepath.Join("venv", "Scripts", "python.exe")
+	if runtime.GOOS != "windows" {
+		pythonExe = filepath.Join(pythonDir, "python3")
+		configValue = filepath.Join("venv", "bin", "python3")
+	}
+	if err := os.WriteFile(pythonExe, []byte(""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	prefs := defaultPreferences()
+	prefs.PythonExePath = configValue
+	if err := os.WriteFile(configPath, []byte(buildIni(prefs)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := resolvePythonExe(configPath); got != pythonExe {
+		t.Fatalf("resolvePythonExe(%q) = %q, want %q", configPath, got, pythonExe)
+	}
+}
+
+func TestResolvePythonExe_PrefersExecutableRelativeVenv(t *testing.T) {
+	tmp := t.TempDir()
+	fakeExe := filepath.Join(tmp, "build", "bin", "backend-test")
+	if err := os.MkdirAll(filepath.Dir(fakeExe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fakeExe, []byte(""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pythonDir := filepath.Join(tmp, "build", "bin", "venv", "Scripts")
+	pythonExe := filepath.Join(pythonDir, "python.exe")
+	if runtime.GOOS != "windows" {
+		pythonDir = filepath.Join(tmp, "build", "bin", "venv", "bin")
+		pythonExe = filepath.Join(pythonDir, "python3")
+	}
+	if err := os.MkdirAll(pythonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pythonExe, []byte(""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldExecutable := osExecutable
+	osExecutable = func() (string, error) { return fakeExe, nil }
+	defer func() { osExecutable = oldExecutable }()
+
+	if got := resolvePythonExe(""); got != pythonExe {
+		t.Fatalf("resolvePythonExe(\"\") = %q, want %q", got, pythonExe)
 	}
 }
 

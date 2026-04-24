@@ -392,6 +392,7 @@ export namespace services {
 	    request_timeout: number;
 	    avwiki_concurrent_enabled: boolean;
 	    avwiki_max_concurrent: number;
+	    python_exe_path: string;
 	    mode: string;
 	    auto_apply_preferences: boolean;
 	    cache_ttl_days: number;
@@ -418,6 +419,7 @@ export namespace services {
 	        this.request_timeout = source["request_timeout"];
 	        this.avwiki_concurrent_enabled = source["avwiki_concurrent_enabled"];
 	        this.avwiki_max_concurrent = source["avwiki_max_concurrent"];
+	        this.python_exe_path = source["python_exe_path"];
 	        this.mode = source["mode"];
 	        this.auto_apply_preferences = source["auto_apply_preferences"];
 	        this.cache_ttl_days = source["cache_ttl_days"];
@@ -433,4 +435,3 @@ export namespace services {
 	}
 
 }
-

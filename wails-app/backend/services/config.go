@@ -21,6 +21,7 @@ type Preferences struct {
 	RequestTimeout          int     `json:"request_timeout"`
 	AvwikiConcurrentEnabled bool    `json:"avwiki_concurrent_enabled"`
 	AvwikiMaxConcurrent     int     `json:"avwiki_max_concurrent"`
+	PythonExePath           string  `json:"python_exe_path"`
 	// [classification]
 	Mode                 string `json:"mode"`
 	AutoApplyPreferences bool   `json:"auto_apply_preferences"`
@@ -48,6 +49,7 @@ func DefaultPreferences() Preferences {
 		RequestTimeout:          20,
 		AvwikiConcurrentEnabled: true,
 		AvwikiMaxConcurrent:     15,
+		PythonExePath:           "",
 		Mode:                    "interactive",
 		AutoApplyPreferences:    true,
 		CacheTTLDays:            7,
@@ -167,6 +169,8 @@ func setField(p *Preferences, section, key, value string) {
 		p.AvwikiConcurrentEnabled = boolVal(value)
 	case "search.avwiki_max_concurrent":
 		p.AvwikiMaxConcurrent = intVal(value)
+	case "search.python_exe_path":
+		p.PythonExePath = value
 	case "classification.mode":
 		p.Mode = value
 	case "classification.auto_apply_preferences":
@@ -213,7 +217,8 @@ func buildIni(p Preferences) string {
 	sb.WriteString(fmt.Sprintf("batch_delay = %.1f\n", p.BatchDelay))
 	sb.WriteString(fmt.Sprintf("request_timeout = %d\n", p.RequestTimeout))
 	sb.WriteString("avwiki_concurrent_enabled = " + boolStr(p.AvwikiConcurrentEnabled) + "\n")
-	sb.WriteString(fmt.Sprintf("avwiki_max_concurrent = %d\n\n", p.AvwikiMaxConcurrent))
+	sb.WriteString(fmt.Sprintf("avwiki_max_concurrent = %d\n", p.AvwikiMaxConcurrent))
+	sb.WriteString("python_exe_path = " + p.PythonExePath + "\n\n")
 
 	sb.WriteString("[classification]\n")
 	sb.WriteString("mode = " + p.Mode + "\n")

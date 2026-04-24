@@ -63,6 +63,19 @@ class TestFindExePaths:
         result = _find_exe_in_dir(str(tmp_path))
         assert result is None
 
+    def test_find_exe_in_dir_prefers_linux_binary_under_wsl(self, tmp_path):
+        classifier = tmp_path / "classifier"
+        classifier.write_text("", encoding="utf-8")
+        classifier.chmod(0o755)
+
+        windows_classifier = tmp_path / "classifier.exe"
+        windows_classifier.write_text("", encoding="utf-8")
+        windows_classifier.chmod(0o755)
+
+        with patch("src.services.go_cli._running_under_wsl", return_value=True):
+            result = _find_exe_in_dir(str(tmp_path))
+        assert result == str(classifier)
+
     def test_find_exe_from_path_returns_none_when_not_in_path(self):
         """shutil.which 找不到時應回傳 None（lines 40-44）"""
         with patch("shutil.which", return_value=None):
@@ -118,6 +131,16 @@ class TestResolveExe:
                 from src.services.go_cli import _resolve_exe
                 result = _resolve_exe()
         assert result is None
+        self._reset_exe_cache()
+
+    def test_resolve_prefers_classifier_env_var(self):
+        self._reset_exe_cache()
+        env_classifier = "/tmp/classifier"
+        with patch.dict("os.environ", {"CLASSIFIER_EXE": env_classifier}, clear=False):
+            with patch("src.services.go_cli._is_executable_file", side_effect=lambda path: path == env_classifier):
+                from src.services.go_cli import _resolve_exe
+                result = _resolve_exe()
+        assert result == env_classifier
         self._reset_exe_cache()
 
 

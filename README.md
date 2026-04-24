@@ -30,18 +30,25 @@ Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透
 
 ### 使用者（無需安裝開發工具）
 
-1. 從 [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases) 下載：
-   - `actress-classifier.exe`（主程式）
-   - `classifier.exe`（Go CLI，掃描、移動、資料庫、快取 / 片商工具）
-   - `major_studios.json`（大片商清單）
-   - `studios.json`（片商識別規則）
-2. 安裝 Python 3.11+，執行：
+1. 取得**完整 portable bundle**。
+   - 若 repo 已提供 [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases)，請下載其中的 portable bundle。
+   - 若目前尚未提供 Releases，請先依下方「開發者（自行建置）」執行 `.\setup.ps1`，使用輸出的 `dist\portable\`。
+2. 確認 bundle 內至少包含以下內容，並保留原本目錄結構：
+   - `actress-classifier.exe`
+   - `classifier.exe`
+   - `major_studios.json`
+   - `studios.json`
+   - `src\`（搜尋腳本與 Python 模組）
+   - `requirements.txt`
+3. 安裝 Python 3.11+，在 bundle 根目錄執行：
    ```powershell
    pip install -r requirements.txt
    ```
-3. 將 `actress-classifier.exe`、`classifier.exe`、`major_studios.json`、`studios.json` 放在同一目錄，雙擊執行 `actress-classifier.exe`
+4. 在 bundle 根目錄雙擊執行 `actress-classifier.exe`
 
 > Python 環境只用於搜尋爬蟲；GUI 本身不需要 Python 即可啟動，但搜尋功能需要。
+>
+> 重要：搜尋功能會直接呼叫 `src\scrapers\run_search.py` / `run_batch_search.py`，因此**不要只單獨複製 exe**。
 
 #### 執行入口
 
@@ -65,7 +72,7 @@ chmod +x setup.sh && ./setup.sh
 
 腳本的實際行為如下：
 
-- `setup.ps1`：執行 `go mod download`，建置 `classifier.exe`，再建置並複製 `actress-classifier.exe` 到專案根目錄
+- `setup.ps1`：執行 `go mod download`，建置 `classifier.exe`，再建置並複製 `actress-classifier.exe` 到專案根目錄，最後輸出 `dist\portable\` 完整 bundle（含 `src\`、資料檔與 `requirements.txt`）
 - `setup.sh`：執行 `go mod download`，只建置 `classifier`（Linux / macOS）；Wails GUI 仍以 Windows 為正式桌面建置目標
 
 > 這兩個腳本都不會建立 Python venv、不會安裝 `requirements.txt`、也不會替 `wails-app/frontend` 執行 `npm install`。
@@ -98,7 +105,7 @@ wails build
 
 > 建置 `classifier.exe` 時請使用套件路徑，不要直接指定 `main.go`，否則會漏掉同套件的輔助檔案。
 >
-> 建置或釋出 Wails 應用時，請另外確認 `classifier.exe`、`major_studios.json`、`studios.json` 是否也放在預期位置，避免 GUI 啟動後部分功能可開啟但搜尋 / 片商分類失效。
+> 建置或釋出 Wails 應用時，請分發 `dist\portable\` 的完整內容；除了 `classifier.exe`、`major_studios.json`、`studios.json` 外，搜尋功能也需要同目錄的 `src\` 與 `requirements.txt`。
 
 ## 操作流程
 
@@ -263,9 +270,15 @@ Extracts video codes from filenames, runs the default cascade search flow (mainl
 
 ## Quick Start
 
-1. Download `actress-classifier.exe`, `classifier.exe`, `major_studios.json`, and `studios.json` from [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases)
-2. Install Python 3.11+ and run `pip install -r requirements.txt` (required for search functionality)
-3. Keep these files in the same directory, then launch `actress-classifier.exe`
+1. Get a **complete portable bundle**.
+   If the repo has published [Releases](https://github.com/cy5407/PornActressDB-Golang-Migration/releases), download the portable bundle there.
+   If no release is published yet, build locally and use the generated `dist\portable\` output from `.\setup.ps1`.
+2. Keep the bundle directory structure intact. Search requires:
+   `actress-classifier.exe`, `classifier.exe`, `major_studios.json`, `studios.json`, `src\`, and `requirements.txt`.
+3. Install Python 3.11+ in the bundle root and run `pip install -r requirements.txt` (required for search functionality).
+4. Launch `actress-classifier.exe` from the bundle root.
+
+> Search is implemented by directly invoking `src/scrapers/run_search.py` and `run_batch_search.py`, so copying only the EXE files is not enough.
 
 Run entry points:
 
@@ -308,7 +321,7 @@ chmod +x setup.sh && ./setup.sh
 
 Actual script behavior:
 
-- `setup.ps1`: runs `go mod download`, builds `classifier.exe`, then builds and copies `actress-classifier.exe` to the repo root
+- `setup.ps1`: runs `go mod download`, builds `classifier.exe`, builds and copies `actress-classifier.exe` to the repo root, then assembles a complete `dist\portable\` bundle for redistribution
 - `setup.sh`: runs `go mod download` and builds only `classifier` on Linux/macOS; the Wails GUI remains a Windows-first desktop build target
 
 These scripts do not create a Python venv, do not install `requirements.txt`, and do not run `npm install` in `wails-app/frontend`.
@@ -328,6 +341,7 @@ wails build
 ```
 
 Install frontend dependencies manually before the first Wails build. Python search dependencies also still require a separate `pip install -r requirements.txt`.
+When redistributing the Wails app, ship the entire `dist\portable\` directory instead of only the EXE files.
 
 ## License
 

@@ -170,6 +170,17 @@ function SystemTab({ prefs, onChange }: FormProps) {
         </Field>
       </Section>
 
+      <Section title="Python 搜尋">
+        <Field label="Python 路徑" hint="留空會依序嘗試 bundle venv、專案 venv 與 PATH">
+          <Input
+            value={prefs.python_exe_path}
+            onChange={(e) => set('python_exe_path', e.target.value)}
+            placeholder="自動偵測"
+            className="h-8 text-sm bg-slate-800 border-slate-700"
+          />
+        </Field>
+      </Section>
+
       <Section title="Go 整合">
         <Field label="啟用 Go 加速">
           <Toggle value={prefs.go_enabled} onChange={(v) => set('go_enabled', v)} />

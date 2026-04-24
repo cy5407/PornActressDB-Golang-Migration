@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 _CLASSIFIER_EXE = "classifier.exe"
 _DEFAULT_DATA_DIR = "data/json_db"
 _JSON_SUFFIX = ".json"
+_CLASSIFIER_ENV = "CLASSIFIER_EXE"
 
 _EXE_SEARCH_DONE = False
 _EXE_PATH: str | None = None
@@ -113,8 +114,21 @@ def _is_executable_file(path: str) -> bool:
     return os.path.isfile(path) and os.access(path, os.X_OK)
 
 
+def _preferred_exe_names() -> tuple[str, str]:
+    if _running_under_wsl() or os.name != "nt":
+        return ("classifier", _CLASSIFIER_EXE)
+    return (_CLASSIFIER_EXE, "classifier")
+
+
+def _normalize_explicit_exe_path(path: str | None) -> str | None:
+    if not path:
+        return None
+    converted = _wsl_to_posix_path(path)
+    return converted if converted is not None else path
+
+
 def _find_exe_in_dir(base_dir: str) -> str | None:
-    for name in (_CLASSIFIER_EXE, "classifier"):
+    for name in _preferred_exe_names():
         candidate = os.path.join(base_dir, name)
         if _is_executable_file(candidate):
             return candidate
@@ -122,7 +136,7 @@ def _find_exe_in_dir(base_dir: str) -> str | None:
 
 
 def _find_exe_from_path() -> str | None:
-    for name in (_CLASSIFIER_EXE, "classifier"):
+    for name in _preferred_exe_names():
         found = shutil.which(name)
         if found:
             return found
@@ -133,9 +147,14 @@ def _resolve_exe(exe_path: str | None = None) -> str | None:
     """尋找 classifier 執行檔路徑（快取結果）。"""
     global _EXE_SEARCH_DONE, _EXE_PATH
     if exe_path:
-        if _is_executable_file(exe_path):
-            return exe_path
+        normalized_exe_path = _normalize_explicit_exe_path(exe_path)
+        if normalized_exe_path and _is_executable_file(normalized_exe_path):
+            return normalized_exe_path
         return None
+
+    env_exe_path = _normalize_explicit_exe_path(os.environ.get(_CLASSIFIER_ENV))
+    if env_exe_path and _is_executable_file(env_exe_path):
+        return env_exe_path
 
     if _EXE_SEARCH_DONE:
         return _EXE_PATH
