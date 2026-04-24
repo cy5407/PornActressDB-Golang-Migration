@@ -6,10 +6,29 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from src.models.incremental_json_database import IncrementalJSONDB
 from src.models.json_types import get_empty_video
 from src.scrapers import run_batch_search as run_batch_search_module
 from src.scrapers import run_search as run_search_module
 from src.services.web_searcher import WebSearcher
+
+REAL_DB_SAMPLE_VIDEO = {
+    "code": "AARM-247",
+    "title": "",
+    "studio": "アロマ企画",
+    "release_date": "",
+    "url": "",
+    "actresses": ["仲川そら"],
+}
+
+
+def _seed_incremental_db(tmp_path: Path, video: dict | None = None) -> IncrementalJSONDB:
+    db = IncrementalJSONDB(str(tmp_path / "json_db"))
+    if video is not None:
+        base_video = get_empty_video()
+        base_video.update(video)
+        db.add_or_update_video(base_video["code"], base_video)
+    return db
 
 
 @pytest.mark.parametrize(
@@ -93,15 +112,11 @@ def test_run_search_dispatches_to_avwiki_only():
     assert "method" not in called
 
 
-def test_run_search_updates_not_found_based_on_empty_actresses_only():
-    captured = {}
-    fake_db = SimpleNamespace(
-        get_video_info=lambda _code: {"code": "ABC-123"},
-        update_video=lambda _code, updates: captured.update(updates),
-    )
+def test_run_search_updates_existing_real_db_record_from_source_status(tmp_path):
+    db = _seed_incremental_db(tmp_path, REAL_DB_SAMPLE_VIDEO)
 
     run_search_module._update_source_search_status(
-        "ABC-123",
+        "AARM-247",
         {
             "title": "有標題",
             "studio": "有片商",
@@ -109,22 +124,19 @@ def test_run_search_updates_not_found_based_on_empty_actresses_only():
             "actresses": [],
         },
         "javdb",
-        db=fake_db,
+        db=db,
         now="2026-04-10T00:00:00Z",
     )
 
-    assert captured["javdb_actress_status"] == "not_found"
-    assert captured["javdb_last_search_date"] == "2026-04-10T00:00:00Z"
+    updated = db.get_video_info("AARM-247")
+    assert updated["studio"] == "アロマ企画"
+    assert updated["actresses"] == ["仲川そら"]
+    assert updated["javdb_actress_status"] == "not_found"
+    assert updated["javdb_last_search_date"] == "2026-04-10T00:00:00Z"
 
 
-def test_run_search_creates_minimal_record_for_brand_new_code_before_status_update():
-    created = {}
-    updated = {}
-    fake_db = SimpleNamespace(
-        get_video_info=lambda _code: None,
-        add_or_update_video=lambda _code, info: created.update(info),
-        update_video=lambda _code, updates: updated.update(updates),
-    )
+def test_run_search_creates_minimal_real_db_record_for_brand_new_code(tmp_path):
+    db = _seed_incremental_db(tmp_path)
 
     run_search_module._update_source_search_status(
         "ABC-123",
@@ -133,16 +145,17 @@ def test_run_search_creates_minimal_record_for_brand_new_code_before_status_upda
             "search_status": "search_error",
         },
         "avwiki",
-        db=fake_db,
+        db=db,
         now="2026-04-10T00:00:00Z",
     )
 
-    empty_video = get_empty_video()
-    assert created["code"] == "ABC-123"
-    for key in empty_video:
+    created = db.get_video_info("ABC-123")
+    assert created is not None
+    for key in ("code", "title", "studio", "actresses", "search_status", "metadata"):
         assert key in created
-    assert updated["avwiki_actress_status"] == "error"
-    assert updated["avwiki_last_search_date"] == "2026-04-10T00:00:00Z"
+    assert created["code"] == "ABC-123"
+    assert created["avwiki_actress_status"] == "error"
+    assert created["avwiki_last_search_date"] == "2026-04-10T00:00:00Z"
 
 
 def test_run_batch_search_search_one_accepts_source_mode(monkeypatch):
@@ -168,40 +181,29 @@ def test_run_batch_search_search_one_accepts_source_mode(monkeypatch):
     assert "method" not in called
 
 
-def test_run_batch_search_get_searcher_reuses_thread_local_instance(monkeypatch):
-    fake_config_module = ModuleType("models.config")
-    fake_searcher_module = ModuleType("services.web_searcher")
-    config_paths = []
+def test_run_batch_search_get_searcher_reuses_real_thread_local_instance(
+    tmp_path, monkeypatch
+):
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(
+        f"""
+[search]
+enable_cache = false
+cache_dir = {tmp_path.as_posix()}
+""",
+        encoding="utf-8",
+    )
 
-    class FakeConfigManager:
-        def __init__(self, path):
-            config_paths.append(path)
-
-    class FakeWebSearcher:
-        def __init__(self, config):
-            self.config = config
-            self.japanese_searcher = SimpleNamespace(
-                config=SimpleNamespace(min_interval=9.0, max_interval=9.0)
-            )
-            self.safe_searcher = SimpleNamespace(
-                config=SimpleNamespace(min_interval=9.0, max_interval=9.0)
-            )
-
-    fake_config_module.ConfigManager = FakeConfigManager
-    fake_searcher_module.WebSearcher = FakeWebSearcher
-
-    monkeypatch.setitem(sys.modules, "models.config", fake_config_module)
-    monkeypatch.setitem(sys.modules, "services.web_searcher", fake_searcher_module)
     monkeypatch.setattr(run_batch_search_module, "_thread_local", threading.local())
     monkeypatch.setattr(
-        run_batch_search_module, "_resolve_config_path", lambda: "config.ini"
+        run_batch_search_module, "_resolve_config_path", lambda: str(config_path)
     )
 
     first = run_batch_search_module._get_searcher()
     second = run_batch_search_module._get_searcher()
 
     assert first is second
-    assert config_paths == ["config.ini"]
+    assert first.__class__.__name__ == "WebSearcher"
     assert first.japanese_searcher.config.min_interval == 0.0
     assert first.japanese_searcher.config.max_interval == 0.0
     assert first.safe_searcher.config.min_interval == 0.0

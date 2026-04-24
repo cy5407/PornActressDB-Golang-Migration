@@ -15,7 +15,10 @@ _SRC_DIR = str(Path(__file__).resolve().parents[1] / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+from src.models.config import ConfigManager  # noqa: E402
 from src.services import web_searcher as web_searcher_module  # noqa: E402
+from src.services.safe_javdb_searcher import SafeJAVDBSearcher  # noqa: E402
+from src.services.safe_searcher import SafeSearcher  # noqa: E402
 from src.services.web_searcher import WebSearcher  # noqa: E402
 
 # ---------- helpers ----------
@@ -48,73 +51,37 @@ def _make_searcher(**attrs) -> WebSearcher:
     return searcher
 
 
-def test_web_searcher_init_wires_safe_searchers_and_cache_manager(monkeypatch):
-    safe_instances = []
-    registered_sources = []
-
-    class FakeConfig:
-        def getfloat(self, _section, _key, fallback):
-            return fallback
-
-        def getboolean(self, _section, _key, fallback):
-            return fallback
-
-        def getint(self, _section, _key, fallback):
-            return fallback
-
-        def get(self, _section, _key, fallback=None):
-            return fallback
-
-    class FakeSafeSearcher:
-        def __init__(self, config):
-            self.config = config
-            self.cache = {}
-            safe_instances.append(self)
-
-        def get_headers(self):
-            return {"User-Agent": "Fake"}
-
-    class FakeJAVDBSearcher:
-        def __init__(self, cache_dir):
-            self.cache_dir = cache_dir
-            self.cache = {}
-
-    class FakeShiroutoWikiScraper:
-        def __init__(self, safe_searcher, headers, timeout):
-            self.safe_searcher = safe_searcher
-            self.headers = headers
-            self.timeout = timeout
-
-    class FakeCacheManager:
-        def register_cache_source(self, name, source):
-            registered_sources.append((name, source))
-
-    monkeypatch.setattr(web_searcher_module, "SafeSearcher", FakeSafeSearcher)
-    monkeypatch.setattr(web_searcher_module, "SafeJAVDBSearcher", FakeJAVDBSearcher)
-    monkeypatch.setattr(
-        web_searcher_module, "ShiroutoWikiScraper", FakeShiroutoWikiScraper
-    )
-    monkeypatch.setattr(
-        web_searcher_module,
-        "StudioIdentifier",
-        lambda: SimpleNamespace(normalize_studio_name=lambda studio, _code: studio),
-    )
-    monkeypatch.setattr(
-        web_searcher_module, "get_cache_manager", lambda _config: FakeCacheManager()
+def test_web_searcher_init_wires_real_dependencies(tmp_path):
+    config_path = tmp_path / "config.ini"
+    javdb_cache_dir = tmp_path / "javdb-cache"
+    config_path.write_text(
+        f"""
+[search]
+enable_cache = false
+cache_dir = {javdb_cache_dir.as_posix()}
+batch_size = 3
+thread_count = 2
+request_timeout = 7
+avwiki_concurrent_enabled = false
+avwiki_max_concurrent = 4
+""",
+        encoding="utf-8",
     )
 
-    searcher = WebSearcher(FakeConfig())
+    searcher = WebSearcher(ConfigManager(str(config_path)))
 
-    assert len(safe_instances) == 2
-    assert searcher.headers == {"User-Agent": "Fake"}
-    assert searcher.batch_size == 10
-    assert searcher.thread_count == 5
-    assert searcher.avwiki_max_concurrent == 15
-    assert searcher.shiroutowiki_scraper.timeout == 20
-    assert [name for name, _source in registered_sources] == [
-        "web_searcher",
-        "javdb_searcher",
-    ]
+    assert isinstance(searcher.safe_searcher, SafeSearcher)
+    assert isinstance(searcher.japanese_searcher, SafeSearcher)
+    assert isinstance(searcher.javdb_searcher, SafeJAVDBSearcher)
+    assert searcher.safe_searcher.config.enable_cache is False
+    assert searcher.japanese_searcher.config.enable_cache is False
+    assert searcher.batch_size == 3
+    assert searcher.thread_count == 2
+    assert searcher.timeout == 7
+    assert searcher.avwiki_concurrent_enabled is False
+    assert searcher.avwiki_max_concurrent == 4
+    assert searcher.headers
+    assert searcher.search_cache == {}
 
 
 # ============================================================
