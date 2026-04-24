@@ -66,11 +66,14 @@ sys.modules['services.web_searcher'] = services_web_searcher
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(tmp_path)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
 
     proc = subprocess.run(
         [sys.executable, str(script), *args],
         input=stdin,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         env=env,
         check=False,

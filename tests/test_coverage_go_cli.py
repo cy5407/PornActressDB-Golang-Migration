@@ -104,32 +104,35 @@ class TestResolveExe:
         fake_exe = str(tmp_path / "classifier.exe")
         open(fake_exe, "w").close()
 
-        with patch("src.services.go_cli._find_exe_in_dir") as mock_find:
-            # 第一次（root）找不到，第二次（cwd）找到
-            mock_find.side_effect = [None, fake_exe]
-            with patch("os.getcwd", return_value=str(tmp_path)):
-                from src.services.go_cli import _resolve_exe
-                result = _resolve_exe()
+        with patch.dict("os.environ", {"CLASSIFIER_EXE": ""}, clear=False):
+            with patch("src.services.go_cli._find_exe_in_dir") as mock_find:
+                # 第一次（root）找不到，第二次（cwd）找到
+                mock_find.side_effect = [None, fake_exe]
+                with patch("os.getcwd", return_value=str(tmp_path)):
+                    from src.services.go_cli import _resolve_exe
+                    result = _resolve_exe()
         assert result == fake_exe
         self._reset_exe_cache()
 
     def test_resolve_falls_back_to_path(self, tmp_path):
         """root 和 cwd 都找不到時，退回 PATH 搜尋（lines 70-73）"""
         self._reset_exe_cache()
-        with patch("src.services.go_cli._find_exe_in_dir", return_value=None):
-            with patch("src.services.go_cli._find_exe_from_path", return_value="/bin/classifier"):
-                from src.services.go_cli import _resolve_exe
-                result = _resolve_exe()
+        with patch.dict("os.environ", {"CLASSIFIER_EXE": ""}, clear=False):
+            with patch("src.services.go_cli._find_exe_in_dir", return_value=None):
+                with patch("src.services.go_cli._find_exe_from_path", return_value="/bin/classifier"):
+                    from src.services.go_cli import _resolve_exe
+                    result = _resolve_exe()
         assert result == "/bin/classifier"
         self._reset_exe_cache()
 
     def test_resolve_returns_none_when_nothing_found(self):
         """全部找不到時應回傳 None"""
         self._reset_exe_cache()
-        with patch("src.services.go_cli._find_exe_in_dir", return_value=None):
-            with patch("src.services.go_cli._find_exe_from_path", return_value=None):
-                from src.services.go_cli import _resolve_exe
-                result = _resolve_exe()
+        with patch.dict("os.environ", {"CLASSIFIER_EXE": ""}, clear=False):
+            with patch("src.services.go_cli._find_exe_in_dir", return_value=None):
+                with patch("src.services.go_cli._find_exe_from_path", return_value=None):
+                    from src.services.go_cli import _resolve_exe
+                    result = _resolve_exe()
         assert result is None
         self._reset_exe_cache()
 

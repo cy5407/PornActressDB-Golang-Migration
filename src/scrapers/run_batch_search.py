@@ -20,6 +20,11 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 # ---------------------------------------------------------------------------
 # sys.path 設定
 # ---------------------------------------------------------------------------
