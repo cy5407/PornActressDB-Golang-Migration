@@ -200,7 +200,7 @@ class CacheManager:
             if not isinstance(payload, dict) or payload.get("version") != CACHE_PAYLOAD_VERSION:
                 raise ValueError("不支援的快取格式版本")
             return payload.get("value")
-        except (UnicodeDecodeError, ValueError) as e:
+        except ValueError as e:
             logger.warning(f"⚠️ 偵測到無效或舊版快取資料，將忽略該條目: {e}")
             return None
         except Exception as e:

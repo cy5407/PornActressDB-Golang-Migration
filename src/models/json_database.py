@@ -163,7 +163,7 @@ class JSONDBManager:
             # 試圖解析 JSON (使用 orjson 加速，無則降級 stdlib json)
             try:
                 loaded_data = _json_utils.loads(file_content)
-            except (ValueError, Exception) as e:
+            except Exception as e:
                 logger.error(f"❌ JSON 解析失敗: {e}")
                 raise CorruptedDataError(f"JSON 格式錯誤: {e}") from e
 
