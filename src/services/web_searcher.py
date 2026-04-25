@@ -902,61 +902,76 @@ class WebSearcher:
 
         try:
             page_text = soup.get_text()
-            studio_elements = soup.find_all("li")
-            for li in studio_elements:
-                icon = li.find("i", class_="fa-clone")
-                if icon:
-                    link = li.find("a")
-                    if link and link.text.strip():
-                        studio_text = link.text.strip()
-                        if " - " in studio_text:
-                            parts = studio_text.split(" - ")
-                            studio_info["studio"] = parts[0].strip()
-                            studio_info["studio_code"] = parts[1].strip()
-                        else:
-                            studio_info["studio"] = studio_text
-                        break
+
+            studio, studio_code = self._extract_studio_from_html(soup)
+            if studio:
+                studio_info["studio"] = studio
+                studio_info["studio_code"] = studio_code
 
             if not studio_info["studio"]:
-                studio_patterns = [
-                    (r"(S1|SOD|MOODYZ|PREMIUM|WANZ|FALENO|ATTACKERS|E-BODY|KAWAII|FITCH|MADONNA|PRESTIGE)", r"\1"),
-                    (r"製作[：:]\s*([^\n\r]+)", r"\1"),
-                    (r"發行[：:]\s*([^\n\r]+)", r"\1"),
-                    (r"メーカー[：:]\s*([^\n\r]+)", r"\1"),
-                    (r"メーカー\s*[\r\n]+\s*([^\n\r]+)", r"\1"),
-                    (r"品番[：:]\s*([A-Z]+)-?\d+", r"\1"),
-                ]
-                for pattern, _replacement in studio_patterns:
-                    match = re.search(pattern, page_text, re.IGNORECASE)
-                    if match:
-                        extracted_studio = match.group(1).strip()
-                        if extracted_studio and len(extracted_studio) < 50:
-                            if not studio_info["studio"]:
-                                studio_info["studio"] = extracted_studio
-                            if not studio_info["studio_code"] and len(extracted_studio) <= 10:
-                                studio_info["studio_code"] = extracted_studio
-                            break
-
-            if not studio_info["studio"]:
-                studio_code = self._extract_studio_code_from_number(code)
-                if studio_code:
+                studio, studio_code = self._extract_studio_from_text(page_text)
+                if studio:
+                    studio_info["studio"] = studio
                     studio_info["studio_code"] = studio_code
-                    studio_info["studio"] = self._get_studio_name_by_code(studio_code)
 
-            date_patterns = [
-                r"發售日[：:]\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})",
-                r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})",
-                r"(\d{4}\.\d{1,2}\.\d{1,2})",
-            ]
-            for pattern in date_patterns:
-                match = re.search(pattern, page_text)
-                if match:
-                    studio_info["release_date"] = match.group(1)
-                    break
+            if not studio_info["studio"]:
+                extracted_code = self._extract_studio_code_from_number(code)
+                if extracted_code:
+                    studio_info["studio_code"] = extracted_code
+                    studio_info["studio"] = self._get_studio_name_by_code(extracted_code)
+
+            studio_info["release_date"] = self._extract_release_date(page_text)
         except Exception as e:
             logger.warning(f"提取片商資訊時發生錯誤: {e}")
 
         return studio_info
+
+    def _extract_studio_from_html(self, soup: BeautifulSoup) -> tuple[str | None, str | None]:
+        for li in soup.find_all("li"):
+            icon = li.find("i", class_="fa-clone")
+            if not icon:
+                continue
+            link = li.find("a")
+            if not (link and link.text.strip()):
+                continue
+            studio_text = link.text.strip()
+            if " - " in studio_text:
+                parts = studio_text.split(" - ")
+                return parts[0].strip(), parts[1].strip()
+            return studio_text, None
+        return None, None
+
+    def _extract_studio_from_text(self, page_text: str) -> tuple[str | None, str | None]:
+        studio_patterns = [
+            r"(S1|SOD|MOODYZ|PREMIUM|WANZ|FALENO|ATTACKERS|E-BODY|KAWAII|FITCH|MADONNA|PRESTIGE)",
+            r"製作[：:]\s*([^\n\r]+)",
+            r"發行[：:]\s*([^\n\r]+)",
+            r"メーカー[：:]\s*([^\n\r]+)",
+            r"メーカー\s*[\r\n]+\s*([^\n\r]+)",
+            r"品番[：:]\s*([A-Z]+)-?\d+",
+        ]
+        for pattern in studio_patterns:
+            match = re.search(pattern, page_text, re.IGNORECASE)
+            if not match:
+                continue
+            extracted = match.group(1).strip()
+            if not extracted or len(extracted) >= 50:
+                continue
+            studio_code = extracted if len(extracted) <= 10 else None
+            return extracted, studio_code
+        return None, None
+
+    def _extract_release_date(self, page_text: str) -> str | None:
+        date_patterns = [
+            r"發售日[：:]\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})",
+            r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})",
+            r"(\d{4}\.\d{1,2}\.\d{1,2})",
+        ]
+        for pattern in date_patterns:
+            match = re.search(pattern, page_text)
+            if match:
+                return match.group(1)
+        return None
 
     def _load_studio_code_mapping(self) -> dict[str, str]:
         """載入片商代碼對照表，避免批次搜尋時重複讀取磁碟。"""
