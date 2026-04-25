@@ -295,7 +295,18 @@ class WebSearcher:
     def _extract_avwiki_detail_url(self, soup: BeautifulSoup, code: str) -> str | None:
         """從 AV-WIKI 搜尋結果頁提取作品詳情頁網址。"""
         code_slug = code.lower().replace("/", "-")
+        candidates = self._collect_avwiki_candidate_urls(soup)
 
+        if not candidates:
+            return None
+
+        for url in candidates:
+            if code_slug in url.lower():
+                return url
+
+        return candidates[0]
+
+    def _collect_avwiki_candidate_urls(self, soup: BeautifulSoup) -> list[str]:
         candidates: list[str] = []
         for link in soup.find_all("a", href=True):
             href = (link.get("href") or "").strip()
@@ -312,15 +323,7 @@ class WebSearcher:
                 href = f"https://av-wiki.net{href}"
             if href.startswith("https://av-wiki.net/"):
                 candidates.append(href)
-
-        if not candidates:
-            return None
-
-        for url in candidates:
-            if code_slug in url.lower():
-                return url
-
-        return candidates[0]
+        return candidates
 
     def _is_actress_name(self, text: str) -> bool:
         """判斷文字是否可能是女優名稱。"""
@@ -1112,6 +1115,12 @@ class WebSearcher:
         progress_callback=None,
         result_callback=None,
     ) -> dict:
+        """
+        批次執行搜尋任務。
+
+        task_func 成功回傳值必須是 dict；回傳 None 屬於 unsupported
+        behavior，會與 task exception 使用的 None sentinel 不可區分。
+        """
         results = {}
         total_batches = (len(items) + self.batch_size - 1) // self.batch_size
         for i in range(0, len(items), self.batch_size):
@@ -1122,40 +1131,72 @@ class WebSearcher:
             batch_num = (i // self.batch_size) + 1
             if progress_callback:
                 progress_callback(f"處理批次 {batch_num}/{total_batches}...\n")
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=self.thread_count
-            ) as executor:
-                future_to_item = {
-                    executor.submit(task_func, item, stop_event): item for item in batch
-                }
-                for future in concurrent.futures.as_completed(future_to_item):
-                    if stop_event.is_set():
-                        break
-                    item = future_to_item[future]
-                    try:
-                        result = future.result()
-                        results[item] = result
-                        if result_callback:
-                            result_callback(item, result, None)
-                        if progress_callback:
-                            if result and result.get("actresses"):
-                                progress_callback(f"✅ {item}: 找到資料\n")
-                            elif result and result.get("search_status") == "search_error":
-                                progress_callback(
-                                    f"⚠️ {item}: 搜尋頁面異常 - {result.get('search_error_reason', '未知原因')}\n"
-                                )
-                            else:
-                                progress_callback(f"❌ {item}: 未找到結果\n")
-                    except Exception as e:
-                        logger.error(f"批次處理 {item} 時發生錯誤: {e}")
-                        results[item] = None
-                        if result_callback:
-                            result_callback(item, None, e)
-                        if progress_callback:
-                            progress_callback(f"💥 {item}: 處理失敗 - {e}\n")
+            results.update(
+                self._run_batch(
+                    batch, task_func, stop_event, result_callback, progress_callback
+                )
+            )
             if i + self.batch_size < len(items) and total_batches > 1:
                 time.sleep(self.batch_delay)
         return results
+
+    def _run_batch(
+        self,
+        batch: list,
+        task_func,
+        stop_event: threading.Event,
+        result_callback=None,
+        progress_callback=None,
+    ) -> dict:
+        results = {}
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.thread_count
+        ) as executor:
+            future_to_item = {
+                executor.submit(task_func, item, stop_event): item for item in batch
+            }
+            for future in concurrent.futures.as_completed(future_to_item):
+                if stop_event.is_set():
+                    break
+                item = future_to_item[future]
+                self._collect_future(
+                    item, future, results, result_callback, progress_callback
+                )
+        return results
+
+    def _collect_future(
+        self,
+        item,
+        future,
+        results: dict,
+        result_callback=None,
+        progress_callback=None,
+    ) -> dict | None:
+        """收集單一 future；None 僅代表 exception path，不代表 not-found。"""
+        try:
+            result = future.result()
+            results[item] = result
+            if result_callback:
+                result_callback(item, result, None)
+            if progress_callback:
+                progress_callback(self._format_item_progress(item, result))
+            return result
+        except Exception as e:
+            logger.error(f"批次處理 {item} 時發生錯誤: {e}")
+            results[item] = None
+            if result_callback:
+                result_callback(item, None, e)
+            if progress_callback:
+                progress_callback(f"💥 {item}: 處理失敗 - {e}\n")
+            return None
+
+    @staticmethod
+    def _format_item_progress(item, result) -> str:
+        if result and result.get("actresses"):
+            return f"✅ {item}: 找到資料\n"
+        if result and result.get("search_status") == "search_error":
+            return f"⚠️ {item}: 搜尋頁面異常 - {result.get('search_error_reason', '未知原因')}\n"
+        return f"❌ {item}: 未找到結果\n"
 
     def cascade_search_single(
         self, code: str, stop_event: threading.Event, sources: list[str] = None

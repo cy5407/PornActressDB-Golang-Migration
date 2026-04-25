@@ -377,6 +377,13 @@ def test_extract_avwiki_detail_url_relative_href():
     assert url == "https://av-wiki.net/ssis-123/"
 
 
+def test_extract_avwiki_detail_url_http_avwiki_href_is_ignored():
+    s = _make_searcher()
+    html = '<a href="http://av-wiki.net/ssis-123/">続きを読む</a>'
+    soup = BeautifulSoup(html, "html.parser")
+    assert s._extract_avwiki_detail_url(soup, "SSIS-123") is None
+
+
 def test_fetch_avwiki_detail_studio_info_merges_detail_page_fields():
     s = _make_searcher()
     search_soup = _make_soup('<a href="/ssis-123/">続きを読む</a>')
@@ -880,6 +887,17 @@ def test_batch_search_task_raises():
 
     results = s.batch_search(["SSIS-001"], task, threading.Event())
     assert results["SSIS-001"] is None
+
+
+def test_batch_search_not_found_is_dict_not_none():
+    s = _make_searcher()
+
+    def task(item, stop):
+        return {"actresses": [], "search_status": "not_found"}
+
+    results = s.batch_search(["SSIS-001"], task, threading.Event())
+    assert results["SSIS-001"] is not None
+    assert isinstance(results["SSIS-001"], dict)
 
 
 def test_batch_search_with_progress_and_result_callbacks():
