@@ -2,10 +2,12 @@
 測試 SafeJAVDBSearcher 的重試等待上限行為
 """
 
-import httpx
-import pytest
+import logging
 import threading
 from unittest.mock import MagicMock
+
+import httpx
+import pytest
 
 from src.services import safe_javdb_searcher as searcher_module
 from src.services.safe_javdb_searcher import SafeJAVDBSearcher
@@ -91,6 +93,41 @@ def test_403_retry_can_reenter_without_deadlock(tmp_path, monkeypatch):
     assert searcher.request_count == 2
     assert searcher.consecutive_errors == 0
     assert sleep_calls == [0.0, 30.0, 2.0]
+
+
+def test_429_warning_does_not_include_consecutive_error_count(
+    tmp_path, monkeypatch, caplog
+):
+    """429 warning 與 error log 不應包含連續錯誤計數。"""
+    searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path), warmup_enabled=False)
+    searcher.min_delay = 0.0
+    searcher.max_delay = 0.0
+    searcher.max_retry_wait_seconds = 999.0
+    searcher.session = _DummySession(429)
+
+    monkeypatch.setattr(searcher_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(searcher_module, "_random_delay", lambda _a, _b: 0.0)
+
+    with caplog.at_level(logging.WARNING):
+        result = searcher.safe_request("https://javdb.com/search?q=TEST&f=all")
+
+    warning_messages = [
+        record.message for record in caplog.records if record.levelno == logging.WARNING
+    ]
+    error_messages = [
+        record.message for record in caplog.records if record.levelno == logging.ERROR
+    ]
+
+    assert result is None
+    assert any("收到 429" in message for message in warning_messages)
+    assert all(
+        "連續錯誤" not in message
+        for message in warning_messages
+        if "收到 429" in message
+    )
+    assert any("429 重試次數過多" in message for message in error_messages)
+    assert all("連續錯誤" not in message for message in error_messages)
+    assert searcher.consecutive_errors == 4
 
 
 def test_create_session_closes_previous_client(tmp_path):
