@@ -1,7 +1,7 @@
 # Wails GUI 架構
 
-> 記錄 Wails v2 + React/TypeScript 桌面應用程式架構，取代原有 Python Tkinter GUI。  
-> 完成於：2026-04-07（W1~W6 全部由 Nova agent 實作完畢）
+> 記錄現行 Wails v2 + React/TypeScript 桌面應用程式架構，取代原有 Python Tkinter GUI。
+> 更新：2026-04-27（校正 binding、事件 payload 與 portable 發行現況）
 
 ---
 
@@ -14,7 +14,7 @@ Go 後端 (wails-app/backend/app.go)
         ↓ 直接 import
 pkg/ (extractor / mover / database / studio / cache / app)
         ↓ subprocess
-Python 爬蟲服務 (src/scrapers/run_search.py)
+Python 搜尋腳本 (run_search.py / run_batch_search.py)
 ```
 
 **與舊架構的差異：**
@@ -71,12 +71,17 @@ wails-app/
 | `DbListVideos()` | pkg/database | 列出所有影片 |
 | `IdentifyStudio(code)` | pkg/studio | 識別片商 |
 | `ListStudios()` | pkg/studio | 列出所有片商 |
-| `StudioClassifyMove(codes, outputDir, workers)` | pkg/database + pkg/app/move_service | 片商分類移動（W7）→ 詳見 [片商分類架構](studio-classification.md) |
+| `GetStudiosByCodes(codes)` | studios.json | 批次依番號前綴查片商 |
+| `GetStudioByCode(code)` | studios.json | 單番號查片商 |
+| `GetActressPrimaryStudios(names)` | pkg/database | DB fallback 查女優主要片商 |
+| `BatchMoveDirs(items, strategy)` | pkg/app/move_service | 批次移動整個女優資料夾 |
 | `GetPreferences()` | backend/services/config | 讀取設定 |
 | `UpdatePreferences(prefs)` | backend/services/config | 儲存設定 |
 | `ResetPreferences()` | backend/services/config | 重設設定 |
 | `PythonSearch(code)` | subprocess | 呼叫 Python 爬蟲 |
-| `BatchSearch(codes)` | subprocess + goroutine pool | 批次搜尋 |
+| `BatchSearch(codes, workers)` | subprocess + JSON Lines | 預設級聯批次搜尋 |
+| `BatchSearchAVWiki(codes, workers)` | subprocess + `source_mode=avwiki` | AV-WIKI-only 補搜 |
+| `BatchSearchJAVDB(codes, workers)` | subprocess + `source_mode=javdb` | JAVDB-only 補搜 |
 
 ---
 
@@ -85,9 +90,9 @@ wails-app/
 ```
 Go: PythonSearch("STARS-001")
       ↓
-subprocess: python src/scrapers/run_search.py --code STARS-001
+subprocess: python src/scrapers/run_search.py STARS-001 [source_mode]
       ↓ stdout JSON
-{"code":"STARS-001","title":"...","actress":"...","studio":"..."}
+{"code":"STARS-001","title":"...","actresses":["..."],"studio":"...","search_method":"..."}
       ↓
 Go 解析 JSON → 回傳 React 前端
 ```
@@ -97,11 +102,12 @@ Go 解析 JSON → 回傳 React 前端
 - `stderr`：Python 執行錯誤
 - `json_parse`：輸出格式不合法
 
-**批次搜尋**：goroutine pool（semaphore 限流），透過 Wails Events 推送進度：
+**批次搜尋**：Wails backend 啟動單一 `run_batch_search.py` 子程序，Python 端用 `ThreadPoolExecutor` 平行處理並逐行輸出 JSON Lines；Go 端即時讀取每行結果、寫入 DB，並透過 Wails Events 推送進度：
+
 ```
-EventsEmit(ctx, "search:progress", {...})
-EventsEmit(ctx, "search:result", {...})
-EventsEmit(ctx, "search:done", {...})
+EventsEmit(ctx, "search:progress", current, total, code)
+EventsEmit(ctx, "search:result", SearchResult)
+EventsEmit(ctx, "search:done", summary)
 ```
 
 ---
@@ -110,12 +116,13 @@ EventsEmit(ctx, "search:done", {...})
 
 | 事件名稱 | 觸發時機 | payload |
 |---------|---------|---------|
-| `scan:progress` | 掃描每批完成 | `{current, total}` |
-| `search:progress` | 批次搜尋進度 | `{current, total, code}` |
-| `search:result` | 單筆搜尋完成 | `{code, result}` |
-| `search:done` | 全部批次搜尋完畢 | `{total, success, failed}` |
-| `studio:move:progress` | 片商分類移動進度（W7） | `{current, total, code}` |
-| `studio:move:done` | 片商分類移動完畢（W7） | `{total, success, failed}` |
+| `scan:progress` | 掃描找到一筆去重後結果 | `(foundCount, code)` |
+| `search:progress` | 批次搜尋進度 | `(current, total, code)` |
+| `search:result` | 單筆搜尋完成 | `(SearchResult)` |
+| `search:done` | 全部批次搜尋完畢或提前失敗 | `(summary)` |
+| `error` | 後端流程錯誤 | `(message)` |
+
+後端目前以 `emitEvent("error", message)` 發送錯誤事件。前端事件集中於 `wails-app/frontend/src/lib/wailsEvents.ts`，維護時需確保事件名稱與 backend 相同；move / studio move 主要透過 binding 回傳值更新 UI，不是後端事件主路徑。
 
 ---
 
@@ -137,12 +144,19 @@ EventsEmit(ctx, "search:done", {...})
 
 ---
 
-## W7 待辦（E2E 驗收）
+## 建置與發行
 
-- [ ] 執行 `e2e/run_e2e.sh` 通過
-- [ ] `wails build` 產生 `.exe`
-- [ ] NSIS installer 安裝/解安裝正常
-- [ ] Python 爬蟲在打包後可被正確呼叫
-- [ ] 乾淨 Windows 環境 smoke test
+正式桌面發行目標是 Windows portable bundle：
 
-詳見：[docs/plans/Tasks.md](../../docs/plans/Tasks.md)
+```powershell
+.\setup.ps1
+```
+
+腳本會：
+
+1. 建置 `classifier.exe`
+2. 執行 `wails build` 並複製 `actress-classifier.exe` 到 repo root
+3. 組裝 `dist\portable\`
+4. 壓縮成 `dist\PornActressDB-windows-portable.zip`
+
+portable bundle 內必須包含 `src\`、`requirements.txt`、`Start-ActressClassifier.bat` 與 `Setup-SearchRuntime.ps1`，因為搜尋功能仍透過 Python 腳本執行。第一次啟動由 `Start-ActressClassifier.bat` 建立 `.venv` 並安裝搜尋依賴。

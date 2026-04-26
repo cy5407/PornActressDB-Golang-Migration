@@ -14,7 +14,7 @@ export const WailsEvents = {
   SearchDone: 'search:done',
   MoveProgress: 'move:progress',
   MoveDone: 'move:done',
-  Error: 'task:error',
+  Error: 'error',
 } as const;
 
 interface WailsRuntime {
@@ -109,7 +109,7 @@ export function useWailsEvents() {
       store.resetProgress();
     });
 
-    // -- task:error --
+    // -- error --
     rt.EventsOn(WailsEvents.Error, (...args) => {
       const msg = args[0] as string | undefined;
       store.setStatus('error');

@@ -5,6 +5,21 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-04-27] docs | 架構頁漂移審計與 Wails 事件名稱校正
+
+**涉及檔案**：
+- `wiki/architecture/tech-stack-decisions.md` — 移除舊 Tkinter 現況描述，改寫為 Wails + Go CLI + Python 搜尋 runtime 的現行分工
+- `wiki/architecture/go-bridge.md` — 校正 `go_cli.py` 的現行函式名稱、例外類別與 `_resolve_exe()` 搜尋順序
+- `wiki/architecture/wails-gui.md` — 校正 Wails bindings、Python 搜尋 subprocess、事件 payload 與 portable bundle 發行流程
+- `wiki/architecture/studio-classification.md` — 將 `dist/studios.json` / `dist/major_studios.json` 舊描述改為 `dist\portable\...` bundle 副本
+- `wiki/architecture/overview.md` — 校正 `setup.ps1` / `setup.sh` 行為與搜尋 runtime 安裝描述
+- `wails-app/frontend/src/lib/wailsEvents.ts` — 將前端錯誤事件名稱從 `task:error` 對齊 backend 實際送出的 `error`
+- `wiki/wiki-data.js` — 由 `wiki/gen_data.py` 重新產生
+
+**踩坑**：`wiki/gen_data.py` 在 Windows cp950 console 會因成功訊息 emoji 觸發 `UnicodeEncodeError`；本次用 `PYTHONIOENCODING=utf-8` 重跑成功。
+
+---
+
 ## [2026-04-24] docs | scan 番號提取契約與批次爬蟲實測補充
 
 **涉及檔案**：

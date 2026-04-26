@@ -1,7 +1,7 @@
 # 系統架構總覽
 
 > 來源：`README.md`、`AGENTS.md`  
-> 更新：2026-04-20（補充 setup.sh / setup.ps1 一鍵安裝說明）
+> 更新：2026-04-27（校正 setup.ps1 portable bundle 與 Python 搜尋 runtime 描述）
 
 ---
 
@@ -130,7 +130,7 @@
 
 ## 快速開始
 
-### 一鍵安裝依賴（推薦）
+### 建置腳本
 
 ```powershell
 # Windows（PowerShell）
@@ -142,7 +142,12 @@
 chmod +x setup.sh && ./setup.sh
 ```
 
-腳本會自動完成：`go mod download`、建置 `classifier(.exe)`（Windows 另加 Wails `actress-classifier.exe`）。Python 搜尋功能需另外執行 `pip install -r requirements.txt`。
+腳本行為：
+
+- `setup.ps1`：建置 `classifier.exe`、建置並複製 `actress-classifier.exe`，再組裝 `dist\portable\` 與 `dist\PornActressDB-windows-portable.zip`。
+- `setup.sh`：在 Linux / macOS 主要建置 Go CLI `classifier`；Wails GUI 仍以 Windows 為正式桌面發行目標。
+
+portable bundle 的第一次啟動由 `Start-ActressClassifier.bat` 建立 `.venv` 並安裝 `requirements.txt`。開發環境若要直接跑搜尋腳本，仍可手動執行 `pip install -r requirements.txt`。
 
 ### 手動步驟
 

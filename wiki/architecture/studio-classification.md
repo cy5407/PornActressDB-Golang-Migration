@@ -14,7 +14,9 @@
 
 ### `studios.json`（番號前綴 → 片商名）
 
-位置：專案根目錄 `studios.json`（`dist/studios.json` 為同步副本）。
+位置：專案根目錄 `studios.json`。
+
+發行時 `setup.ps1` 會把此檔複製到 `dist\portable\studios.json`，Wails backend 啟動時會優先尋找執行檔同目錄的 `studios.json`，找不到才使用目前工作目錄的 `studios.json`。
 
 格式：`{ "片商名": ["前綴1", "前綴2", ...] }`
 
@@ -39,7 +41,9 @@
 
 ### `major_studios.json`（大片商名單）
 
-位置：專案根目錄 `major_studios.json`（`dist/major_studios.json` 為同步副本）。
+位置：專案根目錄 `major_studios.json`。
+
+發行時 `setup.ps1` 會把此檔複製到 `dist\portable\major_studios.json`，Wails backend 的解析順序與 `studios.json` 相同。
 
 格式：`["S1", "MOODYZ", "PREMIUM", ...]` 共 13 個。
 
@@ -185,9 +189,8 @@ func loadCodeStudioMap(path string) map[string]string
 |------|------|
 | `studios.json` | **真實來源**：番號前綴 → 片商名 |
 | `major_studios.json` | **真實來源**：大片商名單 |
-| `dist/studios.json` | 同步副本（PyInstaller 打包用） |
-| `dist/major_studios.json` | 同步副本（PyInstaller 打包用） |
+| `dist\portable\studios.json` | portable bundle 副本（由 `setup.ps1` 產生） |
+| `dist\portable\major_studios.json` | portable bundle 副本（由 `setup.ps1` 產生） |
 | `pkg/database/jsondb.go` | `GetActressPrimaryStudio` DB 查詢層 |
 | `wails-app/backend/app.go` | `GetStudiosByCodes`、`GetActressPrimaryStudios`、`BatchMoveDirs` Wails binding |
 | `wails-app/frontend/src/App.tsx` | `handleStudioMove` 雙層查詢 + 整資料夾移動流程 |
-
