@@ -1,34 +1,45 @@
-# 零女優二次搜尋模式
+# 零女優補搜與來源限定重跑模式
 
-> 來源：`QUICK_START_GUIDE.md`  
-> 更新：2026-04-06
+> 更新：2026-04-27
+> 舊 `classifier_core.py::process_and_search_javdb()` 二次搜尋流程已隨 Python GUI 清理移除。現行做法是透過 Wails 的來源限定搜尋 API 進行 AV-WIKI-only / JAVDB-only 補搜。
 
 ---
 
 ## 問題背景
 
-部分番號（如 `SNIS-539`）在 JAVDB 上的搜尋結果會因快取問題，導致第一次搜尋時女優列表為空（零女優）。清除快取後重新搜尋，有 10-15% 的機率能找到正確女優。
+有些番號會出現「整體資料已存在，但女優欄位仍為空」的狀態。常見原因包括：
+
+- AV-WIKI 找到片名 / 片商但沒有結構化女優連結
+- JAVDB 查無精確匹配
+- 舊資料匯入或早期搜尋流程留下零女優資料
+- 來源暫時錯誤或快取資料不完整
+
+現行系統不再使用舊 Tkinter GUI 的「清快取後第二輪 JAVDB 搜尋」流程；補搜改由來源限定搜尋欄位追蹤。
 
 ---
 
-## 搜尋流程
+## 現行流程
 
+```text
+Wails UI
+  ↓
+AV-WIKI-only / JAVDB-only 按鈕
+  ↓
+BatchSearchAVWiki(codes, workers) / BatchSearchJAVDB(codes, workers)
+  ↓
+run_batch_search.py + source_mode
+  ↓
+WebSearcher.search_avwiki_only() / search_javdb_only()
+  ↓
+更新 avwiki_* / javdb_* 欄位與必要的整體欄位
 ```
-掃描資料夾
-    ↓
-分類番號：新番號 / 無結果番號 / 零女優番號
-    ↓
-【第一輪搜尋】
-├─ 有女優 → 儲存，標記 searched_found
-├─ 無女優（零女優）→ 標記，進第二輪
-└─ 無女優（非零女優）→ 儲存 searched_not_found
-    ↓
-【第二輪搜尋】（僅零女優）
-├─ 清除快取 🧹（clear_cache_for_code）
-├─ 重新查詢 JAVDB 🔍
-├─ 找到 → 覆寫資料庫，標記 "JAVDB (二次搜尋)"
-└─ 未找到 → 儲存 searched_not_found
-```
+
+來源限定搜尋的定位：
+
+- 針對特定來源補搜或重跑
+- 不再依賴舊 `classifier_core.py`
+- 不再用 `JAVDB (二次搜尋)` 當主要標記
+- 透過 `avwiki_actress_status` / `javdb_actress_status` 追蹤來源結果
 
 ---
 
@@ -36,96 +47,69 @@
 
 | 功能 | 位置 |
 |------|------|
-| 清除快取 | `src/services/safe_javdb_searcher.py::clear_cache_for_code()` |
-| 零女優偵測 + 第二輪搜尋 | `src/services/classifier_core.py::process_and_search_javdb()` |
+| Wails 來源限定 binding | `wails-app/backend/app.go::BatchSearchAVWiki()` / `BatchSearchJAVDB()` |
+| 批次搜尋主體 | `wails-app/backend/app.go::batchSearch()` |
+| 前端來源按鈕流程 | `wails-app/frontend/src/App.tsx::handleSourceSearch()` |
+| Python source mode dispatch | `src/scrapers/run_search.py::_search_with_mode()` |
+| 批次 subprocess | `src/scrapers/run_batch_search.py` |
+| JAVDB 快取輔助 | `src/services/safe_javdb_searcher.py::clear_cache_for_code()`（目前是輔助函式，不是 Wails 主流程入口） |
 
 ---
 
 ## 判定標準
 
-```python
-# 資料庫中有記錄，但女優列表為空
-if code in database and not video['actresses']:
-    # 零女優番號，進入第二輪搜尋
+現行補搜不只看整體 `search_status`，也看來源專屬欄位：
+
+```text
+avwiki_actress_status / javdb_actress_status
+  found      → 該來源已有女優資料
+  not_found  → 該來源查詢過但沒有女優資料
+  error      → 該來源查詢失敗
 ```
+
+前端來源補搜目前會先讀 DB：
+
+- 若任一來源已是 found，會把快取資料補進 `searchResults`，避免後續分類漏資料。
+- 若兩個來源都不是 found，才送去指定來源搜尋。
 
 ---
 
-## 呼叫方式
+## 寫入規則
 
-### GUI
-點擊「📊 JAVDB 搜尋」按鈕，自動執行（無需額外操作）。
+來源限定搜尋成功時，backend 會更新：
 
-### 程式碼
-
-```python
-from services.classifier_core import UnifiedClassifierCore
-from models.config import ConfigManager
-import threading
-
-core = UnifiedClassifierCore(ConfigManager())
-result = core.process_and_search_javdb(
-    folder_path='C:\\Videos',
-    stop_event=threading.Event(),
-    progress_callback=lambda msg: print(msg, end='', flush=True)
-)
-
-# 回傳值
-print(result['zero_actress_codes'])    # 零女優番號列表
-print(result['second_round_success'])  # 第二輪成功數
-```
-
----
-
-## 回傳值說明
-
-```python
-{
-    'status': 'success',
-    'total_files': 100,
-    'new_codes': 20,            # 全新番號
-    'research_codes': 5,        # 無結果重試番號
-    'zero_actress_codes': 3,    # 零女優番號
-    'first_round_success': 23,  # 第一輪成功數
-    'first_round_failed': 20,   # 第一輪失敗數
-    'second_round_success': 2   # 第二輪成功數
-}
-```
-
----
-
-## 資料庫標記
-
-### 二次搜尋成功
 ```json
 {
   "search_status": "searched_found",
-  "search_method": "JAVDB (二次搜尋)"
+  "search_method": "AV-WIKI 或 JAVDB",
+  "last_search_date": "UTC timestamp",
+  "avwiki_actress_status 或 javdb_actress_status": "found"
 }
 ```
 
-### 二次搜尋確認無結果
+未找到或錯誤時，至少會更新來源欄位：
+
 ```json
 {
-  "search_status": "searched_not_found",
-  "search_method": "JAVDB (二次搜尋)"
+  "avwiki_actress_status 或 javdb_actress_status": "not_found 或 error",
+  "avwiki_last_search_date 或 javdb_last_search_date": "UTC timestamp"
 }
 ```
+
+這讓後續補搜可以知道「哪個來源曾經查過」而不是只依賴整體 `search_status`。
 
 ---
 
-## 效能參考
+## 維護注意事項
 
-| 指標 | 數值 |
-|------|------|
-| 零女優番號偵測準確率 | 100% |
-| 第二輪找到女優的機率 | 10-15% |
-| 搜尋時間增加 | +15-30% |
-| 搜尋成功率提升 | +3-5% |
+- 不要重新引入 `src/services/classifier_core.py` 或 Tkinter GUI 的二次搜尋流程。
+- 若要加入「清除 JAVDB 快取後重跑」功能，應掛在 Wails source-specific search 流程上，並明確更新 `javdb_*` 欄位。
+- `search_method = "JAVDB (二次搜尋)"` 屬於舊資料 / 舊流程標記，不應作為新流程 canonical 值。
 
 ---
 
 ## 相關頁面
 
-- [wiki/architecture/search-engine.md](../architecture/search-engine.md)
-- [wiki/pitfalls/javdb-false-positive.md](../pitfalls/javdb-false-positive.md)
+- [搜尋引擎架構](../architecture/search-engine.md)
+- [JAVDB False Positive](../pitfalls/javdb-false-positive.md)
+- [來源搜尋清空結果致未分類](../pitfalls/wails-source-search-clears-results.md)

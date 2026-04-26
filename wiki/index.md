@@ -10,11 +10,11 @@
 | 頁面 | 摘要 |
 |------|------|
 | [架構總覽](architecture/overview.md) | Wails + Go + Python 混合架構、資料流、各層職責 |
-| [Go CLI 設計](architecture/go-cli.md) | classifier.exe 命令結構、JSON 輸出規範、scan 番號提取契約 |
-| [Go Bridge](architecture/go-bridge.md) | Python→Go 橋接歷史（Phase 1~11 + W6）、現行 go_cli.py 用法 |
+| [Go CLI 設計](architecture/go-cli.md) | classifier.exe 命令結構、JSON stdout 規範、scan 番號提取契約 |
+| [Go Bridge](architecture/go-bridge.md) | 現行 Python→Go 委派入口 `go_cli.py` 與舊橋接層移除狀態 |
 | [資料庫系統](architecture/database.md) | IncrementalJSONDB / JSONDBManager / Journal 機制 |
 | [搜尋引擎](architecture/search-engine.md) | AV-WIKI → JAVDB 級聯搜尋、來源專用 API 與批次併發邊界 |
-| [技術選型決策](architecture/tech-stack-decisions.md) | 爬蟲/GUI 語言比較與 Wails 長期路線圖 |
+| [技術選型決策](architecture/tech-stack-decisions.md) | Wails + Go CLI + Python 搜尋 runtime 的現行分工 |
 | [**Wails GUI 架構**](architecture/wails-gui.md) | Wails v2 + React 架構、Bindings 對照、W6 清理紀錄 |
 | [**片商分類架構**](architecture/studio-classification.md) | W7/W8 番號前綴直查（studios.json）+ DB fallback + major_studios 雙層判定 |
 
@@ -25,10 +25,10 @@
 | 頁面 | 摘要 |
 |------|------|
 | [新增 Go API 函式](patterns/add-go-api-function.md) | **必讀**：Wails binding（app.go）或 go_cli.py 呼叫路徑選擇 |
-| [新增 Go CLI 子命令](patterns/add-go-cli-command.md) | Go CLI 子命令標準寫法（含 -json flag） |
+| [新增 Go CLI 子命令](patterns/add-go-cli-command.md) | Go CLI 子命令標準寫法與 JSON stdout 契約 |
 | [新增 GUI 按鈕](patterns/add-gui-button.md) | Wails/React 按鈕範本、EventsEmit 進度推送、binding 規範 |
 | [PyInstaller 打包](patterns/pyinstaller.md) | spec 設定、sys._MEIPASS 路徑、dist 同步（歷史參考） |
-| [零女優二次搜尋](patterns/zero-actress-retry.md) | 零女優自動清快取 + 第二輪 JAVDB 搜尋流程 |
+| [零女優補搜](patterns/zero-actress-retry.md) | 來源限定 AV-WIKI / JAVDB 補搜與 `avwiki_*` / `javdb_*` 狀態欄位 |
 | [批次爬蟲效能](patterns/batch-scraper-performance.md) | AV-WIKI async 批次、共享連線池、自適應併發與 Go/Python 分工 |
 | [命名規範](patterns/naming-conventions.md) | Python/Go/JSON/CLI API 動詞與跨語言對應規則 |
 | [Python Fallback 移除](patterns/remove-python-fallback.md) | Phase 6 策略：寫入→RuntimeError、讀取→記憶體、整刪包裝類別 |
@@ -49,7 +49,7 @@
 | [Wails 掃描重複番號](pitfalls/wails-scan-duplicate.md) | WalkDir 無去重導致同番號多次出現並浪費搜尋請求 | E2E 實測 |
 | [Wails 建置踩坑](pitfalls/wails-build-issues.md) | npm 版本衝突、TS 命名空間錯誤、native dialog 無法從前端呼叫 | E2E 實測 |
 | [Wails 搜尋效能優化](pitfalls/wails-search-perf.md) | 批次搜尋 75s→10s：rate limiter 停用 + thread-local 並行初始化 | E2E 實測 |
-| [Wiki Viewer 選單脫鉤](pitfalls/wiki-viewer-nav-out-of-sync.md) | viewer.html nav 需手動維護，與 wiki-data.js 自動產生脫鉤 | 2026-04-07 |
+| [Wiki Viewer 選單脫鉤](pitfalls/wiki-viewer-nav-out-of-sync.md) | 歷史踩坑；現行 viewer.html 已由 wiki-data.js 自動產生側欄 | 2026-04-07 |
 | [Wails DB 路徑寫入錯誤目錄](pitfalls/wails-db-path-wrong-dir.md) | resolveConfigPath 未往上找 config.ini，DB 落到 build/bin/ | 2026-04-07 |
 | [Wails DB data.json 從未更新](pitfalls/wails-db-json-never-updated.md) | BatchSearch 缺少 Compact() 呼叫，快取永久失效 | 2026-04-07 |
 | [Wails 移動後路徑未更新](pitfalls/wails-move-stale-paths.md) | 移動成功後 scanResults 仍持有舊路徑，重複移動會失敗 | 2026-04-07 |
@@ -58,7 +58,7 @@
 | [Wails DB 資料格式不一致](pitfalls/wails-db-format-migration.md) | Go 寫入 `"success"`、Python 標準 `"searched_found"`、`searched_multiple` 等非標準值；含資料合併紀錄 | 2026-04-08 |
 | [**同路徑移動永久刪除檔案**](pitfalls/wails-move-same-path-delete.md) | 輸入==輸出目錄時二次移動觸發偽衝突，覆蓋策略下 `os.Remove(src==dst)` 永久刪除檔案；三層修復 + 垃圾桶 | 2026-04-08 |
 | [Extractor `[CODE]` 格式被清空](pitfalls/go-extractor-bracket-format.md) | `[SKMJ-310]`、PPV 位數、MGS 數字前綴等番號提取邊界 | 2026-04-08 / 2026-04-24 |
-| [Wails dist 缺少片商資料](pitfalls/wails-dist-missing-studio-data.md) | `studios.json` / `major_studios.json` 不會自動複製到 dist/，片商分類整體失效 | 2026-04-08 |
+| [Wails dist 缺少片商資料](pitfalls/wails-dist-missing-studio-data.md) | 只複製 exe 會遺漏 `studios.json` / `major_studios.json`；現行需分發 portable bundle | 2026-04-08 |
 | [**Wails 片商名稱正規化錯誤**](pitfalls/wails-studio-canonical-match.md) | `canonicalMajorStudio()` 大小寫不敏感缺失 → SOD star 歸錯資料夾；路徑解析需往上三層找專案根 | W8 |
 | [**來源搜尋清空結果致未分類**](pitfalls/wails-source-search-clears-results.md) | `runSourceSearch` 清空前輪結果 + 快取番號 filter 後從未進 store；已修復（`20602f2`） | 2026-04-19 |
 | [**Python 欄位 method vs search_method 不一致**](pitfalls/python-search-method-field-mismatch.md) | `run_batch_search.py` 輸出 `"method"` 但 Go handler 期望 `"search_method"`，導致搜尋來源永遠空白；已修復（`b496dd5`） | 2026-04-20 |

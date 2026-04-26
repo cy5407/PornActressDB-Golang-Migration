@@ -13,6 +13,11 @@
 - `wiki/architecture/wails-gui.md` — 校正 Wails bindings、Python 搜尋 subprocess、事件 payload 與 portable bundle 發行流程
 - `wiki/architecture/studio-classification.md` — 將 `dist/studios.json` / `dist/major_studios.json` 舊描述改為 `dist\portable\...` bundle 副本
 - `wiki/architecture/overview.md` — 校正 `setup.ps1` / `setup.sh` 行為與搜尋 runtime 安裝描述
+- `wiki/architecture/go-cli.md`、`wiki/patterns/add-go-cli-command.md` — 將新增 CLI 子命令規範從「必加 `-json`」改為現行 JSON stdout 契約
+- `wiki/patterns/zero-actress-retry.md` — 移除舊 `classifier_core.py` 二次搜尋流程，改寫為來源限定補搜模式
+- `wiki/pitfalls/wails-dist-missing-studio-data.md`、`wiki/pitfalls/pyinstaller-path.md` — 補上 Wails portable bundle 的現行修法與歷史定位
+- `wiki/pitfalls/wiki-viewer-nav-out-of-sync.md`、`.agents/skills/wiki-maintenance/SKILL.md` — 校正 viewer.html 側欄已改由 `wiki-data.js` 自動產生
+- `wiki/index.md` — 更新上述頁面摘要
 - `wails-app/frontend/src/lib/wailsEvents.ts` — 將前端錯誤事件名稱從 `task:error` 對齊 backend 實際送出的 `error`
 - `wiki/wiki-data.js` — 由 `wiki/gen_data.py` 重新產生
 

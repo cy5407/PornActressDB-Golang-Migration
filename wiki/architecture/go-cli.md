@@ -218,16 +218,19 @@ classifier.exe cache <子命令> [選項]
 
 ## 重要規範
 
-### `-json` Flag 規則
-**每個新增的子命令必須宣告 `-json` no-op flag**：
+### JSON stdout 規則
 
-```go
-fs := flag.NewFlagSet("子命令名", flag.ExitOnError)
-_ = fs.Bool("json", false, "輸出 JSON 格式（預設即為 JSON，保留相容性）")
-```
+所有正式子命令都應讓 stdout 輸出 JSON，錯誤訊息輸出 stderr 並使用非零 exit code。
 
-原因：Python 呼叫慣例固定傳 `--json`，若未宣告，`flag.ExitOnError` 會因未知 flag 退出。  
-→ 相關 pitfall：[go-cli-json-flag-missing.md](../pitfalls/go-cli-json-flag-missing.md)
+現行 Python 委派層 `src/services/go_cli.py::run()` 不會自動附加 `-json`；它直接解析 stdout JSON。因此新增子命令時，核心要求是穩定 JSON 契約，而不是一律宣告 `-json`。
+
+`-json` no-op flag 只在下列情況需要保留：
+
+- 既有子命令已公開支援，移除會破壞相容性。
+- 某個現存 Python helper 或測試仍明確傳入 `-json`。
+- 需要和舊 `go_api/go_runner` 時期的命令格式相容。
+
+歷史背景可參考：[go-cli-json-flag-missing.md](../pitfalls/go-cli-json-flag-missing.md)。
 
 ### 新增子命令 Checklist
 → 詳見 [patterns/add-go-cli-command.md](../patterns/add-go-cli-command.md)

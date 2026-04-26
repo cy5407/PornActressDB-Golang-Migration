@@ -4,63 +4,61 @@ date: 2026-04-08
 ---
 # Wiki Viewer 導覽選單與 wiki-data.js 脫鉤
 
+> 狀態：歷史踩坑。現行 `viewer.html` 已改為從 `window.WIKI_DATA` 自動產生側欄，不再需要手動維護 nav 陣列。
+
 ## 問題描述
 
-新增 `wiki/pitfalls/*.md` 後，`viewer.html` 的左側導覽選單沒有出現新頁面。
+早期新增 `wiki/pitfalls/*.md` 後，`viewer.html` 的左側導覽選單沒有出現新頁面。
 
-```
+```text
 # 症狀：viewer.html 顯示「找不到頁面」或選單根本沒有新條目
 # 但 wiki-data.js 已包含對應內容（搜尋可以找到）
 ```
 
-## 根本原因
+## 當時根本原因
 
-`wiki/` 目錄有**兩套獨立系統**，各需單獨維護：
+早期 `wiki/` 有兩套獨立系統：
 
 | 系統 | 產生方式 | 包含什麼 |
-|------|---------|---------|
-| `wiki-data.js` | `python wiki/gen_data.py` 自動產生 | 所有 `.md` 的**內容** |
-| `viewer.html` nav | **手動**維護 JS 陣列（~行 118）| 左側選單**導覽項目** |
+|------|----------|----------|
+| `wiki-data.js` | `python wiki/gen_data.py` 自動產生 | 所有 `.md` 的內容 |
+| `viewer.html` nav | 手動維護 JS 陣列 | 左側選單導覽項目 |
 
-`gen_data.py` 掃描所有 `.md` 並寫入 `wiki-data.js`，但 **不會修改 `viewer.html`** 的 nav 陣列。  
-兩者脫鉤：wiki-data.js 有內容，但選單沒有入口。
+`gen_data.py` 掃描所有 `.md` 並寫入 `wiki-data.js`，但當時不會修改 `viewer.html` 的 nav 陣列。
 
-## 實際踩坑
+## 現行修正
 
-2026-04-07 新增三個 Wails 踩坑頁面後，執行了 `gen_data.py`（26 個頁面），  
-但忘記同步 `viewer.html`，導致左側選單缺少三個條目：
-- `wails-scan-duplicate.md`
-- `wails-build-issues.md`
-- `wails-search-perf.md`
-
-## 正確做法
-
-每次新增 `.md` 後，**必須執行兩個步驟**（缺一不可）：
-
-### Step A：重新產生 wiki-data.js（自動）
-```powershell
-python wiki/gen_data.py
-```
-
-### Step B：同步更新 viewer.html nav 陣列（手動）
-
-在 `viewer.html` 找到對應 section 的 `items` 陣列，插入新項目：
+`viewer.html` 現在會自動從 `window.WIKI_DATA` 建立側欄：
 
 ```js
-// pitfalls section 範例
-{ label: "Wails 掃描重複番號", icon: "❌", file: "pitfalls/wails-scan-duplicate.md", path: "pitfalls/wails-scan-duplicate" },
-{ label: "Wails 搜尋效能優化 75s→10s", icon: "⚡", file: "pitfalls/wails-search-perf.md", path: "pitfalls/wails-search-perf" },
+const SECTION_META = [
+  { key: 'root', match: f => !f.includes('/') },
+  { key: 'architecture', match: f => f.startsWith('architecture/') },
+  { key: 'patterns', match: f => f.startsWith('patterns/') },
+  { key: 'pitfalls', match: f => f.startsWith('pitfalls/'), grouped: true },
+];
 ```
 
-**Icon 選擇**：
-- 踩坑（錯誤/Bug）→ `❌`
-- 效能優化 → `⚡`
-- 架構說明 → `🏛️` / `🗺️`
-- 開發模式 → `📄`
+因此目前新增或修改 wiki 頁面的必要步驟是：
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+python wiki\gen_data.py
+```
+
+只要 `wiki-data.js` 重新產生，`viewer.html` 側欄就會自動包含新頁面。
 
 ## 驗證方法
 
-用瀏覽器開啟 `wiki/viewer.html`，確認左側選單有新頁面，點擊後能正確顯示內容。
+1. 執行 `python wiki\gen_data.py`。
+2. 用瀏覽器開啟 `wiki/viewer.html`。
+3. 確認左側選單出現新頁面，點擊後能正確顯示內容。
+
+Windows PowerShell 若遇到 `UnicodeEncodeError`，請先設定：
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+```
 
 ## 相關文件
 

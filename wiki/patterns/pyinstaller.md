@@ -121,4 +121,4 @@ print(get_bridge().is_available)
 ## 相關頁面
 
 - [wiki/pitfalls/pyinstaller-path.md](../pitfalls/pyinstaller-path.md)
-- [wiki/architecture/go-bridge.md](go-bridge.md)
+- [wiki/architecture/go-bridge.md](../architecture/go-bridge.md)

@@ -45,7 +45,24 @@ dist/
 
 ## 修復方案
 
-手動（或建置腳本中）複製：
+### 現行修復
+
+目前正式發行改走 `setup.ps1` 組裝 Windows portable bundle。腳本會把下列檔案複製進 `dist\portable\`：
+
+- `studios.json`
+- `major_studios.json`
+
+因此一般發行時應分發：
+
+```text
+dist\PornActressDB-windows-portable.zip
+```
+
+不要只複製單一 `actress-classifier.exe`。
+
+### 歷史手動修復
+
+若仍在手動測試舊 `dist\` 目錄，可手動複製：
 
 ```powershell
 Copy-Item studios.json dist\studios.json
@@ -56,21 +73,22 @@ Copy-Item major_studios.json dist\major_studios.json
 
 ## 長期建議
 
-在 Wails 建置後步驟自動同步：
+在 Wails 建置後步驟自動同步。現行 `setup.ps1` 已負責 portable bundle；若另外維護獨立 build script，至少要包含：
 
 ```powershell
 # wails build 之後執行
 wails build -platform windows/amd64
-Copy-Item studios.json "wails-app\build\bin\studios.json"
-Copy-Item major_studios.json "wails-app\build\bin\major_studios.json"
+Copy-Item studios.json "dist\portable\studios.json"
+Copy-Item major_studios.json "dist\portable\major_studios.json"
 ```
 
-或在 `Makefile` / `build.ps1` 中加入此步驟，避免每次手動操作遺忘。
+或在 `Makefile` / `build.ps1` 中加入同等步驟，避免每次手動操作遺忘。
 
 ---
 
 ## 相關檔案
 
 - `wails-app/backend/app.go` — `resolveStudiosPath()`、`resolveMajorStudiosPath()`
-- `studios.json` — 番號前綴→片商對應表（需同步到 dist/）
-- `major_studios.json` — 大片商名稱清單（需同步到 dist/）
+- `setup.ps1` — 現行 portable bundle 組裝腳本
+- `studios.json` — 番號前綴→片商對應表（需同步到 bundle）
+- `major_studios.json` — 大片商名稱清單（需同步到 bundle）
