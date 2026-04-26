@@ -130,6 +130,23 @@ def test_429_warning_does_not_include_consecutive_error_count(
     assert searcher.consecutive_errors == 4
 
 
+def test_safe_request_daily_limit_returns_none_without_http_request(
+    tmp_path, monkeypatch
+):
+    """達每日上限時 safe_request 應直接回傳 None，不送出 HTTP request。"""
+    searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path), warmup_enabled=False)
+    searcher.stats["today_count"] = searcher.daily_limit
+    searcher.session = MagicMock()
+
+    monkeypatch.setattr(searcher_module.time, "sleep", MagicMock())
+
+    result = searcher.safe_request("https://javdb.com/search?q=TEST&f=all")
+
+    assert result is None
+    searcher.session.get.assert_not_called()
+    searcher_module.time.sleep.assert_not_called()
+
+
 def test_create_session_closes_previous_client(tmp_path):
     """重建 session 前應先關閉舊 client，避免長時間累積未關閉連線。"""
     searcher = SafeJAVDBSearcher(cache_dir=str(tmp_path), warmup_enabled=False)

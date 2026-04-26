@@ -93,4 +93,10 @@ python -m pytest tests/test_safe_javdb_searcher.py -q -p no:cacheprovider
 
 python -m pytest tests/ -q -p no:cacheprovider
 # 1049 passed, 2 skipped, 1 warning
+
+python -m pytest tests/test_safe_javdb_searcher.py tests/test_coverage_safe_javdb_searcher.py -q -p no:cacheprovider
+# 89 passed
+
+python -m pytest tests/ -q -p no:cacheprovider
+# 1050 passed, 2 skipped, 2 warnings
 ```

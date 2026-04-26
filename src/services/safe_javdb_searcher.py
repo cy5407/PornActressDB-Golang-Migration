@@ -258,44 +258,48 @@ class SafeJAVDBSearcher:
         current_retry = retry_count
 
         while True:
-            try:
-                session, consecutive_errors = self._prepare_request_context()
-                if session is None:
-                    return None
-                session = self._apply_cooldown_if_needed(session, consecutive_errors)
-                time.sleep(self._calculate_request_delay(consecutive_errors, current_retry))
+            response, next_retry = self._attempt_safe_request(url, current_retry)
+            if next_retry is None:
+                return response
+            current_retry = next_retry
 
-                response = session.get(url)
-                self._record_request_sent()
-                status = response.status_code
+    def _attempt_safe_request(
+        self, url: str, current_retry: int
+    ) -> tuple[Any | None, int | None]:
+        try:
+            session, consecutive_errors = self._prepare_request_context()
+            if session is None:
+                return None, None
 
-                if status == 200:
-                    self._reset_consecutive_errors()
-                    logger.debug("✅ JAVDB 請求成功: %s", status)
-                    return response
+            session = self._apply_cooldown_if_needed(session, consecutive_errors)
+            time.sleep(self._calculate_request_delay(consecutive_errors, current_retry))
 
-                next_retry = self._handle_error_status(status, current_retry)
-                if next_retry is None:
-                    return None
-                current_retry = next_retry
+            response = session.get(url)
+            self._record_request_sent()
+            return self._handle_attempt_response(response, current_retry)
 
-            except httpx.TimeoutException:
-                next_retry = self._handle_timeout_error(current_retry)
-                if next_retry is None:
-                    return None
-                current_retry = next_retry
+        except httpx.TimeoutException:
+            return self._retry_attempt(self._handle_timeout_error(current_retry))
 
-            except httpx.ConnectError:
-                next_retry = self._handle_connect_error(current_retry)
-                if next_retry is None:
-                    return None
-                current_retry = next_retry
+        except httpx.ConnectError:
+            return self._retry_attempt(self._handle_connect_error(current_retry))
 
-            except Exception as e:
-                next_retry = self._handle_unknown_error(e, current_retry)
-                if next_retry is None:
-                    return None
-                current_retry = next_retry
+        except Exception as e:
+            return self._retry_attempt(self._handle_unknown_error(e, current_retry))
+
+    def _handle_attempt_response(
+        self, response: Any, current_retry: int
+    ) -> tuple[Any | None, int | None]:
+        status = response.status_code
+        if status == 200:
+            self._reset_consecutive_errors()
+            logger.debug("✅ JAVDB 請求成功: %s", status)
+            return response, None
+
+        return self._retry_attempt(self._handle_error_status(status, current_retry))
+
+    def _retry_attempt(self, next_retry: int | None) -> tuple[None, int | None]:
+        return None, next_retry
 
     def _prepare_request_context(self) -> tuple[Any | None, int]:
         with self._lock:
