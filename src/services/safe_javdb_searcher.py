@@ -10,7 +10,7 @@ from datetime import date
 from pathlib import Path
 from secrets import choice as secure_choice
 from secrets import randbelow
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import quote, urljoin
 
 # 優先使用 curl_cffi 模擬瀏覽器 TLS 指紋繞過 Cloudflare
@@ -52,6 +52,22 @@ def _random_delay(minimum: float, maximum: float) -> float:
 
 class SafeJAVDBSearcher:
     """安全的 JAVDB 搜尋器類別"""
+
+    _DETAIL_MAKER_LABELS: ClassVar[frozenset[str]] = frozenset({"片商", "Maker"})
+    _DETAIL_RATING_LABELS: ClassVar[frozenset[str]] = frozenset({"評分", "Rating"})
+    _DETAIL_CATEGORY_LABELS: ClassVar[frozenset[str]] = frozenset({"類別", "Tags"})
+    _DETAIL_TEXT_FIELDS: ClassVar[dict[str, str]] = {
+        "日期": "release_date",
+        "Released Date": "release_date",
+        "時長": "duration",
+        "Duration": "duration",
+    }
+    _DETAIL_LINK_FIELDS: ClassVar[dict[str, str]] = {
+        "導演": "director",
+        "Director": "director",
+        "系列": "series",
+        "Series": "series",
+    }
 
     def __init__(self, cache_dir: str = None, warmup_enabled: bool = True):
         self.cache_dir = (
@@ -686,32 +702,58 @@ class SafeJAVDBSearcher:
 
     @staticmethod
     def _apply_detail_panel_value(info: dict[str, Any], label: str, value_element) -> None:
-        if label in {"片商", "Maker"}:
-            maker_link = value_element.select_one('a[href*="/makers/"]')
-            if maker_link:
-                info["studio"] = maker_link.text.strip()
-        elif label in {"日期", "Released Date"}:
-            date_text = value_element.text.strip()
-            if date_text:
-                info["release_date"] = date_text
-        elif label in {"時長", "Duration"}:
-            duration_text = value_element.text.strip()
-            if duration_text:
-                info["duration"] = duration_text
-        elif label in {"導演", "Director"}:
-            director_link = value_element.select_one("a")
-            if director_link:
-                info["director"] = director_link.text.strip()
-        elif label in {"系列", "Series"}:
-            series_link = value_element.select_one("a")
-            if series_link:
-                info["series"] = series_link.text.strip()
-        elif label in {"評分", "Rating"}:
-            rating_match = re.search(r"(\d+\.?\d*)", value_element.text.strip())
-            if rating_match:
-                info["rating"] = float(rating_match.group(1))
-        elif label in {"類別", "Tags"}:
-            info["categories"] = [link.text.strip() for link in value_element.select("a")]
+        if label in SafeJAVDBSearcher._DETAIL_MAKER_LABELS:
+            SafeJAVDBSearcher._apply_detail_maker(info, value_element)
+            return
+
+        text_field = SafeJAVDBSearcher._DETAIL_TEXT_FIELDS.get(label)
+        if text_field is not None:
+            SafeJAVDBSearcher._apply_detail_text_field(info, value_element, text_field)
+            return
+
+        link_field = SafeJAVDBSearcher._DETAIL_LINK_FIELDS.get(label)
+        if link_field is not None:
+            SafeJAVDBSearcher._apply_detail_link_field(info, value_element, link_field)
+            return
+
+        if label in SafeJAVDBSearcher._DETAIL_RATING_LABELS:
+            SafeJAVDBSearcher._apply_detail_rating(info, value_element)
+            return
+
+        if label in SafeJAVDBSearcher._DETAIL_CATEGORY_LABELS:
+            SafeJAVDBSearcher._apply_detail_categories(info, value_element)
+
+    @staticmethod
+    def _apply_detail_maker(info: dict[str, Any], value_element) -> None:
+        maker_link = value_element.select_one('a[href*="/makers/"]')
+        if maker_link:
+            info["studio"] = maker_link.text.strip()
+
+    @staticmethod
+    def _apply_detail_text_field(
+        info: dict[str, Any], value_element, field_name: str
+    ) -> None:
+        text_value = value_element.text.strip()
+        if text_value:
+            info[field_name] = text_value
+
+    @staticmethod
+    def _apply_detail_link_field(
+        info: dict[str, Any], value_element, field_name: str
+    ) -> None:
+        link_value = value_element.select_one("a")
+        if link_value:
+            info[field_name] = link_value.text.strip()
+
+    @staticmethod
+    def _apply_detail_rating(info: dict[str, Any], value_element) -> None:
+        rating_match = re.search(r"(\d+\.?\d*)", value_element.text.strip())
+        if rating_match:
+            info["rating"] = float(rating_match.group(1))
+
+    @staticmethod
+    def _apply_detail_categories(info: dict[str, Any], value_element) -> None:
+        info["categories"] = [link.text.strip() for link in value_element.select("a")]
 
     def _extract_studio_code_from_number(self, code: str) -> str | None:
         """從番號中提取片商代碼"""

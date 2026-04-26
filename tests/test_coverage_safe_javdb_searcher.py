@@ -516,6 +516,96 @@ def test_apply_detail_panel_categories(tmp_path):
     assert "巨乳" in info["categories"]
 
 
+def test_apply_detail_panel_maker_english_label(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    value_el = _soup(
+        '<div class="value"><a href="/makers/1">S1 STYLE</a></div>'
+    ).find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Maker", value_el)
+    assert info["studio"] == "S1 STYLE"
+
+
+def test_apply_detail_panel_released_date_english_label(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    value_el = _soup('<div class="value">2023-05-10</div>').find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Released Date", value_el)
+    assert info["release_date"] == "2023-05-10"
+
+
+def test_apply_detail_panel_duration_english_label(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    value_el = _soup('<div class="value">120分鐘</div>').find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Duration", value_el)
+    assert info["duration"] == "120分鐘"
+
+
+def test_apply_detail_panel_director_english_label(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    value_el = _soup(
+        '<div class="value"><a href="/directors/1">山田太郎</a></div>'
+    ).find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Director", value_el)
+    assert info["director"] == "山田太郎"
+
+
+def test_apply_detail_panel_series_english_label(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    value_el = _soup(
+        '<div class="value"><a href="/series/1">人妻シリーズ</a></div>'
+    ).find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Series", value_el)
+    assert info["series"] == "人妻シリーズ"
+
+
+def test_apply_detail_panel_rating_english_label(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    value_el = _soup('<div class="value">8.5分</div>').find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Rating", value_el)
+    assert info["rating"] == 8.5
+
+
+def test_apply_detail_panel_tags_english_label(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    value_el = _soup('<div class="value"><a>Drama</a><a>Solo</a></div>').find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Tags", value_el)
+    assert info["categories"] == ["Drama", "Solo"]
+
+
+def test_apply_detail_panel_unknown_label_noop(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    original_info = info.copy()
+    value_el = _soup('<div class="value"><a href="/makers/1">S1 STYLE</a></div>').find(
+        "div"
+    )
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Unknown Label", value_el)
+    assert info == original_info
+
+
+def test_apply_detail_panel_maker_ignores_non_maker_link(tmp_path):
+    # Maker requires /makers/ URL filter; must not share generic first-link helper.
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    value_el = _soup(
+        '<div class="value"><a href="/directors/1">S1 STYLE</a></div>'
+    ).find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Maker", value_el)
+    assert info["studio"] is None
+
+
+def test_apply_detail_panel_tags_empty_overwrites_to_empty_list(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    info["categories"] = ["old-category"]
+    value_el = _soup('<div class="value"></div>').find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Tags", value_el)
+    assert info["categories"] == []
+
+
+def test_apply_detail_panel_rating_no_number_stays_none(tmp_path):
+    info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
+    value_el = _soup('<div class="value">--</div>').find("div")
+    SafeJAVDBSearcher._apply_detail_panel_value(info, "Rating", value_el)
+    assert info["rating"] is None
+
+
 # ---------------------------------------------------------------------------
 # _extract_studio_code_from_number（lines 700-711）
 # ---------------------------------------------------------------------------
