@@ -1,7 +1,11 @@
 """
 JSON 資料庫型別定義和常數
 
-此模組定義了 JSON 資料庫系統中使用的所有型別定義和常數。
+正式 JSON DB 的讀寫、compact 與清洗主流程已委派給 Go
+(`pkg/database/types.go` 與 `classifier.exe db ...`)。
+
+本模組保留給 Python 搜尋入口、工具腳本與測試作為 schema 對照與型別提示；
+若持久化 schema 有衝突，應以 Go 端 `VideoData` 定義為準，再同步更新這裡。
 """
 
 from datetime import datetime, timezone
@@ -23,7 +27,11 @@ class MetadataDict(TypedDict, total=False):
 
 
 class VideoDict(TypedDict, total=False):
-    """影片資料結構型別定義"""
+    """Python 側影片資料形狀。
+
+    這不是 DB 寫入邏輯的 source of truth；正式持久化欄位以 Go 端
+    `pkg/database/types.go` 的 `VideoData` 為準。
+    """
 
     code: str  # 影片番號 (例: "DOCZ-004")
     title: str  # 片名
