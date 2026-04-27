@@ -7,6 +7,7 @@
 #   scripts\db-query.ps1 actress -Text 女優名
 #   scripts\db-query.ps1 studio -Text PRESTIGE
 #   scripts\db-query.ps1 long-actresses -MinLength 10 -Limit 50
+#   scripts\db-query.ps1 long-actresses -MinLength 10 -All
 #   scripts\db-query.ps1 sql -Sql "SELECT code, studio, actresses FROM videos_with_actresses LIMIT 10"
 
 param(
@@ -18,6 +19,7 @@ param(
     [string]$Sql = "",
     [int]$Limit = 20,
     [int]$MinLength = 10,
+    [switch]$All,
     [string]$SqlitePath = ""
 )
 
@@ -62,6 +64,7 @@ $env:DB_QUERY_TEXT = $Text
 $env:DB_QUERY_SQL = $Sql
 $env:DB_QUERY_LIMIT = [string]$Limit
 $env:DB_QUERY_MIN_LENGTH = [string]$MinLength
+$env:DB_QUERY_ALL = if ($All) { "1" } else { "0" }
 $env:DB_QUERY_SQLITE_PATH = (Resolve-Path $SqlitePath).Path
 
 $script = @'
@@ -72,6 +75,7 @@ const text = process.env.DB_QUERY_TEXT || "";
 const rawSql = process.env.DB_QUERY_SQL || "";
 const limit = Math.max(1, Math.min(Number(process.env.DB_QUERY_LIMIT || "20"), 500));
 const minLength = Math.max(1, Number(process.env.DB_QUERY_MIN_LENGTH || "10"));
+const showAll = process.env.DB_QUERY_ALL === "1";
 const sqlitePath = process.env.DB_QUERY_SQLITE_PATH;
 
 const db = new Database(sqlitePath, { readonly: true });
@@ -163,7 +167,16 @@ try {
       break;
 
     case "long-actresses":
-      print(rows(`
+      const total = rows(`
+        SELECT COUNT(*) AS count
+        FROM (
+          SELECT va.actress_name
+          FROM video_actresses va
+          WHERE length(va.actress_name) > $minLength
+          GROUP BY va.actress_name
+        )
+      `, { $minLength: minLength })[0].count;
+      const longActressesSql = `
         SELECT
           va.actress_name,
           length(va.actress_name) AS name_length,
@@ -173,8 +186,16 @@ try {
         WHERE length(va.actress_name) > $minLength
         GROUP BY va.actress_name
         ORDER BY name_length DESC, video_count DESC, va.actress_name ASC
-        LIMIT $limit
-      `, { $minLength: minLength, $limit: limit }));
+        ${showAll ? "" : "LIMIT $limit"}
+      `;
+      const longActresses = rows(longActressesSql, { $minLength: minLength, $limit: limit });
+      console.log(JSON.stringify({
+        min_length_exclusive: minLength,
+        total_matches: total,
+        returned_rows: longActresses.length,
+        limited: !showAll,
+      }, null, 2));
+      print(longActresses);
       break;
 
     case "search":
