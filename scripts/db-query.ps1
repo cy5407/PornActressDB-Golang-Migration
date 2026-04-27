@@ -8,11 +8,13 @@
 #   scripts\db-query.ps1 studio -Text PRESTIGE
 #   scripts\db-query.ps1 long-actresses -MinLength 10 -Limit 50
 #   scripts\db-query.ps1 long-actresses -MinLength 10 -All
+#   scripts\db-query.ps1 hash-actresses -All
+#   scripts\db-query.ps1 long-title-fragments -All
 #   scripts\db-query.ps1 sql -Sql "SELECT code, studio, actresses FROM videos_with_actresses LIMIT 10"
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("search", "code", "actress", "studio", "long-actresses", "tables", "stats", "sql", "recent")]
+    [ValidateSet("search", "code", "actress", "studio", "long-actresses", "hash-actresses", "long-title-fragments", "tables", "stats", "sql", "recent")]
     [string]$Mode = "search",
 
     [string]$Text = "",
@@ -96,6 +98,22 @@ function print(value) {
   }
 }
 
+function printRowsWithSummary(summary, query, params) {
+  const total = rows(`
+    SELECT COUNT(*) AS count
+    FROM (${query})
+  `, params)[0].count;
+  const pagedQuery = showAll ? query : `${query} LIMIT $limit`;
+  const resultRows = rows(pagedQuery, params);
+  console.log(JSON.stringify({
+    ...summary,
+    total_matches: total,
+    returned_rows: resultRows.length,
+    limited: !showAll,
+  }, null, 2));
+  print(resultRows);
+}
+
 try {
   switch (mode) {
     case "tables":
@@ -167,16 +185,9 @@ try {
       break;
 
     case "long-actresses":
-      const total = rows(`
-        SELECT COUNT(*) AS count
-        FROM (
-          SELECT va.actress_name
-          FROM video_actresses va
-          WHERE length(va.actress_name) > $minLength
-          GROUP BY va.actress_name
-        )
-      `, { $minLength: minLength })[0].count;
-      const longActressesSql = `
+      printRowsWithSummary(
+        { min_length_exclusive: minLength, category: "all_long_actress_fields" },
+        `
         SELECT
           va.actress_name,
           length(va.actress_name) AS name_length,
@@ -186,16 +197,46 @@ try {
         WHERE length(va.actress_name) > $minLength
         GROUP BY va.actress_name
         ORDER BY name_length DESC, video_count DESC, va.actress_name ASC
-        ${showAll ? "" : "LIMIT $limit"}
-      `;
-      const longActresses = rows(longActressesSql, { $minLength: minLength, $limit: limit });
-      console.log(JSON.stringify({
-        min_length_exclusive: minLength,
-        total_matches: total,
-        returned_rows: longActresses.length,
-        limited: !showAll,
-      }, null, 2));
-      print(longActresses);
+        `,
+        { $minLength: minLength, $limit: limit }
+      );
+      break;
+
+    case "hash-actresses":
+      printRowsWithSummary(
+        { category: "hash_joined_cast_fields" },
+        `
+        SELECT
+          va.actress_name,
+          length(va.actress_name) AS name_length,
+          COUNT(*) AS video_count,
+          GROUP_CONCAT(va.video_code, ', ') AS codes
+        FROM video_actresses va
+        WHERE va.actress_name LIKE '%#%'
+        GROUP BY va.actress_name
+        ORDER BY name_length DESC, video_count DESC, va.actress_name ASC
+        `,
+        { $limit: limit }
+      );
+      break;
+
+    case "long-title-fragments":
+      printRowsWithSummary(
+        { min_length_exclusive: minLength, category: "long_without_hash" },
+        `
+        SELECT
+          va.actress_name,
+          length(va.actress_name) AS name_length,
+          COUNT(*) AS video_count,
+          GROUP_CONCAT(va.video_code, ', ') AS codes
+        FROM video_actresses va
+        WHERE length(va.actress_name) > $minLength
+          AND va.actress_name NOT LIKE '%#%'
+        GROUP BY va.actress_name
+        ORDER BY name_length DESC, video_count DESC, va.actress_name ASC
+        `,
+        { $minLength: minLength, $limit: limit }
+      );
       break;
 
     case "search":
