@@ -6,16 +6,18 @@
 #   scripts\db-query.ps1 code -Text ABF-056
 #   scripts\db-query.ps1 actress -Text 女優名
 #   scripts\db-query.ps1 studio -Text PRESTIGE
+#   scripts\db-query.ps1 long-actresses -MinLength 10 -Limit 50
 #   scripts\db-query.ps1 sql -Sql "SELECT code, studio, actresses FROM videos_with_actresses LIMIT 10"
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("search", "code", "actress", "studio", "tables", "stats", "sql", "recent")]
+    [ValidateSet("search", "code", "actress", "studio", "long-actresses", "tables", "stats", "sql", "recent")]
     [string]$Mode = "search",
 
     [string]$Text = "",
     [string]$Sql = "",
     [int]$Limit = 20,
+    [int]$MinLength = 10,
     [string]$SqlitePath = ""
 )
 
@@ -51,11 +53,15 @@ if ($Limit -lt 1) {
 if ($Limit -gt 500) {
     $Limit = 500
 }
+if ($MinLength -lt 1) {
+    $MinLength = 1
+}
 
 $env:DB_QUERY_MODE = $Mode
 $env:DB_QUERY_TEXT = $Text
 $env:DB_QUERY_SQL = $Sql
 $env:DB_QUERY_LIMIT = [string]$Limit
+$env:DB_QUERY_MIN_LENGTH = [string]$MinLength
 $env:DB_QUERY_SQLITE_PATH = (Resolve-Path $SqlitePath).Path
 
 $script = @'
@@ -65,6 +71,7 @@ const mode = process.env.DB_QUERY_MODE || "search";
 const text = process.env.DB_QUERY_TEXT || "";
 const rawSql = process.env.DB_QUERY_SQL || "";
 const limit = Math.max(1, Math.min(Number(process.env.DB_QUERY_LIMIT || "20"), 500));
+const minLength = Math.max(1, Number(process.env.DB_QUERY_MIN_LENGTH || "10"));
 const sqlitePath = process.env.DB_QUERY_SQLITE_PATH;
 
 const db = new Database(sqlitePath, { readonly: true });
@@ -153,6 +160,21 @@ try {
         ORDER BY code ASC
         LIMIT $limit
       `, { $text: like(text), $limit: limit }));
+      break;
+
+    case "long-actresses":
+      print(rows(`
+        SELECT
+          va.actress_name,
+          length(va.actress_name) AS name_length,
+          COUNT(*) AS video_count,
+          GROUP_CONCAT(va.video_code, ', ') AS codes
+        FROM video_actresses va
+        WHERE length(va.actress_name) > $minLength
+        GROUP BY va.actress_name
+        ORDER BY name_length DESC, video_count DESC, va.actress_name ASC
+        LIMIT $limit
+      `, { $minLength: minLength, $limit: limit }));
       break;
 
     case "search":
