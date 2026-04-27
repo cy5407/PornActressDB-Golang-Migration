@@ -11,10 +11,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$CLASSIFIER  = "classifier.exe"
-$DB_TOOL     = "tools-rs\target\release\db-tool.exe"
-$JSON_PATH   = "data\json_db\data.json"
-$SQLITE_PATH = "data\shadow.sqlite"
+$SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+$REPO_ROOT = Resolve-Path (Join-Path $SCRIPT_DIR "..")
+
+$CLASSIFIER  = Join-Path $REPO_ROOT "classifier.exe"
+$DB_TOOL     = Join-Path $REPO_ROOT "tools-rs\target\release\db-tool.exe"
+$JSON_PATH   = Join-Path $REPO_ROOT "data\json_db\data.json"
+$SQLITE_PATH = Join-Path $REPO_ROOT "data\shadow.sqlite"
 
 if (-not (Test-Path $CLASSIFIER)) {
     Write-Error "找不到 $CLASSIFIER，請先執行: go build -o classifier.exe .\cmd\scanner"
@@ -29,33 +32,38 @@ if (-not (Test-Path $JSON_PATH)) {
     exit 1
 }
 
-if (-not $SkipCompact) {
-    Write-Host "[1/4] compact journal..." -ForegroundColor Cyan
-    & $CLASSIFIER db compact
+Push-Location $REPO_ROOT
+try {
+    if (-not $SkipCompact) {
+        Write-Host "[1/4] compact journal..." -ForegroundColor Cyan
+        & $CLASSIFIER db compact
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    } else {
+        Write-Host "[1/4] compact 略過 (-SkipCompact)" -ForegroundColor DarkGray
+    }
+
+    Write-Host "[2/4] db-init..." -ForegroundColor Cyan
+    & $DB_TOOL db-init --sqlite $SQLITE_PATH --replace
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-} else {
-    Write-Host "[1/4] compact 略過 (-SkipCompact)" -ForegroundColor DarkGray
-}
 
-Write-Host "[2/4] db-init..." -ForegroundColor Cyan
-& $DB_TOOL db-init --sqlite $SQLITE_PATH --replace
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-Write-Host "[3/4] db-import-json..." -ForegroundColor Cyan
-& $DB_TOOL db-import-json --json $JSON_PATH --sqlite $SQLITE_PATH --replace
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-Write-Host "[4/4] db-compare-json..." -ForegroundColor Cyan
-& $DB_TOOL db-compare-json --json $JSON_PATH --sqlite $SQLITE_PATH
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "`n✗ compare 失敗，shadow DB 可能不完整" -ForegroundColor Red
-    exit $LASTEXITCODE
-}
-
-if ($Benchmark) {
-    Write-Host "[+]  db-benchmark..." -ForegroundColor Cyan
-    & $DB_TOOL db-benchmark --json $JSON_PATH --sqlite $SQLITE_PATH
+    Write-Host "[3/4] db-import-json..." -ForegroundColor Cyan
+    & $DB_TOOL db-import-json --json $JSON_PATH --sqlite $SQLITE_PATH --replace
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-}
 
-Write-Host "`n✓ shadow DB 同步完成" -ForegroundColor Green
+    Write-Host "[4/4] db-compare-json..." -ForegroundColor Cyan
+    & $DB_TOOL db-compare-json --json $JSON_PATH --sqlite $SQLITE_PATH
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "`n✗ compare 失敗，shadow DB 可能不完整" -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+
+    if ($Benchmark) {
+        Write-Host "[+]  db-benchmark..." -ForegroundColor Cyan
+        & $DB_TOOL db-benchmark --json $JSON_PATH --sqlite $SQLITE_PATH
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+
+    Write-Host "`n✓ shadow DB 同步完成" -ForegroundColor Green
+} finally {
+    Pop-Location
+}
