@@ -41,6 +41,30 @@ func TestActressCleaner_CleanActressesRemovesRepeatedConcatenatedNameWhenBaseExi
 	assertStringSliceEqual(t, removed, []string{"蒼乃美月蒼乃美月"})
 }
 
+func TestActressCleaner_CleanActressesRemovesTitleFragmentsFoundInShadowDB(t *testing.T) {
+	cleaner := NewActressCleaner()
+
+	cleaned, removed := cleaner.CleanActresses([]string{
+		"絶頂ランジェリーナ",
+		"美少女と",
+		"瀧本雫葉",
+		"瀧本雫葉汁",
+		"婚前カノジョが完堕ちするまで",
+		"新・絶対的美少女",
+		"新人",
+	})
+
+	assertStringSliceEqual(t, cleaned, []string{"瀧本雫葉"})
+	assertStringSliceEqual(t, removed, []string{
+		"絶頂ランジェリーナ",
+		"美少女と",
+		"瀧本雫葉汁",
+		"婚前カノジョが完堕ちするまで",
+		"新・絶対的美少女",
+		"新人",
+	})
+}
+
 func TestActressCleaner_ApplyToDatabaseDryRunDoesNotMutateData(t *testing.T) {
 	db, _ := setupTestDB(t)
 	video := NewVideo("ABF-062")
@@ -136,4 +160,3 @@ func TestActressCleaner_RemovesSingleAsterisk(t *testing.T) {
 	assertStringSliceEqual(t, cleaned, []string{"天羽りりか"})
 	assertStringSliceEqual(t, removed, []string{"＊"})
 }
-

@@ -42,6 +42,8 @@ func NewActressCleaner() *ActressCleaner {
 			"究極性交", "手を繋", "小さい頃", "クリエイト", "種の媚", "応募", "体験撮影", "初撮り",
 			"無限聖水", "ドスケベ乳", "プレステージ専属デビュ", "絶対忠実秘書", "風俗タワー", "性感フルコース",
 			"唇が溶けるほどのベロキス性交", "天然成分由来", "リミットブレイク", "憑依バカッター",
+			"絶頂ランジェリーナ", "美少女と", "貸し切り温泉と", "婚前カノジョが完堕ちするまで",
+			"お貸ししま", "新・絶対的美少女", "新人",
 		),
 		protected: toStringSet("瀧本雫葉", "蒼乃美月", "綾瀬天", "東雲すみれ", "五芭", "天然美月"),
 	}
@@ -138,7 +140,25 @@ func (c *ActressCleaner) shouldRemove(name string, present map[string]struct{}) 
 		_, hasCanonical := present["三田真鈴"]
 		return hasCanonical
 	}
+	if c.isProtectedNameContamination(name, present) {
+		return true
+	}
 	return isRepeatedConcatenation(name, present)
+}
+
+func (c *ActressCleaner) isProtectedNameContamination(name string, present map[string]struct{}) bool {
+	for protectedName := range c.protected {
+		if name == protectedName {
+			continue
+		}
+		if _, exists := present[protectedName]; !exists {
+			continue
+		}
+		if strings.Contains(name, protectedName) {
+			return true
+		}
+	}
+	return false
 }
 
 // isAllAsterisks 判斷是否為全形或半形星號組成的垃圾值（如 ＊＊＊、***）。
