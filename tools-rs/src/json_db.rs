@@ -1,0 +1,228 @@
+use anyhow::{bail, Context, Result};
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::Path;
+use std::time::SystemTime;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ActressItem {
+    pub name: String,
+    pub ordinal: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VideoRow {
+    pub code: String,
+    pub title: String,
+    pub studio: String,
+    pub release_date: String,
+    pub url: String,
+    pub search_status: String,
+    pub search_method: String,
+    pub last_search_date: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub original_filename: String,
+    pub file_path: String,
+    pub actresses: Vec<String>,
+    pub actress_items: Vec<ActressItem>,
+    pub raw_json: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InvalidRecord {
+    pub map_key: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsonRows {
+    pub rows: BTreeMap<String, VideoRow>,
+    pub invalid: Vec<InvalidRecord>,
+    pub duplicate_actresses: usize,
+}
+
+pub fn load_json_rows(path: &Path) -> Result<JsonRows> {
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("read JSON DB source: {}", path.display()))?;
+    let root: Value = serde_json::from_str(&source)
+        .with_context(|| format!("parse JSON DB source: {}", path.display()))?;
+    let Some(root_obj) = root.as_object() else {
+        bail!("JSON DB root must be an object");
+    };
+
+    let videos = root_obj
+        .get("videos")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut rows = BTreeMap::new();
+    let mut invalid = Vec::new();
+    let mut duplicate_actresses = 0;
+
+    for (map_key, value) in videos {
+        match video_from_value(&map_key, &value) {
+            Ok((row, duplicates)) => {
+                duplicate_actresses += duplicates;
+                rows.insert(row.code.clone(), row);
+            }
+            Err(reason) => invalid.push(InvalidRecord {
+                map_key,
+                reason: reason.to_string(),
+            }),
+        }
+    }
+
+    Ok(JsonRows {
+        rows,
+        invalid,
+        duplicate_actresses,
+    })
+}
+
+fn video_from_value(
+    map_key: &str,
+    value: &Value,
+) -> std::result::Result<(VideoRow, usize), &'static str> {
+    if !value.is_object() {
+        return Err("video record must be an object");
+    }
+
+    let code = string_field(value, "code")
+        .or_else(|| string_field(value, "id"))
+        .ok_or("video record missing code/id")?;
+
+    if code.is_empty() {
+        return Err("video record missing code/id");
+    }
+
+    let (actresses, actress_items, duplicate_count) = parse_actresses(value);
+    let raw_json =
+        serde_json::to_string(value).map_err(|_| "video record raw JSON serialize failed")?;
+
+    let row = VideoRow {
+        code,
+        title: string_field(value, "title").unwrap_or_default(),
+        studio: string_field(value, "studio").unwrap_or_default(),
+        release_date: string_field(value, "release_date").unwrap_or_default(),
+        url: string_field(value, "url").unwrap_or_default(),
+        search_status: string_field(value, "search_status").unwrap_or_default(),
+        search_method: string_field(value, "search_method").unwrap_or_default(),
+        last_search_date: string_field(value, "last_search_date").unwrap_or_default(),
+        created_at: string_field(value, "created_at").unwrap_or_default(),
+        updated_at: string_field(value, "updated_at").unwrap_or_default(),
+        original_filename: string_field(value, "original_filename").unwrap_or_default(),
+        file_path: string_field(value, "file_path").unwrap_or_default(),
+        actresses,
+        actress_items,
+        raw_json,
+    };
+
+    if row.code != map_key.trim() && !map_key.trim().is_empty() {
+        return Ok((row, duplicate_count));
+    }
+    Ok((row, duplicate_count))
+}
+
+fn string_field(value: &Value, key: &str) -> Option<String> {
+    let text = value.get(key)?.as_str()?.trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn parse_actresses(value: &Value) -> (Vec<String>, Vec<ActressItem>, usize) {
+    let Some(items) = value.get("actresses").and_then(Value::as_array) else {
+        return (Vec::new(), Vec::new(), 0);
+    };
+
+    let mut seen = BTreeSet::new();
+    let mut actress_items = Vec::new();
+    let mut duplicate_count = 0;
+
+    for (ordinal, item) in items.iter().enumerate() {
+        let Some(name) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let name = name.to_string();
+        if seen.insert(name.clone()) {
+            actress_items.push(ActressItem { name, ordinal });
+        } else {
+            duplicate_count += 1;
+        }
+    }
+
+    let actresses = seen.into_iter().collect();
+    (actresses, actress_items, duplicate_count)
+}
+
+pub fn system_time_rfc3339(value: Option<SystemTime>) -> String {
+    value
+        .map(time::OffsetDateTime::from)
+        .and_then(|t| {
+            t.format(&time::format_description::well_known::Rfc3339)
+                .ok()
+        })
+        .unwrap_or_default()
+}
+
+pub fn now_utc_rfc3339() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn load_json_rows_uses_id_fallback_and_tracks_duplicate_actresses() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let json_path = dir.path().join("data.json");
+        let mut file = fs::File::create(&json_path).expect("create json");
+        write!(
+            file,
+            r#"{{
+                "videos": {{
+                    "A": {{
+                        "id": "A",
+                        "title": "  Title  ",
+                        "studio": "Studio",
+                        "actresses": ["Alice", "Alice", " Bob ", ""]
+                    }},
+                    "B": {{"title": "missing code"}}
+                }}
+            }}"#
+        )
+        .expect("write json");
+
+        let rows = load_json_rows(&json_path).expect("load rows");
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.invalid.len(), 1);
+        assert_eq!(rows.duplicate_actresses, 1);
+
+        let row = rows.rows.get("A").expect("row A");
+        assert_eq!(row.title, "Title");
+        assert_eq!(row.actresses, vec!["Alice".to_string(), "Bob".to_string()]);
+        assert_eq!(
+            row.actress_items,
+            vec![
+                ActressItem {
+                    name: "Alice".to_string(),
+                    ordinal: 0,
+                },
+                ActressItem {
+                    name: "Bob".to_string(),
+                    ordinal: 2,
+                },
+            ]
+        );
+    }
+}

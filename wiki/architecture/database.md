@@ -348,3 +348,4 @@ Go 端 `VideoData` 目前正式包含：
 
 - [wiki/architecture/go-bridge.md](go-bridge.md)
 - [wiki/architecture/go-cli.md](go-cli.md)
+- [wiki/architecture/sqlite-shadow-db.md](sqlite-shadow-db.md)
