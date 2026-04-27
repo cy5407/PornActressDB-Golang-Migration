@@ -228,7 +228,19 @@ try {
           va.actress_name,
           length(va.actress_name) AS name_length,
           COUNT(*) AS video_count,
-          GROUP_CONCAT(va.video_code, ', ') AS codes
+          GROUP_CONCAT(va.video_code, ', ') AS codes,
+          COALESCE((
+            SELECT GROUP_CONCAT(candidate.actress_name, ', ')
+            FROM (
+              SELECT DISTINCT known.actress_name
+              FROM video_actresses known
+              WHERE known.actress_name != va.actress_name
+                AND known.actress_name NOT LIKE '%#%'
+                AND length(known.actress_name) BETWEEN 3 AND 10
+                AND instr(va.actress_name, known.actress_name) > 0
+              ORDER BY length(known.actress_name) DESC, known.actress_name ASC
+            ) candidate
+          ), '') AS known_name_hits
         FROM video_actresses va
         WHERE length(va.actress_name) > $minLength
           AND va.actress_name NOT LIKE '%#%'

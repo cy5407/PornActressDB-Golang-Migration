@@ -8,6 +8,7 @@ import (
 
 type ActressCleaner struct {
 	blockedExact map[string]struct{}
+	replaceExact map[string][]string
 	protected    map[string]struct{}
 }
 
@@ -44,8 +45,17 @@ func NewActressCleaner() *ActressCleaner {
 			"唇が溶けるほどのベロキス性交", "天然成分由来", "リミットブレイク", "憑依バカッター",
 			"絶頂ランジェリーナ", "美少女と", "貸し切り温泉と", "婚前カノジョが完堕ちするまで",
 			"お貸ししま", "新・絶対的美少女", "新人",
+			"アルバイト先の真面目なアノ娘", "ソープ部を新たにつくった生徒", "パンチラで誘惑するからかい上",
+			"ヤリたい放題いいなり調教イカ", "ヤリまくり一泊二日の温泉旅行", "一夜を使い果たして朝陽が昇る",
+			"初めてサレた快感が忘れられず", "可愛い顔した魔性少女がおっぱ", "同窓会でネトラレてるのにいっ",
+			"地味メガネの書店員バイトちゃ", "帰省先のド田舎で僕の東京カノ", "引きニート喪女な妹のオナニー",
+			"新型媚薬でキメセク洗脳美脚ガ", "田舎帰省で成長期の姪っ子と自", "入浴中の裸体を覗かれてから",
+			"手でさするのは浮気にならな", "今日から澪がお前らの嫁",
 		),
-		protected: toStringSet("瀧本雫葉", "蒼乃美月", "綾瀬天", "東雲すみれ", "五芭", "天然美月"),
+		replaceExact: map[string][]string{
+			"石川澪とラブラブでハメまくる": []string{"石川澪"},
+		},
+		protected: toStringSet("瀧本雫葉", "石川澪", "蒼乃美月", "綾瀬天", "東雲すみれ", "五芭", "天然美月"),
 	}
 }
 
@@ -67,19 +77,52 @@ func (c *ActressCleaner) CleanActresses(actresses []string) ([]string, []string)
 		if trimmed == "" {
 			continue
 		}
+		if replacements, ok := c.replaceExact[trimmed]; ok {
+			removed = append(removed, trimmed)
+			for _, replacement := range replacements {
+				c.appendReplacementIfClean(&cleaned, &seen, &removed, strings.TrimSpace(replacement))
+			}
+			continue
+		}
 		if c.shouldRemove(trimmed, present) {
 			removed = append(removed, trimmed)
 			continue
 		}
-		if _, exists := seen[trimmed]; exists {
-			removed = append(removed, trimmed)
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		cleaned = append(cleaned, trimmed)
+		c.appendIfClean(&cleaned, &seen, &removed, trimmed)
 	}
 
 	return cleaned, removed
+}
+
+func (c *ActressCleaner) appendIfClean(cleaned *[]string, seen *map[string]struct{}, removed *[]string, name string) {
+	if name == "" {
+		return
+	}
+	if c.shouldRemove(name, map[string]struct{}{name: struct{}{}}) {
+		*removed = append(*removed, name)
+		return
+	}
+	if _, exists := (*seen)[name]; exists {
+		*removed = append(*removed, name)
+		return
+	}
+	(*seen)[name] = struct{}{}
+	*cleaned = append(*cleaned, name)
+}
+
+func (c *ActressCleaner) appendReplacementIfClean(cleaned *[]string, seen *map[string]struct{}, removed *[]string, name string) {
+	if name == "" {
+		return
+	}
+	if c.shouldRemove(name, map[string]struct{}{name: struct{}{}}) {
+		*removed = append(*removed, name)
+		return
+	}
+	if _, exists := (*seen)[name]; exists {
+		return
+	}
+	(*seen)[name] = struct{}{}
+	*cleaned = append(*cleaned, name)
 }
 
 func (c *ActressCleaner) ApplyToDatabase(db *JSONDatabase, write bool) (*ActressCleanupReport, error) {
