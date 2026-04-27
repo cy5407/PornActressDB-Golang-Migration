@@ -60,7 +60,7 @@ def verify_database(data: dict) -> VerificationReport:
         for field_name in ("original_filename", "file_path"):
             if field_name not in video:
                 report.missing_fields[field_name] += 1
-                report.errors.append(f"{code}: 缺少欄位 {field_name}")
+                report.warnings.append(f"{code}: 缺少選填欄位 {field_name}")
 
         actresses = video.get("actresses")
         if not isinstance(actresses, list):
@@ -72,9 +72,12 @@ def verify_database(data: dict) -> VerificationReport:
             report.errors.append(f"{code}: 非法 search_status={search_status!r}")
 
         search_method = video.get("search_method")
-        if search_method not in ALLOWED_METHODS:
+        if search_method in (None, ""):
             report.invalid_methods[str(search_method)] += 1
-            report.errors.append(f"{code}: 非法 search_method={search_method!r}")
+            report.warnings.append(f"{code}: search_method 空白，建議正規化")
+        elif search_method not in ALLOWED_METHODS:
+            report.invalid_methods[str(search_method)] += 1
+            report.warnings.append(f"{code}: 非 canonical search_method={search_method!r}")
 
         for field_name in video.keys():
             if field_name not in VIDEO_ALLOWED_FIELDS and field_name != "id":

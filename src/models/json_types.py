@@ -28,6 +28,7 @@ class VideoDict(TypedDict, total=False):
     code: str  # 影片番號 (例: "DOCZ-004")
     title: str  # 片名
     studio: str  # 片商名稱
+    studio_code: str  # 片商代碼
     release_date: str  # 發行日期 (ISO 8601: YYYY-MM-DD)
     url: str  # 線上連結
     actresses: list[str]  # 女優名稱清單
@@ -42,9 +43,14 @@ class VideoDict(TypedDict, total=False):
     updated_at: str  # 更新時間 (ISO 8601)
     original_filename: str  # 原始檔名
     file_path: str  # 原始檔案完整路徑
+    error: str  # 持久化錯誤訊息
+    error_kind: str  # 持久化錯誤分類
     search_error_reason: str  # 搜尋失敗原因（選填）
     original_actress_count: int  # 原始解析到的女優數量（選填）
     metadata: MetadataDict  # 額外資訊
+
+
+VIDEO_ALLOWED_FIELDS = set(VideoDict.__annotations__.keys())
 
 
 class ActressDict(TypedDict, total=False):
@@ -238,4 +244,3 @@ def get_empty_video() -> VideoDict:
             "confidence": 0.0,
         },
     }
-
