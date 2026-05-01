@@ -474,22 +474,22 @@ shadow DB 是衍生物，但目前**沒有任何地方會在 `data.json` 變動�
 
 ## 驗收清單（全部完成後逐項對照）
 
-- [ ] `cargo fmt --manifest-path tools-rs/Cargo.toml --check` 無 diff
-- [ ] `cargo clippy --manifest-path tools-rs/Cargo.toml -- -D warnings` 無 warning
-- [ ] `cargo test --manifest-path tools-rs/Cargo.toml` 全部通過
-- [ ] 刪除舊 `data\shadow.sqlite`，跑 `scripts\db-sync.ps1` 流程順利結束（compact → init → import → compare → 可選 benchmark）
-- [ ] `db-stats` 輸出 `schema_version: 2`
-- [ ] `db-stats` 輸出的 `actress_link_count` 與 import 時的 `actresses` 一致
-- [ ] `db-compare-json` 對真實 `data.json` 回 `success: true`
-- [ ] 故意改 SQLite 中某筆 `release_date`，compare 應該抓到 mismatch（驗證 Task 2）
-- [ ] 故意改 SQLite 中某筆 actress 的 ordinal，compare 應該抓到 `field: "actress_items"` mismatch（驗證 Task 3）
-- [ ] 手動測試 v1 schema 防呆四個情境（init/import × replace/無 replace），行為與 Task 5 對照表一致
-- [ ] `data\shadow.sqlite` 體積改前/改後數字記錄於 Task 5 的 commit message **與本 plan「實測結果」段落**（**不設絕對門檻**）
-- [ ] `db-import-json` 改前/改後耗時記錄於 Task 4 的 commit message **與本 plan「實測結果」段落**（**不設絕對門檻**；若明顯變慢需說明原因，無正當理由則 revert）
-- [ ] `db-benchmark` 輸出包含 4 個新 SQLite key，不含舊 `sqlite_total_ms`
-- [ ] `scripts\db-sync.ps1 -Quiet` 行為符合 Task 8 acceptance
-- [ ] `docs/tools-rs-sqlite-shadow-db.md` 已同步：schema v2、`cargo clippy` 進入驗收順序、`db-benchmark` 語意說明
-- [ ] `docs/sqlite-shadow-db-commands.md` 已同步：「先刪舊 shadow.sqlite」warning、`-Quiet` 用法、「compact 不會自動同步 shadow DB」聲明
+- [x] `cargo fmt --manifest-path tools-rs/Cargo.toml --check` 無 diff
+- [x] `cargo clippy --manifest-path tools-rs/Cargo.toml -- -D warnings` 無 warning
+- [x] `cargo test --manifest-path tools-rs/Cargo.toml` 全部通過
+- [x] 刪除舊 `data\shadow.sqlite`，跑 `scripts\db-sync.ps1` 流程順利結束（compact → init → import → compare → 可選 benchmark）
+- [x] `db-stats` 輸出 `schema_version: 2`
+- [x] `db-stats` 輸出的 `actress_link_count` 與 import 時的 `actresses` 一致
+- [x] `db-compare-json` 對真實 `data.json` 回 `success: true`
+- [x] 故意改 SQLite 中某筆 `release_date`，compare 應該抓到 mismatch（驗證 Task 2）
+- [x] 故意改 SQLite 中某筆 actress 的 ordinal，compare 應該抓到 `field: "actress_items"` mismatch（驗證 Task 3）
+- [x] 手動測試 v1 schema 防呆四個情境（init/import × replace/無 replace），行為與 Task 5 對照表一致
+- [x] `data\shadow.sqlite` 體積改前/改後數字記錄於 Task 5 的 commit message **與本 plan「實測結果」段落**（**不設絕對門檻**）
+- [x] `db-import-json` 改前/改後耗時記錄於 Task 4 的 commit message **與本 plan「實測結果」段落**（**不設絕對門檻**；若明顯變慢需說明原因，無正當理由則 revert）
+- [x] `db-benchmark` 輸出包含 4 個新 SQLite key，不含舊 `sqlite_total_ms`
+- [x] `scripts\db-sync.ps1 -Quiet` 行為符合 Task 8 acceptance
+- [x] `docs/tools-rs-sqlite-shadow-db.md` 已同步：schema v2、`cargo clippy` 進入驗收順序、`db-benchmark` 語意說明
+- [x] `docs/sqlite-shadow-db-commands.md` 已同步：「先刪舊 shadow.sqlite」warning、`-Quiet` 用法、「compact 不會自動同步 shadow DB」聲明
 
 ---
 
@@ -503,29 +503,29 @@ shadow DB 是衍生物，但目前**沒有任何地方會在 `data.json` 變動�
 
 | 量測 | 數字 | commit |
 |---|---|---|
-| 改前（baseline） | _待填_ | _待填_ |
-| 改後（prepare-once + PRAGMA） | _待填_ | _待填_ |
-| 結論 | _待填_ | — |
+| 改前（baseline） | 79 ms | baseline `HEAD` 7edcc51（暫時 worktree 量測） |
+| 改後（prepare-once + PRAGMA） | 63 ms | working tree（本輪驗證，`-SkipCompact`） |
+| 結論 | 改後較快，無需 revert | — |
 
 ### Task 5：`data\shadow.sqlite` 體積
 
 | 量測 | 數字 | commit |
 |---|---|---|
-| 改前（schema v1，含 `raw_json`） | _待填_ | _待填_ |
-| 改後（schema v2，無 `raw_json`） | _待填_ | _待填_ |
-| 結論 | _待填_ | — |
+| 改前（schema v1，含 `raw_json`） | 2,830,336 bytes | baseline `HEAD` 7edcc51（暫時 worktree 量測） |
+| 改後（schema v2，無 `raw_json`） | 1,101,824 bytes | working tree（本輪驗證） |
+| 結論 | v2 體積明顯下降 | — |
 
 ### Task 7：`db-benchmark` cold/warm 對比
 
 | 量測（iterations = 10） | 改前 | 改後 |
 |---|---|---|
-| `json_total_ms` | _待填_ | _待填_ |
-| `sqlite_total_ms`（舊 key，改後拿掉） | _待填_ | — |
-| `sqlite_cold_total_ms` | — | _待填_ |
-| `sqlite_warm_total_ms` | — | _待填_ |
-| `sqlite_stats_total_ms` | _待填_ | _待填_ |
-| `sqlite_open_overhead_ms` | — | _待填_ |
-| commit | — | _待填_ |
+| `json_total_ms` | 322 ms | 349 ms |
+| `sqlite_total_ms`（舊 key，改後拿掉） | 84 ms | — |
+| `sqlite_cold_total_ms` | — | 77 ms |
+| `sqlite_warm_total_ms` | — | 59 ms |
+| `sqlite_stats_total_ms` | 11 ms | 3 ms |
+| `sqlite_open_overhead_ms` | — | 1 ms |
+| commit | baseline `HEAD` 7edcc51 | working tree（本輪驗證） |
 
 ---
 
