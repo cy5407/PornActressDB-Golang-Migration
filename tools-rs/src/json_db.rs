@@ -228,6 +228,51 @@ mod tests {
     }
 
     #[test]
+    fn load_json_rows_handles_empty_videos_object() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let json_path = dir.path().join("data.json");
+        fs::write(&json_path, r#"{"videos": {}}"#).expect("write json");
+
+        let rows = load_json_rows(&json_path).expect("load rows");
+        assert_eq!(rows.rows.len(), 0);
+        assert_eq!(rows.invalid.len(), 0);
+        assert_eq!(rows.duplicate_actresses, 0);
+    }
+
+    #[test]
+    fn load_json_rows_handles_missing_videos_key() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let json_path = dir.path().join("data.json");
+        fs::write(&json_path, r#"{"meta": {"version": 1}}"#).expect("write json");
+
+        let rows = load_json_rows(&json_path).expect("load rows");
+        assert_eq!(rows.rows.len(), 0);
+    }
+
+    #[test]
+    fn load_json_rows_rejects_non_object_root() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let json_path = dir.path().join("data.json");
+        fs::write(&json_path, r#"["not", "an", "object"]"#).expect("write json");
+
+        let err = load_json_rows(&json_path).expect_err("array root should fail");
+        assert!(err.to_string().contains("must be an object"));
+    }
+
+    #[test]
+    fn parse_actresses_skips_non_array_field() {
+        use serde_json::json;
+        let value = json!({
+            "code": "A",
+            "actresses": "not-an-array"
+        });
+        let (actresses, items, dupes) = parse_actresses(&value);
+        assert!(actresses.is_empty());
+        assert!(items.is_empty());
+        assert_eq!(dupes, 0);
+    }
+
+    #[test]
     fn load_json_rows_marks_mismatched_map_key_as_invalid() {
         let dir = tempfile::tempdir().expect("tempdir");
         let json_path = dir.path().join("data.json");

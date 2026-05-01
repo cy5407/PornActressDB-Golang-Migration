@@ -632,6 +632,62 @@ mod tests {
     }
 
     #[test]
+    fn stats_on_empty_db_returns_zero_counts() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        let conn = open_db(&sqlite_path).expect("open");
+        init_schema(&conn, false).expect("init");
+
+        let stats = stats(&sqlite_path).expect("stats");
+        assert_eq!(stats["video_count"], 0);
+        assert_eq!(stats["actress_link_count"], 0);
+        assert_eq!(stats["distinct_studio_count"], 0);
+        assert_eq!(stats["empty_title_count"], 0);
+        assert_eq!(stats["schema_version"], SCHEMA_VERSION);
+        assert!(stats["last_import"].is_null());
+    }
+
+    #[test]
+    fn import_with_replace_is_idempotent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        let mut rows = BTreeMap::new();
+        rows.insert(
+            "A".to_string(),
+            row(
+                "A",
+                vec![ActressItem {
+                    name: "Alice".to_string(),
+                    ordinal: 0,
+                }],
+            ),
+        );
+
+        import_rows(&sqlite_path, &rows, &metadata(1, 1), true).expect("first import");
+        import_rows(&sqlite_path, &rows, &metadata(1, 1), true).expect("second import");
+
+        let loaded = load_sqlite_rows(&sqlite_path).expect("load");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded["A"].actresses, vec!["Alice".to_string()]);
+
+        let stats = stats(&sqlite_path).expect("stats");
+        assert_eq!(stats["video_count"], 1);
+        assert_eq!(stats["actress_link_count"], 1);
+    }
+
+    #[test]
+    fn ensure_schema_compatible_rejects_negative_version() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        let conn = open_db(&sqlite_path).expect("open");
+        // SQLite user_version is i32; negative can occur if someone manually corrupts.
+        conn.pragma_update(None, "user_version", -1)
+            .expect("set negative");
+        let err = ensure_schema_compatible(&conn, true).expect_err("negative should fail");
+        assert!(err.to_string().contains("unknown shadow DB schema version"));
+    }
+
+    #[test]
     fn import_replace_true_removes_old_videos() {
         let dir = tempfile::tempdir().expect("tempdir");
         let sqlite_path = dir.path().join("shadow.sqlite");

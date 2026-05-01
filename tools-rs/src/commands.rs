@@ -425,6 +425,45 @@ mod tests {
     }
 
     #[test]
+    fn compare_rows_reports_missing_and_extra_codes() {
+        let mut json_map = BTreeMap::new();
+        json_map.insert("ONLY-JSON".to_string(), row("ONLY-JSON", "T", "S", vec![]));
+        json_map.insert("BOTH".to_string(), row("BOTH", "T", "S", vec![]));
+        let json_rows = JsonRows {
+            rows: json_map,
+            invalid: Vec::new(),
+            duplicate_actresses: 0,
+        };
+
+        let mut sqlite_map = BTreeMap::new();
+        sqlite_map.insert("BOTH".to_string(), row("BOTH", "T", "S", vec![]));
+        sqlite_map.insert(
+            "ONLY-SQLITE".to_string(),
+            row("ONLY-SQLITE", "T", "S", vec![]),
+        );
+
+        let report = compare_rows(true, &json_rows, &sqlite_map);
+        assert!(!report.success);
+        assert_eq!(report.missing_in_sqlite, vec!["ONLY-JSON".to_string()]);
+        assert_eq!(report.extra_in_sqlite, vec!["ONLY-SQLITE".to_string()]);
+    }
+
+    #[test]
+    fn compare_rows_marks_invalid_records_as_failure() {
+        let json_rows = JsonRows {
+            rows: BTreeMap::new(),
+            invalid: vec![InvalidRecord {
+                map_key: "X".to_string(),
+                reason: "missing code".to_string(),
+            }],
+            duplicate_actresses: 0,
+        };
+        let report = compare_rows(true, &json_rows, &BTreeMap::new());
+        assert!(!report.success, "invalid records should fail compare");
+        assert_eq!(report.invalid_json_records.len(), 1);
+    }
+
+    #[test]
     fn compare_rows_reports_actress_item_ordinal_mismatch() {
         let json_row = row("A", "Title", "Studio", vec!["Alice"]);
         let mut sqlite_row = json_row.clone();
