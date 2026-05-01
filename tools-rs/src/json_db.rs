@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
@@ -145,7 +145,7 @@ fn parse_actresses(value: &Value) -> (Vec<String>, Vec<ActressItem>, usize) {
         return (Vec::new(), Vec::new(), 0);
     };
 
-    let mut seen = BTreeSet::new();
+    let mut seen = Vec::new();
     let mut actress_items = Vec::new();
     let mut duplicate_count = 0;
 
@@ -154,14 +154,15 @@ fn parse_actresses(value: &Value) -> (Vec<String>, Vec<ActressItem>, usize) {
             continue;
         };
         let name = name.to_string();
-        if seen.insert(name.clone()) {
+        if !seen.contains(&name) {
+            seen.push(name.clone());
             actress_items.push(ActressItem { name, ordinal });
         } else {
             duplicate_count += 1;
         }
     }
 
-    let actresses = seen.into_iter().collect();
+    let actresses = actress_items.iter().map(|item| item.name.clone()).collect();
     (actresses, actress_items, duplicate_count)
 }
 

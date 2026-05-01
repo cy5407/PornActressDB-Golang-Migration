@@ -102,7 +102,7 @@ Ok((row, duplicate_count))
 
 **決策：** 補完所有字串欄位的比對。維持既有 `FieldMismatch { code, field, json, sqlite }` 結構，欄位名稱用 snake_case 與 JSON DB 一致。
 
-- [ ] 在 `commands.rs` 抽出小 table，避免重複呼叫 `push_string_mismatch`：
+- [x] 在 `commands.rs` 抽出小 table，避免重複呼叫 `push_string_mismatch`：
 
   ```rust
   const COMPARED_STRING_FIELDS: &[(&str, fn(&VideoRow) -> &str)] = &[
@@ -120,9 +120,9 @@ Ok((row, duplicate_count))
   ];
   ```
 
-- [ ] `compare_rows` for-loop 內遍歷這個表，不再個別 hard-code
-- [ ] 補 unit test：建構 JSON / SQLite 兩個 `BTreeMap`，每個欄位故意各製造一筆 mismatch，斷言 `report.success == false` 且 `report.field_mismatches` 數量正確、`field` 名稱齊全
-- [ ] 補 unit test：所有欄位都相等時 `report.success == true` 且 `field_mismatches` 為空
+- [x] `compare_rows` for-loop 內遍歷這個表，不再個別 hard-code
+- [x] 補 unit test：建構 JSON / SQLite 兩個 `BTreeMap`，每個欄位故意各製造一筆 mismatch，斷言 `report.success == false` 且 `report.field_mismatches` 數量正確、`field` 名稱齊全
+- [x] 補 unit test：所有欄位都相等時 `report.success == true` 且 `field_mismatches` 為空
 
 **Acceptance criteria:**
 
@@ -146,7 +146,7 @@ Ok((row, duplicate_count))
 
 **決策：** SQLite 端載入時也填 `actress_items`（含 ordinal），compare 時加上 `actress_items` 內容比對（依 `(name, ordinal)` 排序後比較，避免插入順序假陽性）。**附帶統一規則：** 兩邊 `actresses` 都改成依 ordinal 順序去重（保留第一次出現的位置），不再用 alphabetical。
 
-- [ ] `load_all_actresses` 改成回傳 `BTreeMap<String, Vec<ActressItem>>`，SQL 加上 `ordinal` 欄位：
+- [x] `load_all_actresses` 改成回傳 `BTreeMap<String, Vec<ActressItem>>`，SQL 加上 `ordinal` 欄位：
 
   ```sql
   SELECT video_code, actress_name, ordinal
@@ -154,11 +154,11 @@ Ok((row, duplicate_count))
   ORDER BY video_code, ordinal, actress_name
   ```
 
-- [ ] `load_rows_from_conn` 同時填 `actresses`（按 ordinal 順序的去重 `Vec<String>`）與 `actress_items`
-- [ ] `parse_actresses` 同步改：把 `let actresses = seen.into_iter().collect()` 改成 `let actresses = actress_items.iter().map(|i| i.name.clone()).collect()`，與 SQLite 端一致
-- [ ] `compare_rows` 在現有 actress set 比對通過後，加一段 `actress_items` 比對。比對前先把兩邊 `sort_by` `(name, ordinal)`。**排序的目的是消除插入順序造成的假陽性，不是消除 ordinal 差異**：同名但 ordinal 不同仍應被視為 mismatch（因為這代表 `videos_with_actresses` view 的拼字串輸出會不同）
-- [ ] 補 unit test：SQLite 與 JSON 的 actress 名字相同但 ordinal 不同，斷言 compare 抓到 `field: "actress_items"` 的 mismatch
-- [ ] 補 unit test：`load_rows_from_conn` 的 `actresses` 順序為 ordinal 順序（驗證新一致性規則）
+- [x] `load_rows_from_conn` 同時填 `actresses`（按 ordinal 順序的去重 `Vec<String>`）與 `actress_items`
+- [x] `parse_actresses` 同步改：把 `let actresses = seen.into_iter().collect()` 改成 `let actresses = actress_items.iter().map(|i| i.name.clone()).collect()`，與 SQLite 端一致
+- [x] `compare_rows` 在現有 actress set 比對通過後，加一段 `actress_items` 比對。比對前先把兩邊 `sort_by` `(name, ordinal)`。**排序的目的是消除插入順序造成的假陽性，不是消除 ordinal 差異**：同名但 ordinal 不同仍應被視為 mismatch（因為這代表 `videos_with_actresses` view 的拼字串輸出會不同）
+- [x] 補 unit test：SQLite 與 JSON 的 actress 名字相同但 ordinal 不同，斷言 compare 抓到 `field: "actress_items"` 的 mismatch
+- [x] 補 unit test：`load_rows_from_conn` 的 `actresses` 順序為 ordinal 順序（驗證新一致性規則）
 
 **Acceptance criteria:**
 

@@ -222,9 +222,11 @@ pub fn load_rows_from_conn(conn: &Connection) -> Result<BTreeMap<String, VideoRo
     let mut rows = BTreeMap::new();
     let iter = stmt.query_map([], |row| {
         let code: String = row.get(0)?;
+        let actress_items = actress_map.get(&code).cloned().unwrap_or_default();
+        let actresses = actress_items.iter().map(|item| item.name.clone()).collect();
         Ok(VideoRow {
-            actresses: actress_map.get(&code).cloned().unwrap_or_default(),
-            actress_items: Vec::new(),
+            actresses,
+            actress_items,
             code,
             title: row.get(1)?,
             studio: row.get(2)?,
@@ -248,21 +250,29 @@ pub fn load_rows_from_conn(conn: &Connection) -> Result<BTreeMap<String, VideoRo
     Ok(rows)
 }
 
-fn load_all_actresses(conn: &Connection) -> Result<BTreeMap<String, Vec<String>>> {
+fn load_all_actresses(
+    conn: &Connection,
+) -> Result<BTreeMap<String, Vec<crate::json_db::ActressItem>>> {
     let mut stmt = conn.prepare(
         "
-        SELECT video_code, actress_name
+        SELECT video_code, actress_name, ordinal
         FROM video_actresses
-        ORDER BY video_code, actress_name
+        ORDER BY video_code, ordinal, actress_name
         ",
     )?;
-    let mut result: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut result: BTreeMap<String, Vec<crate::json_db::ActressItem>> = BTreeMap::new();
     let iter = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            crate::json_db::ActressItem {
+                name: row.get::<_, String>(1)?,
+                ordinal: row.get::<_, i64>(2)? as usize,
+            },
+        ))
     })?;
     for item in iter {
-        let (video_code, actress_name) = item?;
-        result.entry(video_code).or_default().push(actress_name);
+        let (video_code, actress) = item?;
+        result.entry(video_code).or_default().push(actress);
     }
     Ok(result)
 }

@@ -8,6 +8,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+type StringFieldAccessor = fn(&VideoRow) -> &str;
+
+const COMPARED_STRING_FIELDS: &[(&str, StringFieldAccessor)] = &[
+    ("title", |row| &row.title),
+    ("studio", |row| &row.studio),
+    ("release_date", |row| &row.release_date),
+    ("url", |row| &row.url),
+    ("search_status", |row| &row.search_status),
+    ("search_method", |row| &row.search_method),
+    ("last_search_date", |row| &row.last_search_date),
+    ("created_at", |row| &row.created_at),
+    ("updated_at", |row| &row.updated_at),
+    ("original_filename", |row| &row.original_filename),
+    ("file_path", |row| &row.file_path),
+];
+
 #[derive(Debug, Serialize)]
 struct FieldMismatch {
     code: String,
@@ -159,26 +175,31 @@ fn compare_rows(
     for code in json_codes.intersection(&sqlite_codes) {
         let json_row = &json_rows.rows[code];
         let sqlite_row = &sqlite_rows[code];
-        push_string_mismatch(
-            &mut field_mismatches,
-            code,
-            "title",
-            &json_row.title,
-            &sqlite_row.title,
-        );
-        push_string_mismatch(
-            &mut field_mismatches,
-            code,
-            "studio",
-            &json_row.studio,
-            &sqlite_row.studio,
-        );
+        for (field, accessor) in COMPARED_STRING_FIELDS {
+            push_string_mismatch(
+                &mut field_mismatches,
+                code,
+                field,
+                accessor(json_row),
+                accessor(sqlite_row),
+            );
+        }
         if json_row.actresses != sqlite_row.actresses {
             field_mismatches.push(FieldMismatch {
                 code: code.clone(),
                 field: "actresses".to_string(),
                 json: json!(json_row.actresses),
                 sqlite: json!(sqlite_row.actresses),
+            });
+        }
+        let json_actress_items = sorted_actress_items(json_row);
+        let sqlite_actress_items = sorted_actress_items(sqlite_row);
+        if json_actress_items != sqlite_actress_items {
+            field_mismatches.push(FieldMismatch {
+                code: code.clone(),
+                field: "actress_items".to_string(),
+                json: json!(json_actress_items),
+                sqlite: json!(sqlite_actress_items),
             });
         }
     }
@@ -197,6 +218,16 @@ fn compare_rows(
         invalid_json_records: json_rows.invalid.clone(),
         duplicate_actresses: json_rows.duplicate_actresses,
     }
+}
+
+fn sorted_actress_items(row: &VideoRow) -> Vec<crate::json_db::ActressItem> {
+    let mut items = row.actress_items.clone();
+    items.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.ordinal.cmp(&right.ordinal))
+    });
+    items
 }
 
 fn push_string_mismatch(
@@ -290,6 +321,23 @@ mod tests {
         }
     }
 
+    fn set_string_field(row: &mut VideoRow, field: &str, value: &str) {
+        match field {
+            "title" => row.title = value.to_string(),
+            "studio" => row.studio = value.to_string(),
+            "release_date" => row.release_date = value.to_string(),
+            "url" => row.url = value.to_string(),
+            "search_status" => row.search_status = value.to_string(),
+            "search_method" => row.search_method = value.to_string(),
+            "last_search_date" => row.last_search_date = value.to_string(),
+            "created_at" => row.created_at = value.to_string(),
+            "updated_at" => row.updated_at = value.to_string(),
+            "original_filename" => row.original_filename = value.to_string(),
+            "file_path" => row.file_path = value.to_string(),
+            other => panic!("unknown field: {other}"),
+        }
+    }
+
     #[test]
     fn duplicate_actresses_do_not_fail_compare() {
         let mut json_map = BTreeMap::new();
@@ -302,6 +350,81 @@ mod tests {
         let report = compare_rows(true, &json_rows, &json_map);
         assert!(report.success);
         assert_eq!(report.duplicate_actresses, 2);
+    }
+
+    #[test]
+    fn compare_rows_reports_all_string_field_mismatches() {
+        let mut json_map = BTreeMap::new();
+        let mut sqlite_map = BTreeMap::new();
+
+        for (field, _) in COMPARED_STRING_FIELDS {
+            let code = format!("CODE-{field}");
+            let mut json_row = row(&code, "Title", "Studio", Vec::new());
+            let mut sqlite_row = json_row.clone();
+            set_string_field(&mut json_row, field, "json-value");
+            set_string_field(&mut sqlite_row, field, "sqlite-value");
+            json_map.insert(code.clone(), json_row);
+            sqlite_map.insert(code, sqlite_row);
+        }
+
+        let json_rows = JsonRows {
+            rows: json_map,
+            invalid: Vec::new(),
+            duplicate_actresses: 0,
+        };
+        let report = compare_rows(true, &json_rows, &sqlite_map);
+        assert!(!report.success);
+        assert_eq!(report.field_mismatches.len(), COMPARED_STRING_FIELDS.len());
+
+        let fields = report
+            .field_mismatches
+            .iter()
+            .map(|mismatch| mismatch.field.as_str())
+            .collect::<BTreeSet<_>>();
+        let expected = COMPARED_STRING_FIELDS
+            .iter()
+            .map(|(field, _)| *field)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(fields, expected);
+    }
+
+    #[test]
+    fn compare_rows_succeeds_when_all_fields_match() {
+        let mut json_map = BTreeMap::new();
+        json_map.insert("A".to_string(), row("A", "Title", "Studio", vec!["Alice"]));
+        let json_rows = JsonRows {
+            rows: json_map.clone(),
+            invalid: Vec::new(),
+            duplicate_actresses: 0,
+        };
+
+        let report = compare_rows(true, &json_rows, &json_map);
+        assert!(report.success);
+        assert!(report.field_mismatches.is_empty());
+    }
+
+    #[test]
+    fn compare_rows_reports_actress_item_ordinal_mismatch() {
+        let json_row = row("A", "Title", "Studio", vec!["Alice"]);
+        let mut sqlite_row = json_row.clone();
+        sqlite_row.actress_items[0].ordinal = 9;
+
+        let mut json_map = BTreeMap::new();
+        json_map.insert("A".to_string(), json_row);
+        let mut sqlite_map = BTreeMap::new();
+        sqlite_map.insert("A".to_string(), sqlite_row);
+        let json_rows = JsonRows {
+            rows: json_map,
+            invalid: Vec::new(),
+            duplicate_actresses: 0,
+        };
+
+        let report = compare_rows(true, &json_rows, &sqlite_map);
+        assert!(!report.success);
+        assert!(report
+            .field_mismatches
+            .iter()
+            .any(|mismatch| mismatch.field == "actress_items"));
     }
 
     #[test]
