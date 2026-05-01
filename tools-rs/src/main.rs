@@ -1,5 +1,6 @@
 mod commands;
 mod json_db;
+mod query;
 mod sqlite_db;
 
 use anyhow::Result;
@@ -71,6 +72,11 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         iterations: usize,
     },
+    /// Read-only diagnostic queries against the shadow DB.
+    Query {
+        #[command(subcommand)]
+        sub: query::QueryCmd,
+    },
 }
 
 fn main() {
@@ -115,5 +121,6 @@ fn run() -> Result<()> {
             sqlite,
             iterations,
         } => commands::db_benchmark(&json, &sqlite, iterations),
+        Command::Query { sub } => query::run(sub),
     }
 }
