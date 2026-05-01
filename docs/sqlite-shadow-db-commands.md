@@ -40,11 +40,7 @@ Rust SQLite 工具：
 cargo build --release --manifest-path tools-rs\Cargo.toml
 ```
 
-`scripts\db-query.ps1` 使用 Bun 讀 SQLite。若 `bun` 還沒有進 PATH，可先重開 terminal；安裝位置通常是：
-
-```text
-C:\Users\cy5407\.bun\bin\bun.exe
-```
+`scripts\db-query.ps1` 直接呼叫 `db-tool query <mode>`，不再依賴 Bun。確保 `tools-rs\target\release\db-tool.exe` 已建好即可。
 
 ## 同步 shadow SQLite
 
