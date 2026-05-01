@@ -5,6 +5,27 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-04-27] feature | Rust SQLite 影子資料庫第一版
+
+**涉及檔案**：
+- `tools-rs/` — 新增 Rust `db-tool` sidecar，支援 `db-init`、`db-import-json`、`db-stats`、`db-compare-json`、`db-benchmark`
+- `docs/tools-rs-sqlite-shadow-db.md` — 固化最終收斂設計，避免討論匯出 MD 的舊草稿誤導實作
+- `wiki/architecture/sqlite-shadow-db.md` — 新增 shadow SQLite 架構、使用方式、實測數字與後續路線
+- `wiki/index.md`、`wiki/log.md`、`wiki/wiki-data.js` — 更新 wiki 索引與 viewer 資料
+- `.gitignore` — 忽略 `tools-rs/target/`；允許 `data/json_db/data.json` 作為共享主快照進版控
+
+**摘要**：
+- 第一版 SQLite 只作為可重建影子資料庫，不取代正式 JSON DB
+- import / compare 預設拒絕 dirty journal；journal replay 留第二階段
+- 新增 `videos_with_actresses` view，方便人工一次看到番號、標題、片商與女優
+- 固定 shadow SQLite 慣例路徑為 `data/shadow.sqlite`
+- `data.json` 可進版控；`data.journal` / `data.index` / `data/shadow.sqlite` 仍作為 runtime 或衍生檔忽略
+- 本機實測：3363 部影片、3698 筆女優關聯、0 invalid、0 duplicate、compare success、import 約 202 ms
+
+**踩坑**：討論匯出檔含早期舊草稿；實作需以最終收斂設計為準。人工查表只看 `videos` 容易誤以為沒有女優，已補 `videos_with_actresses` view。
+
+---
+
 ## [2026-04-27] docs | 架構頁漂移審計與 Wails 事件名稱校正
 
 **涉及檔案**：

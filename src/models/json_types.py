@@ -1,7 +1,11 @@
 """
 JSON 資料庫型別定義和常數
 
-此模組定義了 JSON 資料庫系統中使用的所有型別定義和常數。
+正式 JSON DB 的讀寫、compact 與清洗主流程已委派給 Go
+(`pkg/database/types.go` 與 `classifier.exe db ...`)。
+
+本模組保留給 Python 搜尋入口、工具腳本與測試作為 schema 對照與型別提示；
+若持久化 schema 有衝突，應以 Go 端 `VideoData` 定義為準，再同步更新這裡。
 """
 
 from datetime import datetime, timezone
@@ -23,11 +27,16 @@ class MetadataDict(TypedDict, total=False):
 
 
 class VideoDict(TypedDict, total=False):
-    """影片資料結構型別定義"""
+    """Python 側影片資料形狀。
+
+    這不是 DB 寫入邏輯的 source of truth；正式持久化欄位以 Go 端
+    `pkg/database/types.go` 的 `VideoData` 為準。
+    """
 
     code: str  # 影片番號 (例: "DOCZ-004")
     title: str  # 片名
     studio: str  # 片商名稱
+    studio_code: str  # 片商代碼
     release_date: str  # 發行日期 (ISO 8601: YYYY-MM-DD)
     url: str  # 線上連結
     actresses: list[str]  # 女優名稱清單
@@ -42,9 +51,14 @@ class VideoDict(TypedDict, total=False):
     updated_at: str  # 更新時間 (ISO 8601)
     original_filename: str  # 原始檔名
     file_path: str  # 原始檔案完整路徑
+    error: str  # 持久化錯誤訊息
+    error_kind: str  # 持久化錯誤分類
     search_error_reason: str  # 搜尋失敗原因（選填）
     original_actress_count: int  # 原始解析到的女優數量（選填）
     metadata: MetadataDict  # 額外資訊
+
+
+VIDEO_ALLOWED_FIELDS = set(VideoDict.__annotations__.keys())
 
 
 class ActressDict(TypedDict, total=False):
@@ -238,4 +252,3 @@ def get_empty_video() -> VideoDict:
             "confidence": 0.0,
         },
     }
-

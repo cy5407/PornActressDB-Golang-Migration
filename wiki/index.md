@@ -13,6 +13,7 @@
 | [Go CLI 設計](architecture/go-cli.md) | classifier.exe 命令結構、JSON stdout 規範、scan 番號提取契約 |
 | [Go Bridge](architecture/go-bridge.md) | 現行 Python→Go 委派入口 `go_cli.py` 與舊橋接層移除狀態 |
 | [資料庫系統](architecture/database.md) | IncrementalJSONDB / JSONDBManager / Journal 機制 |
+| [SQLite 影子資料庫](architecture/sqlite-shadow-db.md) | Rust `tools-rs/db-tool` 建立 shadow SQLite、import / compare / benchmark 邊界與實測結果 |
 | [搜尋引擎](architecture/search-engine.md) | AV-WIKI → JAVDB 級聯搜尋、來源專用 API 與批次併發邊界 |
 | [技術選型決策](architecture/tech-stack-decisions.md) | Wails + Go CLI + Python 搜尋 runtime 的現行分工 |
 | [**Wails GUI 架構**](architecture/wails-gui.md) | Wails v2 + React 架構、Bindings 對照、W6 清理紀錄 |
@@ -72,6 +73,7 @@
 - **CI/CD 故障排查** → [pitfalls/github-actions-issues.md](pitfalls/github-actions-issues.md)（Issue 1-22）
 - **新增 Go API 功能** → [patterns/add-go-api-function.md](patterns/add-go-api-function.md)
 - **Go CLI / 番號提取契約** → [architecture/go-cli.md](architecture/go-cli.md)
+- **SQLite 影子資料庫** → [architecture/sqlite-shadow-db.md](architecture/sqlite-shadow-db.md)
 - **新增 GUI 按鈕** → [patterns/add-gui-button.md](patterns/add-gui-button.md)
 - **Rebuild EXE（Wails）** → 執行 `wails build`（參見 [README.md](../README.md)）｜[歷史存檔：PyInstaller](patterns/pyinstaller.md)
 - **命名規範檢查** → [patterns/naming-conventions.md](patterns/naming-conventions.md)

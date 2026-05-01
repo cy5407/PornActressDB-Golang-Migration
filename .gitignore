@@ -127,6 +127,9 @@ coverage.html
 .go/
 .gocache/
 
+# Rust sidecar build output
+/tools-rs/target/
+
 # 備份目錄
 backups/
 
@@ -145,8 +148,7 @@ coverage_report.txt
 /data/json_db/*.lock
 /data/json_db/*.journal.lock
 
-# 動態資料庫檔案（運行時產生和修改，不應追蹤）
-/data/json_db/data.json
+# JSON DB 主快照可作為共享資料進版控；journal/index 屬執行期狀態，不追蹤
 /data/json_db/data.journal
 /data/json_db/data.index
 /data/json_db/data.backup_*.json
