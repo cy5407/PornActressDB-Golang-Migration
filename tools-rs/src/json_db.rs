@@ -86,22 +86,22 @@ pub fn load_json_rows(path: &Path) -> Result<JsonRows> {
 fn video_from_value(
     map_key: &str,
     value: &Value,
-) -> std::result::Result<(VideoRow, usize), &'static str> {
+) -> std::result::Result<(VideoRow, usize), String> {
     if !value.is_object() {
-        return Err("video record must be an object");
+        return Err("video record must be an object".to_string());
     }
 
     let code = string_field(value, "code")
         .or_else(|| string_field(value, "id"))
-        .ok_or("video record missing code/id")?;
+        .ok_or_else(|| "video record missing code/id".to_string())?;
 
     if code.is_empty() {
-        return Err("video record missing code/id");
+        return Err("video record missing code/id".to_string());
     }
 
     let (actresses, actress_items, duplicate_count) = parse_actresses(value);
-    let raw_json =
-        serde_json::to_string(value).map_err(|_| "video record raw JSON serialize failed")?;
+    let raw_json = serde_json::to_string(value)
+        .map_err(|_| "video record raw JSON serialize failed".to_string())?;
 
     let row = VideoRow {
         code,
@@ -121,8 +121,12 @@ fn video_from_value(
         raw_json,
     };
 
-    if row.code != map_key.trim() && !map_key.trim().is_empty() {
-        return Ok((row, duplicate_count));
+    let trimmed_key = map_key.trim();
+    if !trimmed_key.is_empty() && trimmed_key != row.code {
+        return Err(format!(
+            "map key \"{}\" does not match record code \"{}\"",
+            trimmed_key, row.code
+        ));
     }
     Ok((row, duplicate_count))
 }
@@ -223,6 +227,42 @@ mod tests {
                     ordinal: 2,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn load_json_rows_marks_mismatched_map_key_as_invalid() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let json_path = dir.path().join("data.json");
+        let mut file = fs::File::create(&json_path).expect("create json");
+        write!(
+            file,
+            r#"{{
+                "videos": {{
+                    "WRONG-KEY": {{
+                        "code": "RIGHT-CODE",
+                        "title": "Title"
+                    }}
+                }}
+            }}"#
+        )
+        .expect("write json");
+
+        let rows = load_json_rows(&json_path).expect("load rows");
+        assert_eq!(rows.rows.len(), 0, "row should be rejected, not inserted");
+        assert_eq!(rows.invalid.len(), 1);
+
+        let invalid = &rows.invalid[0];
+        assert_eq!(invalid.map_key, "WRONG-KEY");
+        assert!(
+            invalid.reason.contains("WRONG-KEY"),
+            "reason should mention map key: {}",
+            invalid.reason
+        );
+        assert!(
+            invalid.reason.contains("RIGHT-CODE"),
+            "reason should mention record code: {}",
+            invalid.reason
         );
     }
 }

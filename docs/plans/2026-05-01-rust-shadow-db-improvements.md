@@ -76,11 +76,11 @@ Ok((row, duplicate_count))
 
 **決策：** 採「key/code 不一致時回 invalid，並用 map_key 當作 invalid record 的 key」這個語意。理由是 `data.json` 的 video map 約定是 `{ "<code>": { "code": "<code>", ... } }`，key 與內部 code 不一致代表資料寫入有 bug，應該被抓出來而不是默默匯入。
 
-- [ ] 修改 `video_from_value` 簽名，回傳 `Result<(VideoRow, usize), String>`（從 `&'static str` 改成 `String`，以便包含實際的 key/code 值）
-- [ ] code 為空、record 不是 object 等既有錯誤訊息保持原語意，只是字串型別改成 `String`
-- [ ] 新增「map_key 與 row.code 不相等」的 error path，訊息範例：`"map key \"ABC-123\" does not match record code \"DEF-456\""`
-- [ ] `load_json_rows` 的 caller 端不需改動（已經處理 `Err` → `invalid` push）
-- [ ] 補 unit test：fixture 用 `{ "WRONG-KEY": { "code": "RIGHT-CODE", ... } }`，斷言 `rows.invalid.len() == 1` 且 `rows.invalid[0].reason` 同時包含 `WRONG-KEY` 與 `RIGHT-CODE`
+- [x] 修改 `video_from_value` 簽名，回傳 `Result<(VideoRow, usize), String>`（從 `&'static str` 改成 `String`，以便包含實際的 key/code 值）
+- [x] code 為空、record 不是 object 等既有錯誤訊息保持原語意，只是字串型別改成 `String`
+- [x] 新增「map_key 與 row.code 不相等」的 error path，訊息範例：`"map key \"ABC-123\" does not match record code \"DEF-456\""`
+- [x] `load_json_rows` 的 caller 端不需改動（已經處理 `Err` → `invalid` push）
+- [x] 補 unit test：fixture 用 `{ "WRONG-KEY": { "code": "RIGHT-CODE", ... } }`，斷言 `rows.invalid.len() == 1` 且 `rows.invalid[0].reason` 同時包含 `WRONG-KEY` 與 `RIGHT-CODE`
 
 **Acceptance criteria:**
 

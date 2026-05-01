@@ -15,6 +15,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::enum_variant_names)] // Db prefix maps to CLI namespace (db-init / db-import-json / ...).
 enum Command {
     DbInit {
         #[arg(long)]
