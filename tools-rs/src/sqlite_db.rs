@@ -33,6 +33,7 @@ pub fn open_db(path: &Path) -> Result<Connection> {
     let conn =
         Connection::open(path).with_context(|| format!("open sqlite: {}", path.display()))?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
     Ok(conn)
 }
 
@@ -142,76 +143,90 @@ pub fn import_rows(
 ) -> Result<usize> {
     let mut conn = open_db(sqlite_path)?;
     init_schema(&conn, replace)?;
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    apply_bulk_pragmas(&conn)?;
 
-    if replace {
-        tx.execute("DELETE FROM video_actresses", [])?;
-        tx.execute("DELETE FROM videos", [])?;
-    }
+    let bulk_result: Result<usize> = (|| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
-    let mut actress_link_count = 0;
-    for row in rows.values() {
-        tx.execute(
-            "
-            INSERT OR REPLACE INTO videos (
-                code, title, studio, release_date, url, search_status, search_method,
-                last_search_date, created_at, updated_at, original_filename, file_path
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-            ",
-            params![
-                row.code,
-                row.title,
-                row.studio,
-                row.release_date,
-                row.url,
-                row.search_status,
-                row.search_method,
-                row.last_search_date,
-                row.created_at,
-                row.updated_at,
-                row.original_filename,
-                row.file_path,
-            ],
-        )?;
-        tx.execute(
-            "DELETE FROM video_actresses WHERE video_code = ?1",
-            params![row.code],
-        )?;
-        for item in &row.actress_items {
-            tx.execute(
+        if replace {
+            tx.execute("DELETE FROM video_actresses", [])?;
+            tx.execute("DELETE FROM videos", [])?;
+        }
+
+        let mut actress_link_count = 0;
+        {
+            let mut insert_video_stmt = tx.prepare_cached(
+                "
+                INSERT OR REPLACE INTO videos (
+                    code, title, studio, release_date, url, search_status, search_method,
+                    last_search_date, created_at, updated_at, original_filename, file_path
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                ",
+            )?;
+            let mut delete_actresses_stmt =
+                tx.prepare_cached("DELETE FROM video_actresses WHERE video_code = ?1")?;
+            let mut insert_actress_stmt = tx.prepare_cached(
                 "
                 INSERT INTO video_actresses (video_code, actress_name, ordinal)
                 VALUES (?1, ?2, ?3)
                 ",
-                params![row.code, item.name, item.ordinal as i64],
             )?;
-            actress_link_count += 1;
+
+            for row in rows.values() {
+                insert_video_stmt.execute(params![
+                    row.code,
+                    row.title,
+                    row.studio,
+                    row.release_date,
+                    row.url,
+                    row.search_status,
+                    row.search_method,
+                    row.last_search_date,
+                    row.created_at,
+                    row.updated_at,
+                    row.original_filename,
+                    row.file_path,
+                ])?;
+                if !replace {
+                    delete_actresses_stmt.execute(params![row.code])?;
+                }
+                for item in &row.actress_items {
+                    insert_actress_stmt.execute(params![
+                        row.code,
+                        item.name,
+                        item.ordinal as i64
+                    ])?;
+                    actress_link_count += 1;
+                }
+            }
         }
-    }
 
-    tx.execute(
-        "
-        INSERT INTO import_runs (
-            source_path, source_mtime, source_size_bytes, video_count, actress_link_count,
-            invalid_count, duplicate_actresses, source_consistent, started_at, finished_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-        ",
-        params![
-            metadata.source_path,
-            system_time_rfc3339(metadata.source_mtime),
-            metadata.source_size_bytes as i64,
-            metadata.video_count as i64,
-            metadata.actress_link_count as i64,
-            metadata.invalid_count as i64,
-            metadata.duplicate_actresses as i64,
-            i64::from(metadata.source_consistent),
-            metadata.started_at,
-            metadata.finished_at,
-        ],
-    )?;
+        tx.execute(
+            "
+            INSERT INTO import_runs (
+                source_path, source_mtime, source_size_bytes, video_count, actress_link_count,
+                invalid_count, duplicate_actresses, source_consistent, started_at, finished_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ",
+            params![
+                metadata.source_path,
+                system_time_rfc3339(metadata.source_mtime),
+                metadata.source_size_bytes as i64,
+                metadata.video_count as i64,
+                metadata.actress_link_count as i64,
+                metadata.invalid_count as i64,
+                metadata.duplicate_actresses as i64,
+                i64::from(metadata.source_consistent),
+                metadata.started_at,
+                metadata.finished_at,
+            ],
+        )?;
 
-    tx.commit()?;
-    Ok(actress_link_count)
+        tx.commit()?;
+        Ok(actress_link_count)
+    })();
+
+    merge_bulk_and_restore(bulk_result, restore_pragmas(&conn))
 }
 
 pub fn load_sqlite_rows(sqlite_path: &Path) -> Result<BTreeMap<String, VideoRow>> {
@@ -284,6 +299,29 @@ fn load_all_actresses(
         result.entry(video_code).or_default().push(actress);
     }
     Ok(result)
+}
+
+fn apply_bulk_pragmas(conn: &Connection) -> Result<()> {
+    conn.pragma_update(None, "synchronous", "OFF")?;
+    conn.pragma_update(None, "journal_mode", "MEMORY")?;
+    Ok(())
+}
+
+fn restore_pragmas(conn: &Connection) -> Result<()> {
+    conn.pragma_update(None, "journal_mode", "DELETE")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    Ok(())
+}
+
+fn merge_bulk_and_restore(bulk: Result<usize>, restore: Result<()>) -> Result<usize> {
+    match (bulk, restore) {
+        (Ok(n), Ok(())) => Ok(n),
+        (Err(err), Ok(())) => Err(err),
+        (Ok(_), Err(err)) => Err(err.context("bulk import 成功但 PRAGMA restore 失敗")),
+        (Err(err), Err(restore_err)) => Err(anyhow::anyhow!(
+            "{err}; bulk import 失敗，且 PRAGMA restore 也失敗: {restore_err}"
+        )),
+    }
 }
 
 pub fn stats(sqlite_path: &Path) -> Result<Value> {
@@ -381,6 +419,41 @@ pub fn build_import_metadata(
 mod tests {
     use super::*;
     use crate::json_db::{ActressItem, VideoRow};
+    use anyhow::anyhow;
+
+    fn metadata(video_count: usize, actress_link_count: usize) -> ImportMetadata {
+        ImportMetadata {
+            source_path: "data.json".to_string(),
+            source_mtime: None,
+            source_size_bytes: 2,
+            video_count,
+            actress_link_count,
+            invalid_count: 0,
+            duplicate_actresses: 0,
+            source_consistent: true,
+            started_at: "start".to_string(),
+            finished_at: "finish".to_string(),
+        }
+    }
+
+    fn row(code: &str, actresses: Vec<ActressItem>) -> VideoRow {
+        VideoRow {
+            code: code.to_string(),
+            title: "Title".to_string(),
+            studio: "Studio".to_string(),
+            release_date: String::new(),
+            url: String::new(),
+            search_status: String::new(),
+            search_method: String::new(),
+            last_search_date: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            original_filename: String::new(),
+            file_path: String::new(),
+            actresses: actresses.iter().map(|item| item.name.clone()).collect(),
+            actress_items: actresses,
+        }
+    }
 
     #[test]
     fn import_and_load_rows_without_n_plus_one_shape() {
@@ -415,18 +488,7 @@ mod tests {
                 ],
             },
         );
-        let metadata = ImportMetadata {
-            source_path: "data.json".to_string(),
-            source_mtime: None,
-            source_size_bytes: 2,
-            video_count: 1,
-            actress_link_count: 2,
-            invalid_count: 0,
-            duplicate_actresses: 0,
-            source_consistent: true,
-            started_at: "start".to_string(),
-            finished_at: "finish".to_string(),
-        };
+        let metadata = metadata(1, 2);
 
         import_rows(&sqlite_path, &rows, &metadata, true).expect("import rows");
         let loaded = load_sqlite_rows(&sqlite_path).expect("load sqlite rows");
@@ -484,5 +546,105 @@ mod tests {
         assert!(err
             .to_string()
             .contains("unknown shadow DB schema version: 3"));
+    }
+
+    #[test]
+    fn import_restores_bulk_pragmas_after_success() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        let mut rows = BTreeMap::new();
+        rows.insert(
+            "A".to_string(),
+            row(
+                "A",
+                vec![ActressItem {
+                    name: "Alice".to_string(),
+                    ordinal: 0,
+                }],
+            ),
+        );
+
+        import_rows(&sqlite_path, &rows, &metadata(1, 1), true).expect("import rows");
+
+        let conn = open_db(&sqlite_path).expect("open db");
+        let journal_mode: String = conn
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .expect("journal_mode");
+        let synchronous: i64 = conn
+            .pragma_query_value(None, "synchronous", |row| row.get(0))
+            .expect("synchronous");
+        assert_eq!(journal_mode.to_ascii_lowercase(), "delete");
+        assert_eq!(synchronous, 1);
+    }
+
+    #[test]
+    fn merge_bulk_and_restore_preserves_bulk_error_priority() {
+        let ok = merge_bulk_and_restore(Ok(7), Ok(())).expect("ok ok");
+        assert_eq!(ok, 7);
+
+        let err =
+            merge_bulk_and_restore(Err(anyhow!("bulk failed")), Ok(())).expect_err("bulk err wins");
+        assert_eq!(err.to_string(), "bulk failed");
+
+        let err = merge_bulk_and_restore(Ok(1), Err(anyhow!("restore failed")))
+            .expect_err("restore err after bulk success");
+        assert!(err.to_string().contains("bulk import 成功"));
+
+        let err =
+            merge_bulk_and_restore(Err(anyhow!("bulk failed")), Err(anyhow!("restore failed")))
+                .expect_err("bulk err with restore context");
+        assert!(err.to_string().starts_with("bulk failed"));
+        assert!(format!("{err:#}").contains("restore failed"));
+    }
+
+    #[test]
+    fn import_replace_false_replaces_actress_links_for_existing_video() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        let mut initial = BTreeMap::new();
+        initial.insert(
+            "A".to_string(),
+            row(
+                "A",
+                vec![ActressItem {
+                    name: "Alice".to_string(),
+                    ordinal: 0,
+                }],
+            ),
+        );
+        import_rows(&sqlite_path, &initial, &metadata(1, 1), true).expect("initial import");
+
+        let mut updated = BTreeMap::new();
+        updated.insert(
+            "A".to_string(),
+            row(
+                "A",
+                vec![ActressItem {
+                    name: "Bob".to_string(),
+                    ordinal: 0,
+                }],
+            ),
+        );
+        import_rows(&sqlite_path, &updated, &metadata(1, 1), false).expect("incremental import");
+
+        let loaded = load_sqlite_rows(&sqlite_path).expect("load sqlite rows");
+        assert_eq!(loaded["A"].actresses, vec!["Bob".to_string()]);
+    }
+
+    #[test]
+    fn import_replace_true_removes_old_videos() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        let mut initial = BTreeMap::new();
+        initial.insert("A".to_string(), row("A", Vec::new()));
+        import_rows(&sqlite_path, &initial, &metadata(1, 0), true).expect("initial import");
+
+        let mut replacement = BTreeMap::new();
+        replacement.insert("B".to_string(), row("B", Vec::new()));
+        import_rows(&sqlite_path, &replacement, &metadata(1, 0), true).expect("replace import");
+
+        let loaded = load_sqlite_rows(&sqlite_path).expect("load sqlite rows");
+        assert!(!loaded.contains_key("A"));
+        assert!(loaded.contains_key("B"));
     }
 }

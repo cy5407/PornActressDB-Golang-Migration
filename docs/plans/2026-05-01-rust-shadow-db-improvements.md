@@ -268,12 +268,12 @@ match (bulk_result, restore_result) {
 
 **重點：** bulk 失敗時，原始錯誤是主訊息，restore 錯誤只放 context；不能反過來蓋掉 bulk 的 root cause。
 
-- [ ] 新增 `fn apply_bulk_pragmas(conn: &Connection) -> Result<()>` 設定 `synchronous = OFF`、`journal_mode = MEMORY`
-- [ ] 新增 `fn restore_pragmas(conn: &Connection) -> Result<()>` 設定 `journal_mode = DELETE`、`synchronous = NORMAL`
-- [ ] 注意：`journal_mode` 不能在 transaction 內變更，要在 `transaction()` **之前**設定
-- [ ] `import_rows` 改成上述 try/finally 樣板；bulk 區塊內 3 條 SQL 改成 prepare-once-reuse（優先 `tx.prepare_cached`，必要時 fallback 到 loop 外 `tx.prepare`）
-- [ ] for-loop 內三條 statement（video insert、actress delete、actress insert）只 `bind` + `execute([])`，不再傳 SQL 字串
-- [ ] 把 4-arm match 邏輯抽成純 helper，例如：
+- [x] 新增 `fn apply_bulk_pragmas(conn: &Connection) -> Result<()>` 設定 `synchronous = OFF`、`journal_mode = MEMORY`
+- [x] 新增 `fn restore_pragmas(conn: &Connection) -> Result<()>` 設定 `journal_mode = DELETE`、`synchronous = NORMAL`
+- [x] 注意：`journal_mode` 不能在 transaction 內變更，要在 `transaction()` **之前**設定
+- [x] `import_rows` 改成上述 try/finally 樣板；bulk 區塊內 3 條 SQL 改成 prepare-once-reuse（優先 `tx.prepare_cached`，必要時 fallback 到 loop 外 `tx.prepare`）
+- [x] for-loop 內三條 statement（video insert、actress delete、actress insert）只 `bind` + `execute([])`，不再傳 SQL 字串
+- [x] 把 4-arm match 邏輯抽成純 helper，例如：
 
   ```rust
   fn merge_bulk_and_restore(
@@ -283,9 +283,9 @@ match (bulk_result, restore_result) {
   ```
 
   對該 helper 寫純函式 unit test 覆蓋 4 種組合（Ok/Ok、Err/Ok、Ok/Err、Err/Err），驗證原始 bulk error 不會被 restore error 蓋掉。**不為了測試硬加 mock 架構**
-- [ ] 補 unit test（成功路徑）：import 完成後，獨立開新連線檢查 `PRAGMA journal_mode == "delete"`、`PRAGMA synchronous == 1`（NORMAL）
-- [ ] 跑一次 `cargo test --manifest-path tools-rs/Cargo.toml`（確認既有測試仍通過）
-- [ ] 跑一次 `db-benchmark` 對比改前改後的 import 耗時，記錄在 commit message **與本 plan 的「實測結果」段落**
+- [x] 補 unit test（成功路徑）：import 完成後，獨立開新連線檢查 `PRAGMA journal_mode == "delete"`、`PRAGMA synchronous == 1`（NORMAL）
+- [x] 跑一次 `cargo test --manifest-path tools-rs/Cargo.toml`（確認既有測試仍通過）
+- [x] 跑一次 `db-benchmark` 對比改前改後的 import 耗時，記錄在 commit message **與本 plan 的「實測結果」段落**
 
 **Acceptance criteria:**
 
@@ -313,8 +313,8 @@ tx.execute("DELETE FROM video_actresses WHERE video_code = ?1", params![row.code
 
 **決策：** for-loop 內的 per-row delete 改成 `if !replace` 才執行。配合 Task 4 的 `prepare_cached`，這條 statement 也已是 cached，只是省掉執行。
 
-- [ ] `import_rows` 簽名不變
-- [ ] for-loop 內把：
+- [x] `import_rows` 簽名不變
+- [x] for-loop 內把：
 
   ```rust
   tx.execute("DELETE FROM video_actresses WHERE video_code = ?1", params![row.code])?;
@@ -328,8 +328,8 @@ tx.execute("DELETE FROM video_actresses WHERE video_code = ?1", params![row.code
   }
   ```
 
-- [ ] 補 unit test：在現有 DB 中先 import 一次（含 actress），再用 `replace=false` 重新 import 同一筆 video 但 actress 換成不同名字，斷言新 actress 取代舊 actress（驗證非 replace 模式仍正確）
-- [ ] 補 unit test：在現有 DB 中先 import 一次，再用 `replace=true` 重新 import 完全不同 video set，斷言舊資料完全消失（驗證 replace 模式仍正確）
+- [x] 補 unit test：在現有 DB 中先 import 一次（含 actress），再用 `replace=false` 重新 import 同一筆 video 但 actress 換成不同名字，斷言新 actress 取代舊 actress（驗證非 replace 模式仍正確）
+- [x] 補 unit test：在現有 DB 中先 import 一次，再用 `replace=true` 重新 import 完全不同 video set，斷言舊資料完全消失（驗證 replace 模式仍正確）
 
 **Acceptance criteria:**
 
