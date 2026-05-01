@@ -362,7 +362,7 @@ tx.execute("DELETE FROM video_actresses WHERE video_code = ?1", params![row.code
 | `sqlite_stats_total_ms` | 單一 connection + stats query × N |
 | `sqlite_open_overhead_ms` | 只量 `open_db` × N |
 
-- [ ] `db_benchmark` 內把原本 SQLite full load 拆成兩段：
+- [x] `db_benchmark` 內把原本 SQLite full load 拆成兩段：
 
   ```rust
   // Cold：每輪重開連線
@@ -385,7 +385,7 @@ tx.execute("DELETE FROM video_actresses WHERE video_code = ?1", params![row.code
   let sqlite_warm_total_ms = sqlite_warm_start.elapsed().as_millis();
   ```
 
-- [ ] 新增 open overhead 量測：
+- [x] 新增 open overhead 量測：
 
   ```rust
   let open_start = Instant::now();
@@ -396,8 +396,8 @@ tx.execute("DELETE FROM video_actresses WHERE video_code = ?1", params![row.code
   let sqlite_open_overhead_ms = open_start.elapsed().as_millis();
   ```
 
-- [ ] 拿掉舊的 `sqlite_total_ms` key
-- [ ] `docs/tools-rs-sqlite-shadow-db.md` 的 `db-benchmark` 段落補一段：
+- [x] 拿掉舊的 `sqlite_total_ms` key
+- [x] `docs/tools-rs-sqlite-shadow-db.md` 的 `db-benchmark` 段落補一段：
 
   > **語意說明**：
   > - `json_total_ms`：JSON 每輪 cold-read + parse，這就是 JSON DB 的真實讀取成本
@@ -431,9 +431,9 @@ shadow DB 是衍生物，但目前**沒有任何地方會在 `data.json` 變動�
 - 在 `docs/sqlite-shadow-db-commands.md` 強化「compact 後應手動跑 `db-sync.ps1`」的提醒
 - Go classifier 是否該在 compact 後印同步提示，**另開獨立 plan 評估**（不在本計畫範圍）
 
-- [ ] `scripts/db-sync.ps1` 加 `[switch]$Quiet` 參數
-- [ ] 套用到所有 `Write-Host`（不影響 `Write-Error`、`db-tool.exe` 自己的 stdout 仍照常輸出，呼叫端可自行 redirect）
-- [ ] `docs/sqlite-shadow-db-commands.md` 的「同步 shadow SQLite」段落最前面加一段：
+- [x] `scripts/db-sync.ps1` 加 `[switch]$Quiet` 參數
+- [x] 套用到所有 `Write-Host`（不影響 `Write-Error`、`db-tool.exe` 自己的 stdout 仍照常輸出，呼叫端可自行 redirect）
+- [x] `docs/sqlite-shadow-db-commands.md` 的「同步 shadow SQLite」段落最前面加一段：
 
   > **重要**：`classifier db compact` **不會**自動同步 shadow DB。每次 compact 完成後，請手動執行 `scripts\db-sync.ps1` 重建 shadow SQLite。否則 `db-query.ps1` 查到的會是過期資料。
   >

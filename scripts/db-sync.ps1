@@ -1,12 +1,13 @@
 # db-sync.ps1 — Shadow SQLite 同步腳本
-# 用法: scripts\db-sync.ps1 [-Benchmark] [-SkipCompact]
+# 用法: scripts\db-sync.ps1 [-Benchmark] [-SkipCompact] [-Quiet]
 #
 # 執行順序: compact → db-init → db-import-json → db-compare-json
 # compare 失敗則中止，不繼續跑 benchmark
 
 param(
     [switch]$Benchmark,
-    [switch]$SkipCompact
+    [switch]$SkipCompact,
+    [switch]$Quiet
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,35 +36,43 @@ if (-not (Test-Path $JSON_PATH)) {
 Push-Location $REPO_ROOT
 try {
     if (-not $SkipCompact) {
-        Write-Host "[1/4] compact journal..." -ForegroundColor Cyan
-        & $CLASSIFIER db compact
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        if (-not $Quiet) { Write-Host "[1/4] compact journal..." -ForegroundColor Cyan }
+        if ($Quiet) {
+            $compactOutput = & $CLASSIFIER db compact 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error ($compactOutput -join "`n")
+                exit $LASTEXITCODE
+            }
+        } else {
+            & $CLASSIFIER db compact
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
     } else {
-        Write-Host "[1/4] compact 略過 (-SkipCompact)" -ForegroundColor DarkGray
+        if (-not $Quiet) { Write-Host "[1/4] compact 略過 (-SkipCompact)" -ForegroundColor DarkGray }
     }
 
-    Write-Host "[2/4] db-init..." -ForegroundColor Cyan
+    if (-not $Quiet) { Write-Host "[2/4] db-init..." -ForegroundColor Cyan }
     & $DB_TOOL db-init --sqlite $SQLITE_PATH --replace
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    Write-Host "[3/4] db-import-json..." -ForegroundColor Cyan
+    if (-not $Quiet) { Write-Host "[3/4] db-import-json..." -ForegroundColor Cyan }
     & $DB_TOOL db-import-json --json $JSON_PATH --sqlite $SQLITE_PATH --replace
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    Write-Host "[4/4] db-compare-json..." -ForegroundColor Cyan
+    if (-not $Quiet) { Write-Host "[4/4] db-compare-json..." -ForegroundColor Cyan }
     & $DB_TOOL db-compare-json --json $JSON_PATH --sqlite $SQLITE_PATH
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "`n✗ compare 失敗，shadow DB 可能不完整" -ForegroundColor Red
+        if (-not $Quiet) { Write-Host "`n✗ compare 失敗，shadow DB 可能不完整" -ForegroundColor Red }
         exit $LASTEXITCODE
     }
 
     if ($Benchmark) {
-        Write-Host "[+]  db-benchmark..." -ForegroundColor Cyan
+        if (-not $Quiet) { Write-Host "[+]  db-benchmark..." -ForegroundColor Cyan }
         & $DB_TOOL db-benchmark --json $JSON_PATH --sqlite $SQLITE_PATH
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 
-    Write-Host "`n✓ shadow DB 同步完成" -ForegroundColor Green
+    if (-not $Quiet) { Write-Host "`n✓ shadow DB 同步完成" -ForegroundColor Green }
 } finally {
     Pop-Location
 }

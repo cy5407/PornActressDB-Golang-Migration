@@ -97,7 +97,15 @@ mismatch 預設輸出 JSON 後直接 exit 1，不額外污染 stderr。`duplicat
 cargo run --manifest-path tools-rs\Cargo.toml -- db-benchmark --json data\json_db\data.json --sqlite data\shadow.sqlite --iterations 10
 ```
 
-benchmark 本身不強制執行 compare，compare 是流程 gate。SQLite stats benchmark 在迴圈外開一次連線，迴圈內只測 query。
+benchmark 本身不強制執行 compare，compare 是流程 gate。
+
+語意說明：
+
+- `json_total_ms`：JSON 每輪 cold-read + parse，這就是 JSON DB 的真實讀取成本
+- `sqlite_cold_total_ms`：每輪重開連線 + load，模擬「短命 CLI 一次性查詢」情境
+- `sqlite_warm_total_ms`：共用連線 + load，模擬「常駐 process 持續查詢」情境
+- `sqlite_stats_total_ms`：共用連線 + stats query
+- `sqlite_open_overhead_ms`：純 `open_db` × N，用來分離連線建立成本
 
 ## Schema
 

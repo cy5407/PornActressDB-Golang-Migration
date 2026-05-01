@@ -48,7 +48,11 @@ C:\Users\cy5407\.bun\bin\bun.exe
 
 ## 同步 shadow SQLite
 
-> **重要**：升級到 v2 schema 後，舊的 `data\shadow.sqlite` 必須刪除或用 `--replace` rebuild。工具會在偵測到 v1 DB 時直接 error，不做 in-place migration。
+> **重要**：`classifier db compact` 不會自動同步 shadow DB。每次 compact 完成後，請手動執行 `scripts\db-sync.ps1` 重建 shadow SQLite。否則 `db-query.ps1` 查到的會是過期資料。
+>
+> 升級到 v2 schema 後，舊的 `data\shadow.sqlite` 必須刪除或用 `--replace` rebuild。工具會在偵測到 v1 DB 時直接 error，不做 in-place migration。
+>
+> `scripts\db-sync.ps1 -Quiet` 適合整合到自動化 wrapper；它會壓掉腳本自己的 `Write-Host` 訊息，但保留 `db-tool` 的 JSON 輸出與 `Write-Error`。
 
 從 `data\json_db\data.json` 重建 `data\shadow.sqlite`：
 
@@ -73,6 +77,12 @@ scripts\db-sync.ps1 -Benchmark
 
 ```powershell
 scripts\db-sync.ps1 -SkipCompact
+```
+
+安靜模式：
+
+```powershell
+scripts\db-sync.ps1 -Quiet
 ```
 
 ## 查詢 SQLite

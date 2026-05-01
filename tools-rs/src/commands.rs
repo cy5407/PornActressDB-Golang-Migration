@@ -131,16 +131,24 @@ pub fn db_benchmark(json_path: &Path, sqlite_path: &Path, iterations: usize) -> 
     }
     let json_total_ms = json_start.elapsed().as_millis();
 
-    let sqlite_start = Instant::now();
+    let sqlite_cold_start = Instant::now();
     let mut sqlite_rows = 0usize;
     for _ in 0..iterations {
         let rows = sqlite_db::load_sqlite_rows(sqlite_path)?;
         sqlite_rows = rows.len();
         std::hint::black_box(sqlite_rows);
     }
-    let sqlite_total_ms = sqlite_start.elapsed().as_millis();
+    let sqlite_cold_total_ms = sqlite_cold_start.elapsed().as_millis();
 
     let conn = sqlite_db::open_db(sqlite_path)?;
+    let sqlite_warm_start = Instant::now();
+    for _ in 0..iterations {
+        let rows = sqlite_db::load_rows_from_conn(&conn)?;
+        sqlite_rows = rows.len();
+        std::hint::black_box(sqlite_rows);
+    }
+    let sqlite_warm_total_ms = sqlite_warm_start.elapsed().as_millis();
+
     let sqlite_stats_start = Instant::now();
     for _ in 0..iterations {
         let stats = sqlite_db::stats_from_conn(&conn)?;
@@ -148,14 +156,23 @@ pub fn db_benchmark(json_path: &Path, sqlite_path: &Path, iterations: usize) -> 
     }
     let sqlite_stats_total_ms = sqlite_stats_start.elapsed().as_millis();
 
+    let open_start = Instant::now();
+    for _ in 0..iterations {
+        let conn = sqlite_db::open_db(sqlite_path)?;
+        std::hint::black_box(&conn);
+    }
+    let sqlite_open_overhead_ms = open_start.elapsed().as_millis();
+
     print_json(json!({
         "success": true,
         "iterations": iterations,
         "json_rows": json_rows,
         "sqlite_rows": sqlite_rows,
         "json_total_ms": json_total_ms,
-        "sqlite_total_ms": sqlite_total_ms,
+        "sqlite_cold_total_ms": sqlite_cold_total_ms,
+        "sqlite_warm_total_ms": sqlite_warm_total_ms,
         "sqlite_stats_total_ms": sqlite_stats_total_ms,
+        "sqlite_open_overhead_ms": sqlite_open_overhead_ms,
     }))
 }
 
