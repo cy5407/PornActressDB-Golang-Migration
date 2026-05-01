@@ -349,3 +349,14 @@ Go 端 `VideoData` 目前正式包含：
 - [wiki/architecture/go-bridge.md](go-bridge.md)
 - [wiki/architecture/go-cli.md](go-cli.md)
 - [wiki/architecture/sqlite-shadow-db.md](sqlite-shadow-db.md)
+
+## 相關踩坑
+
+| 踩坑 | 觸發點 |
+|------|--------|
+| [wails-db-path-wrong-dir](../pitfalls/wails-db-path-wrong-dir.md) ✅ | `resolveConfigPath` 沒往上找專案根，DB 落到 build/bin |
+| [wails-db-json-never-updated](../pitfalls/wails-db-json-never-updated.md) ✅ | `BatchSearch` / `ensureDB` 缺 `Compact()` 呼叫，data.json 永不更新 |
+| [wails-db-format-migration](../pitfalls/wails-db-format-migration.md) ✅ | `success` vs `searched_found` 雙值；`SearchStatusSuccess` 常數誤用 |
+| [wails-dbonce-no-reset](../pitfalls/wails-dbonce-no-reset.md) ✅ | `sync.Once` 初始化 DB，設定變更後不生效 |
+| [wails-cache-status-mismatch](../pitfalls/wails-cache-status-mismatch.md) | 前後端對「已搜尋」的判斷不一致 |
+| [python-search-method-field-mismatch](../pitfalls/python-search-method-field-mismatch.md) ✅ | Python 輸出 `method`、Go journal 期望 `search_method` |

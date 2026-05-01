@@ -18,19 +18,29 @@ Wails app 的 `actress-classifier.exe` 執行時找不到 `studios.json`，
 
 ## 根本原因
 
-`wails-app/backend/app.go` 的 `resolveStudiosPath()` 以「與 EXE 同目錄」為最高優先搜尋路徑：
+`wails-app/backend/app.go` 的 `resolveStudiosPath()`（line 1101）只查 EXE 同目錄；找不到時退回字面 `"studios.json"`（CWD-relative）：
 
 ```go
 func resolveStudiosPath() string {
-    // 1. 與 EXE 同目錄（最優先）
-    exeDir, _ := filepath.Abs(filepath.Dir(os.Args[0]))
-    candidate := filepath.Join(exeDir, "studios.json")
-    if _, err := os.Stat(candidate); err == nil {
-        return candidate
+    exe, err := osExecutable()
+    if err == nil {
+        candidate := filepath.Join(filepath.Dir(exe), "studios.json")
+        if _, err2 := os.Stat(candidate); err2 == nil {
+            return candidate
+        }
     }
-    // 2. 當前工作目錄... 等 fallback
+    return "studios.json" // 不存在會由 ReadFile 回 error，但不會中止啟動
 }
 ```
+
+`resolveMajorStudiosPath()`（line 1113）走相同邏輯。**關鍵：兩者都沒有 `..\..\..\` 的 3 層 fallback**（不同於 `resolveConfigPath`），因此：
+
+| 執行方式 | studios.json / major_studios.json 取得來源 |
+|----------|---------------------------------------------|
+| `setup.ps1` 產出的 portable bundle | ✅ 與 EXE 同目錄（腳本已複製） |
+| 直接執行 `wails-app\build\bin\actress-classifier.exe` | ❌ EXE 旁無檔案、CWD = `wails-app\build\bin` 也無 |
+| `wails dev` 在 repo 根目錄啟動 | ⚠️ 視 CWD 而定，多半剛好命中 repo 根的 `studios.json` |
+| 雙擊 EXE（CWD = exe dir） | ❌ 找不到 |
 
 但 `dist/` 目錄下只有：
 ```

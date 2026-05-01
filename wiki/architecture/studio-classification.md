@@ -194,3 +194,11 @@ func loadCodeStudioMap(path string) map[string]string
 | `pkg/database/jsondb.go` | `GetActressPrimaryStudio` DB 查詢層 |
 | `wails-app/backend/app.go` | `GetStudiosByCodes`、`GetActressPrimaryStudios`、`BatchMoveDirs` Wails binding |
 | `wails-app/frontend/src/App.tsx` | `handleStudioMove` 雙層查詢 + 整資料夾移動流程 |
+
+## 相關踩坑
+
+| 踩坑 | 觸發點 |
+|------|--------|
+| [wails-studio-canonical-match](../pitfalls/wails-studio-canonical-match.md) ⚠️ | A：`canonicalMajorStudio` 大小寫匹配（已修）；B：`resolveMajorStudiosPath` 三層 fallback（未實作，靠 setup.ps1 補檔） |
+| [wails-dist-missing-studio-data](../pitfalls/wails-dist-missing-studio-data.md) | EXE 同目錄缺 `studios.json` / `major_studios.json`；裸 `wails build` 後別忘 setup.ps1 |
+| [wails-actress-classification-polluted-candidates](../pitfalls/wails-actress-classification-polluted-candidates.md) ✅ | 清洗前判斷多人共演 + AV-WIKI 全文猜女優 → 片名碎片變成女優資料夾 |

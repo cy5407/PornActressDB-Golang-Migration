@@ -127,3 +127,12 @@ JAVDB   → 快取 A,B,C,D 補入 store（去重）+ 新搜 E,F → store:[A,B,C
 - `wails-app/frontend/src/stores/taskStore.ts` — `searchResults` store、`addSearchResult`
 
 > ✅ **已修復**：commit `20602f2` `fix(frontend): 修正來源搜尋導致番號落入未分類的兩個 Bug`（2026-04-19）
+
+## 驗證 fix 是否在你的 build
+
+```powershell
+# clearSearchResults 應只在 handleSearch / cascade 路徑出現，不在 runSourceSearch 內
+Select-String -Pattern "runSourceSearch|clearSearchResults|handleSourceSearch" wails-app\frontend\src\App.tsx -Context 0,3
+# 視覺確認 runSourceSearch 函式體內沒有 clearSearchResults() 呼叫，且 handleSourceSearch 有 alreadyCached 補入邏輯（含 addSearchResult / existingCodes）
+Select-String "alreadyCached|existingCodes" wails-app\frontend\src\App.tsx
+```

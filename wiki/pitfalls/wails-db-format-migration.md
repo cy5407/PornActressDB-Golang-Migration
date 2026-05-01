@@ -113,6 +113,16 @@ commit: `33ed079`（2026-04-08）
 
 ---
 
+## 驗證 fix 是否在你的 build
+
+```powershell
+# Go backend 寫入應使用 "searched_found"
+Select-String '"searched_found"' wails-app\backend\app.go
+# 不應再寫 SearchStatusSuccess（其值為 "success"）
+Select-String "SearchStatusSuccess" wails-app\backend\app.go
+# 期望：第一個命中、第二個不命中（或只在 pkg/database/types.go 常數定義處出現）
+```
+
 ## 涉及檔案
 
 - `wails-app/backend/app.go`：`BatchSearch()` 寫入 DB 的 `SearchStatus` 欄位

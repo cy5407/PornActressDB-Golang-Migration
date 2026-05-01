@@ -102,4 +102,11 @@ def _parse_detail_page(self, url: str, expected_code: str | None = None) -> dict
 
 搜尋引擎級聯順序：AV-WIKI → JAVDB，此修正只影響 JAVDB 這一層。AV-WIKI 有自己的精確匹配邏輯，不受影響。
 
+## 驗證 fix 是否在你的 build
+
+```powershell
+# 二次驗證的 expected_code 參數應出現在 _parse_detail_page
+Select-String "expected_code" src\services\safe_javdb_searcher.py
+```
+
 → 詳見 [architecture/search-engine.md](../architecture/search-engine.md)

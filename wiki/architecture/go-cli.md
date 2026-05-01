@@ -241,3 +241,11 @@ classifier.exe cache <子命令> [選項]
 
 - [wiki/architecture/go-bridge.md](go-bridge.md)
 - [wiki/patterns/add-go-cli-command.md](../patterns/add-go-cli-command.md)
+
+## 相關踩坑
+
+| 踩坑 | 觸發點 |
+|------|--------|
+| [go-extractor-bracket-format](../pitfalls/go-extractor-bracket-format.md) | `[CODE]` 格式被清空、PPV 位數、MGS 數字前綴等番號提取邊界 |
+| [go-cli-json-flag-missing](../pitfalls/go-cli-json-flag-missing.md) 📦 | 歷史：舊 `go_runner` 架構自動附加 `-json`，新子命令未宣告就 ExitOnError |
+| [go-api-export-missing](../pitfalls/go-api-export-missing.md) 📦 | 歷史：舊 `go_api/` 三層匯出架構，新增函式漏更新導致 AttributeError |

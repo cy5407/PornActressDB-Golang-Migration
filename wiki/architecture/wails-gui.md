@@ -62,10 +62,10 @@ wails-app/
 | `ScanDirectory(dir, workers, recursive)` | pkg/app/scan_service | 並發掃描目錄 |
 | `MoveFile(src, dst, strategy)` | pkg/app/move_service | 單檔移動 |
 | `BatchMove(items, strategy)` | pkg/app/move_service | 批次移動 |
-| `RollbackLast()` | pkg/app/history_service | 回滾最近操作 |
-| `RollbackOperation(id)` | pkg/app/history_service | 回滾指定操作 |
-| `ListOperations()` | pkg/app/history_service | 列出操作記錄 |
-| `GetOperation(id)` | pkg/app/history_service | 取得單筆記錄 |
+| `RollbackLast()` | pkg/mover (`mover.Rollback`) | 回滾最近一筆操作（從 mover opLog 取最新 ID） |
+| `RollbackOperation(id)` | pkg/mover (`mover.Rollback`) | 回滾指定操作 |
+| `ListOperations()` | pkg/mover (`mover.ListOperations`) | 列出操作歷史，最新優先 |
+| `GetOperation(id)` | pkg/mover (`mover.GetOperation`) | 取得單筆操作詳細 |
 | `DbGetVideo(code)` | pkg/database | 查詢影片資料 |
 | `DbUpdateVideo(code, data)` | pkg/database | 更新影片資料 |
 | `DbListVideos()` | pkg/database | 列出所有影片 |
@@ -79,9 +79,15 @@ wails-app/
 | `UpdatePreferences(prefs)` | backend/services/config | 儲存設定 |
 | `ResetPreferences()` | backend/services/config | 重設設定 |
 | `PythonSearch(code)` | subprocess | 呼叫 Python 爬蟲 |
-| `BatchSearch(codes, workers)` | subprocess + JSON Lines | 預設級聯批次搜尋 |
-| `BatchSearchAVWiki(codes, workers)` | subprocess + `source_mode=avwiki` | AV-WIKI-only 補搜 |
-| `BatchSearchJAVDB(codes, workers)` | subprocess + `source_mode=javdb` | JAVDB-only 補搜 |
+| `BatchSearch(codes, workers)` | subprocess + JSON Lines | 預設級聯批次搜尋（讀寫快取） |
+| `BatchSearchAVWiki(codes, workers)` | subprocess + `source_mode=avwiki` | AV-WIKI-only 補搜（不走整體快取） |
+| `BatchSearchJAVDB(codes, workers)` | subprocess + `source_mode=javdb` | JAVDB-only 補搜（不走整體快取） |
+| `CancelOperation()` | `cancelScan` ctx | 取消正在跑的掃描 / 搜尋（共用同一個 cancel func） |
+| `SelectDirectory(title)` | wailsRuntime dialog | 開啟原生資料夾選取對話框 |
+| `CheckConflicts(items)` | os.Stat | 預先回報「目的檔已存在」的項目；source==destination 自動排除為偽衝突 |
+| `CheckDirConflicts(items)` | os.ReadDir | 同上，但用於整個目錄移動；目的目錄非空才回報 |
+| `BatchMoveJSON(jsonStr, strategy)` | json.Unmarshal → BatchMove | 從 JSON 字串批次移動，鏡像 CLI `batch move` 行為 |
+| `PlanDirMergeMoves(items)` | filepath.Walk | 把多個目錄移動展開成檔案層級清單，前端可丟回 `CheckConflicts` / `BatchMove` |
 
 ---
 
@@ -160,3 +166,36 @@ EventsEmit(ctx, "search:done", summary)
 4. 壓縮成 `dist\PornActressDB-windows-portable.zip`
 
 portable bundle 內必須包含 `src\`、`requirements.txt`、`Start-ActressClassifier.bat` 與 `Setup-SearchRuntime.ps1`，因為搜尋功能仍透過 Python 腳本執行。第一次啟動由 `Start-ActressClassifier.bat` 建立 `.venv` 並安裝搜尋依賴。
+
+---
+
+## 相關踩坑
+
+Wails 端踩坑數量較多，按子題分組：
+
+**掃描 / 移動**
+- [wails-scan-duplicate](../pitfalls/wails-scan-duplicate.md) ✅ — `seen[]` map 去重
+- [wails-move-same-path-delete](../pitfalls/wails-move-same-path-delete.md) ✅ — 三層保護避免 src==dst 永久刪除
+- [wails-move-stale-paths](../pitfalls/wails-move-stale-paths.md) — 移動成功後 scanResults 仍是舊路徑
+
+**DB / 設定**
+- [wails-dbonce-no-reset](../pitfalls/wails-dbonce-no-reset.md) ✅ — sync.Once → sync.Mutex + resetDB
+- [wails-db-path-wrong-dir](../pitfalls/wails-db-path-wrong-dir.md) ✅ — config.ini / data.json 三層 fallback
+- [wails-db-json-never-updated](../pitfalls/wails-db-json-never-updated.md) ✅ — 三處補 Compact() 呼叫
+- [wails-db-format-migration](../pitfalls/wails-db-format-migration.md) ✅ — `searched_found` 統一寫法
+- [wails-cache-status-mismatch](../pitfalls/wails-cache-status-mismatch.md) — 前後端對「已搜尋」判斷不一致
+
+**搜尋**
+- [wails-search-perf](../pitfalls/wails-search-perf.md) ✅ — 75s → 10s 四輪優化
+- [wails-source-search-clears-results](../pitfalls/wails-source-search-clears-results.md) ✅ — 來源搜尋導致部分番號落入未分類
+- [wails-actress-classification-polluted-candidates](../pitfalls/wails-actress-classification-polluted-candidates.md) ✅ — 多人共演 + AV-WIKI 全文猜女優
+
+**片商分類**
+- [wails-studio-canonical-match](../pitfalls/wails-studio-canonical-match.md) ⚠️ — 問題 A 已修、問題 B 未實作（靠 setup.ps1）
+- [wails-dist-missing-studio-data](../pitfalls/wails-dist-missing-studio-data.md) — EXE 同目錄缺 json
+
+**建置 / 發行**
+- [wails-build-issues](../pitfalls/wails-build-issues.md) — npm peer / TS namespace / native dialog
+- [github-actions-issues](../pitfalls/github-actions-issues.md) — CI/CD Issue 1-22
+
+> 圖示說明：✅ 已修復且本 build 應已含；⚠️ 部分修復；📦 歷史存檔，不再適用於現行架構。

@@ -74,14 +74,16 @@
 │
 ├── cmd/scanner/              # classifier.exe 入口（多檔套件）
 ├── pkg/                      # Go 套件庫
-│   ├── app/                  # 服務層（ScanService、MoveService）
-│   ├── cache/                # 快取管理
-│   ├── database/             # 增量 JSON DB
+│   ├── app/                  # 服務層（ScanService、MoveService、HistoryService）
+│   ├── cache/                # 快取管理（CLI 限定，不出現在 Wails bindings）
+│   ├── contracts/            # 跨子系統介面契約（scan/move/history）
+│   ├── database/             # 增量 JSON DB（journal + index + atomic compact）
 │   ├── extractor/            # 番號提取器
-│   ├── mover/                # 檔案移動（含回滾歷史）
-│   ├── pathutil/             # 路徑工具
-│   ├── safefile/             # 安全檔案操作
+│   ├── mover/                # 檔案移動（含回滾歷史 / Recycle Bin）
+│   ├── pathutil/             # 巢狀路徑判定
+│   ├── safefile/             # 原子寫入（temp + rename）
 │   └── studio/               # 片商識別器
+├── tools-rs/                 # Rust shadow-DB 工具（crate 名 db-tool）
 │
 ├── src/                      # Python 搜尋管線
 │   ├── scrapers/             # AV-WIKI、JAVDB 爬蟲
@@ -109,9 +111,13 @@
 | `pkg/extractor/` | 番號提取（正則） |
 | `pkg/mover/` | 檔案移動（含回滾歷史） |
 | `pkg/database/` | 增量 JSON DB 操作 |
-| `pkg/cache/` | 快取 get/set/delete |
+| `pkg/cache/` | 快取 get/set/delete（CLI 限定，未透過 Wails 公開） |
 | `pkg/studio/` | 片商識別 |
 | `pkg/pathutil/` | 統一巢狀路徑判定 |
+| `pkg/safefile/` | temp + rename 原子寫入，由 `pkg/database` 與 `pkg/mover` 使用 |
+| `pkg/contracts/` | 介面契約（`Scanner` / `Mover` / `HistoryService`），方便測試替換實作 |
+
+> **雙 Go module**：`go.mod`（module `actress-classifier`）涵蓋 `cmd/` 與 `pkg/`；`wails-app/go.mod`（module `wails-app`）為桌面端，透過 `replace actress-classifier => ../` 直接 import 上層 pkg/。Wails 相依（`github.com/wailsapp/wails/v2`）只存在 `wails-app` module，避免汙染 CLI 模組樹。
 
 ### Python 端（搜尋管線，爬蟲專用）
 

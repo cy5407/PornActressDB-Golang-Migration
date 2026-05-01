@@ -1,8 +1,11 @@
 ---
 category: Wails
 date: 2026-04-08
+status: resolved
 ---
 # Wails 掃描重複番號問題
+
+> ✅ **狀態：已修復**。`wails-app/backend/app.go::ScanDirectory`（line 121）目前實作：`seen := make(map[string]bool)` 配合 `if code != "" && !seen[code]` 過濾，progress 事件用 `len(results)` 而非已掃檔案數。詳見 line 133–166。
 
 ## 問題描述
 
@@ -90,6 +93,14 @@ searcher.safe_searcher.config.max_interval = 0.0
 試圖串行預建 20 個 WebSearcher 以「避免 GIL 競爭」：啟動從 5s 惡化到 14s。  
 原因：Python GIL 在 I/O（讀 cache、import）時自動讓步，threads 並行初始化反而更快。  
 **教訓**：I/O 密集操作交給 threads 並行，強制串行只會更慢。
+
+## 驗證 fix 是否在你的 build
+
+```powershell
+# 應命中 → fix 已套用
+Select-String "seen := make\(map\[string\]bool\)" wails-app\backend\app.go
+Select-String "if code != \"\" && !seen\[code\]" wails-app\backend\app.go
+```
 
 ## 相關文件
 

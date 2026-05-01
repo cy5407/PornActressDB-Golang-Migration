@@ -105,6 +105,15 @@ func resolveDataDir(cfgPath string) string {
 
 ---
 
+## 驗證 fix 是否在你的 build
+
+```powershell
+# resolveConfigPath 三層 fallback 應命中
+Select-String '"\.\.", "\.\.", "\.\.", "config\.ini"' wails-app\backend\app.go
+# resolveDataDir 相對 config.ini 解析也應命中
+Select-String "filepath\.Dir\(cfgPath\), dir" wails-app\backend\app.go
+```
+
 ## 涉及檔案
 
 - `wails-app/backend/app.go`：`resolveConfigPath()`、`resolveDataDir()`、`resolveLogDir()`

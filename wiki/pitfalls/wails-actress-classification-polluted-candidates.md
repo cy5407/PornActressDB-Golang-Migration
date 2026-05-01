@@ -207,3 +207,15 @@ searchResults / DbGetVideo() -> 先清洗候選名單 ->
 3. 對分類系統來說，precision 優先於 recall；寧可 fail-closed，也不要把片名碎片寫成正式女優資料夾
 4. 調查 scraper 問題時，要先追 runtime 真正生效的是哪一條路徑，不要只修 repo 內另一套看起來更完整、但主線沒在用的 parser
 5. AV-WIKI 這種來源若沒有結構化 actress link，應視為「證據不足」，不要再用全文猜名字
+
+## 驗證 fix 是否在你的 build
+
+```powershell
+# AV-WIKI 全文猜女優的 helper 應已移除（fail-closed）
+Select-String "_extract_actresses_from_text|_scan_avwiki_text_for_actresses" src\services\web_searcher.py
+# 期望：不命中（或只在註解 / 移除說明中出現）
+
+# 前端清洗前判斷多人共演的舊邏輯應已不存在
+Select-String "classification\.ts" wails-app\frontend\src\lib\classification.ts | Select-Object -First 1
+go test .\wails-app\backend -run TestActressClassification -v
+```

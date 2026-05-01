@@ -5,6 +5,58 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-05-02] docs | Wiki 可發現性大改：troubleshooting / getting-started / 驗證指令 / 雙向連結
+
+**涉及檔案**：
+- 新增 `wiki/troubleshooting.md` — 以症狀為起點的反向查表，每條附 grep 驗證指令
+- 新增 `wiki/getting-started.md` — 新人 8 步上手路徑（架構→建置→改某個東西→測試→卡住怎辦→改 wiki→不要做的事→延伸閱讀）
+- `wiki/index.md` — 重組：頂部新增「我是新來的 / 我遇到問題」三入口；踩坑分子題（掃描/移動 / DB / 搜尋 / 片商 / 番號建置工具 / 歷史存檔），用 ✅ ⚠️ 📦 〰️ 圖示
+- `wiki/architecture/database.md`、`search-engine.md`、`studio-classification.md`、`go-cli.md`、`wails-gui.md` — 每頁底部新增「相關踩坑」區塊（雙向連結）
+- 12 個 resolved pitfall 加「驗證 fix 是否在你的 build」grep 指令段落：
+  - `wails-dbonce-no-reset`、`wails-scan-duplicate`、`wails-move-same-path-delete`
+  - `wails-db-json-never-updated`、`wails-db-path-wrong-dir`、`wails-db-format-migration`
+  - `python-search-method-field-mismatch`、`javdb-false-positive`
+  - `wails-actress-classification-polluted-candidates`、`wails-source-search-clears-results`
+  - `wails-studio-canonical-match`（A 已修 / B 未實作的雙重判讀）
+- 5 個歷史 pitfall 加 `status: archived` frontmatter（go-api-export-missing / gui-bridge-wrong-access / go-cli-json-flag-missing / pyinstaller-path）
+- 1 個 pitfall 加 `status: resolved`（wiki-viewer-nav-out-of-sync）
+- `wiki/wiki-data.js` — 由 `wiki/gen_data.py` 重新產生
+
+**摘要**：
+- 評估後針對「外來者查修」最弱的可發現性 / 可執行性 / 新手友善度三維度，補完 5 件高槓桿改動。
+- 每個 resolved pitfall 現在能用一條 PowerShell `Select-String` 驗證手上 build 是否含該 fix，不需追 commit hash。
+- 架構頁與 pitfall 之間建立雙向連結，讀架構頁時直接看到風險面。
+- 把純歷史頁從主表搬到「歷史存檔」區塊，避免新人讀完才發現「不適用」。
+
+**踩坑（本次發現）**：無新 bug。整理過程中確認 `wails-studio-canonical-match` 問題 B（resolveMajorStudiosPath 三層 fallback）狀態為「未實作、靠 setup.ps1 規避」，並把這個分歧顯式寫進 troubleshooting / studio-classification 兩處。
+
+---
+
+## [2026-05-02] docs | Wiki 全面對碼審計與已修踩坑狀態收斂
+
+**涉及檔案**：
+- `wiki/architecture/overview.md` — 補 `pkg/contracts` / `pkg/safefile` / `tools-rs/`；新增「雙 Go module」段落（`wails-app/go.mod` + `replace actress-classifier => ../`）
+- `wiki/architecture/wails-gui.md` — 補齊遺漏的 bindings：`CancelOperation`、`SelectDirectory`、`CheckConflicts`、`CheckDirConflicts`、`BatchMoveJSON`、`PlanDirMergeMoves`；rollback 系列來源從 `pkg/app/history_service` 校正為 `pkg/mover`
+- `wiki/architecture/sqlite-shadow-db.md` — 澄清「`tools-rs/db-tool`」是 Cargo crate name 而非目錄；目錄就是 `tools-rs/`
+- `wiki/pitfalls/wails-dbonce-no-reset.md` — `status: resolved`；引用現行 `dbMu sync.Mutex` + `resetDB()`（`app.go:39, 1037, 1074`）
+- `wiki/pitfalls/wails-scan-duplicate.md` — `status: resolved`；引用 `seen[]` map（`app.go:133-166`）
+- `wiki/pitfalls/wails-move-same-path-delete.md` — `status: resolved`；列出三層防護目前位置（`CheckConflicts` / `MoveFile` / `recycleFile`）
+- `wiki/pitfalls/wails-studio-canonical-match.md` — `status: partial`；問題 A（`canonicalMajorStudio` 大小寫匹配）已修；問題 B（`resolveMajorStudiosPath` 三層 fallback）**未落地**，靠 `setup.ps1` portable bundle 補檔；下方原「修復」段落改標為「建議方案（尚未落地）」
+- `wiki/pitfalls/wails-dist-missing-studio-data.md` — 把過時的 `os.Args[0]` 範例換成現行 `osExecutable()`；新增「四種啟動方式分別會不會找到 json」對照表
+- `wiki/index.md` — 上述三個已修踩坑加 ✅；studio canonical 改為「A ✅ / B ⚠️」並列說明
+- `wiki/wiki-data.js` — 由 `wiki/gen_data.py` 重新產生
+
+**摘要**：
+- 三個並行 Explore 子代理人對 9 個 architecture / 24 個 pitfall / 9 個 pattern 頁逐一比對 `cmd/scanner/`、`pkg/`、`wails-app/backend/app.go`、`tools-rs/`、`src/` 現況。
+- 主要漂移：bindings 表少 6 個方法、shadow-db 目錄名稱寫法、四個 pitfall 已被程式碼修掉但 wiki 未標 status。
+- pattern 頁多數仍準確；`pyinstaller.md` 已自帶 `> 此文件為歷史存檔` 警告，不重寫。
+
+**踩坑（本次發現）**：
+- 早先的 W8 pitfall 描述「`resolveMajorStudiosPath` 加 `..\..\..\` 三層 fallback」其實**沒進主分支**。現行 `wails-app/backend/app.go::resolveMajorStudiosPath`（line 1113）與 `resolveStudiosPath`（line 1101）只查 EXE 同目錄，靠 `setup.ps1` 把 `studios.json` / `major_studios.json` 複製進 `dist\portable\` 規避。直接執行 `wails-app\build\bin\actress-classifier.exe` 仍可能讀不到 json — 已在 wiki 兩處明確標註。
+- `wiki-data.js` 必須用 `python wiki/gen_data.py` 重新產生，否則 viewer.html 顯示舊內容。
+
+---
+
 ## [2026-04-27] feature | Rust SQLite 影子資料庫第一版
 
 **涉及檔案**：

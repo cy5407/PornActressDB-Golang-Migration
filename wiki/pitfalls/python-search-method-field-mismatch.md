@@ -60,4 +60,13 @@ return {
 
 在新增或修改 Python 搜尋輸出欄位時，必須與 `pkg/database/journal.go` 的 handler map 核對欄位名一致。
 
+## 驗證 fix 是否在你的 build
+
+```powershell
+# Python 端應輸出 "search_method"（與 Go handler key 一致）
+Select-String '"search_method"' src\scrapers\run_batch_search.py src\scrapers\run_search.py
+# 不應再以 "method" 作為輸出 key（_error 路徑殘留除外）
+Select-String '"method":' src\scrapers\run_batch_search.py
+```
+
 參考：[INTERFACE_AUDIT.md](../../INTERFACE_AUDIT.md)、[wiki/architecture/database.md](../architecture/database.md)

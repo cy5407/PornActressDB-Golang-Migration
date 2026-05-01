@@ -1,6 +1,7 @@
 ---
 category: Python
 date: 2026-04-06
+status: archived
 ---
 
 > [!NOTE]

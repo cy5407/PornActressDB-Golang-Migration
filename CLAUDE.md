@@ -41,6 +41,8 @@ Set-Location wails-app
 wails build
 ```
 
+> 正式發行請改跑 `.\setup.ps1`（位於專案根目錄）— 會建置 `classifier.exe` 與 `actress-classifier.exe`、組裝 `dist\portable\`、把 `studios.json` / `major_studios.json` 等資源複製到 EXE 同層、再壓成 `dist\PornActressDB-windows-portable.zip`。直接複製單一 EXE 出去會踩 `resolveStudiosPath` 找不到資源的雷。
+
 ### 啟動
 
 ```powershell
@@ -57,10 +59,13 @@ src\
 └── utils\                   # scanner 等工具模組
 
 cmd\scanner\                 # classifier.exe 入口
-pkg\                         # Go 核心套件（database/extractor/mover/studio/cache/pathutil）
-wails-app\
+pkg\                         # Go 核心套件
+                             #   app/contracts/safefile/pathutil
+                             #   database/extractor/mover/studio/cache
+wails-app\                   # Wails 桌面應用（自帶 go.mod，replace actress-classifier => ../）
 ├── backend\                 # Wails Go bindings
 └── frontend\                # React + TypeScript UI
+tools-rs\                    # Rust shadow-DB 工具（crate name db-tool）
 ```
 
 ## 重要模組
@@ -150,7 +155,16 @@ python tools\diagnostics\normalize_json_db_schema.py data\json_db\data.json --wr
 2. 若需要新 backend 能力，更新 `wails-app/backend/app.go`
 3. 視需要補 `wails-app/backend/app_test.go`
 
+### 修改 wiki
+
+修改 `wiki/**/*.md` 後必須一次完成三件事，否則 viewer 仍顯示舊內容：
+
+1. 編輯 Markdown。
+2. 在 `wiki/log.md` 追加當日紀錄（格式對照既有 entry，最新在上）。
+3. 執行 `python wiki/gen_data.py` 重新產生 `wiki/wiki-data.js`（Windows console 若報 `UnicodeEncodeError`，用 `PYTHONIOENCODING=utf-8` 重跑）。
+
 ## 備註
 
 - `README.md` 是對外使用說明；若架構或測試命令改變，請同步更新。
-- `MIGRATION_STATUS.md` 現在記錄的是**目前狀態摘要**，不是舊 phase 的逐項流水帳。
+- `wiki/`：架構 / 模式 / 踩坑由 AI 維護，每次修改皆需更新 `log.md` 與 `wiki-data.js`。
+- `tools-rs/`：Rust shadow SQLite 工具，目前不接 Wails、不取代 JSON DB；用法見 `wiki/architecture/sqlite-shadow-db.md`。

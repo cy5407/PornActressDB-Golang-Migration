@@ -1,11 +1,19 @@
 ---
 category: Wails
 date: 2026-04-08
+status: resolved
 ---
 # Wails 同路徑移動導致檔案被永久刪除
 
 **日期**：2026-04-08  
 **嚴重度**：🔴 高（資料永久遺失）
+
+> ✅ **狀態：三層修復已落地**。
+> - 1st：`wails-app/backend/app.go::CheckConflicts`（line 312）以 `filepath.Abs` 比對排除 `src==dst`；`CheckDirConflicts`（line 284）對目錄移動同樣處理。
+> - 2nd：`pkg/mover/file_move.go::MoveFile` 在 `src==dst` 時直接 Skipped + Success 提早返回。
+> - 3rd：`pkg/mover/recycle_windows.go::recycleFile` 經 `SHFileOperationW + FOF_ALLOWUNDO` 把來源檔送資源回收筒；非 Windows 走 `recycle_other.go` fallback。
+>
+> 本頁保留為事後回顧與測試 reference（`pkg/mover/mover_test.go::TestMoveFile_SameSourceAndDestination` 守護回歸）。
 
 ---
 
@@ -127,6 +135,16 @@ os.Remove(tmpDst)  // ← 正確行為：清理 tmp 暫存
 | 3rd | `recycleFile` | 真正刪除來源時走垃圾桶，可還原 |
 
 ---
+
+## 驗證 fix 是否在你的 build
+
+```powershell
+# 三層保護應全部命中
+Select-String "absSrc == absDst" wails-app\backend\app.go      # CheckConflicts / CheckDirConflicts
+Select-String "absSrc == absDst" pkg\mover\file_move.go        # MoveFile early return
+Select-String "func recycleFile" pkg\mover\recycle_windows.go  # Windows Recycle Bin
+go test .\pkg\mover\... -run TestMoveFile_SameSourceAndDestination -v
+```
 
 ## 相關檔案
 

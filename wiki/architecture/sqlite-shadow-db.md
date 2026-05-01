@@ -6,7 +6,7 @@
 
 ## 一句話
 
-`tools-rs/db-tool` 是放在正式 JSON DB 旁邊的 SQLite 試驗場。
+Rust crate `db-tool`（位於 `tools-rs/`，Cargo package name `db-tool`、目錄就是 `tools-rs/` 本身，不是 `tools-rs/db-tool/`）是放在正式 JSON DB 旁邊的 SQLite 試驗場。
 
 它不取代 `data.json` / `data.journal`，也不會自動接進 Wails。它只是把目前 JSON DB 的資料整理成 SQLite 影子副本，讓我們安全地驗證「未來是否值得把主資料庫遷移到 SQLite」。
 

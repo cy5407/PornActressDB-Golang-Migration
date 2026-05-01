@@ -291,3 +291,13 @@ backend 會依 `SearchResult` 推導來源狀態：
 - `src/services/web_searcher.py`
 - `src/scrapers/sources/avwiki_scraper.py`
 - `wails-app/frontend/src/App.tsx`
+
+## 相關踩坑
+
+| 踩坑 | 觸發點 |
+|------|--------|
+| [javdb-false-positive](../pitfalls/javdb-false-positive.md) ✅ | 無精確匹配時 fallback 第一筆，造成番號污染 |
+| [wails-search-perf](../pitfalls/wails-search-perf.md) ✅ | 75s → 10s 優化（rate limiter + thread-local 並行初始化） |
+| [wails-source-search-clears-results](../pitfalls/wails-source-search-clears-results.md) ✅ | 來源搜尋清空前輪結果 + 已快取番號被 filter 掉，分類落入「未分類」 |
+| [python-search-method-field-mismatch](../pitfalls/python-search-method-field-mismatch.md) ✅ | Python 端 JSON key 與 Go journal handler 不一致 |
+| [wails-actress-classification-polluted-candidates](../pitfalls/wails-actress-classification-polluted-candidates.md) ✅ | AV-WIKI 全文猜女優、清洗前判斷多人共演導致片名碎片變成資料夾 |

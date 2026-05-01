@@ -106,6 +106,14 @@ func (a *App) ensureDB() {
 
 ---
 
+## 驗證 fix 是否在你的 build
+
+```powershell
+# 三處 Compact 呼叫都應命中
+Select-String "a\.db\.Compact\(\)|a\.db\.CompactIfNeeded\(\)|db\.CompactIfNeeded\(\)" wails-app\backend\app.go
+# 期望輸出 ≥ 3 行：BatchSearch 末尾、早期返回、ensureDB 啟動
+```
+
 ## 涉及檔案
 
 - `wails-app/backend/app.go`：`BatchSearch()` 末尾 + 早期返回 + `ensureDB()`
