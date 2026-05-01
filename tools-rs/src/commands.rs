@@ -63,6 +63,10 @@ pub fn db_import_json(
     let timer = Instant::now();
     let started_at = now_utc_rfc3339();
     let source_consistent = ensure_clean_journal(json_path, journal_path, allow_dirty_journal)?;
+    {
+        let conn = sqlite_db::open_db(sqlite_path)?;
+        sqlite_db::ensure_schema_compatible(&conn, replace)?;
+    }
     let json_rows = load_json_rows(json_path)?;
     let actress_link_count = json_rows
         .rows
@@ -293,6 +297,7 @@ fn print_json(value: Value) -> Result<()> {
 mod tests {
     use super::*;
     use crate::json_db::{ActressItem, JsonRows};
+    use rusqlite::Connection;
 
     fn row(code: &str, title: &str, studio: &str, actresses: Vec<&str>) -> VideoRow {
         VideoRow {
@@ -317,7 +322,6 @@ mod tests {
                     ordinal,
                 })
                 .collect(),
-            raw_json: "{}".to_string(),
         }
     }
 
@@ -425,6 +429,26 @@ mod tests {
             .field_mismatches
             .iter()
             .any(|mismatch| mismatch.field == "actress_items"));
+    }
+
+    #[test]
+    fn db_import_json_rejects_v1_without_replace() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let json_path = dir.path().join("data.json");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        fs::write(
+            &json_path,
+            r#"{"videos":{"A":{"code":"A","title":"Title"}}}"#,
+        )
+        .expect("write json");
+
+        let conn = Connection::open(&sqlite_path).expect("open db");
+        conn.pragma_update(None, "user_version", 1).expect("set v1");
+        drop(conn);
+
+        let err = db_import_json(&json_path, &sqlite_path, None, false, true)
+            .expect_err("v1 import without replace should fail");
+        assert!(err.to_string().contains("schema v1"));
     }
 
     #[test]

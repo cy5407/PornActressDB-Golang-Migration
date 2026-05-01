@@ -1,5 +1,5 @@
 use crate::json_db::{now_utc_rfc3339, system_time_rfc3339, VideoRow};
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use rusqlite::{params, Connection, TransactionBehavior};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 
 #[derive(Debug, Clone)]
 pub struct ImportMetadata {
@@ -37,6 +37,8 @@ pub fn open_db(path: &Path) -> Result<Connection> {
 }
 
 pub fn init_schema(conn: &Connection, replace: bool) -> Result<()> {
+    ensure_schema_compatible(conn, replace)?;
+
     if replace {
         conn.execute_batch(
             "
@@ -64,8 +66,7 @@ pub fn init_schema(conn: &Connection, replace: bool) -> Result<()> {
           created_at TEXT NOT NULL DEFAULT '',
           updated_at TEXT NOT NULL DEFAULT '',
           original_filename TEXT NOT NULL DEFAULT '',
-          file_path TEXT NOT NULL DEFAULT '',
-          raw_json TEXT NOT NULL
+          file_path TEXT NOT NULL DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS video_actresses (
@@ -123,6 +124,16 @@ pub fn init_schema(conn: &Connection, replace: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn ensure_schema_compatible(conn: &Connection, replace: bool) -> Result<()> {
+    let version = schema_version(conn)?;
+    match version {
+        0 | SCHEMA_VERSION => Ok(()),
+        1 if replace => Ok(()),
+        1 => bail!("shadow DB is schema v1, run with --replace to rebuild as v2 (or delete data\\shadow.sqlite)"),
+        other => bail!("unknown shadow DB schema version: {other}. expected 0/1/2"),
+    }
+}
+
 pub fn import_rows(
     sqlite_path: &Path,
     rows: &BTreeMap<String, VideoRow>,
@@ -130,7 +141,7 @@ pub fn import_rows(
     replace: bool,
 ) -> Result<usize> {
     let mut conn = open_db(sqlite_path)?;
-    init_schema(&conn, false)?;
+    init_schema(&conn, replace)?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
     if replace {
@@ -144,8 +155,8 @@ pub fn import_rows(
             "
             INSERT OR REPLACE INTO videos (
                 code, title, studio, release_date, url, search_status, search_method,
-                last_search_date, created_at, updated_at, original_filename, file_path, raw_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                last_search_date, created_at, updated_at, original_filename, file_path
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
             ",
             params![
                 row.code,
@@ -160,7 +171,6 @@ pub fn import_rows(
                 row.updated_at,
                 row.original_filename,
                 row.file_path,
-                row.raw_json,
             ],
         )?;
         tx.execute(
@@ -214,7 +224,7 @@ pub fn load_rows_from_conn(conn: &Connection) -> Result<BTreeMap<String, VideoRo
     let mut stmt = conn.prepare(
         "
         SELECT code, title, studio, release_date, url, search_status, search_method,
-               last_search_date, created_at, updated_at, original_filename, file_path, raw_json
+               last_search_date, created_at, updated_at, original_filename, file_path
         FROM videos
         ORDER BY code
         ",
@@ -239,7 +249,6 @@ pub fn load_rows_from_conn(conn: &Connection) -> Result<BTreeMap<String, VideoRo
             updated_at: row.get(9)?,
             original_filename: row.get(10)?,
             file_path: row.get(11)?,
-            raw_json: row.get(12)?,
         })
     })?;
 
@@ -404,7 +413,6 @@ mod tests {
                         ordinal: 2,
                     },
                 ],
-                raw_json: "{}".to_string(),
             },
         );
         let metadata = ImportMetadata {
@@ -440,5 +448,41 @@ mod tests {
             )
             .expect("summary view");
         assert_eq!(summary, "Alice, Bob");
+    }
+
+    #[test]
+    fn init_schema_rejects_v1_without_replace() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        let conn = open_db(&sqlite_path).expect("open db");
+        conn.pragma_update(None, "user_version", 1).expect("set v1");
+
+        let err = init_schema(&conn, false).expect_err("v1 without replace should fail");
+        assert!(err.to_string().contains("schema v1"));
+    }
+
+    #[test]
+    fn init_schema_rebuilds_v1_with_replace() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        let conn = open_db(&sqlite_path).expect("open db");
+        conn.pragma_update(None, "user_version", 1).expect("set v1");
+
+        init_schema(&conn, true).expect("replace v1");
+        let version = schema_version(&conn).expect("schema version");
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn init_schema_rejects_unknown_version_even_with_replace() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sqlite_path = dir.path().join("shadow.sqlite");
+        let conn = open_db(&sqlite_path).expect("open db");
+        conn.pragma_update(None, "user_version", 3).expect("set v3");
+
+        let err = init_schema(&conn, true).expect_err("v3 should fail");
+        assert!(err
+            .to_string()
+            .contains("unknown shadow DB schema version: 3"));
     }
 }

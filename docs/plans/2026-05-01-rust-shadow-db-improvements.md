@@ -200,23 +200,23 @@ Ok((row, duplicate_count))
 
    `db-import-json` 也必須檢查（不能只在 `db-init` 檢查），否則使用者跳過 init 直接 import 仍會中招
 
-- [ ] `init_schema` 的 `videos` table DDL 移除 `raw_json TEXT NOT NULL`
-- [ ] `init_schema` 的 `DROP TABLE` 順序與內容不變
-- [ ] `SCHEMA_VERSION` 常數從 `1` 升到 `2`
-- [ ] 新增 `pub fn ensure_schema_compatible(conn: &Connection, replace: bool) -> Result<()>`，包含上表邏輯，回傳 `anyhow::Error` with 上述訊息
-- [ ] `db_init` 在 `init_schema` 前呼叫 `ensure_schema_compatible(&conn, replace)`
-- [ ] `db_import_json` 在 `import_rows` 前先 `open_db` 一次呼叫 `ensure_schema_compatible(&conn, replace)`，再丟回原本的流程
-- [ ] `import_rows` 的 INSERT 拿掉 `raw_json` 欄位與對應 param
-- [ ] `load_rows_from_conn` 的 SELECT 與 `query_map` 拿掉 `raw_json`
-- [ ] `VideoRow` struct 拿掉 `raw_json: String` 欄位
-- [ ] `video_from_value` 拿掉 `serde_json::to_string(value)` 那一行與對應 error path
-- [ ] 所有測試 fixture 拿掉 `raw_json: "{}".to_string()`
-- [ ] 補 unit test：v1 DB（手動建 `PRAGMA user_version = 1`）+ 無 `--replace` → `db_init` 應 error
-- [ ] 補 unit test：v1 DB + `--replace` → `db_init` 應成功且 `user_version` 變成 2
-- [ ] 補 unit test：v3 DB（手動 `PRAGMA user_version = 3`）→ 不論 `--replace` 與否都應 error
-- [ ] 補 unit test：`db_import_json` 對 v1 DB 無 `--replace` 也應 error（驗證 import 不可繞過）
-- [ ] `docs/tools-rs-sqlite-shadow-db.md` 的 schema SQL 段落同步移除 `raw_json` 並補一句「`raw_json` 已於 v2 schema 移除，理由：未被任何 reader 使用，且導致 DB 體積翻倍」
-- [ ] `docs/sqlite-shadow-db-commands.md` 補 warning：「升級到 v2 schema 後，舊的 `data\shadow.sqlite` 必須刪除或用 `--replace` rebuild。工具會在偵測到 v1 DB 時直接 error，不做 in-place migration」
+- [x] `init_schema` 的 `videos` table DDL 移除 `raw_json TEXT NOT NULL`
+- [x] `init_schema` 的 `DROP TABLE` 順序與內容不變
+- [x] `SCHEMA_VERSION` 常數從 `1` 升到 `2`
+- [x] 新增 `pub fn ensure_schema_compatible(conn: &Connection, replace: bool) -> Result<()>`，包含上表邏輯，回傳 `anyhow::Error` with 上述訊息
+- [x] `db_init` 在 `init_schema` 前呼叫 `ensure_schema_compatible(&conn, replace)`
+- [x] `db_import_json` 在 `import_rows` 前先 `open_db` 一次呼叫 `ensure_schema_compatible(&conn, replace)`，再丟回原本的流程
+- [x] `import_rows` 的 INSERT 拿掉 `raw_json` 欄位與對應 param
+- [x] `load_rows_from_conn` 的 SELECT 與 `query_map` 拿掉 `raw_json`
+- [x] `VideoRow` struct 拿掉 `raw_json: String` 欄位
+- [x] `video_from_value` 拿掉 `serde_json::to_string(value)` 那一行與對應 error path
+- [x] 所有測試 fixture 拿掉 `raw_json: "{}".to_string()`
+- [x] 補 unit test：v1 DB（手動建 `PRAGMA user_version = 1`）+ 無 `--replace` → `db_init` 應 error
+- [x] 補 unit test：v1 DB + `--replace` → `db_init` 應成功且 `user_version` 變成 2
+- [x] 補 unit test：v3 DB（手動 `PRAGMA user_version = 3`）→ 不論 `--replace` 與否都應 error
+- [x] 補 unit test：`db_import_json` 對 v1 DB 無 `--replace` 也應 error（驗證 import 不可繞過）
+- [x] `docs/tools-rs-sqlite-shadow-db.md` 的 schema SQL 段落同步移除 `raw_json` 並補一句「`raw_json` 已於 v2 schema 移除，理由：未被任何 reader 使用，且導致 DB 體積翻倍」
+- [x] `docs/sqlite-shadow-db-commands.md` 補 warning：「升級到 v2 schema 後，舊的 `data\shadow.sqlite` 必須刪除或用 `--replace` rebuild。工具會在偵測到 v1 DB 時直接 error，不做 in-place migration」
 
 **Acceptance criteria:**
 

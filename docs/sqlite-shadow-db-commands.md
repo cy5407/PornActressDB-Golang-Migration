@@ -48,6 +48,8 @@ C:\Users\cy5407\.bun\bin\bun.exe
 
 ## 同步 shadow SQLite
 
+> **重要**：升級到 v2 schema 後，舊的 `data\shadow.sqlite` 必須刪除或用 `--replace` rebuild。工具會在偵測到 v1 DB 時直接 error，不做 in-place migration。
+
 從 `data\json_db\data.json` 重建 `data\shadow.sqlite`：
 
 ```powershell

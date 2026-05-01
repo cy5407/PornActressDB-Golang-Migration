@@ -28,7 +28,6 @@ pub struct VideoRow {
     pub file_path: String,
     pub actresses: Vec<String>,
     pub actress_items: Vec<ActressItem>,
-    pub raw_json: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -100,8 +99,6 @@ fn video_from_value(
     }
 
     let (actresses, actress_items, duplicate_count) = parse_actresses(value);
-    let raw_json = serde_json::to_string(value)
-        .map_err(|_| "video record raw JSON serialize failed".to_string())?;
 
     let row = VideoRow {
         code,
@@ -118,7 +115,6 @@ fn video_from_value(
         file_path: string_field(value, "file_path").unwrap_or_default(),
         actresses,
         actress_items,
-        raw_json,
     };
 
     let trimmed_key = map_key.trim();

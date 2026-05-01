@@ -39,7 +39,9 @@
 cargo run --manifest-path tools-rs\Cargo.toml -- db-init --sqlite data\shadow.sqlite --replace
 ```
 
-建立 SQLite schema，設定 `PRAGMA user_version = 1`。`--replace` 會刪除既有 shadow schema 後重建。
+建立 SQLite schema，設定 `PRAGMA user_version = 2`。`--replace` 會刪除既有 shadow schema 後重建。
+
+若偵測到 v1 shadow DB，工具不做 in-place migration；請用 `--replace` 重建，或刪除舊的 `data\shadow.sqlite` 後再執行。
 
 ### `db-import-json`
 
@@ -53,7 +55,7 @@ cargo run --manifest-path tools-rs\Cargo.toml -- db-import-json --json data\json
 - `--json` 檔名剛好是 `data.json` 時，自動推導同目錄 `data.journal`。
 - 非標準檔名如 `export.json` 或 `data.json.bak` 若要 journal 一致性檢查，必須顯式傳 `--journal`。
 - 單筆 video 沒有 `code` / `id` 時列入 invalid 並略過，不讓整批失敗。
-- `actresses` 以 set 去重；`ordinal` 保留 JSON 陣列中第一次出現的位置。
+- `actresses` 依 JSON ordinal 順序去重；`ordinal` 保留 JSON 陣列中第一次出現的位置。
 - 重複女優計入 `duplicate_actresses`，只當 warning，不讓 compare 失敗。
 
 輸出包含：
@@ -83,9 +85,9 @@ cargo run --manifest-path tools-rs\Cargo.toml -- db-compare-json --json data\jso
 比對：
 
 - code 集合
-- title
-- studio
-- actresses set
+- 所有 video 字串欄位：`title`、`studio`、`release_date`、`url`、`search_status`、`search_method`、`last_search_date`、`created_at`、`updated_at`、`original_filename`、`file_path`
+- `actresses` ordinal 順序
+- `actress_items` 的 `(name, ordinal)`
 
 mismatch 預設輸出 JSON 後直接 exit 1，不額外污染 stderr。`duplicate_actresses` 是資料品質 warning，不納入 `success=false` 條件。
 
@@ -114,8 +116,7 @@ CREATE TABLE IF NOT EXISTS videos (
   created_at TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT '',
   original_filename TEXT NOT NULL DEFAULT '',
-  file_path TEXT NOT NULL DEFAULT '',
-  raw_json TEXT NOT NULL
+  file_path TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS video_actresses (
@@ -171,6 +172,8 @@ CREATE TABLE IF NOT EXISTS import_runs (
 
 `schema_version` 不存進 `import_runs`，只使用 `PRAGMA user_version`。
 
+`raw_json` 已於 v2 schema 移除，理由是沒有任何 reader 使用，且會讓 shadow DB 體積明顯膨脹。SQLite 仍是衍生物；需要原始完整資料時回讀 `data\json_db\data.json`。
+
 `videos_with_actresses` 是給人工檢視與診斷用的整合 view，底層仍保留 `videos` / `video_actresses` 的正規化結構。若只想一眼看影片、片商與女優，查這個 view。
 
 ```sql
@@ -181,9 +184,10 @@ LIMIT 20;
 
 ## 驗收順序
 
-1. `cargo fmt --manifest-path tools-rs/Cargo.toml`
-2. `cargo test --manifest-path tools-rs/Cargo.toml`
-3. `cargo run --manifest-path tools-rs/Cargo.toml -- db-init --sqlite <temp.sqlite> --replace`
-4. `cargo run --manifest-path tools-rs/Cargo.toml -- db-import-json --json data/json_db/data.json --sqlite data/shadow.sqlite --replace`
-5. `cargo run --manifest-path tools-rs/Cargo.toml -- db-compare-json --json data/json_db/data.json --sqlite data/shadow.sqlite`
-6. compare pass 後再跑 `db-benchmark`
+1. `cargo fmt --manifest-path tools-rs/Cargo.toml --check`
+2. `cargo clippy --manifest-path tools-rs/Cargo.toml -- -D warnings`
+3. `cargo test --manifest-path tools-rs/Cargo.toml`
+4. `cargo run --manifest-path tools-rs/Cargo.toml -- db-init --sqlite <temp.sqlite> --replace`
+5. `cargo run --manifest-path tools-rs/Cargo.toml -- db-import-json --json data/json_db/data.json --sqlite data/shadow.sqlite --replace`
+6. `cargo run --manifest-path tools-rs/Cargo.toml -- db-compare-json --json data/json_db/data.json --sqlite data/shadow.sqlite`
+7. compare pass 後再跑 `db-benchmark`
