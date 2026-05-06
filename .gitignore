@@ -34,6 +34,9 @@ temp_*
 *.swp
 *.swo
 
+# Claude 本機設定（權限白名單與個人環境）
+.claude/settings.local.json
+
 # 作業系統檔案
 .DS_Store
 Thumbs.db
