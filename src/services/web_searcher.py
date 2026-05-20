@@ -130,15 +130,26 @@ class WebSearcher:
     def _build_code_candidates(self, code: str) -> list[str]:
         """建立搜尋候選番號。
 
-        目前僅對英文-00xxx 的可疑 FANZA 形式加入去除雙 0 的 fallback，
-        避免直接改壞合法保留前導 0 的番號。
+        1. FANZA 雙零 fallback：STARS-001 → STARS-1
+        2. 數字前綴 fallback：345SIMM-807 → SIMM-807
+           （MGS 正格式如 200GANA-3376 會在第一候選命中，不影響）
         """
         candidates = [code]
+
+        # FANZA 雙零 fallback
         match = re.match(r"^([A-Z]{2,6})-00(\d{3})$", code.upper())
         if match:
             alias_code = f"{match.group(1)}-{match.group(2)}"
             if alias_code not in candidates:
                 candidates.append(alias_code)
+
+        # 數字前綴 fallback：去除番號前段純數字（例如 345SIMM-807 → SIMM-807）
+        match = re.match(r"^\d{2,4}([A-Z]{2,6}-\d{3,5})$", code.upper())
+        if match:
+            alias_code = match.group(1)
+            if alias_code not in candidates:
+                candidates.append(alias_code)
+
         return candidates
 
     @staticmethod
