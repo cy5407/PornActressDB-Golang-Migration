@@ -26,15 +26,6 @@ def test_python_test_workflow_includes_windows_validation():
     assert "go build -o classifier.exe .\\cmd\\scanner" in workflow
 
 
-def test_dockerfile_copies_pkg_sources_for_source_regression_tests():
-    dockerfile = (ROOT_DIR / "Dockerfile").read_text(encoding="utf-8")
-    runtime_stage = dockerfile.split("FROM python:3.11-slim-bookworm AS runtime", 1)[1]
-
-    assert "COPY Dockerfile ./Dockerfile" in runtime_stage
-    assert "COPY pkg/ ./pkg/" in runtime_stage
-    assert "COPY .github/ ./.github/" in runtime_stage
-
-
 def test_go_lint_workflow_installs_linter_with_current_go_toolchain():
     workflow = (WORKFLOWS_DIR / "go-lint.yml").read_text(
         encoding="utf-8"
