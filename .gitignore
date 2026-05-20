@@ -36,6 +36,7 @@ temp_*
 
 # Claude 本機設定（權限白名單與個人環境）
 .claude/settings.local.json
+.claude/worktrees/
 
 # 作業系統檔案
 .DS_Store
@@ -151,7 +152,9 @@ coverage_report.txt
 /data/json_db/*.lock
 /data/json_db/*.journal.lock
 
-# JSON DB 主快照可作為共享資料進版控；journal/index 屬執行期狀態，不追蹤
+# JSON DB 主快照不再進版控（本機長期累積的搜尋結果不適合公開到 public repo）；
+# journal/index/backup 屬執行期狀態與本機備份，也不追蹤。
+/data/json_db/data.json
 /data/json_db/data.journal
 /data/json_db/data.index
 /data/json_db/data.backup_*.json
