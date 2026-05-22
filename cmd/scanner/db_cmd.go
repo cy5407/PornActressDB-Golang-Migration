@@ -74,7 +74,7 @@ type studioFixSummary struct {
 
 func dbCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios|actress-get|actress-update|actress-delete|actress-list|backup-create|backup-restore|backup-list|backup-cleanup> [選項]")
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios|actress-get|actress-update|actress-delete|actress-list|backup-create|backup-restore|backup-list|backup-cleanup|migrate-from-json|verify-sync|resync-from-json|export-json> [選項]")
 		os.Exit(1)
 	}
 
@@ -103,6 +103,18 @@ func routeDBSpecialSubcommand(subCmd string, args []string) bool {
 		return true
 	case "merge":
 		dbMergeCmd(args)
+		return true
+	case "migrate-from-json":
+		dbMigrateFromJSONCmd(args)
+		return true
+	case "verify-sync":
+		dbVerifySyncCmd(args)
+		return true
+	case "resync-from-json":
+		dbResyncFromJSONCmd(args)
+		return true
+	case "export-json":
+		dbExportJSONCmd(args)
 		return true
 	default:
 		return false
