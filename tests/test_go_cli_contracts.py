@@ -468,3 +468,399 @@ def test_normalize_studio_name_raises_on_go_error(monkeypatch):
 
     with pytest.raises(go_cli.GoError, match="normalize failed"):
         go_cli.normalize_studio_name("MOODYZ DIVA")
+
+
+# ---------------------------------------------------------------------------
+# Slice A0 — per-subcommand happy-path JSON contracts (spec § 7.1)
+#
+# Goal: pin the JSON shape that classifier.exe currently returns for every
+# `db` subcommand the Python helper relies on, so any later slice that
+# changes that shape lights up here first.
+# ---------------------------------------------------------------------------
+
+
+def test_db_get_video_returns_video_dict_for_existing_code(monkeypatch):
+    captured = {}
+    video_payload = {
+        "code": "STARS-707",
+        "title": "範例作品",
+        "studio": "SOD Create",
+        "actresses": ["田中美奈実"],
+        "search_status": "success",
+    }
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return video_payload
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_get_video("STARS-707", "custom_db")
+
+    assert result == video_payload
+    assert captured["args"] == ["db", "get", "-data-dir", "custom_db", "STARS-707"]
+
+
+def test_db_get_video_omits_data_dir_when_default(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"code": "STARS-707"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.db_get_video("STARS-707")
+
+    # spec § 7.1: default data/json_db must NOT add -data-dir to argv
+    # (compatibility lookup is implicit when the flag is absent).
+    assert captured["args"] == ["db", "get", "STARS-707"]
+    assert "-data-dir" not in captured["args"]
+
+
+def test_db_get_video_returns_none_when_not_found(monkeypatch):
+    def fake_run(args, *, timeout=30):
+        raise go_cli.GoError("classifier 回傳錯誤 (exit 1): video not found")
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_get_video("MISSING-001", "custom_db") is None
+
+
+def test_db_delete_video_happy_path(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True, "action": "delete", "code": "STARS-707"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_delete_video("STARS-707", "custom_db") is True
+    assert captured["args"] == ["db", "delete", "-data-dir", "custom_db", "STARS-707"]
+
+
+def test_db_delete_video_returns_false_on_not_found(monkeypatch):
+    def fake_run(args, *, timeout=30):
+        raise go_cli.GoError("classifier 回傳錯誤 (exit 1): video not found")
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_delete_video("MISSING-001", "custom_db") is False
+
+
+def test_db_get_all_videos_full_uses_full_flag(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return [{"code": "STARS-707"}, {"code": "MIDV-567"}]
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_get_all_videos("custom_db")
+
+    assert result == [{"code": "STARS-707"}, {"code": "MIDV-567"}]
+    assert captured["args"] == ["db", "list", "--full", "-data-dir", "custom_db"]
+
+
+def test_db_compact_journal_pins_current_return_shape(monkeypatch):
+    """Lock the *current* `db compact -json` return shape.
+
+    Spec § 7.1 / plan A0 describe a richer no-op return for Phase C
+    (`{"success":true,"noop":true,"journal_size":0,"needs_compact":false,
+    "reason":"..."}`), but today the CLI only emits success/action/data_dir.
+    This test pins reality so Slice C1 can detect the contract change.
+    The Python helper only reads `success`, so the wrapper must keep
+    working when extra fields are added later.
+    """
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {
+            "success": True,
+            "action": "compact",
+            "data_dir": "custom_db",
+        }
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_compact_journal("custom_db") is True
+    assert captured["args"] == ["db", "compact", "-json", "-data-dir", "custom_db"]
+
+
+def test_db_compact_journal_accepts_phase_c_noop_shape(monkeypatch):
+    """Forward-compat: Python wrapper must not break when Phase C adds fields.
+
+    spec § 7.1: Phase C no-op returns the keys
+    `success / noop / journal_size / needs_compact / reason`. The wrapper
+    today only reads `success`, so it must keep returning True for the
+    richer shape too.
+    """
+
+    def fake_run(args, *, timeout=30):
+        return {
+            "success": True,
+            "noop": True,
+            "journal_size": 0,
+            "needs_compact": False,
+            "reason": "sqlite has no journal to compact",
+        }
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_compact_journal() is True
+
+
+def test_db_compact_journal_omits_data_dir_when_default(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.db_compact_journal()
+
+    assert captured["args"] == ["db", "compact", "-json"]
+
+
+def test_db_stats_subcommand_returns_full_stats_dict(monkeypatch):
+    """`db stats` is invoked directly via go_cli.run (no helper today).
+
+    Pins the full key set that pkg/database.GetStats() emits, so any
+    Phase B/C change to those keys is caught here.
+    """
+    _patch_exe(monkeypatch)
+    stats_payload = {
+        "video_count": 3,
+        "actress_count": 3,
+        "link_count": 4,
+        "schema_version": "1.0.0",
+        "created_at": "2026-05-23T00:00:00Z",
+        "updated_at": "2026-05-23T00:00:00Z",
+        "journal_size": 0,
+        "journal_age_seconds": 0.0,
+        "dirty_videos": 0,
+        "dirty_actresses": 0,
+        "dirty_links": 0,
+        "needs_compact": False,
+        "total_videos": 3,
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(stats_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "stats", "-data-dir", "custom_db"])
+
+    # Spec § 7.1: these are the fields Python IncrementalJSONDB mirrors.
+    for required in (
+        "journal_size",
+        "journal_age_seconds",
+        "dirty_videos",
+        "dirty_actresses",
+        "dirty_links",
+        "needs_compact",
+        "total_videos",
+    ):
+        assert required in result, f"missing required stats key: {required}"
+    assert result["total_videos"] == 3
+    assert result["needs_compact"] is False
+
+
+def test_db_list_codes_returns_string_array(monkeypatch):
+    """`db list` (without --full) emits a JSON string array, not an object."""
+    _patch_exe(monkeypatch)
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout='["STARS-707","MIDV-567","SSIS-001"]', stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "list", "-data-dir", "custom_db"])
+
+    assert isinstance(result, list)
+    assert result == ["STARS-707", "MIDV-567", "SSIS-001"]
+
+
+def test_db_actress_get_returns_actress_dict(monkeypatch):
+    captured = {}
+    actress_payload = {
+        "id": "tanaka-minami",
+        "name": "田中美奈実",
+        "aliases": ["田中みなみ"],
+        "video_count": 2,
+        "created_at": "2026-05-20T08:00:00Z",
+        "updated_at": "2026-05-22T13:00:00Z",
+    }
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return actress_payload
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_get_actress("tanaka-minami", "custom_db")
+
+    assert result == actress_payload
+    # spec § 7.1: actress dict must expose id/name/aliases/video_count.
+    for required in ("id", "name", "aliases", "video_count"):
+        assert required in result
+    assert captured["args"] == [
+        "db",
+        "actress-get",
+        "-data-dir",
+        "custom_db",
+        "tanaka-minami",
+    ]
+
+
+def test_db_actress_list_returns_id_array(monkeypatch):
+    _patch_exe(monkeypatch)
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout='["tanaka-minami","sato-ami","suzuki-hanako"]',
+            stderr="",
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "actress-list", "-data-dir", "custom_db"])
+
+    assert isinstance(result, list)
+    assert "tanaka-minami" in result
+
+
+def test_db_clean_actresses_returns_report_dict(monkeypatch):
+    """`db clean-actresses` emits a dbCleanActressesResult JSON object."""
+    _patch_exe(monkeypatch)
+    payload = {
+        "success": True,
+        "dry_run": True,
+        "scanned_videos": 3,
+        "changed_videos": 0,
+        "removed_actresses": 0,
+        "changes": [],
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "clean-actresses", "-data-dir", "custom_db"])
+
+    for required in (
+        "success",
+        "dry_run",
+        "scanned_videos",
+        "changed_videos",
+        "removed_actresses",
+        "changes",
+    ):
+        assert required in result, f"missing required key: {required}"
+    assert result["changes"] == []
+
+
+def test_db_backup_create_returns_path_field_today(monkeypatch):
+    """Pin the *current* backup-create return shape.
+
+    spec § 7.1 / plan C1 call the field `backup_path` (and add
+    `json_export_path` in Phase C); today the CLI emits `path` alongside
+    `success`. The Python helper passes the dict through untouched, so
+    this test locks the shape until Slice C1 promotes the field name.
+    """
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True, "path": "data/backup/db_demo.json"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_backup_create("custom_db")
+
+    assert result["success"] is True
+    assert "path" in result
+    assert captured["args"] == ["db", "backup-create", "-data-dir", "custom_db"]
+
+
+def test_db_backup_list_returns_count_and_backups(monkeypatch):
+    """`db backup-list` happy path returns {"backups": [...], "count": N}."""
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"backups": ["a.json", "b.json", "c.json"], "count": 3}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_backup_list("custom_db")
+
+    assert result == ["a.json", "b.json", "c.json"]
+    assert captured["args"] == ["db", "backup-list", "-data-dir", "custom_db"]
+
+
+def test_db_backup_list_handles_empty_backups(monkeypatch):
+    def fake_run(args, *, timeout=30):
+        return {"backups": [], "count": 0}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_backup_list("custom_db") == []
+
+
+def test_db_backup_cleanup_default_args_omit_optional_flags(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"deleted": 0, "success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_backup_cleanup("custom_db")
+
+    assert result == 0
+    assert captured["args"] == ["db", "backup-cleanup", "-data-dir", "custom_db"]
+
+
+def test_db_get_video_default_data_dir_lookup_contract(monkeypatch):
+    """spec § 7.1: default `data/json_db` must trigger compatibility lookup.
+
+    Today that means "do not append -data-dir to argv"; future slices may
+    extend the contract (e.g. point at data/db.sqlite), but the Python
+    surface must keep dispatching the flag the same way.
+    """
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"code": "STARS-707"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.db_get_video("STARS-707")  # uses default data_dir
+    assert "-data-dir" not in captured["args"]
+
+    captured.clear()
+    go_cli.db_get_video("STARS-707", "data/json_db")  # explicit default
+    assert "-data-dir" not in captured["args"]
+
+    captured.clear()
+    go_cli.db_get_video("STARS-707", "custom_dir")
+    assert "-data-dir" in captured["args"]
+    assert "custom_dir" in captured["args"]
