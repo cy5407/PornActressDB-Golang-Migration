@@ -196,14 +196,20 @@ func TestCleanActressesActionWriteBacksUpAndMutates(t *testing.T) {
 	assertActressesEqual(t, current.Actresses, []string{"瀧本雫葉"})
 }
 
-func setupScannerTestDB(t *testing.T) (*database.JSONDatabase, string) {
+func setupScannerTestDB(t *testing.T) (*database.DualWriteStore, string) {
 	t.Helper()
 	dir := t.TempDir()
-	db := database.NewJSONDatabase(dir)
-	if err := db.Load(context.Background()); err != nil {
+	jsonDB := database.NewJSONDatabase(dir)
+	if err := jsonDB.Load(context.Background()); err != nil {
 		t.Fatalf("Failed to load db: %v", err)
 	}
-	return db, dir
+	// Tests don't exercise the SQLite mirror; pass sqlite=nil to use
+	// the JSON-only embed pattern, identical to ACTRESS_DB_MODE=json_only.
+	store, err := database.NewDualWriteStore(jsonDB, nil, nil)
+	if err != nil {
+		t.Fatalf("NewDualWriteStore: %v", err)
+	}
+	return store, dir
 }
 
 func assertActressesEqual(t *testing.T, got, want []string) {

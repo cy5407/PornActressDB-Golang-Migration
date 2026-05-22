@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -26,7 +25,7 @@ type dbCommandOptions struct {
 }
 
 type dbCommandContext struct {
-	db   *database.JSONDatabase
+	db   *database.DualWriteStore
 	opts dbCommandOptions
 }
 
@@ -146,13 +145,16 @@ func parseDBCommandOptions(subCmd string, args []string) (dbCommandOptions, []st
 	}, fs.Args()
 }
 
-func loadDBOrExit(dataDir string) *database.JSONDatabase {
-	db := database.NewJSONDatabase(dataDir)
-	if err := db.Load(context.Background()); err != nil {
+func loadDBOrExit(dataDir string) *database.DualWriteStore {
+	store, err := database.NewStore(database.StoreConfig{
+		Mode:    database.ResolveStoreMode(),
+		DataDir: dataDir,
+	})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
 		os.Exit(1)
 	}
-	return db
+	return store
 }
 
 var dbHandlers = map[string]func(dbCommandContext, []string){
@@ -351,7 +353,7 @@ func runDBCleanActresses(ctx dbCommandContext, _ []string) {
 	outputJSON(result)
 }
 
-func cleanActressesAction(db *database.JSONDatabase, write bool) (*dbCleanActressesResult, error) {
+func cleanActressesAction(db *database.DualWriteStore, write bool) (*dbCleanActressesResult, error) {
 	cleaner := database.NewActressCleaner()
 	result := &dbCleanActressesResult{
 		Success: true,
@@ -367,7 +369,13 @@ func cleanActressesAction(db *database.JSONDatabase, write bool) (*dbCleanActres
 		result.BackupPath = backupPath
 	}
 
-	report, err := cleaner.ApplyToDatabase(db, write)
+	// ApplyToDatabase still takes *JSONDatabase directly; we hand it the
+	// embedded pointer so the SQLite mirror is intentionally bypassed
+	// for the cleanup pass. The subsequent UpdateVideo / Save flow
+	// inside ApplyToDatabase walks through JSONDatabase methods; any
+	// SQLite mirroring would happen on a re-dispatch we don't perform
+	// here (see Phase B/C plan slices for refactoring this hot path).
+	report, err := cleaner.ApplyToDatabase(db.JSONDatabase, write)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +448,7 @@ func readJSONFileOrExit(path string, target any) {
 	}
 }
 
-func saveDBOrExit(db *database.JSONDatabase) {
+func saveDBOrExit(db *database.DualWriteStore) {
 	if err := db.Save(); err != nil {
 		fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
 		os.Exit(1)
@@ -459,8 +467,11 @@ func dbMergeCmd(args []string) {
 		os.Exit(1)
 	}
 
-	db := database.NewJSONDatabase(*dataDir)
-	if err := db.Load(context.Background()); err != nil {
+	db, err := database.NewStore(database.StoreConfig{
+		Mode:    database.ResolveStoreMode(),
+		DataDir: *dataDir,
+	})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
 		os.Exit(1)
 	}
@@ -515,7 +526,7 @@ func parseDBFixStudiosOptions(args []string) dbFixStudiosOptions {
 	}
 }
 
-func getAllVideosOrExit(db *database.JSONDatabase) []*database.VideoData {
+func getAllVideosOrExit(db *database.DualWriteStore) []*database.VideoData {
 	videos, err := db.GetAllVideos()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "取得影片清單失敗: %v\n", err)
@@ -524,7 +535,7 @@ func getAllVideosOrExit(db *database.JSONDatabase) []*database.VideoData {
 	return videos
 }
 
-func applyStudioFixes(db *database.JSONDatabase, videos []*database.VideoData, si *studio.StudioIdentifier, force bool) studioFixSummary {
+func applyStudioFixes(db *database.DualWriteStore, videos []*database.VideoData, si *studio.StudioIdentifier, force bool) studioFixSummary {
 	summary := studioFixSummary{
 		changes: make([]changeEntry, 0),
 	}
@@ -552,7 +563,7 @@ func buildStudioFixPlan(video *database.VideoData, newStudio string, force bool)
 	}
 }
 
-func applyStudioFixPlan(db *database.JSONDatabase, plan studioFixPlan, summary *studioFixSummary) bool {
+func applyStudioFixPlan(db *database.DualWriteStore, plan studioFixPlan, summary *studioFixSummary) bool {
 	switch plan.status {
 	case studioFixSkip:
 		summary.skipped++
@@ -571,7 +582,7 @@ func applyStudioFixPlan(db *database.JSONDatabase, plan studioFixPlan, summary *
 	return true
 }
 
-func saveStudioFixChangesIfNeeded(db *database.JSONDatabase, updated int) {
+func saveStudioFixChangesIfNeeded(db *database.DualWriteStore, updated int) {
 	if updated == 0 {
 		return
 	}

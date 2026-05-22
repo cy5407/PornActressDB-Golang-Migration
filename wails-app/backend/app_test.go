@@ -30,6 +30,14 @@ func newTestApp(t *testing.T) *App {
 	app.cfgPath = cfgPath
 	app.mover.LogDir = filepath.Join(tmp, "logs")
 	app.Startup(context.Background())
+	// Phase A3: DualWriteStore holds a SQLite handle that Windows
+	// refuses to delete while open. Close it before t.TempDir cleanup.
+	t.Cleanup(func() {
+		if app.db != nil {
+			_ = app.db.Close()
+			app.db = nil
+		}
+	})
 	return app
 }
 

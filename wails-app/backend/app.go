@@ -31,7 +31,7 @@ type App struct {
 	ctx           context.Context
 	extractor     *extractor.CodeExtractor
 	mover         *mover.Mover
-	db            *database.JSONDatabase
+	db            *database.DualWriteStore
 	dbFileModTime time.Time
 	studio        *studio.StudioIdentifier
 	cfgSvc        *services.ConfigService
@@ -1042,25 +1042,36 @@ func (a *App) ensureDB() error {
 
 	if a.db != nil {
 		if info, err := os.Stat(dataFile); err == nil && !info.ModTime().Equal(a.dbFileModTime) {
+			// File on disk changed under us — drop the cached store
+			// and let the block below reload. Close the old SQLite
+			// handle so Windows isn't holding the file open.
+			_ = a.db.Close()
 			a.db = nil
 		}
 	}
 
 	if a.db == nil {
-		db := database.NewJSONDatabase(dataDir)
-		if err := db.Load(context.Background()); err != nil {
+		// Phase A3: NewStore wires JSONDatabase + SQLite mirror + degraded
+		// log + startup replay in one call. ACTRESS_DB_MODE=json_only
+		// collapses to JSON-only behaviour (spec § 4.1 / § 4.4 rollback).
+		store, err := database.NewStore(database.StoreConfig{
+			Mode:    database.ResolveStoreMode(),
+			DataDir: dataDir,
+		})
+		if err != nil {
 			a.db = nil
 			a.dbFileModTime = time.Time{}
 			return err
 		}
 		// 啟動時若 journal 有未合併資料，立即寫入 data.json，
 		// 避免下次搜尋因全部命中快取（早期返回）而永遠跳過 Compact。
-		if _, err := db.CompactIfNeeded(); err != nil {
+		if _, err := store.CompactIfNeeded(); err != nil {
+			_ = store.Close()
 			a.db = nil
 			a.dbFileModTime = time.Time{}
 			return err
 		}
-		a.db = db
+		a.db = store
 	}
 
 	if info, err := os.Stat(dataFile); err == nil {
@@ -1074,6 +1085,13 @@ func (a *App) ensureDB() error {
 func (a *App) resetDB() {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
+	// Phase A3: DualWriteStore now holds an exclusive SQLite handle.
+	// Closing the old handle before dropping the reference avoids
+	// "file in use" errors on Windows when callers (e.g. preference
+	// reset) churn the DB between calls.
+	if a.db != nil {
+		_ = a.db.Close()
+	}
 	a.db = nil
 	a.dbFileModTime = time.Time{}
 }
