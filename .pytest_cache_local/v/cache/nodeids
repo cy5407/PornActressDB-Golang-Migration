@@ -1,6 +1,0 @@
-[
-  "tests/test_safe_javdb_searcher.py::test_403_retry_can_reenter_without_deadlock",
-  "tests/test_safe_javdb_searcher.py::test_403_retry_wait_over_limit_should_give_up_without_long_sleep",
-  "tests/test_safe_javdb_searcher.py::test_consecutive_errors_trigger_cooldown_and_reset",
-  "tests/test_safe_javdb_searcher.py::test_create_session_closes_previous_client"
-]
