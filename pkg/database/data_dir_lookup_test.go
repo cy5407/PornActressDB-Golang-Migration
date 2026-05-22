@@ -21,6 +21,11 @@ func TestResolveDataDirPaths_DefaultDataDir(t *testing.T) {
 	if got.IndexFile != filepath.Join(wantDir, IndexFileName) {
 		t.Errorf("IndexFile = %q, want %q", got.IndexFile, filepath.Join(wantDir, IndexFileName))
 	}
+	// spec § 7.1: default data dir maps SQLite to a sibling file, NOT a child.
+	wantSQLite := filepath.Join(filepath.Dir(wantDir), SQLiteFileName)
+	if got.SQLitePath != wantSQLite {
+		t.Errorf("SQLitePath = %q, want %q (sibling of DefaultDataDir)", got.SQLitePath, wantSQLite)
+	}
 }
 
 func TestResolveDataDirPaths_CustomDir(t *testing.T) {
@@ -38,6 +43,11 @@ func TestResolveDataDirPaths_CustomDir(t *testing.T) {
 	}
 	if got.IndexFile != filepath.Join(custom, IndexFileName) {
 		t.Errorf("IndexFile = %q, want %q", got.IndexFile, filepath.Join(custom, IndexFileName))
+	}
+	// spec § 7.1: custom data dir keeps SQLite as a direct child.
+	wantSQLite := filepath.Join(custom, SQLiteFileName)
+	if got.SQLitePath != wantSQLite {
+		t.Errorf("SQLitePath = %q, want %q (child of custom data dir)", got.SQLitePath, wantSQLite)
 	}
 }
 
@@ -115,5 +125,90 @@ func TestDefaultDataDir_MatchesCLIDefault(t *testing.T) {
 	const wantSpec = "data/json_db"
 	if DefaultDataDir != wantSpec {
 		t.Errorf("DefaultDataDir = %q, want %q (matches cmd/scanner db flag default)", DefaultDataDir, wantSpec)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SQLite-side compatibility lookup (spec § 7.1)
+// ---------------------------------------------------------------------------
+
+func TestResolveDataDirPaths_SQLitePath_DefaultNotUnderJSONDir(t *testing.T) {
+	// Critical rule: spec § 7.1 forbids data/json_db/db.sqlite. The SQLite
+	// file must live next to json_db/, not inside it.
+	got := ResolveDataDirPaths(DefaultDataDir)
+
+	forbidden := filepath.Join(filepath.Clean(DefaultDataDir), SQLiteFileName)
+	if got.SQLitePath == forbidden {
+		t.Errorf("SQLitePath = %q must not live under %q", got.SQLitePath, DefaultDataDir)
+	}
+
+	wantParent := filepath.Dir(filepath.Clean(DefaultDataDir))
+	wantSQLite := filepath.Join(wantParent, SQLiteFileName)
+	if got.SQLitePath != wantSQLite {
+		t.Errorf("SQLitePath = %q, want %q", got.SQLitePath, wantSQLite)
+	}
+}
+
+func TestResolveDataDirPaths_SQLitePath_TrailingSeparatorStillSibling(t *testing.T) {
+	withSlash := DefaultDataDir + string(filepath.Separator)
+	got := ResolveDataDirPaths(withSlash)
+
+	wantSQLite := filepath.Join(filepath.Dir(filepath.Clean(DefaultDataDir)), SQLiteFileName)
+	if got.SQLitePath != wantSQLite {
+		t.Errorf("SQLitePath for %q = %q, want %q (sibling rule must survive Clean)",
+			withSlash, got.SQLitePath, wantSQLite)
+	}
+}
+
+func TestResolveDataDirPaths_SQLitePath_DotPrefixStillSibling(t *testing.T) {
+	prefixed := "." + string(filepath.Separator) + DefaultDataDir
+	got := ResolveDataDirPaths(prefixed)
+
+	wantSQLite := filepath.Join(filepath.Dir(filepath.Clean(DefaultDataDir)), SQLiteFileName)
+	if got.SQLitePath != wantSQLite {
+		t.Errorf("SQLitePath for %q = %q, want %q (./ prefix must collapse to sibling)",
+			prefixed, got.SQLitePath, wantSQLite)
+	}
+}
+
+func TestResolveDataDirPaths_SQLitePath_AbsoluteDefaultStillSibling(t *testing.T) {
+	// spec § 7.1: comparison is done in absolute form, so the absolute
+	// equivalent of DefaultDataDir must trigger the same sibling rule.
+	absDefault, err := filepath.Abs(DefaultDataDir)
+	if err != nil {
+		t.Fatalf("filepath.Abs(%q) failed: %v", DefaultDataDir, err)
+	}
+	got := ResolveDataDirPaths(absDefault)
+
+	wantSQLite := filepath.Join(filepath.Dir(absDefault), SQLiteFileName)
+	if got.SQLitePath != wantSQLite {
+		t.Errorf("SQLitePath for abs default %q = %q, want %q",
+			absDefault, got.SQLitePath, wantSQLite)
+	}
+}
+
+func TestResolveDataDirPaths_SQLitePath_CustomAbsoluteDirIsChild(t *testing.T) {
+	// Anything that absolves to a different directory than the default
+	// must keep db.sqlite as a child.
+	custom := filepath.Join(t.TempDir(), "custom_db")
+	got := ResolveDataDirPaths(custom)
+
+	wantSQLite := filepath.Join(custom, SQLiteFileName)
+	if got.SQLitePath != wantSQLite {
+		t.Errorf("SQLitePath for custom abs %q = %q, want %q",
+			custom, got.SQLitePath, wantSQLite)
+	}
+}
+
+func TestResolveDataDirPaths_SQLitePath_NeighbourDirIsChild(t *testing.T) {
+	// "data/other_json_db" is NOT the default; SQLite must stay a child,
+	// proving the comparison isn't fooled by string prefixes.
+	near := filepath.Join("data", "other_json_db")
+	got := ResolveDataDirPaths(near)
+
+	wantSQLite := filepath.Join(filepath.Clean(near), SQLiteFileName)
+	if got.SQLitePath != wantSQLite {
+		t.Errorf("SQLitePath for %q = %q, want %q (must not collapse to data/db.sqlite)",
+			near, got.SQLitePath, wantSQLite)
 	}
 }
