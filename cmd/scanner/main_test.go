@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"actress-classifier/pkg/database"
@@ -309,4 +311,265 @@ func assertActressesEqual(t *testing.T, got, want []string) {
 			t.Fatalf("expected %#v, got %#v", want, got)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Slice C1 — compact -json no-op + backup-restore mutual exclusion
+// ---------------------------------------------------------------------------
+
+func TestCompactNoopPayload_HasAllPhaseCFields(t *testing.T) {
+	payload := compactNoopPayload("custom-db")
+
+	required := []string{"success", "noop", "journal_size", "needs_compact", "reason"}
+	for _, key := range required {
+		if _, ok := payload[key]; !ok {
+			t.Errorf("compact no-op payload missing required key %q", key)
+		}
+	}
+	if payload["success"] != true {
+		t.Errorf("success = %v, want true", payload["success"])
+	}
+	if payload["noop"] != true {
+		t.Errorf("noop = %v, want true", payload["noop"])
+	}
+	if payload["journal_size"] != 0 {
+		t.Errorf("journal_size = %v, want 0", payload["journal_size"])
+	}
+	if payload["needs_compact"] != false {
+		t.Errorf("needs_compact = %v, want false", payload["needs_compact"])
+	}
+	if reason, _ := payload["reason"].(string); !strings.Contains(reason, "sqlite") {
+		t.Errorf("reason = %q, expected to mention sqlite", reason)
+	}
+	if payload["action"] != "compact" {
+		t.Errorf("action = %v, want compact (legacy compat)", payload["action"])
+	}
+	if payload["data_dir"] != "custom-db" {
+		t.Errorf("data_dir = %v, want custom-db (legacy compat)", payload["data_dir"])
+	}
+}
+
+func TestCompactNoopPayload_SerialisesAsValidJSON(t *testing.T) {
+	// IncrementalJSONDB.compact() in src/models/incremental_json_database.py
+	// only inspects `success`, but the reply must still round-trip as JSON
+	// (run.py / Python's json.loads consume it verbatim).
+	payload := compactNoopPayload("custom-db")
+	buf, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var roundtrip map[string]any
+	if err := json.Unmarshal(buf, &roundtrip); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	for _, key := range []string{"success", "noop", "journal_size", "needs_compact", "reason"} {
+		if _, ok := roundtrip[key]; !ok {
+			t.Errorf("round-trip missing %q", key)
+		}
+	}
+}
+
+func TestValidateBackupRestoreInputs_BothFlagsFails(t *testing.T) {
+	vErr := validateBackupRestoreInputs("foo.sqlite", "bar.json")
+	if vErr == nil {
+		t.Fatal("expected validation error when both flags are set")
+	}
+	if vErr.exitCode != 2 {
+		t.Errorf("exitCode = %d, want 2", vErr.exitCode)
+	}
+	if !strings.Contains(vErr.message, "mutually exclusive") {
+		t.Errorf("message = %q, want it to mention mutually exclusive", vErr.message)
+	}
+	if !strings.Contains(vErr.message, "-backup-path") || !strings.Contains(vErr.message, "-from-json") {
+		t.Errorf("message = %q, want both flag names cited", vErr.message)
+	}
+	// The exact wording is pinned by the C1 contract; Python helpers
+	// surface it back to the user verbatim.
+	want := "error: -backup-path and -from-json are mutually exclusive; pass exactly one"
+	if vErr.message != want {
+		t.Errorf("message = %q\nwant   = %q", vErr.message, want)
+	}
+}
+
+func TestValidateBackupRestoreInputs_NeitherFlagFails(t *testing.T) {
+	vErr := validateBackupRestoreInputs("", "   ")
+	if vErr == nil {
+		t.Fatal("expected validation error when both flags are empty")
+	}
+	if vErr.exitCode != 2 {
+		t.Errorf("exitCode = %d, want 2", vErr.exitCode)
+	}
+	want := "error: db backup-restore requires either -backup-path <sqlite> or -from-json <json>"
+	if vErr.message != want {
+		t.Errorf("message = %q\nwant   = %q", vErr.message, want)
+	}
+}
+
+func TestValidateBackupRestoreInputs_OnlyBackupPath(t *testing.T) {
+	if vErr := validateBackupRestoreInputs("backup.sqlite", ""); vErr != nil {
+		t.Errorf("unexpected validation error: %+v", vErr)
+	}
+}
+
+func TestValidateBackupRestoreInputs_OnlyFromJSON(t *testing.T) {
+	if vErr := validateBackupRestoreInputs("", "export.json"); vErr != nil {
+		t.Errorf("unexpected validation error: %+v", vErr)
+	}
+}
+
+func TestParseDBCommandOptions_ParsesFromJSONFlag(t *testing.T) {
+	opts, remaining := parseDBCommandOptions("backup-restore", []string{
+		"-data-dir", "custom-db",
+		"-from-json", "data/backup/snap.json",
+	})
+	if opts.fromJSON != "data/backup/snap.json" {
+		t.Errorf("fromJSON = %q, want data/backup/snap.json", opts.fromJSON)
+	}
+	if opts.dataDir != "custom-db" {
+		t.Errorf("dataDir = %q, want custom-db", opts.dataDir)
+	}
+	if opts.backupPath != "" {
+		t.Errorf("backupPath = %q, want empty", opts.backupPath)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("remaining = %#v, want empty", remaining)
+	}
+}
+
+// TestCreateDualBackup_ProducesBothSnapshots drives the dual-backup
+// helper end-to-end against a real DualWriteStore (SQLite mirror
+// enabled) and asserts both files land on disk with the expected
+// extensions and the JSON has a parsable schema.
+func TestCreateDualBackup_ProducesBothSnapshots(t *testing.T) {
+	store, dir := setupScannerDualWriteFixture(t)
+	// Seed one video so the backups have non-trivial content.
+	video := database.NewVideo("STARS-707")
+	video.Title = "備份測試"
+	if err := store.UpdateVideo("STARS-707", video); err != nil {
+		t.Fatalf("UpdateVideo: %v", err)
+	}
+	if err := store.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	ctx := dbCommandContext{db: store, opts: dbCommandOptions{dataDir: dir}}
+	jsonPath, sqlitePath, err := createDualBackup(ctx)
+	if err != nil {
+		t.Fatalf("createDualBackup: %v", err)
+	}
+	if !strings.HasSuffix(strings.ToLower(jsonPath), ".json") {
+		t.Errorf("jsonPath = %q, want .json suffix", jsonPath)
+	}
+	if !strings.HasSuffix(strings.ToLower(sqlitePath), ".sqlite") {
+		t.Errorf("sqlitePath = %q, want .sqlite suffix", sqlitePath)
+	}
+	if filepath.Dir(jsonPath) != filepath.Dir(sqlitePath) {
+		t.Errorf("backups not co-located: json=%q sqlite=%q", jsonPath, sqlitePath)
+	}
+	if _, err := os.Stat(jsonPath); err != nil {
+		t.Fatalf("json backup not produced: %v", err)
+	}
+	if _, err := os.Stat(sqlitePath); err != nil {
+		t.Fatalf("sqlite backup not produced: %v", err)
+	}
+
+	// The SQLite backup must reopen as a valid v3 DB.
+	restored, err := database.OpenSQLiteStore(sqlitePath)
+	if err != nil {
+		t.Fatalf("OpenSQLiteStore(backup): %v", err)
+	}
+	defer restored.Close()
+	v, err := restored.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion(backup): %v", err)
+	}
+	if v != database.SQLiteSchemaVersion {
+		t.Errorf("backup user_version = %d, want %d", v, database.SQLiteSchemaVersion)
+	}
+}
+
+// TestCreateDualBackup_JSONExportReflectsSQLiteNotJSONDatabase forces
+// the JSON DB and SQLite mirror to drift (we change a video title only
+// on the SQLite side) and then runs createDualBackup. The resulting
+// json_export_path must reflect SQLite's title, not data.json's stale
+// one — i.e. the JSON snapshot comes from sqlite.ExportToJSON, not from
+// a plain copy of data.json. The reviewer who flagged the original C1
+// pass relied on this test catching the prior `ctx.db.BackupCreate()`
+// shortcut.
+func TestCreateDualBackup_JSONExportReflectsSQLiteNotJSONDatabase(t *testing.T) {
+	store, dir := setupScannerDualWriteFixture(t)
+
+	const code = "STARS-808"
+	const jsonSideTitle = "JSON 端標題"
+	const sqliteSideTitle = "SQLite 端標題（漂移後）"
+
+	original := database.NewVideo(code)
+	original.Title = jsonSideTitle
+	if err := store.UpdateVideo(code, original); err != nil {
+		t.Fatalf("UpdateVideo: %v", err)
+	}
+	if err := store.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Drift step: mutate the SQLite mirror directly so its title no
+	// longer matches the JSON DB's data.json.
+	sqlite := store.SQLite()
+	if sqlite == nil {
+		t.Fatal("expected SQLite mirror to be available")
+	}
+	drifted := database.NewVideo(code)
+	drifted.Title = sqliteSideTitle
+	if err := sqlite.UpsertVideo(code, drifted); err != nil {
+		t.Fatalf("UpsertVideo(SQLite only): %v", err)
+	}
+
+	ctx := dbCommandContext{db: store, opts: dbCommandOptions{dataDir: dir}}
+	jsonPath, _, err := createDualBackup(ctx)
+	if err != nil {
+		t.Fatalf("createDualBackup: %v", err)
+	}
+
+	raw, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("read json export: %v", err)
+	}
+	var exported struct {
+		Videos map[string]struct {
+			Title string `json:"title"`
+		} `json:"videos"`
+	}
+	if err := json.Unmarshal(raw, &exported); err != nil {
+		t.Fatalf("unmarshal json export: %v", err)
+	}
+	got, ok := exported.Videos[code]
+	if !ok {
+		t.Fatalf("json export missing video %s; payload=%s", code, string(raw))
+	}
+	if got.Title != sqliteSideTitle {
+		t.Fatalf("json export title = %q, want %q (SQLite side); JSON-side stale title was %q — "+
+			"createDualBackup must use sqlite.ExportToJSON, not ctx.db.BackupCreate()",
+			got.Title, sqliteSideTitle, jsonSideTitle)
+	}
+}
+
+// setupScannerDualWriteFixture spins up a real on-disk JSON DB + SQLite
+// mirror so backup-create paths can be exercised. NewDualWriteStore
+// with sqlite=nil (used by setupScannerTestDB) skips the SQLite branch
+// entirely, which is the wrong fixture for C1 tests.
+func setupScannerDualWriteFixture(t *testing.T) (*database.DualWriteStore, string) {
+	t.Helper()
+	dir := t.TempDir()
+	store, err := database.NewStore(database.StoreConfig{
+		Mode:    database.ModeDualWrite,
+		DataDir: dir,
+	})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if store.SQLite() == nil {
+		t.Fatal("dual-write fixture should have a live SQLite mirror")
+	}
+	return store, dir
 }

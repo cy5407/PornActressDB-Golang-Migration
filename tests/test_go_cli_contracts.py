@@ -51,17 +51,26 @@ def test_db_backup_restore_uses_backup_restore_subcommand(monkeypatch):
 
 
 def test_db_backup_create_uses_backup_create_subcommand(monkeypatch):
+    """Slice C1: `db backup-create` returns the dual-snapshot shape with
+    both `backup_path` (SQLite) and `json_export_path` (JSON export).
+    """
     captured = {}
 
     def fake_run(args, *, timeout=30):
         captured["args"] = args
-        return {"success": True, "path": "backup/demo.json"}
+        return {
+            "success": True,
+            "backup_path": "data/backup/backup_2026-05-23.sqlite",
+            "json_export_path": "data/backup/backup_2026-05-23.json",
+        }
 
     monkeypatch.setattr(go_cli, "run", fake_run)
 
     result = go_cli.db_backup_create("custom_db")
 
-    assert result == {"success": True, "path": "backup/demo.json"}
+    assert result["success"] is True
+    assert result["backup_path"].endswith(".sqlite")
+    assert result["json_export_path"].endswith(".json")
     assert captured["args"] == ["db", "backup-create", "-data-dir", "custom_db"]
 
 
@@ -613,6 +622,72 @@ def test_db_compact_journal_accepts_phase_c_noop_shape(monkeypatch):
     assert go_cli.db_compact_journal() is True
 
 
+def test_db_compact_journal_noop_payload_fields_complete(monkeypatch):
+    """Slice C1: the Go-emitted no-op JSON must carry every key Python
+    consumers may sample. IncrementalJSONDB.compact() only inspects
+    `success` today, but spec § 7.1 promises the full set so future
+    callers (and operators reading the CLI manually) can rely on it.
+    """
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {
+            "success": True,
+            "noop": True,
+            "journal_size": 0,
+            "needs_compact": False,
+            "reason": "sqlite has no journal to compact",
+            "action": "compact",
+            "data_dir": "custom_db",
+        }
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_compact_journal("custom_db") is True
+    # The wrapper sends -json; pin that so Go-side flag plumbing changes
+    # surface in this test.
+    assert captured["args"] == ["db", "compact", "-json", "-data-dir", "custom_db"]
+
+
+def test_db_compact_journal_noop_payload_round_trips_through_subprocess(monkeypatch):
+    """Slice C1: the no-op payload — exactly as the Go CLI emits it —
+    must round-trip through go_cli.run and reach Python wrapper code
+    intact. Catches accidental field renames or json.dumps issues on
+    the Go side at the contract boundary.
+    """
+    _patch_exe(monkeypatch)
+    noop_payload = {
+        "success": True,
+        "noop": True,
+        "journal_size": 0,
+        "needs_compact": False,
+        "reason": "sqlite has no journal to compact",
+        "action": "compact",
+        "data_dir": "custom_db",
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(noop_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "compact", "-json", "-data-dir", "custom_db"])
+    # All keys present (spec § 7.1 promises the full set).
+    for key in ("success", "noop", "journal_size", "needs_compact", "reason"):
+        assert key in result, f"compact no-op payload missing required key: {key}"
+    assert result["success"] is True
+    assert result["noop"] is True
+    assert result["journal_size"] == 0
+    assert result["needs_compact"] is False
+    assert "sqlite" in result["reason"].lower()
+    # Wrapper must still return True end-to-end.
+    monkeypatch.setattr(go_cli, "run", lambda args, *, timeout=30: noop_payload)
+    assert go_cli.db_compact_journal("custom_db") is True
+
+
 def test_db_compact_journal_omits_data_dir_when_default(monkeypatch):
     captured = {}
 
@@ -830,27 +905,92 @@ def test_db_clean_actresses_returns_report_dict(monkeypatch):
     assert result["changes"] == []
 
 
-def test_db_backup_create_returns_path_field_today(monkeypatch):
-    """Pin the *current* backup-create return shape.
-
-    spec § 7.1 / plan C1 call the field `backup_path` (and add
-    `json_export_path` in Phase C); today the CLI emits `path` alongside
-    `success`. The Python helper passes the dict through untouched, so
-    this test locks the shape until Slice C1 promotes the field name.
+def test_db_backup_create_returns_dual_snapshot_paths(monkeypatch):
+    """Slice C1: `db backup-create` must emit `backup_path` (SQLite) and
+    `json_export_path` (JSON export of the SQLite store). The legacy
+    `path` field is preserved as an alias of `json_export_path` so the
+    existing JSONDBManager.create_backup() helper (which only reads
+    `path`) keeps working without Python-side changes.
     """
     captured = {}
 
     def fake_run(args, *, timeout=30):
         captured["args"] = args
-        return {"success": True, "path": "data/backup/db_demo.json"}
+        return {
+            "success": True,
+            "backup_path": "data/backup/backup_2026-05-23_12-34-56.sqlite",
+            "json_export_path": "data/backup/backup_2026-05-23_12-34-56.json",
+            "path": "data/backup/backup_2026-05-23_12-34-56.json",
+        }
 
     monkeypatch.setattr(go_cli, "run", fake_run)
 
     result = go_cli.db_backup_create("custom_db")
 
     assert result["success"] is True
+    assert "backup_path" in result
+    assert "json_export_path" in result
+    assert result["backup_path"].endswith(".sqlite")
+    assert result["json_export_path"].endswith(".json")
+    # Legacy alias: JSONDBManager.create_backup() reads result["path"] and
+    # expects a JSON snapshot. It must equal json_export_path so the JSON
+    # helper keeps producing the same artefact callers used pre-C1.
     assert "path" in result
+    assert result["path"] == result["json_export_path"]
+    # Both snapshots share a parent directory so backup-list discovers them
+    # together (the json sibling is what backup-list returns).
+    from pathlib import PurePosixPath
+    assert PurePosixPath(result["backup_path"]).parent == PurePosixPath(result["json_export_path"]).parent
     assert captured["args"] == ["db", "backup-create", "-data-dir", "custom_db"]
+
+
+def test_db_backup_restore_mutual_exclusion_exit_2(monkeypatch):
+    """Slice C1: passing both -backup-path and -from-json is a config
+    error. The CLI must exit 2 with the canonical message and Python
+    must surface it through GoError (callers can grep the message).
+    """
+    _patch_exe(monkeypatch)
+    canonical = "error: -backup-path and -from-json are mutually exclusive; pass exactly one"
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 2, stdout="", stderr=canonical)
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    with pytest.raises(go_cli.GoError) as ei:
+        go_cli.run([
+            "db", "backup-restore",
+            "-backup-path", "data/backup/x.sqlite",
+            "-from-json", "data/backup/y.json",
+        ])
+    msg = str(ei.value)
+    assert "exit 2" in msg
+    assert "mutually exclusive" in msg
+    assert "-backup-path" in msg and "-from-json" in msg
+
+
+def test_db_backup_restore_missing_inputs_exit_2(monkeypatch):
+    """Slice C1: passing neither flag is also a config error with the
+    other canonical message. Same exit code so callers can distinguish
+    "bad CLI input" (exit 2) from "restore failed" (exit 1).
+    """
+    _patch_exe(monkeypatch)
+    canonical = (
+        "error: db backup-restore requires either -backup-path <sqlite> "
+        "or -from-json <json>"
+    )
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 2, stdout="", stderr=canonical)
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    with pytest.raises(go_cli.GoError) as ei:
+        go_cli.run(["db", "backup-restore"])
+    msg = str(ei.value)
+    assert "exit 2" in msg
+    assert "requires either -backup-path" in msg
+    assert "-from-json" in msg
 
 
 def test_db_backup_list_returns_count_and_backups(monkeypatch):
