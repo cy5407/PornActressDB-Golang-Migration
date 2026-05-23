@@ -42,9 +42,18 @@ type DualWriteStore struct {
 	// replayMu serialises Replay() calls so multiple concurrent callers
 	// (e.g. the post-write background goroutine and a synchronous
 	// caller in tests) execute one after another instead of short-
-	// circuiting. Each acquired pass drains whatever is currently in
-	// the log against the current SQLite handle.
+	// circuiting. Each acquired pass drains whatever entries remain
+	// at that moment against the current SQLite handle.
 	replayMu sync.Mutex
+
+	// lifecycle tracks in-flight background replay goroutines so Close()
+	// can wait for them to finish before the caller (or test cleanup)
+	// removes the degraded log directory. Without this, on Windows we
+	// race the goroutine's tmp-file rewrite against TempDir RemoveAll
+	// and hit "Access is denied" / "directory is not empty".
+	lifecycleMu sync.Mutex
+	closed      bool
+	replayWg    sync.WaitGroup
 }
 
 // NewDualWriteStore wires up an existing *JSONDatabase, an open
@@ -101,11 +110,28 @@ func (d *DualWriteStore) SQLite() *SQLiteStore {
 	return d.sqlite
 }
 
-// Close releases the SQLite handle. The embedded *JSONDatabase has no
-// Close; callers should call Save() / CompactJournal() explicitly per
-// existing JSONDatabase contract.
+// Close marks the store as closed, waits for any background replay
+// goroutines spawned by postWriteHook to finish, then releases the
+// SQLite handle. Callers (including test cleanup) MUST call Close
+// before tearing down the degraded log directory, otherwise on Windows
+// the still-running goroutine's tmp-file rewrite races directory
+// removal. The embedded *JSONDatabase has no Close; callers should
+// call Save() / CompactJournal() explicitly per existing JSONDatabase
+// contract.
 func (d *DualWriteStore) Close() error {
-	if d == nil || d.sqlite == nil {
+	if d == nil {
+		return nil
+	}
+	d.lifecycleMu.Lock()
+	d.closed = true
+	d.lifecycleMu.Unlock()
+
+	// Wait for any background replay goroutines spawned via
+	// postWriteHook before they were marked closed. A concurrent Close
+	// must also block here for the same reason.
+	d.replayWg.Wait()
+
+	if d.sqlite == nil {
 		return nil
 	}
 	return d.sqlite.Close()
@@ -152,6 +178,32 @@ func (d *DualWriteStore) applyDegraded(e degradedEntry) error {
 		log.Printf("dual-write degraded: unknown op %q for key %q — dropping", e.Op, e.Key)
 		return nil
 	}
+}
+
+// GetStats overrides the embedded JSONDatabase.GetStats() to surface
+// dual-write diagnostics. Existing JSON keys are preserved verbatim so
+// Python helpers parsing the JSON stays compatible (see
+// tests/test_go_cli_contracts.py::test_db_stats_subcommand_returns_full_stats_dict).
+//
+// Adds:
+//
+//	sync_degraded_total    int64 — cumulative SQLite-mirror failures
+//	                                since the store was constructed.
+//	sync_degraded_log_size int64 — current degraded-log file size in
+//	                                bytes (0 when the log is absent or
+//	                                disabled).
+func (d *DualWriteStore) GetStats() (map[string]any, error) {
+	stats, err := d.JSONDatabase.GetStats()
+	if err != nil {
+		return nil, err
+	}
+	stats["sync_degraded_total"] = d.SyncDegradedTotal()
+	var logSize int64
+	if d.degraded != nil {
+		logSize = d.degraded.SizeBytes()
+	}
+	stats["sync_degraded_log_size"] = logSize
+	return stats, nil
 }
 
 // --- Mutation overrides ---------------------------------------------------
@@ -314,7 +366,20 @@ func (d *DualWriteStore) postWriteHook() {
 		log.Printf("dual-write degraded log size = %d bytes (threshold %d); consider classifier.exe db resync-from-json",
 			size, DegradedSizeWarnThreshold)
 	}
+
+	// Register the goroutine under lifecycleMu so Close() can either
+	// (a) skip spawning new replays once shutdown has begun or
+	// (b) wait for any goroutine we let spawn here.
+	d.lifecycleMu.Lock()
+	if d.closed {
+		d.lifecycleMu.Unlock()
+		return
+	}
+	d.replayWg.Add(1)
+	d.lifecycleMu.Unlock()
+
 	go func() {
+		defer d.replayWg.Done()
 		if err := d.Replay(); err != nil {
 			log.Printf("dual-write background replay error: %v", err)
 		}

@@ -421,3 +421,123 @@ func TestDualWriteStore_StoreCompileSanity(t *testing.T) {
 	_ = (*DualWriteStore)(nil)
 	_ = fmt.Sprintf // keep imports stable
 }
+
+func TestDualWriteStore_GetStats_HappyPathHasZeroDegradedFields(t *testing.T) {
+	store, _, _ := dualStoreFixture(t)
+
+	stats, err := store.GetStats()
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+
+	// Existing JSON keys must still be present (Python helper relies on them).
+	for _, key := range []string{
+		"video_count", "actress_count", "link_count",
+		"journal_size", "journal_age_seconds", "needs_compact", "total_videos",
+	} {
+		if _, ok := stats[key]; !ok {
+			t.Errorf("GetStats missing pre-existing key %q", key)
+		}
+	}
+
+	total, ok := stats["sync_degraded_total"].(int64)
+	if !ok {
+		t.Fatalf("sync_degraded_total missing or wrong type: %T", stats["sync_degraded_total"])
+	}
+	if total != 0 {
+		t.Errorf("sync_degraded_total = %d, want 0 on happy path", total)
+	}
+
+	size, ok := stats["sync_degraded_log_size"].(int64)
+	if !ok {
+		t.Fatalf("sync_degraded_log_size missing or wrong type: %T", stats["sync_degraded_log_size"])
+	}
+	if size != 0 {
+		t.Errorf("sync_degraded_log_size = %d, want 0 on happy path", size)
+	}
+}
+
+func TestDualWriteStore_GetStats_ReportsDegradedTotalAndSize(t *testing.T) {
+	store, _, _ := dualStoreFixture(t)
+	_ = store.sqlite.Close()
+
+	v, _ := store.GetVideo("STARS-707")
+	v.Title = "stats-degrade-1"
+	_ = store.UpdateVideo("STARS-707", v)
+	v.Title = "stats-degrade-2"
+	_ = store.UpdateVideo("STARS-707", v)
+
+	stats, err := store.GetStats()
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+
+	total, _ := stats["sync_degraded_total"].(int64)
+	if total < 2 {
+		t.Errorf("sync_degraded_total = %d, want >= 2", total)
+	}
+
+	size, _ := stats["sync_degraded_log_size"].(int64)
+	if size <= 0 {
+		t.Errorf("sync_degraded_log_size = %d, want > 0 after degraded writes", size)
+	}
+}
+
+func TestDualWriteStore_GetStats_NilSQLiteHasZeroDegradedFields(t *testing.T) {
+	// JSON-only (ACTRESS_DB_MODE=json_only) rollback path — even when the
+	// degraded log was constructed with no path, GetStats must still emit
+	// the two new fields so Python parsing stays uniform.
+	dataDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(dataDir, DataFileName),
+		mustMarshal(t, minimalRoot()),
+		0o600,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	jsonDB := NewJSONDatabase(dataDir)
+	if err := jsonDB.Load(context.Background()); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	store, err := NewDualWriteStore(jsonDB, nil, nil)
+	if err != nil {
+		t.Fatalf("NewDualWriteStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	stats, err := store.GetStats()
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	if got, _ := stats["sync_degraded_total"].(int64); got != 0 {
+		t.Errorf("sync_degraded_total = %d, want 0 in JSON-only mode", got)
+	}
+	if got, _ := stats["sync_degraded_log_size"].(int64); got != 0 {
+		t.Errorf("sync_degraded_log_size = %d, want 0 in JSON-only mode", got)
+	}
+}
+
+func TestDualWriteStore_CloseWaitsForBackgroundReplays(t *testing.T) {
+	// Directly exercises the lifecycle fix: after writes that spawn
+	// background replays, Close must block until those goroutines drain
+	// — otherwise on Windows the tmp-file rewrite races TempDir cleanup.
+	store, _, degraded := dualStoreFixture(t)
+	_ = store.sqlite.Close()
+
+	v, _ := store.GetVideo("STARS-707")
+	for i := 0; i < 5; i++ {
+		v.Title = fmt.Sprintf("close-wait-%d", i)
+		_ = store.UpdateVideo("STARS-707", v)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// After Close returns, no further writes should spawn goroutines —
+	// stat the tmp sibling to make sure no rewrite is in flight.
+	tmp := degraded + ".tmp"
+	if _, err := os.Stat(tmp); err == nil {
+		t.Errorf("degraded log tmp file still present after Close: %s", tmp)
+	}
+}
