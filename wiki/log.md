@@ -5,6 +5,37 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-05-23] refactor | C3：runtime SQLite-only 確認；Rust db-tool 加 db-verify / db-migrate、db-import-json deprecate；schema Go/Rust 共用
+
+**涉及檔案**：
+- `wiki/architecture/database.md` — 大幅重寫為 SQLite-only：v3 schema 概覽、`pkg/database/sqlite_schema.sql` canonical 位置、Schema 共用 (Go + Rust)、`db-verify` / `db-migrate` 入口、文件不再描述 `data.json` 是 source of truth
+- `wiki/architecture/sqlite-shadow-db.md` — 加 `status: archived` frontmatter；頂端加退役 banner；後續路線改為已完成 / 跳過、列出 C3 之後 db-tool 子命令的 v2 legacy vs v3 runtime 分工
+- `wiki/pitfalls/schema-share-go-embed-vs-rust-include.md` — 新增；解釋 Go `//go:embed` 不能跨 package、Rust `include_str!` 可以；列出採用的「Go 為 canonical、Rust 反向 include」方案與三層 + 一層 CI 漂移防護
+- `wiki/index.md` — 架構表 SQLite 影子資料庫加 📦；資料庫架構摘要改寫；DB 踩坑分組加上述新 pitfall ✅
+- `wiki/wiki-data.js` — 由 `python wiki/gen_data.py` 重新產生
+- `tools-rs/src/v3_schema.rs` — **新檔**；`V3_SCHEMA_SQL` 透過 `include_str!("../../pkg/database/sqlite_schema.sql")` 內嵌 Go canonical；`apply_v3_schema()` helper；單元測試對齊 on-disk 檔案 + 必要 marker
+- `tools-rs/src/verify.rs` — **新檔**；`db-verify` 實作：PRAGMA integrity_check / user_version=3 / 必要表 + view 存在；JSON 回報 + exit code
+- `tools-rs/src/migrate.rs` — **新檔**；`db-migrate` 骨架：v3 → v3 no-op、未實作的版本明確報錯、不寫 speculative code
+- `tools-rs/src/main.rs` — 註冊 `db-verify` / `db-migrate` 子命令；新增三個 mod 宣告
+- `tools-rs/src/commands.rs` — `db_import_json` 進入點 stderr 印 deprecated warning
+- `tools-rs/tests/integration_db_tool.rs` — 新增 `db_import_json_emits_deprecation_warning_to_stderr` / `db_verify_succeeds_on_fresh_v3_database` / `db_verify_fails_when_required_table_missing` / `db_migrate_v3_to_v3_reports_noop` / `db_migrate_unsupported_future_target_fails` / `embedded_v3_schema_matches_canonical_go_package_file`
+- `pkg/database/sqlite_store_test.go` — 新增 `TestSQLiteSchemaSQL_MatchesCanonicalFile` 與 `TestSQLiteSchemaSQL_ContainsExpectedV3Markers`
+- `implementation-notes.md` — 追加 Slice C3 段落：schema 共用方案、偏離 plan 的字面路徑、Rust embed 方向選擇、verify / migrate 設計
+
+**摘要**：
+- C2 已把 runtime 切到 SQLite-only；C3 收尾文件與 Rust 工具重定位。
+- Schema 共用方案偏離 plan 的 `schemas/sqlite/v3.sql` 字面位置：Go `//go:embed` 不能跨 package，所以 canonical 留在 `pkg/database/sqlite_schema.sql`，Rust 反向 `include_str!`。雙方一共 4 條測試守住漂移。
+- `db-verify` 只讀 SQLite，做結構檢查（v3 user_version / integrity_check / 必要表 view）；和 Go 端 `db verify-sync`（比對 JSON）職責互不重疊。
+- `db-migrate` 目前只實作 v3 → v3 no-op；未來新版本擴充用，現在不寫 speculative migration。
+- `db-import-json` 不刪、不改行為，只加 stderr deprecated warning，避免破壞既有 shell script。
+- 沒有移動或刪除既有 `db-init` / `db-stats` / `db-compare-json` / `db-benchmark` / `query …`；它們仍是 v2 shadow DB 工具，留作歷史診斷。
+
+**踩坑（本次發現）**：
+- Plan 字面要求 `schemas/sqlite/v3.sql` 在 repo root 雙方共 embed，但 Go `//go:embed` toolchain-level 拒絕 `..` 路徑。如果硬搬會壞 Go build。已寫成 `wiki/pitfalls/schema-share-go-embed-vs-rust-include.md`。
+- Rust integration test 直接用 `include_str!("../../pkg/database/sqlite_schema.sql")` 在測試端再 inline 一次 canonical，可同時驗證 (a) Cargo 找得到外部檔、(b) 與 Rust runtime embed 同源。
+
+---
+
 ## [2026-05-02] docs | Wiki 可發現性大改：troubleshooting / getting-started / 驗證指令 / 雙向連結
 
 **涉及檔案**：

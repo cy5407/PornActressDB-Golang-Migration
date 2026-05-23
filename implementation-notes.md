@@ -1,3 +1,159 @@
+# Implementation Notes — Slice C3 (docs + Rust db-tool relocation)
+
+## Design decisions
+
+### Schema sharing direction: Go-canonical, Rust includes Go
+
+Plan slice C3 nominally moves the v3 schema to `schemas/sqlite/v3.sql`
+at the repo root and embeds it from both Go and Rust. Go cannot do
+this — `//go:embed` rejects any pattern containing `..` and refuses to
+read files outside the package directory, by design. The literal plan
+path would break `go build` immediately.
+
+Adopted alternative (documented in
+`wiki/pitfalls/schema-share-go-embed-vs-rust-include.md`):
+
+- Canonical schema stays at `pkg/database/sqlite_schema.sql` (where Go
+  already embeds it via `//go:embed sqlite_schema.sql`).
+- Rust `tools-rs/src/v3_schema.rs` embeds the **same byte stream** via
+  `include_str!("../../pkg/database/sqlite_schema.sql")`. `include_str!`
+  resolves paths relative to the calling `.rs` file and Cargo tracks
+  external dependencies through rustc's dep-info, so editing the
+  schema rebuilds the Rust crate automatically.
+
+This avoids `go:generate` / `build.rs` copy pipelines and keeps the
+single-source-of-truth property.
+
+Drift is pinned by three test layers + one CI integration:
+
+1. `pkg/database/sqlite_store_test.go::TestSQLiteSchemaSQL_MatchesCanonicalFile`
+2. `tools-rs/src/v3_schema.rs::tests::embedded_schema_matches_canonical_file_on_disk`
+3. `tools-rs/tests/integration_db_tool.rs::embedded_v3_schema_matches_canonical_go_package_file`
+4. `tools-rs/tests/integration_db_tool.rs::db_verify_*` — applies the
+   embedded schema to a fresh SQLite, then runs `db-verify` against
+   it; failure here means the schema is structurally broken even
+   though the bytes match.
+
+Any single failure means someone forked the schema.
+
+### Rust `db-tool` v2-vs-v3 split
+
+`db-tool` previously only knew about the legacy v2 shadow-DB schema
+(`videos` + `video_actresses` + `import_runs` + `videos_with_actresses`
+view). C3 keeps that surface untouched and bolts the v3 runtime
+commands on alongside it:
+
+| Subcommand | Schema | Status after C3 |
+|------------|--------|-----------------|
+| `db-init` / `db-stats` / `db-compare-json` / `db-benchmark` / `query …` | v2 shadow | unchanged; historical |
+| `db-import-json` | v2 shadow | unchanged + stderr deprecation warning |
+| `db-verify` | v3 runtime | **new** |
+| `db-migrate` | v3 runtime | **new**; v3 → v3 no-op only |
+
+The two new commands operate on the SQLite file that C2 made
+authoritative (`data/db.sqlite`). They do **not** touch the v2 shadow
+DB and vice versa.
+
+### `db-verify` checks: integrity + version + structural presence
+
+`tools-rs/src/verify.rs::verify` opens the SQLite with
+`SQLITE_OPEN_READ_ONLY`, so verifying a missing path does not create a
+new empty database, then checks:
+
+1. `PRAGMA integrity_check` returns `ok`.
+2. `PRAGMA user_version` equals `V3_SCHEMA_VERSION` (= 3, mirrored from
+   `database.SQLiteSchemaVersion` on the Go side).
+3. Every table in `V3_REQUIRED_TABLES` exists in `sqlite_master`.
+4. Every view in `V3_REQUIRED_VIEWS` exists in `sqlite_master`.
+
+Output is a single JSON object with `success`, `failure_reason`, plus
+the raw values so the caller can decide what to do. Exit code is 0 on
+success, 1 on any failure — driven by `verify::run` which checks
+`report.success` after printing.
+
+This is **not** a JSON-vs-SQLite consistency check; that is the Go
+side `db verify-sync` subcommand's job and is already wired up in
+`pkg/database/verify_sync.go`. The two are deliberately split:
+`db verify-sync` validates content equality with an exported JSON
+snapshot; `db-verify` validates that the SQLite file itself is
+internally well-formed.
+
+### `db-migrate` ships only the v3 → v3 no-op
+
+The plan accepts a "v3 → v3 no-op + skeleton for v3 → v4" framing. The
+implemented behaviour:
+
+- Same target as current `user_version` → success + `noop: true`.
+- `user_version == 0` → failure: "initialise via the Go runtime first".
+- Target `> V3_SCHEMA_VERSION` → failure: "beyond the highest known
+  schema; update db-tool first".
+- Anything else (e.g. existing user_version 1 or 2) → failure: "not
+  implemented".
+
+Adding actual migration code is intentionally deferred — there is no
+real future-version schema yet, and writing speculative migration code
+violates the "minimum that solves the problem" guideline.
+
+### `db-import-json` deprecation without behaviour change
+
+`db-import-json` is the only legacy subcommand external shell scripts
+might still call (notably the manual shadow-DB workflows). The C3 task
+specifies "保留相容入口但 stderr 顯示 deprecated"; that is exactly what
+ships:
+
+- Implementation logic untouched (same v2 schema write path).
+- A single `eprintln!` at the top of `db_import_json` explains the
+  deprecation and points at `classifier.exe db migrate-from-json`.
+- Integration test
+  (`db_import_json_emits_deprecation_warning_to_stderr`) asserts the
+  warning is on stderr without affecting stdout JSON parseability.
+
+The warning does not affect exit code, output, or downstream tooling.
+
+## Deviations
+
+- **Canonical schema path differs from the plan**: stays at
+  `pkg/database/sqlite_schema.sql` rather than moving to
+  `schemas/sqlite/v3.sql`. Reason: Go embed constraint, documented in
+  the new pitfall page and in this file. No `schemas/` directory was
+  created.
+- **No `tools-rs/build.rs`**: not needed because `include_str!` causes
+  rustc to track the external file automatically; adding a build
+  script would only duplicate that behaviour.
+- **No Wails maintenance UI** for db-verify / db-migrate — the plan's
+  "open item" leaves the timing flexible, and there is no user-facing
+  ask for it yet.
+
+## Tradeoffs
+
+- The `v2`-shaped subcommands (`db-init`, `db-stats`,
+  `db-compare-json`, `db-benchmark`, `query …`) are kept in the binary
+  with no functional change. Deleting them would shrink the binary
+  but break any operator scripts that still query the shadow DB for
+  diagnostics; deprecating one at a time is safer.
+- `db-verify` outputs a single JSON report with structured failure
+  fields rather than line-oriented log output. This is more verbose
+  for humans but cleaner for any caller that wants to parse the
+  result (CI, GUI maintenance UI, etc.).
+
+## Limitations
+
+- `db-migrate` cannot upgrade legacy `user_version` 1 or 2 databases
+  to v3. The shadow DB and the runtime DB live in different files
+  (`data/shadow.sqlite` vs `data/db.sqlite`), so the upgrade path is
+  not "in-place migrate" — it would be "rebuild from JSON via Go's
+  `db migrate-from-json`". The error message in `db-migrate` says
+  exactly this.
+- Schema drift tests on the Go side run the same string-equality
+  comparison the Rust tests do. If someone removes the `//go:embed`
+  directive and replaces it with a literal string, the on-disk file
+  test still catches the drift; but a more sophisticated attack
+  (substituting the file at build time only) would slip through.
+  Considered acceptable — Cargo's dep-info path tracking covers the
+  Rust side, and `go:embed` reads the file at compile time directly.
+
+---
+
 # Implementation Notes — Slice C2 (SQLite-only runtime)
 
 ## Design decisions

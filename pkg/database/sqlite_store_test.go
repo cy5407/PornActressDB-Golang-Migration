@@ -3,7 +3,9 @@ package database
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -228,6 +230,46 @@ func TestSQLiteStore_Close_NilReceiverIsSafe(t *testing.T) {
 func TestOpenSQLiteStore_RejectsEmptyPath(t *testing.T) {
 	if _, err := OpenSQLiteStore(""); err == nil {
 		t.Error("OpenSQLiteStore(\"\") returned nil error, want non-nil")
+	}
+}
+
+// TestSQLiteSchemaSQL_MatchesCanonicalFile guards against the Go embed
+// drifting away from the on-disk canonical schema. tools-rs reads the same
+// pkg/database/sqlite_schema.sql via include_str! (see
+// tools-rs/src/v3_schema.rs and tools-rs/tests/integration_db_tool.rs).
+// Together the two tests pin Go and Rust to identical bytes.
+func TestSQLiteSchemaSQL_MatchesCanonicalFile(t *testing.T) {
+	onDisk, err := os.ReadFile("sqlite_schema.sql")
+	if err != nil {
+		t.Fatalf("read sqlite_schema.sql: %v", err)
+	}
+	if string(onDisk) != sqliteSchemaSQL {
+		t.Fatal("embedded sqliteSchemaSQL drifted from sqlite_schema.sql on disk")
+	}
+}
+
+func TestSQLiteSchemaSQL_ContainsExpectedV3Markers(t *testing.T) {
+	for _, table := range []string{
+		"db_meta",
+		"videos",
+		"actresses",
+		"actress_aliases",
+		"video_actress_links",
+	} {
+		marker := "CREATE TABLE IF NOT EXISTS " + table
+		if !strings.Contains(sqliteSchemaSQL, marker) {
+			t.Errorf("schema missing table marker %q", marker)
+		}
+	}
+	for _, view := range []string{
+		"actress_video_counts",
+		"studio_statistics",
+		"enhanced_actress_studio_statistics",
+	} {
+		marker := "CREATE VIEW " + view
+		if !strings.Contains(sqliteSchemaSQL, marker) {
+			t.Errorf("schema missing view marker %q", marker)
+		}
 	}
 }
 

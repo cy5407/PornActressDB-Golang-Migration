@@ -1,7 +1,10 @@
 mod commands;
 mod json_db;
+mod migrate;
 mod query;
 mod sqlite_db;
+mod v3_schema;
+mod verify;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -9,7 +12,9 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "db-tool")]
-#[command(about = "SQLite shadow database tools for the actress classifier JSON DB")]
+#[command(
+    about = "SQLite tooling for the actress classifier: legacy shadow-DB subcommands (db-init / db-import-json / db-stats / db-compare-json / db-benchmark / query) plus v3 runtime helpers (db-verify / db-migrate)."
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -77,6 +82,18 @@ enum Command {
         #[command(subcommand)]
         sub: query::QueryCmd,
     },
+    /// Verify structural integrity of a v3 runtime SQLite database.
+    DbVerify {
+        #[arg(long)]
+        sqlite: PathBuf,
+    },
+    /// Migrate a v3 runtime SQLite database (only v3 → v3 no-op today).
+    DbMigrate {
+        #[arg(long)]
+        sqlite: PathBuf,
+        #[arg(long, default_value_t = v3_schema::V3_SCHEMA_VERSION)]
+        target: i32,
+    },
 }
 
 fn main() {
@@ -122,5 +139,7 @@ fn run() -> Result<()> {
             iterations,
         } => commands::db_benchmark(&json, &sqlite, iterations),
         Command::Query { sub } => query::run(sub),
+        Command::DbVerify { sqlite } => verify::run(&sqlite),
+        Command::DbMigrate { sqlite, target } => migrate::run(&sqlite, target),
     }
 }

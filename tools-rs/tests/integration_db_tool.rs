@@ -192,6 +192,139 @@ fn db_import_rejects_v1_schema_without_replace() {
 }
 
 #[test]
+fn db_import_json_emits_deprecation_warning_to_stderr() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let json_path = write_fixture(temp.path(), FIXTURE);
+    let sqlite_path = temp.path().join("shadow.sqlite");
+
+    let out = run(db_tool().args([
+        "db-import-json",
+        "--json",
+        json_path.to_str().unwrap(),
+        "--sqlite",
+        sqlite_path.to_str().unwrap(),
+        "--replace",
+    ]));
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("deprecated"),
+        "stderr should mark db-import-json deprecated, got: {stderr}"
+    );
+}
+
+#[test]
+fn db_verify_succeeds_on_fresh_v3_database() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let sqlite_path = temp.path().join("runtime.sqlite");
+    // Stand up a v3 SQLite directly via the embedded schema so this test
+    // does not depend on the Go side being built.
+    {
+        let conn = rusqlite::Connection::open(&sqlite_path).expect("open");
+        conn.execute_batch(include_str!("../../pkg/database/sqlite_schema.sql"))
+            .expect("apply v3 schema");
+        conn.pragma_update(None, "user_version", 3)
+            .expect("stamp v3");
+    }
+
+    let out = run(db_tool().args(["db-verify", "--sqlite", sqlite_path.to_str().unwrap()]));
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("\"success\": true"));
+    assert!(stdout.contains("\"schema_version\": 3"));
+    assert!(stdout.contains("\"integrity_check\": \"ok\""));
+}
+
+#[test]
+fn db_verify_fails_when_required_table_missing() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let sqlite_path = temp.path().join("partial.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&sqlite_path).expect("open");
+        conn.execute_batch(include_str!("../../pkg/database/sqlite_schema.sql"))
+            .expect("apply schema");
+        conn.pragma_update(None, "user_version", 3)
+            .expect("stamp v3");
+        conn.execute("DROP TABLE video_actress_links", [])
+            .expect("drop");
+    }
+
+    let out = db_tool()
+        .args(["db-verify", "--sqlite", sqlite_path.to_str().unwrap()])
+        .output()
+        .expect("spawn verify");
+    assert!(
+        !out.status.success(),
+        "db-verify should exit non-zero when a required table is missing"
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("\"success\": false"));
+    assert!(stdout.contains("video_actress_links"));
+}
+
+#[test]
+fn db_migrate_v3_to_v3_reports_noop() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let sqlite_path = temp.path().join("runtime.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&sqlite_path).expect("open");
+        conn.execute_batch(include_str!("../../pkg/database/sqlite_schema.sql"))
+            .expect("apply schema");
+        conn.pragma_update(None, "user_version", 3)
+            .expect("stamp v3");
+    }
+
+    let out = run(db_tool().args(["db-migrate", "--sqlite", sqlite_path.to_str().unwrap()]));
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("\"success\": true"));
+    assert!(stdout.contains("\"noop\": true"));
+    assert!(stdout.contains("\"from_version\": 3"));
+    assert!(stdout.contains("\"to_version\": 3"));
+}
+
+#[test]
+fn db_migrate_unsupported_future_target_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let sqlite_path = temp.path().join("runtime.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&sqlite_path).expect("open");
+        conn.execute_batch(include_str!("../../pkg/database/sqlite_schema.sql"))
+            .expect("apply schema");
+        conn.pragma_update(None, "user_version", 3)
+            .expect("stamp v3");
+    }
+
+    let out = db_tool()
+        .args([
+            "db-migrate",
+            "--sqlite",
+            sqlite_path.to_str().unwrap(),
+            "--target",
+            "4",
+        ])
+        .output()
+        .expect("spawn migrate");
+    assert!(!out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("\"success\": false"));
+    assert!(stdout.contains("beyond the highest known schema"));
+}
+
+#[test]
+fn embedded_v3_schema_matches_canonical_go_package_file() {
+    // Guards against forking the Rust embed away from the Go-side canonical
+    // source. The test below is the production guarantee that Go and Rust
+    // read the same bytes — the unit-test counterpart inside src/v3_schema.rs
+    // covers the same property in a different harness.
+    let canonical = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("pkg")
+        .join("database")
+        .join("sqlite_schema.sql");
+    let on_disk = std::fs::read_to_string(&canonical).expect("read canonical schema");
+    let embedded: &str = include_str!("../../pkg/database/sqlite_schema.sql");
+    assert_eq!(embedded, on_disk);
+}
+
+#[test]
 fn ordinal_preserved_through_round_trip() {
     let fixture = r#"{
         "videos": {

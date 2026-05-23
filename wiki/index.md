@@ -20,8 +20,8 @@
 | [架構總覽](architecture/overview.md) | Wails + Go + Python 混合架構、雙 Go module、各層職責 |
 | [Go CLI 設計](architecture/go-cli.md) | classifier.exe 命令結構、JSON stdout 規範、scan 番號提取契約 |
 | [Go Bridge](architecture/go-bridge.md) | 現行 Python→Go 委派入口 `go_cli.py` 與舊橋接層移除狀態 |
-| [資料庫系統](architecture/database.md) | IncrementalJSONDB / JSONDBManager / Journal 機制 |
-| [SQLite 影子資料庫](architecture/sqlite-shadow-db.md) | Rust crate `db-tool`（位於 `tools-rs/`）建立 shadow SQLite、import / compare / benchmark 邊界與實測結果 |
+| [資料庫系統](architecture/database.md) | SQLite v3 為 source of truth、`pkg/database/sqlite_schema.sql` canonical、Go/Rust 共用 schema |
+| [SQLite 影子資料庫](architecture/sqlite-shadow-db.md) 📦 | 第一版 shadow SQLite（**歷史 / 退役**）；C2 後 runtime 直接走 SQLite，本頁保留為歷史紀錄 |
 | [搜尋引擎](architecture/search-engine.md) | AV-WIKI → JAVDB 級聯搜尋、來源專用 API 與批次併發邊界 |
 | [技術選型決策](architecture/tech-stack-decisions.md) | Wails + Go CLI + Python 搜尋 runtime 的現行分工 |
 | [**Wails GUI 架構**](architecture/wails-gui.md) | Wails v2 + React 架構、完整 Bindings 對照、相關踩坑分組 |
@@ -70,6 +70,7 @@
 | [Wails DB data.json 從未更新](pitfalls/wails-db-json-never-updated.md) ✅ | BatchSearch / ensureDB 三處補 Compact() 呼叫 | 2026-04-07 |
 | [Wails DB 資料格式不一致](pitfalls/wails-db-format-migration.md) ✅ | Go 寫入統一為 `searched_found`；含 2903 筆資料合併紀錄 | 2026-04-08 |
 | [Wails 快取狀態判定不一致](pitfalls/wails-cache-status-mismatch.md) 〰️ | 前後端對「已搜尋」判斷不一致 | 2026-04-07 |
+| [Schema 共用：Go //go:embed vs Rust include_str!](pitfalls/schema-share-go-embed-vs-rust-include.md) ✅ | C3 schema 共用方向不對稱；canonical 必須留在 Go package 內 | 2026-05-23 |
 
 #### 搜尋
 
