@@ -118,6 +118,55 @@ func TestResolveStoreMode_RecognisesEnvVar(t *testing.T) {
 	}
 }
 
+func TestResolveUseSQLiteReads_RecognisesTruthySpellings(t *testing.T) {
+	cases := []struct {
+		env  string
+		want bool
+	}{
+		// Truthy: case-insensitive, surrounding whitespace tolerated.
+		{"true", true},
+		{"TRUE", true},
+		{"True", true},
+		{"1", true},
+		{"yes", true},
+		{"YES", true},
+		{"on", true},
+		{"ON", true},
+		{"  true  ", true},
+		{"\tyes\n", true},
+
+		// Falsy / unrecognised — must default to false.
+		{"", false},
+		{"false", false},
+		{"FALSE", false},
+		{"0", false},
+		{"no", false},
+		{"off", false},
+		{"2", false},
+		{"truthy", false},
+		{"y", false},
+		{"   ", false},
+	}
+	for _, c := range cases {
+		t.Setenv("USE_SQLITE_READS", c.env)
+		if got := ResolveUseSQLiteReads(); got != c.want {
+			t.Errorf("USE_SQLITE_READS=%q → %v, want %v", c.env, got, c.want)
+		}
+	}
+}
+
+func TestResolveUseSQLiteReads_UnsetIsFalse(t *testing.T) {
+	// Explicitly unset (not just empty string): t.Setenv with "" still
+	// sets the var to empty, so this case is already covered above. Here
+	// we make sure os.Unsetenv() yields false too.
+	if err := os.Unsetenv("USE_SQLITE_READS"); err != nil {
+		t.Fatalf("Unsetenv: %v", err)
+	}
+	if ResolveUseSQLiteReads() {
+		t.Error("ResolveUseSQLiteReads with var unset should be false")
+	}
+}
+
 func TestNewStore_DefaultDegradedLogIsBesideSQLiteFile(t *testing.T) {
 	tmp := t.TempDir()
 	dataDir := filepath.Join(tmp, "json_db")
@@ -135,6 +184,83 @@ func TestNewStore_DefaultDegradedLogIsBesideSQLiteFile(t *testing.T) {
 	wantLog := filepath.Join(dataDir, "sync_degraded.jsonl")
 	if got := store.degraded.Path(); got != wantLog {
 		t.Errorf("degraded log path = %q, want %q", got, wantLog)
+	}
+}
+
+// TestNewStore_OpenFailureCountsFallbackWhenUseSQLiteReads forces
+// openAndInitSQLite to fail (by pointing SQLitePath at a child of a
+// regular file, so MkdirAll on the parent errors), then asserts the
+// open-time fallback counter behaviour spelled out in spec § 4.1 /
+// Phase B1 plan:
+//
+//   - UseSQLiteReads=true   → counted once (operator must see the
+//     downgrade through sqlite_read_fallback_total).
+//   - UseSQLiteReads=false  → NOT counted (silent collapse, Phase A3
+//     behaviour preserved).
+//   - ModeJSONOnly+true     → NOT counted (explicit rollback, not an
+//     availability failure).
+func TestNewStore_OpenFailureCountsFallbackWhenUseSQLiteReads(t *testing.T) {
+	cases := []struct {
+		name           string
+		mode           StoreMode
+		useSQLiteReads bool
+		wantCount      int64
+	}{
+		{"DualWrite_ReadsOn_CountsOnce", ModeDualWrite, true, 1},
+		{"DualWrite_ReadsOff_NotCounted", ModeDualWrite, false, 0},
+		{"JSONOnly_ReadsOn_NotCounted", ModeJSONOnly, true, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			dataDir := filepath.Join(tmp, "json_db")
+			writeFixtureAt(t, dataDir)
+
+			// Force openAndInitSQLite to fail in ModeDualWrite by
+			// pointing SQLitePath at a child of a regular file —
+			// MkdirAll on the "parent" (a file) returns an error.
+			// ModeJSONOnly skips SQLite entirely, so the bogus path is
+			// inert there; we still pass it to prove no open attempt
+			// happens.
+			blocker := filepath.Join(tmp, "blocker")
+			if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
+				t.Fatalf("seed blocker file: %v", err)
+			}
+			sqlitePath := filepath.Join(blocker, "db.sqlite")
+
+			store, err := NewStore(StoreConfig{
+				Mode:           c.mode,
+				DataDir:        dataDir,
+				SQLitePath:     sqlitePath,
+				UseSQLiteReads: c.useSQLiteReads,
+			})
+			if err != nil {
+				t.Fatalf("NewStore: %v", err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+
+			if store.sqlite != nil {
+				t.Fatalf("expected sqlite to be nil after open/init failure or json_only, got %+v", store.sqlite)
+			}
+			if got := store.SQLiteReadFallbackTotal(); got != c.wantCount {
+				t.Errorf("SQLiteReadFallbackTotal = %d, want %d", got, c.wantCount)
+			}
+
+			// db stats must surface the same number — that is the
+			// observable contract Python / Wails consumers rely on.
+			stats, err := store.GetStats()
+			if err != nil {
+				t.Fatalf("GetStats: %v", err)
+			}
+			gotStat, ok := stats["sqlite_read_fallback_total"].(int64)
+			if !ok {
+				t.Fatalf("sqlite_read_fallback_total missing or wrong type: %T (%v)",
+					stats["sqlite_read_fallback_total"], stats["sqlite_read_fallback_total"])
+			}
+			if gotStat != c.wantCount {
+				t.Errorf("stats sqlite_read_fallback_total = %d, want %d", gotStat, c.wantCount)
+			}
+		})
 	}
 }
 

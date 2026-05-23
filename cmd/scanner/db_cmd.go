@@ -147,8 +147,9 @@ func parseDBCommandOptions(subCmd string, args []string) (dbCommandOptions, []st
 
 func loadDBOrExit(dataDir string) *database.DualWriteStore {
 	store, err := database.NewStore(database.StoreConfig{
-		Mode:    database.ResolveStoreMode(),
-		DataDir: dataDir,
+		Mode:           database.ResolveStoreMode(),
+		DataDir:        dataDir,
+		UseSQLiteReads: database.ResolveUseSQLiteReads(),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
@@ -468,8 +469,9 @@ func dbMergeCmd(args []string) {
 	}
 
 	db, err := database.NewStore(database.StoreConfig{
-		Mode:    database.ResolveStoreMode(),
-		DataDir: *dataDir,
+		Mode:           database.ResolveStoreMode(),
+		DataDir:        *dataDir,
+		UseSQLiteReads: database.ResolveUseSQLiteReads(),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)

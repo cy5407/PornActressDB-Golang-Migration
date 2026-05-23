@@ -49,6 +49,15 @@ type StoreConfig struct {
 	// LoadContext is passed to JSONDatabase.Load. context.Background()
 	// is used when zero.
 	LoadContext context.Context
+
+	// UseSQLiteReads opts the returned *DualWriteStore into the Phase B1
+	// shadow-read path: GetVideo / ListVideos / GetAllVideos pull from
+	// SQLite first and fall back to JSON only when the SQLite query
+	// returns an availability / schema / query error. The default (false)
+	// keeps reads on JSONDatabase, preserving the Phase A3 behaviour
+	// exactly. NewStore wires this onto the returned store; the SQLite
+	// mirror still writes regardless of this flag.
+	UseSQLiteReads bool
 }
 
 // ResolveStoreMode reads the ACTRESS_DB_MODE environment variable.
@@ -66,6 +75,32 @@ func ResolveStoreMode() StoreMode {
 		return ModeJSONOnly
 	default:
 		return ModeDualWrite
+	}
+}
+
+// ResolveUseSQLiteReads reads the USE_SQLITE_READS environment variable
+// and reports whether the Phase B1 shadow-read path should be active.
+// Recognised truthy values (case-insensitive, surrounding whitespace
+// trimmed): "true", "1", "yes", "on". Anything else — including unset,
+// empty, "false", "0", "no", "off" or arbitrary garbage — returns false.
+//
+// Spec § 4.1 / § 4.4: this is the in-process knob that flips
+// GetVideo/ListVideos/GetAllVideos onto the SQLite mirror for a single
+// classifier.exe invocation. Mutations and the SQLite write mirror are
+// unaffected.
+func ResolveUseSQLiteReads() bool {
+	return parseBoolEnv(os.Getenv("USE_SQLITE_READS"))
+}
+
+// parseBoolEnv recognises the truthy spellings ResolveUseSQLiteReads
+// documents. Exported via that helper rather than directly so callers
+// uniformly read the same env var and stay aligned with the comment.
+func parseBoolEnv(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -101,6 +136,7 @@ func NewStore(cfg StoreConfig) (*DualWriteStore, error) {
 		if err != nil {
 			return nil, err
 		}
+		store.SetUseSQLiteReads(cfg.UseSQLiteReads)
 		return store, nil
 	}
 
@@ -116,6 +152,16 @@ func NewStore(cfg StoreConfig) (*DualWriteStore, error) {
 		if err != nil {
 			return nil, err
 		}
+		store.SetUseSQLiteReads(cfg.UseSQLiteReads)
+		// Spec § 4.1 / Phase B1: when the caller asked for SQLite reads
+		// but open/init failed, the read path is silently downgraded to
+		// JSON for the entire process. Count it once so db stats'
+		// sqlite_read_fallback_total reflects the open-time fallback.
+		// ModeJSONOnly returns above this branch and is not counted —
+		// that is an explicit rollback, not an availability failure.
+		if cfg.UseSQLiteReads {
+			store.sqliteReadFallbackTotal.Add(1)
+		}
 		return store, nil
 	}
 
@@ -130,6 +176,7 @@ func NewStore(cfg StoreConfig) (*DualWriteStore, error) {
 		sqlite.Close()
 		return nil, err
 	}
+	store.SetUseSQLiteReads(cfg.UseSQLiteReads)
 
 	// Spec § 4.1: drain any pending degraded entries synchronously at
 	// startup so the store presents a coherent view ASAP.

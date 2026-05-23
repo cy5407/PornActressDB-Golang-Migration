@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 )
 
 // DualWriteStore implements the Phase A3 "雙寫" runtime described in
@@ -54,6 +55,19 @@ type DualWriteStore struct {
 	lifecycleMu sync.Mutex
 	closed      bool
 	replayWg    sync.WaitGroup
+
+	// useSQLiteReads selects the Phase B1 shadow-read routing. When true
+	// AND sqlite != nil, GetVideo/ListVideos/GetAllVideos prefer SQLite
+	// and fall back to JSONDatabase only on availability/schema/query
+	// errors (drift, i.e. ErrNotFound, is NOT a fallback). Mutated only
+	// via SetUseSQLiteReads / NewStore; the read path uses an atomic
+	// load to avoid a per-read mutex acquisition.
+	useSQLiteReads atomic.Bool
+
+	// sqliteReadFallbackTotal counts how many times a SQLite read errored
+	// and DualWriteStore had to fall back to JSON. Surfaced through
+	// GetStats so operators can spot a misbehaving SQLite mirror.
+	sqliteReadFallbackTotal atomic.Int64
 }
 
 // NewDualWriteStore wires up an existing *JSONDatabase, an open
@@ -108,6 +122,37 @@ func (d *DualWriteStore) SQLite() *SQLiteStore {
 		return nil
 	}
 	return d.sqlite
+}
+
+// SetUseSQLiteReads toggles the Phase B1 shadow-read routing. NewStore
+// calls this from cfg.UseSQLiteReads at construction time; callers may
+// flip it at runtime when wiring up the eventual CLI env knob in B1b.
+// Safe to call concurrently with reads — backed by an atomic bool.
+func (d *DualWriteStore) SetUseSQLiteReads(use bool) {
+	if d == nil {
+		return
+	}
+	d.useSQLiteReads.Store(use)
+}
+
+// UseSQLiteReads reports the current shadow-read routing flag. Exposed
+// for tests and stats wiring.
+func (d *DualWriteStore) UseSQLiteReads() bool {
+	if d == nil {
+		return false
+	}
+	return d.useSQLiteReads.Load()
+}
+
+// SQLiteReadFallbackTotal returns the number of SQLite read failures
+// that triggered a fallback to JSONDatabase since the store was
+// constructed. Drift (SQLite reports no row while JSON has one) does
+// NOT increment this counter — see GetVideo.
+func (d *DualWriteStore) SQLiteReadFallbackTotal() int64 {
+	if d == nil {
+		return 0
+	}
+	return d.sqliteReadFallbackTotal.Load()
 }
 
 // Close marks the store as closed, waits for any background replay
@@ -203,7 +248,81 @@ func (d *DualWriteStore) GetStats() (map[string]any, error) {
 		logSize = d.degraded.SizeBytes()
 	}
 	stats["sync_degraded_log_size"] = logSize
+	stats["sqlite_read_fallback_total"] = d.SQLiteReadFallbackTotal()
 	return stats, nil
+}
+
+// --- Read overrides (Phase B1 shadow reads) ------------------------------
+//
+// GetVideo / ListVideos / GetAllVideos route through SQLite when
+// UseSQLiteReads is true AND a SQLite handle is wired. A drift case
+// (SQLite query returns no rows while JSON would have answered) is
+// intentionally surfaced verbatim — DualWriteStore does not "fix" the
+// answer by consulting JSON, so an operator flipping the flag sees the
+// actual SQLite state. Real read errors (closed handle, missing schema,
+// query failure) increment SQLiteReadFallbackTotal and fall back to
+// JSONDatabase so callers never lose service.
+
+// GetVideo overrides JSONDatabase.GetVideo. JSON path remains unchanged
+// when UseSQLiteReads is off (Phase A3 behaviour).
+func (d *DualWriteStore) GetVideo(code string) (*Video, error) {
+	if !d.shouldReadFromSQLite() {
+		return d.JSONDatabase.GetVideo(code)
+	}
+	v, err := d.sqlite.GetVideo(code)
+	if err == nil {
+		return v, nil
+	}
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalidCode) {
+		// Successful query — drift or caller-side bad input. Do NOT fall
+		// back: spec § 4.1 keeps SQLite truthful when it is reachable.
+		return nil, err
+	}
+	d.sqliteReadFallbackTotal.Add(1)
+	log.Printf("dual-write shadow read: GetVideo %q SQLite error (%v); falling back to JSON", code, err)
+	return d.JSONDatabase.GetVideo(code)
+}
+
+// ListVideos overrides JSONDatabase.ListVideos following the same
+// routing as GetVideo. An empty SQLite list is NOT a fallback trigger.
+func (d *DualWriteStore) ListVideos() ([]string, error) {
+	if !d.shouldReadFromSQLite() {
+		return d.JSONDatabase.ListVideos()
+	}
+	codes, err := d.sqlite.ListVideos()
+	if err == nil {
+		return codes, nil
+	}
+	d.sqliteReadFallbackTotal.Add(1)
+	log.Printf("dual-write shadow read: ListVideos SQLite error (%v); falling back to JSON", err)
+	return d.JSONDatabase.ListVideos()
+}
+
+// GetAllVideos overrides JSONDatabase.GetAllVideos following the same
+// routing as GetVideo.
+func (d *DualWriteStore) GetAllVideos() ([]*VideoData, error) {
+	if !d.shouldReadFromSQLite() {
+		return d.JSONDatabase.GetAllVideos()
+	}
+	videos, err := d.sqlite.GetAllVideos()
+	if err == nil {
+		return videos, nil
+	}
+	d.sqliteReadFallbackTotal.Add(1)
+	log.Printf("dual-write shadow read: GetAllVideos SQLite error (%v); falling back to JSON", err)
+	return d.JSONDatabase.GetAllVideos()
+}
+
+// shouldReadFromSQLite reports whether the shadow-read path is active.
+// Returns false when the flag is off OR when no SQLite handle is wired
+// (ACTRESS_DB_MODE=json_only or open-time collapse). Returning false
+// here is the central guarantee that "flag=false → JSON behaviour
+// unchanged" — every shadow-read override delegates this single check.
+func (d *DualWriteStore) shouldReadFromSQLite() bool {
+	if d == nil || d.sqlite == nil {
+		return false
+	}
+	return d.useSQLiteReads.Load()
 }
 
 // --- Mutation overrides ---------------------------------------------------

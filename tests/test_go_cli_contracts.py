@@ -674,6 +674,61 @@ def test_db_stats_subcommand_returns_full_stats_dict(monkeypatch):
     assert result["needs_compact"] is False
 
 
+def test_db_stats_with_phase_b1_fields_still_parses(monkeypatch):
+    """Forward-compat: `db stats` under USE_SQLITE_READS=true emits the
+    Phase A3 fields (`sync_degraded_total` / `sync_degraded_log_size`)
+    plus the Phase B1 `sqlite_read_fallback_total` counter. Python only
+    reads the A0 subset via go_cli.run, so the richer payload must round-
+    trip untouched and the Python helper must keep returning a dict.
+    """
+    _patch_exe(monkeypatch)
+    stats_payload = {
+        # A0 keys.
+        "video_count": 3,
+        "actress_count": 3,
+        "link_count": 4,
+        "schema_version": "1.0.0",
+        "created_at": "2026-05-23T00:00:00Z",
+        "updated_at": "2026-05-23T00:00:00Z",
+        "journal_size": 0,
+        "journal_age_seconds": 0.0,
+        "dirty_videos": 0,
+        "dirty_actresses": 0,
+        "dirty_links": 0,
+        "needs_compact": False,
+        "total_videos": 3,
+        # A3 additions.
+        "sync_degraded_total": 0,
+        "sync_degraded_log_size": 0,
+        # B1 addition.
+        "sqlite_read_fallback_total": 0,
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(stats_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "stats", "-data-dir", "custom_db"])
+
+    assert result["sqlite_read_fallback_total"] == 0
+    assert result["sync_degraded_total"] == 0
+    assert result["sync_degraded_log_size"] == 0
+    # A0 keys must still be intact alongside the new ones.
+    for required in (
+        "journal_size",
+        "journal_age_seconds",
+        "dirty_videos",
+        "dirty_actresses",
+        "dirty_links",
+        "needs_compact",
+        "total_videos",
+    ):
+        assert required in result
+
+
 def test_db_list_codes_returns_string_array(monkeypatch):
     """`db list` (without --full) emits a JSON string array, not an object."""
     _patch_exe(monkeypatch)

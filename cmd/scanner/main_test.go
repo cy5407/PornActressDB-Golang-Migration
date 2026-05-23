@@ -212,6 +212,93 @@ func setupScannerTestDB(t *testing.T) (*database.DualWriteStore, string) {
 	return store, dir
 }
 
+// loadDBWithFreshFixture builds a real classifier.exe-style data dir and
+// drives loadDBOrExit through it so the env→StoreConfig wiring is
+// exercised end-to-end (NewStore observes USE_SQLITE_READS via the
+// resolver inside loadDBOrExit). The fixture keeps SQLite available so
+// the shadow-read flag actually does something observable.
+func loadDBWithFreshFixture(t *testing.T) *database.DualWriteStore {
+	t.Helper()
+	dir := t.TempDir()
+	jsonDB := database.NewJSONDatabase(dir)
+	if err := jsonDB.Load(context.Background()); err != nil {
+		t.Fatalf("Failed to load db: %v", err)
+	}
+	if err := jsonDB.Save(); err != nil {
+		t.Fatalf("Failed to seed json db: %v", err)
+	}
+	store := loadDBOrExit(dir)
+	t.Cleanup(func() { _ = store.Close() })
+	return store
+}
+
+func TestLoadDBOrExit_EnablesSQLiteReadsWhenEnvTruthy(t *testing.T) {
+	cases := []string{"true", "1", "yes", "on", "TRUE", " YES "}
+	for _, env := range cases {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv("USE_SQLITE_READS", env)
+			store := loadDBWithFreshFixture(t)
+			if !store.UseSQLiteReads() {
+				t.Errorf("USE_SQLITE_READS=%q should enable shadow reads", env)
+			}
+		})
+	}
+}
+
+func TestLoadDBOrExit_DefaultsToJSONReads(t *testing.T) {
+	for _, env := range []string{"", "false", "0", "off", "no", "garbage"} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv("USE_SQLITE_READS", env)
+			store := loadDBWithFreshFixture(t)
+			if store.UseSQLiteReads() {
+				t.Errorf("USE_SQLITE_READS=%q must NOT enable shadow reads", env)
+			}
+		})
+	}
+}
+
+func TestRunDBStats_JSONOutputIncludesSQLiteReadFallbackTotal(t *testing.T) {
+	// Drive the same code path runDBStats walks (DualWriteStore.GetStats)
+	// and assert the contract surfaced through `classifier.exe db stats`:
+	// the new B1 counter must be present alongside Phase A3 keys and the
+	// Python-parsable A0 keys.
+	t.Setenv("USE_SQLITE_READS", "true")
+	store := loadDBWithFreshFixture(t)
+
+	stats, err := store.GetStats()
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	required := []string{
+		// A0 contract keys (Python parses these).
+		"video_count", "actress_count", "link_count",
+		"schema_version", "created_at", "updated_at",
+		"journal_size", "journal_age_seconds",
+		"dirty_videos", "dirty_actresses", "dirty_links",
+		"needs_compact", "total_videos",
+		// A3 additions.
+		"sync_degraded_total", "sync_degraded_log_size",
+		// B1 addition.
+		"sqlite_read_fallback_total",
+	}
+	for _, key := range required {
+		if _, ok := stats[key]; !ok {
+			t.Errorf("db stats output missing key %q (have %v)", key, keysOf(stats))
+		}
+	}
+	if _, ok := stats["sqlite_read_fallback_total"].(int64); !ok {
+		t.Errorf("sqlite_read_fallback_total type = %T, want int64", stats["sqlite_read_fallback_total"])
+	}
+}
+
+func keysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 func assertActressesEqual(t *testing.T, got, want []string) {
 	t.Helper()
 	if len(got) != len(want) {
