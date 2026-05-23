@@ -1054,9 +1054,13 @@ func (a *App) ensureDB() error {
 		// Phase A3: NewStore wires JSONDatabase + SQLite mirror + degraded
 		// log + startup replay in one call. ACTRESS_DB_MODE=json_only
 		// collapses to JSON-only behaviour (spec § 4.1 / § 4.4 rollback).
+		// Phase B2: USE_SQLITE_READS flips the Wails backend onto the
+		// SQLite shadow-read path; default (unset/false) preserves the
+		// Phase A3 JSON-read behaviour exactly.
 		store, err := database.NewStore(database.StoreConfig{
-			Mode:    database.ResolveStoreMode(),
-			DataDir: dataDir,
+			Mode:           database.ResolveStoreMode(),
+			DataDir:        dataDir,
+			UseSQLiteReads: database.ResolveUseSQLiteReads(),
 		})
 		if err != nil {
 			a.db = nil

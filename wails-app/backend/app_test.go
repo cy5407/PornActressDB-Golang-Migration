@@ -1556,3 +1556,151 @@ func TestBatchSearchAVWiki_ExecutesRealBatchSubprocess(t *testing.T) {
 		t.Fatalf("unexpected methods from real subprocess: %#v", results)
 	}
 }
+
+// ============================================================================
+// Phase B2 — Wails backend SQLite shadow-read flip
+// ============================================================================
+//
+// These tests pin the contract that USE_SQLITE_READS is forwarded into
+// ensureDB → database.NewStore at app startup. Default behaviour (unset
+// or non-truthy) must keep the Phase A3 JSON-read path; truthy values
+// route DbGetVideo / DbListVideos onto the SQLite mirror; an unavailable
+// SQLite handle must fall back to JSON and bump the fallback counter so
+// the operator can spot the regression via store.SQLiteReadFallbackTotal.
+
+func TestEnsureDB_DefaultsToJSONReadsWhenFlagUnsetOrFalse(t *testing.T) {
+	for _, env := range []string{"", "false", "0", "off", "no", "garbage"} {
+		t.Run("env="+env, func(t *testing.T) {
+			t.Setenv("USE_SQLITE_READS", env)
+			app := newTestApp(t)
+			if app.db == nil {
+				t.Fatal("expected ensureDB to populate app.db")
+			}
+			if app.db.UseSQLiteReads() {
+				t.Errorf("USE_SQLITE_READS=%q must keep reads on JSON, got UseSQLiteReads()=true", env)
+			}
+		})
+	}
+}
+
+func TestEnsureDB_EnablesSQLiteReadsWhenEnvTruthy(t *testing.T) {
+	for _, env := range []string{"true", "1", "yes", "on", "TRUE", " YES "} {
+		t.Run("env="+env, func(t *testing.T) {
+			t.Setenv("USE_SQLITE_READS", env)
+			app := newTestApp(t)
+			if app.db == nil {
+				t.Fatal("expected ensureDB to populate app.db")
+			}
+			if !app.db.UseSQLiteReads() {
+				t.Errorf("USE_SQLITE_READS=%q must flip Wails backend onto SQLite reads, got UseSQLiteReads()=false", env)
+			}
+		})
+	}
+}
+
+func TestDbGetVideo_ReadsFromSQLiteWhenFlagTruthy(t *testing.T) {
+	t.Setenv("USE_SQLITE_READS", "true")
+	app := newTestApp(t)
+
+	// DualWriteStore.AddVideo writes JSON canonically and mirrors the
+	// row into SQLite. Both sides start in sync.
+	if err := app.db.AddVideo(&database.VideoData{
+		Code:         "READ-FLIP-001",
+		Title:        "json-side-title",
+		SearchStatus: "searched_found",
+	}); err != nil {
+		t.Fatalf("seed AddVideo: %v", err)
+	}
+
+	// Force JSON and SQLite to diverge by rewriting the SQLite-side row
+	// only. With the shadow-read flag on, DbGetVideo must return the
+	// SQLite value — proving the read actually went through SQLite and
+	// not the embedded JSONDatabase.
+	if err := app.db.SQLite().UpsertVideo("READ-FLIP-001", &database.VideoData{
+		Code:         "READ-FLIP-001",
+		Title:        "sqlite-side-title",
+		SearchStatus: "searched_found",
+	}); err != nil {
+		t.Fatalf("diverge SQLite row: %v", err)
+	}
+
+	v, err := app.DbGetVideo("READ-FLIP-001")
+	if err != nil {
+		t.Fatalf("DbGetVideo: %v", err)
+	}
+	if v.Title != "sqlite-side-title" {
+		t.Errorf("DbGetVideo title = %q, want sqlite-side-title (SQLite read path bypassed?)", v.Title)
+	}
+	if got := app.db.SQLiteReadFallbackTotal(); got != 0 {
+		t.Errorf("SQLiteReadFallbackTotal = %d, want 0 on happy path", got)
+	}
+}
+
+func TestDbListVideos_ReadsFromSQLiteWhenFlagTruthy(t *testing.T) {
+	t.Setenv("USE_SQLITE_READS", "true")
+	app := newTestApp(t)
+
+	if err := app.db.AddVideo(&database.VideoData{
+		Code:         "LIST-FLIP-001",
+		SearchStatus: "searched_found",
+	}); err != nil {
+		t.Fatalf("seed AddVideo: %v", err)
+	}
+
+	// Insert a phantom row directly into SQLite that does NOT exist in
+	// JSON. With the shadow-read flag on, DbListVideos must surface the
+	// phantom — proving the list came from SQLite rather than the
+	// embedded JSONDatabase.
+	if err := app.db.SQLite().UpsertVideo("LIST-PHANTOM-001", &database.VideoData{
+		Code:         "LIST-PHANTOM-001",
+		SearchStatus: "searched_found",
+	}); err != nil {
+		t.Fatalf("insert SQLite-only phantom: %v", err)
+	}
+
+	videos, err := app.DbListVideos()
+	if err != nil {
+		t.Fatalf("DbListVideos: %v", err)
+	}
+	got := map[string]bool{}
+	for _, v := range videos {
+		got[v.Code] = true
+	}
+	if !got["LIST-PHANTOM-001"] {
+		t.Errorf("DbListVideos missing SQLite-only phantom (got=%v) — read path did not flip", got)
+	}
+	if got := app.db.SQLiteReadFallbackTotal(); got != 0 {
+		t.Errorf("SQLiteReadFallbackTotal = %d, want 0 on happy path", got)
+	}
+}
+
+func TestDbGetVideo_FallsBackToJSONWhenSQLiteUnavailable(t *testing.T) {
+	t.Setenv("USE_SQLITE_READS", "true")
+	app := newTestApp(t)
+
+	if err := app.db.AddVideo(&database.VideoData{
+		Code:         "FALLBACK-001",
+		Title:        "json-side-title",
+		SearchStatus: "searched_found",
+	}); err != nil {
+		t.Fatalf("seed AddVideo: %v", err)
+	}
+
+	// Close the SQLite handle out from under the store so every
+	// shadow-read errors with ErrSQLiteStoreClosed. The DualWriteStore
+	// must fall back to JSON without surfacing an error to the caller.
+	if err := app.db.SQLite().Close(); err != nil {
+		t.Fatalf("close sqlite: %v", err)
+	}
+
+	v, err := app.DbGetVideo("FALLBACK-001")
+	if err != nil {
+		t.Fatalf("DbGetVideo after SQLite close: %v (expected silent JSON fallback)", err)
+	}
+	if v.Title != "json-side-title" {
+		t.Errorf("DbGetVideo fallback title = %q, want json-side-title", v.Title)
+	}
+	if got := app.db.SQLiteReadFallbackTotal(); got != 1 {
+		t.Errorf("SQLiteReadFallbackTotal = %d, want 1 after one fallback", got)
+	}
+}
