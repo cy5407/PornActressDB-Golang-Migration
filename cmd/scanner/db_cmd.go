@@ -29,7 +29,7 @@ type dbCommandOptions struct {
 }
 
 type dbCommandContext struct {
-	db   *database.DualWriteStore
+	db   *database.SQLiteStore
 	opts dbCommandOptions
 }
 
@@ -151,12 +151,8 @@ func parseDBCommandOptions(subCmd string, args []string) (dbCommandOptions, []st
 	}, fs.Args()
 }
 
-func loadDBOrExit(dataDir string) *database.DualWriteStore {
-	store, err := database.NewStore(database.StoreConfig{
-		Mode:           database.ResolveStoreMode(),
-		DataDir:        dataDir,
-		UseSQLiteReads: database.ResolveUseSQLiteReads(),
-	})
+func loadDBOrExit(dataDir string) *database.SQLiteStore {
+	store, err := database.NewStore(database.StoreConfig{DataDir: dataDir})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
 		os.Exit(1)
@@ -207,7 +203,6 @@ func runDBUpdate(ctx dbCommandContext, remaining []string) {
 		fmt.Fprintf(os.Stderr, "更新影片失敗: %v\n", err)
 		os.Exit(1)
 	}
-	saveDBOrExit(ctx.db)
 	if ctx.opts.jsonOutput {
 		outputJSON(map[string]any{"success": true, "action": "update", "code": code, "data_dir": ctx.opts.dataDir})
 		return
@@ -221,11 +216,17 @@ func runDBDelete(ctx dbCommandContext, remaining []string) {
 		os.Exit(1)
 	}
 	code := remaining[0]
+	// SQLiteStore.DeleteVideo is idempotent. The Python helper relies
+	// on a non-zero exit ("video not found") to return False from
+	// db_delete_video, so check existence first to preserve that.
+	if _, err := ctx.db.GetVideo(code); err != nil {
+		fmt.Fprintf(os.Stderr, "刪除影片失敗: %v\n", err)
+		os.Exit(1)
+	}
 	if err := ctx.db.DeleteVideo(code); err != nil {
 		fmt.Fprintf(os.Stderr, "刪除影片失敗: %v\n", err)
 		os.Exit(1)
 	}
-	saveDBOrExit(ctx.db)
 	if ctx.opts.jsonOutput {
 		outputJSON(map[string]any{"success": true, "action": "delete", "code": code, "data_dir": ctx.opts.dataDir})
 		return
@@ -339,7 +340,6 @@ func runDBActressUpdate(ctx dbCommandContext, remaining []string) {
 		fmt.Fprintf(os.Stderr, "更新女優失敗: %v\n", err)
 		os.Exit(1)
 	}
-	saveDBOrExit(ctx.db)
 	if ctx.opts.jsonOutput {
 		outputJSON(map[string]any{"success": true, "action": "actress-update", "id": actressID})
 		return
@@ -353,11 +353,17 @@ func runDBActressDelete(ctx dbCommandContext, remaining []string) {
 		os.Exit(1)
 	}
 	actressID := remaining[0]
+	// SQLiteStore.DeleteActress is idempotent; mirror runDBDelete's
+	// existence check so callers (including the Python helper) keep
+	// observing a non-zero exit when the actress doesn't exist.
+	if _, err := ctx.db.GetActress(actressID); err != nil {
+		fmt.Fprintf(os.Stderr, "刪除女優失敗: %v\n", err)
+		os.Exit(1)
+	}
 	if err := ctx.db.DeleteActress(actressID); err != nil {
 		fmt.Fprintf(os.Stderr, "刪除女優失敗: %v\n", err)
 		os.Exit(1)
 	}
-	saveDBOrExit(ctx.db)
 	if ctx.opts.jsonOutput {
 		outputJSON(map[string]any{"success": true, "action": "actress-delete", "id": actressID})
 		return
@@ -383,7 +389,7 @@ func runDBCleanActresses(ctx dbCommandContext, _ []string) {
 	outputJSON(result)
 }
 
-func cleanActressesAction(db *database.DualWriteStore, write bool) (*dbCleanActressesResult, error) {
+func cleanActressesAction(db *database.SQLiteStore, write bool) (*dbCleanActressesResult, error) {
 	cleaner := database.NewActressCleaner()
 	result := &dbCleanActressesResult{
 		Success: true,
@@ -399,13 +405,11 @@ func cleanActressesAction(db *database.DualWriteStore, write bool) (*dbCleanActr
 		result.BackupPath = backupPath
 	}
 
-	// ApplyToDatabase still takes *JSONDatabase directly; we hand it the
-	// embedded pointer so the SQLite mirror is intentionally bypassed
-	// for the cleanup pass. The subsequent UpdateVideo / Save flow
-	// inside ApplyToDatabase walks through JSONDatabase methods; any
-	// SQLite mirroring would happen on a re-dispatch we don't perform
-	// here (see Phase B/C plan slices for refactoring this hot path).
-	report, err := cleaner.ApplyToDatabase(db.JSONDatabase, write)
+	// Slice C2: ApplyToDatabase now takes the minimal
+	// ActressCleanupTarget interface, so the SQLite-only runtime drops
+	// straight in. UpdateVideo on *SQLiteStore writes through to the
+	// canonical store; the JSON DB is no longer in the loop here.
+	report, err := cleaner.ApplyToDatabase(db, write)
 	if err != nil {
 		return nil, err
 	}
@@ -414,12 +418,6 @@ func cleanActressesAction(db *database.DualWriteStore, write bool) (*dbCleanActr
 	result.ChangedVideos = report.ChangedVideos
 	result.RemovedActresses = report.RemovedActresses
 	result.Changes = report.Changes
-
-	if write && report.ChangedVideos > 0 {
-		if err := db.CompactJournal(); err != nil {
-			return nil, err
-		}
-	}
 
 	return result, nil
 }
@@ -466,12 +464,8 @@ func runDBBackupCreate(ctx dbCommandContext, _ []string) {
 // operator triggering backup-create expects the new canonical SQLite
 // data, not stale JSON.
 func createDualBackup(ctx dbCommandContext) (jsonPath, sqlitePath string, err error) {
-	sqlite := ctx.db.SQLite()
-	if sqlite == nil {
-		// SQLite mirror is collapsed (ACTRESS_DB_MODE=json_only or
-		// open-time failure). C1 requires both snapshots to be rooted
-		// in SQLite, so there's nothing meaningful to produce.
-		return "", "", errors.New("sqlite mirror unavailable; cannot produce dual backup")
+	if ctx.db == nil {
+		return "", "", errors.New("sqlite store unavailable; cannot produce dual backup")
 	}
 
 	backupDir := filepath.Join(ctx.opts.dataDir, "backup")
@@ -483,10 +477,10 @@ func createDualBackup(ctx dbCommandContext) (jsonPath, sqlitePath string, err er
 	jsonPath = filepath.Join(backupDir, "backup_"+timestamp+".json")
 	sqlitePath = filepath.Join(backupDir, "backup_"+timestamp+".sqlite")
 
-	if _, err := sqlite.Backup(database.BackupOptions{DestPath: sqlitePath}); err != nil {
+	if _, err := ctx.db.Backup(database.BackupOptions{DestPath: sqlitePath}); err != nil {
 		return "", "", fmt.Errorf("backup sqlite: %w", err)
 	}
-	if _, err := sqlite.ExportToJSON(database.ExportOptions{OutputPath: jsonPath}); err != nil {
+	if _, err := ctx.db.ExportToJSON(database.ExportOptions{OutputPath: jsonPath}); err != nil {
 		// Roll back the SQLite snapshot so we don't leave a half-finished
 		// backup pair on disk that backup-list would later surface.
 		_ = os.Remove(sqlitePath)
@@ -589,12 +583,11 @@ func runBackupRestoreFromSQLite(ctx dbCommandContext, backupPath string) {
 }
 
 func runBackupRestoreFromJSON(ctx dbCommandContext, jsonPath string) {
-	sqlite := ctx.db.SQLite()
-	if sqlite == nil {
-		fmt.Fprintln(os.Stderr, "還原 JSON 失敗: SQLite 鏡像不可用，無法執行 resync")
+	if ctx.db == nil {
+		fmt.Fprintln(os.Stderr, "還原 JSON 失敗: SQLite 不可用，無法執行 resync")
 		os.Exit(1)
 	}
-	report, err := sqlite.ResyncFromJSON(jsonPath, database.MigrationOptions{})
+	report, err := ctx.db.ResyncFromJSON(jsonPath, database.MigrationOptions{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "還原 JSON 失敗: %v\n", err)
 		os.Exit(1)
@@ -640,13 +633,6 @@ func readJSONFileOrExit(path string, target any) {
 	}
 }
 
-func saveDBOrExit(db *database.DualWriteStore) {
-	if err := db.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
-		os.Exit(1)
-	}
-}
-
 func dbMergeCmd(args []string) {
 	fs := flag.NewFlagSet("db merge", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
@@ -659,23 +645,16 @@ func dbMergeCmd(args []string) {
 		os.Exit(1)
 	}
 
-	db, err := database.NewStore(database.StoreConfig{
-		Mode:           database.ResolveStoreMode(),
-		DataDir:        *dataDir,
-		UseSQLiteReads: database.ResolveUseSQLiteReads(),
-	})
+	db, err := database.NewStore(database.StoreConfig{DataDir: *dataDir})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
 		os.Exit(1)
 	}
+	defer db.Close()
 
 	stats, err := db.MergeFromFile(*sourceFile, *overwrite)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "合併資料庫失敗: %v\n", err)
-		os.Exit(1)
-	}
-	if err := db.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
 		os.Exit(1)
 	}
 	outputJSON(stats)
@@ -690,9 +669,12 @@ func dbFixStudiosCmd(args []string) {
 		os.Exit(1)
 	}
 	db := loadDBOrExit(opts.dataDir)
+	defer db.Close()
 	videos := getAllVideosOrExit(db)
 	summary := applyStudioFixes(db, videos, si, opts.force)
-	saveStudioFixChangesIfNeeded(db, summary.updated)
+	// SQLite-only runtime: every UpdateVideoFields call inside
+	// applyStudioFixes already durably wrote through to SQLite (WAL
+	// handles fsync), so there is no separate "save changes" step.
 
 	result := map[string]any{
 		"success":         true,
@@ -719,7 +701,7 @@ func parseDBFixStudiosOptions(args []string) dbFixStudiosOptions {
 	}
 }
 
-func getAllVideosOrExit(db *database.DualWriteStore) []*database.VideoData {
+func getAllVideosOrExit(db *database.SQLiteStore) []*database.VideoData {
 	videos, err := db.GetAllVideos()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "取得影片清單失敗: %v\n", err)
@@ -728,7 +710,7 @@ func getAllVideosOrExit(db *database.DualWriteStore) []*database.VideoData {
 	return videos
 }
 
-func applyStudioFixes(db *database.DualWriteStore, videos []*database.VideoData, si *studio.StudioIdentifier, force bool) studioFixSummary {
+func applyStudioFixes(db *database.SQLiteStore, videos []*database.VideoData, si *studio.StudioIdentifier, force bool) studioFixSummary {
 	summary := studioFixSummary{
 		changes: make([]changeEntry, 0),
 	}
@@ -756,7 +738,7 @@ func buildStudioFixPlan(video *database.VideoData, newStudio string, force bool)
 	}
 }
 
-func applyStudioFixPlan(db *database.DualWriteStore, plan studioFixPlan, summary *studioFixSummary) bool {
+func applyStudioFixPlan(db *database.SQLiteStore, plan studioFixPlan, summary *studioFixSummary) bool {
 	switch plan.status {
 	case studioFixSkip:
 		summary.skipped++
@@ -773,14 +755,4 @@ func applyStudioFixPlan(db *database.DualWriteStore, plan studioFixPlan, summary
 	summary.updated++
 	summary.changes = append(summary.changes, plan.change)
 	return true
-}
-
-func saveStudioFixChangesIfNeeded(db *database.DualWriteStore, updated int) {
-	if updated == 0 {
-		return
-	}
-	if err := db.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
-		os.Exit(1)
-	}
 }

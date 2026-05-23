@@ -125,7 +125,16 @@ func (c *ActressCleaner) appendReplacementIfClean(cleaned *[]string, seen *map[s
 	*cleaned = append(*cleaned, name)
 }
 
-func (c *ActressCleaner) ApplyToDatabase(db *JSONDatabase, write bool) (*ActressCleanupReport, error) {
+// ActressCleanupTarget is the minimal store surface ApplyToDatabase needs.
+// It lets the cleaner work against any backing store (SQLite-only runtime,
+// the legacy JSONDatabase fixture path used by tools, etc.) without
+// hard-coding a type. UpdateVideo is only invoked when write is true.
+type ActressCleanupTarget interface {
+	GetAllVideos() ([]*VideoData, error)
+	UpdateVideo(code string, v *VideoData) error
+}
+
+func (c *ActressCleaner) ApplyToDatabase(db ActressCleanupTarget, write bool) (*ActressCleanupReport, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db cannot be nil")
 	}

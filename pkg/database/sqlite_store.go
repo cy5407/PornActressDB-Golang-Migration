@@ -32,12 +32,21 @@ var sqliteSchemaSQL string
 // replace path — older files must be migrated explicitly by tooling.
 var ErrSchemaVersionMismatch = errors.New("sqlite schema version mismatch")
 
-// SQLiteStore is the minimal SQLite-backed store wired up during the A1
-// slice. It only implements Open / InitSchema / Close / SchemaVersion;
-// CRUD lands in later slices.
+// SQLiteStore is the runtime SQLite-backed store. It started life as
+// the minimal handle Slice A1 stood up (open + schema + close) and
+// grew the full JSONDatabase-compatible surface during Slice C2 so
+// cmd/scanner, the Wails backend and the Python CLI contract can talk
+// to a SQLite-only runtime without changing call sites.
+//
+// dataDir is the JSON-compatible data directory NewStore associated
+// with this handle (see ResolveDataDirPaths). It is what the backup
+// family keys off so SQLite-only callers land in the same
+// <data-dir>/backup/ tree the JSON flow used. Empty for stores opened
+// directly through OpenSQLiteStore (tests / one-shot CLI subcommands).
 type SQLiteStore struct {
-	db   *sql.DB
-	path string
+	db      *sql.DB
+	path    string
+	dataDir string
 }
 
 // OpenSQLiteStore opens (or creates) a SQLite database at path and

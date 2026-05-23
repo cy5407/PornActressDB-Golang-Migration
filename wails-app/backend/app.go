@@ -31,7 +31,7 @@ type App struct {
 	ctx           context.Context
 	extractor     *extractor.CodeExtractor
 	mover         *mover.Mover
-	db            *database.DualWriteStore
+	db            *database.SQLiteStore
 	dbFileModTime time.Time
 	studio        *studio.StudioIdentifier
 	cfgSvc        *services.ConfigService
@@ -1038,6 +1038,10 @@ func (a *App) ensureDB() error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 	dataDir := resolveDataDir(a.cfgPath)
+	// Track the JSON data file's mtime even though SQLite is now the
+	// runtime store. On an empty SQLite DB this lets ensureDB surface
+	// bootstrap-from-JSON failures promptly; once SQLite is populated,
+	// NewStore ignores data.json and keeps SQLite authoritative.
 	dataFile := filepath.Join(dataDir, "data.json")
 
 	if a.db != nil {
@@ -1051,26 +1055,13 @@ func (a *App) ensureDB() error {
 	}
 
 	if a.db == nil {
-		// Phase A3: NewStore wires JSONDatabase + SQLite mirror + degraded
-		// log + startup replay in one call. ACTRESS_DB_MODE=json_only
-		// collapses to JSON-only behaviour (spec § 4.1 / § 4.4 rollback).
-		// Phase B2: USE_SQLITE_READS flips the Wails backend onto the
-		// SQLite shadow-read path; default (unset/false) preserves the
-		// Phase A3 JSON-read behaviour exactly.
-		store, err := database.NewStore(database.StoreConfig{
-			Mode:           database.ResolveStoreMode(),
-			DataDir:        dataDir,
-			UseSQLiteReads: database.ResolveUseSQLiteReads(),
-		})
+		// Slice C2: SQLite is the canonical runtime store. NewStore
+		// runs the one-shot bootstrap-from-JSON path on a brand-new
+		// SQLite file when a sibling data.json is present, so the
+		// Wails app keeps working across the JSON → SQLite cutover
+		// without an explicit migrate step.
+		store, err := database.NewStore(database.StoreConfig{DataDir: dataDir})
 		if err != nil {
-			a.db = nil
-			a.dbFileModTime = time.Time{}
-			return err
-		}
-		// 啟動時若 journal 有未合併資料，立即寫入 data.json，
-		// 避免下次搜尋因全部命中快取（早期返回）而永遠跳過 Compact。
-		if _, err := store.CompactIfNeeded(); err != nil {
-			_ = store.Close()
 			a.db = nil
 			a.dbFileModTime = time.Time{}
 			return err
@@ -1089,10 +1080,9 @@ func (a *App) ensureDB() error {
 func (a *App) resetDB() {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
-	// Phase A3: DualWriteStore now holds an exclusive SQLite handle.
-	// Closing the old handle before dropping the reference avoids
-	// "file in use" errors on Windows when callers (e.g. preference
-	// reset) churn the DB between calls.
+	// SQLiteStore holds an exclusive SQLite handle on Windows; close
+	// before dropping so a follow-up preference reset / DB reopen
+	// doesn't fail with "file in use".
 	if a.db != nil {
 		_ = a.db.Close()
 	}

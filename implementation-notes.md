@@ -1,3 +1,197 @@
+# Implementation Notes — Slice C2 (SQLite-only runtime)
+
+## Design decisions
+
+### Runtime store is now `*SQLiteStore` directly
+
+`NewStore(StoreConfig)` returns `*database.SQLiteStore` (the JSON-side
+`*DualWriteStore` wrapper and its tests have been deleted). The runtime
+surface lives in a new `pkg/database/sqlite_runtime.go` file that hangs
+methods on `*SQLiteStore`:
+
+- Mutations: `AddVideo`, `UpdateVideo`, `UpdateVideoFields`,
+  `UpsertActress`, `DeleteActress`, `DeleteVideo` (the last three were
+  already there; `DeleteVideo` stays idempotent so the CLI handlers
+  pre-check existence to preserve the "False on missing" Python
+  contract).
+- Reads: `GetActress`, `ListActresses`, `GetVideoCount`,
+  `GetActressStats`, `GetStudioStats`, `GetActressPrimaryStudio`
+  (read-only equivalents of the JSONDatabase API).
+- Aggregates: `GetStats` reports the full Phase A0/A3/B1 key set — see
+  "Python CLI contract" below.
+- Backup family: `BackupCreate`, `BackupRestore`, `BackupList`,
+  `BackupCleanup`.
+- Merge: `MergeFromFile`.
+- Journal-shaped no-ops: `Save`, `Compact`, `CompactJournal`,
+  `CompactIfNeeded` (kept so cmd/scanner / Wails / Python callers don't
+  have to branch on backend; SQLite has no JSON-style journal).
+
+`SQLiteStore` gained a `dataDir` field (populated by `NewStore`) so the
+backup helpers locate `<data-dir>/backup/`. Stores opened directly via
+`OpenSQLiteStore` (tests, one-shot CLI subcommands) fall back to the
+SQLite file's parent directory.
+
+### Auto-create unknown actresses on the runtime write path
+
+`AddVideo` / `UpdateVideo` / `UpdateVideoFields` route through a new
+`upsertVideoRuntime` helper that auto-creates synthetic actress
+entities (`StableActressID` / `auto_<sha1>`) for any
+`video.actresses[]` name not already present in `actresses` /
+`actress_aliases`. Without this, the strict `UpsertVideo` primitive
+would silently drop link rows for unknown actresses — the JSON-side
+equivalent had no such loss because actress names lived inline on the
+video map.
+
+Duplicate display strings inside the same `actresses[]` collapse to
+one link (first occurrence wins) so the UNIQUE constraint never fires
+from caller-side dirty data. The strict `migrate-from-json` path still
+reports duplicates loudly — those are a data-quality signal users want
+to see, not a runtime hot path.
+
+### Bootstrap from JSON on a brand-new SQLite file
+
+`NewStore` runs a one-shot `MigrateFromJSON` against the JSON-
+compatible data directory when:
+
+1. The SQLite file did not exist before the open, OR exists but
+   `videos` AND `actresses` are both empty.
+2. A sibling `data.json` is present at `paths.DataFile`.
+3. The caller did NOT pass `SkipBootstrap: true`.
+
+**Bootstrap is the cutover safety gate. Failure is fatal.**
+
+If SQLite is empty and `data.json` is present, the migration MUST
+succeed. Any failure — parse error, strict-mode unresolved actresses,
+stat failure, anything `MigrateFromJSON` returns — causes `NewStore`
+to close the SQLite handle and return the wrapped error. The earlier
+draft of this slice logged the failure and returned the empty store;
+that was rejected because nothing downstream of `NewStore`
+(`video_count` checks, the Wails frontend, `db stats`) can tell a
+silently failed bootstrap apart from a clean greenfield install, so a
+broken `data.json` would manifest as silent data loss during the
+JSON → SQLite cutover.
+
+Recovery is explicit and survives the abort:
+
+- Operator reads the bootstrap error from logs / stderr.
+- Either fixes `data.json` by hand, or runs
+  `classifier.exe db migrate-from-json
+  -auto-create-missing-actresses` to import with auto-creation
+  enabled.
+- Restart. SQLite is still empty, so bootstrap re-runs against the
+  now-valid input.
+
+A populated SQLite store is **never** blocked by a broken `data.json`:
+`NewStore` short-circuits before the bootstrap check, so a hand-edited
+or stale `data.json` next to a healthy SQLite file just sits there and
+does nothing.
+
+Wails backend tests track this: `TestEnsureDB_BootstrapParseErrorClearsInstance`
+and `TestDbGetVideo_SurfacesBootstrapFailure` pin the failure surface;
+`pkg/database/store_factory_test.go` adds
+`TestNewStore_BootstrapFailureReturnsError` and
+`TestNewStore_BrokenJSONIgnoredWhenSQLitePopulated`.
+
+### `-data-dir` compatibility lookup is preserved
+
+`ResolveDataDirPaths` is untouched. The default `-data-dir data/json_db`
+still maps to the sibling SQLite path `data/db.sqlite`. New regression:
+`TestNewStore_DefaultDataDirCompatibilityLookup` chdirs to a tempdir,
+creates `data/json_db/`, calls `NewStore({})`, and asserts the SQLite
+file lands at `data/db.sqlite` (NOT inside `data/json_db/`).
+
+### Python CLI contract preserved
+
+`db stats` still emits every key the Python helper / Wails frontend
+ever read, including the retired ones:
+
+- A0 keys (Python parses these): `video_count`, `actress_count`,
+  `link_count`, `schema_version`, `created_at`, `updated_at`,
+  `journal_size`, `journal_age_seconds`, `dirty_videos`,
+  `dirty_actresses`, `dirty_links`, `needs_compact`, `total_videos`.
+- A3 retired counters: `sync_degraded_total`, `sync_degraded_log_size`
+  — both `int64(0)`.
+- B1 retired counter: `sqlite_read_fallback_total` — `int64(0)`.
+
+The retired counters return zero/false instead of being deleted, so
+the Python helper's existing `result["sync_degraded_total"]` /
+`result["needs_compact"]` access patterns don't `KeyError`.
+
+`db compact -json` payload (`success`, `noop`, `journal_size`,
+`needs_compact`, `reason`, `action`, `data_dir`) is unchanged from C1.
+
+`db backup-create` payload (`success`, `backup_path`,
+`json_export_path`, `path`) is unchanged from C1; the legacy `path`
+alias still mirrors `json_export_path` for
+`JSONDBManager.create_backup()`.
+
+### `BackupList` surfaces only `.json` siblings
+
+JSON-side helpers (`isBackupJSONFileName`, `parseBackupDate`) work on
+`backup_*.json` files; the `.sqlite` siblings produced by
+`createDualBackup` accumulate alongside them. `BackupList` keeps
+returning only the `.json` filenames so Python wrappers see the same
+shape. `runDBBackupRestore` routes by extension when the operator
+passes a path explicitly.
+
+### `JSONDatabase` is retained as a fixture / import / export helper
+
+`pkg/database/jsondb.go` and its tests are unchanged. It is no longer
+the runtime source of truth, but tooling and tests that need to
+read/write the on-disk `data.json` directly (e.g. legacy fixtures,
+hand-curated test data, `tools/diagnostics/normalize_json_db_schema.py`)
+keep their existing entrypoint.
+
+## Deviations
+
+- `DeleteVideo` on `*SQLiteStore` stays idempotent (its existing
+  contract). The CLI handlers `runDBDelete` / `runDBActressDelete`
+  pre-check existence with `GetVideo` / `GetActress` so the Python
+  helper's "False on missing" return value still works end-to-end.
+- `Save` / `Compact` / `CompactJournal` / `CompactIfNeeded` are
+  no-ops. `saveDBOrExit` / `saveStudioFixChangesIfNeeded` helpers in
+  `cmd/scanner/db_cmd.go` were dropped — every write through SQLite
+  is already durable (WAL journal handles fsync).
+- `loadVideoActresses` now returns `[]string{}` instead of nil when a
+  video has no links, so the BatchSearch test that asserts
+  `video.Actresses != nil` still passes and JSON consumers see `[]`
+  instead of `null`.
+
+## Tradeoffs
+
+- The bootstrap-from-JSON pass is **fail-loud**: a failed migration
+  blocks `NewStore` from returning a usable store. The alternative
+  (fire-and-forget log + empty SQLite) was rejected because it makes
+  silent data loss during the JSON → SQLite cutover invisible to
+  anything downstream. Operators recover by fixing `data.json` (or
+  running the explicit `db migrate-from-json
+  -auto-create-missing-actresses` flow) and restarting. A populated
+  SQLite store is never affected — bootstrap is skipped entirely
+  once SQLite has any data, so a stale `data.json` next to it is a
+  no-op.
+- `Actresses []string` on a video is reconstructed from the link
+  table on every read. For videos with auto-created actresses, the
+  display string round-trips losslessly (we store `display_name =
+  ""` because the auto-created actress's canonical `name` equals the
+  display). For pre-existing actresses with alias entries, the alias
+  spelling is preserved as before.
+- `BackupCleanup` only knows about `.json` siblings. The matching
+  `.sqlite` files are NOT pruned — this matches the C1 deferral
+  noted earlier. A follow-up slice should teach the cleanup helper
+  about the `.sqlite` pair.
+
+## Limitations
+
+- The Wails backend still tracks `data.json` mtime in `ensureDB` so a
+  hand-edit of the legacy JSON file triggers a reload. The reload
+  WON'T re-bootstrap (SQLite already has data) — the JSON file is
+  no longer authoritative. The mtime watch stays for now so operators
+  who manually replace `data.json` and then need to re-open SQLite
+  see a fresh handle; the C3 slice can prune it once we relocate the
+  schema / fixture surface.
+
+---
+
 # Implementation Notes — Slice C1 (Backup / Export / Restore)
 
 ## Design decisions

@@ -171,8 +171,8 @@ func TestSQLiteStore_GetAllVideos_ClosedStoreIsUnavailable(t *testing.T) {
 
 func TestSQLiteStore_GetVideo_BrokenSchemaSurfacesQueryError(t *testing.T) {
 	// Drop the videos table to simulate a schema/availability error
-	// that's distinct from "no row". The DualWriteStore fallback path
-	// uses this exact distinction.
+	// that's distinct from "no row". GetVideo must surface the wrapped
+	// query error rather than collapsing it into ErrNotFound.
 	store := readStoreFromMinimalFixture(t)
 	if _, err := store.db.Exec(`DROP TABLE videos`); err != nil {
 		t.Fatalf("DROP TABLE: %v", err)

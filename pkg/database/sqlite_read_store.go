@@ -8,9 +8,10 @@ import (
 
 // ErrSQLiteStoreClosed signals that a *SQLiteStore method was invoked
 // against a store whose underlying *sql.DB is nil (either never opened
-// or already Close()'d). Read callers wrap this so the DualWriteStore
-// shadow-read path can detect the "SQLite unavailable" condition and
-// fall back to JSON without misreporting a real query error.
+// or already Close()'d). Slice C2 made SQLite the sole runtime store,
+// so there is no JSON-side fallback to flip onto; callers (and tests)
+// just need a distinct sentinel that means "handle unavailable" so
+// they can tell it apart from a real query error.
 var ErrSQLiteStoreClosed = errors.New("sqlite store is not open")
 
 // videoColumns lists the videos table columns in the order GetVideo and
@@ -41,10 +42,9 @@ func scanVideo(scanner interface {
 }
 
 // GetVideo loads a single VideoData from SQLite. Returns ErrNotFound
-// when no row matches code (this counts as a successful query; the
-// DualWriteStore shadow-read path does NOT fall back in that case).
-// Any other error — unavailable handle, missing schema, query error —
-// is wrapped and returned so callers can decide to fall back to JSON.
+// when no row matches code (a successful query with zero rows is
+// distinct from a query error). Any other failure — unavailable
+// handle, missing schema, query error — is wrapped and returned.
 func (s *SQLiteStore) GetVideo(code string) (*VideoData, error) {
 	if s == nil || s.db == nil {
 		return nil, ErrSQLiteStoreClosed
@@ -99,7 +99,8 @@ func (s *SQLiteStore) ListVideos() ([]string, error) {
 
 // GetAllVideos returns every video row joined with its ordered actress
 // display names. The result matches the shape JSONDatabase.GetAllVideos
-// returns so DualWriteStore callers cannot tell the two paths apart.
+// returned so callers that round-trip through both paths (tests,
+// JSON import / export) cannot tell the two apart.
 func (s *SQLiteStore) GetAllVideos() ([]*VideoData, error) {
 	if s == nil || s.db == nil {
 		return nil, ErrSQLiteStoreClosed
@@ -151,7 +152,10 @@ func (s *SQLiteStore) loadVideoActresses(code string) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var names []string
+	// Always return a non-nil slice so callers (and JSON consumers that
+	// json.Marshal the video) get [] instead of null for videos with no
+	// actresses — matching JSONDatabase, GetEmptyVideo and NewVideo.
+	names := make([]string, 0)
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {

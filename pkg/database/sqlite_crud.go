@@ -8,18 +8,20 @@ import (
 )
 
 // UpsertVideo writes (insert-or-replace) the given video into the SQLite
-// store. Used by DualWriteStore on every UpdateVideo / AddVideo and by
-// DualWriteStore.replay to bring a degraded SQLite copy back into sync.
+// store. It is the strict, link-preserving primitive — runtime callers
+// (AddVideo / UpdateVideo / UpdateVideoFields in sqlite_runtime.go) go
+// through upsertVideoRuntime instead so unknown actress names are auto-
+// created rather than silently dropped. UpsertVideo itself is reserved
+// for paths that have already validated their actress set, notably
+// MigrateFromJSON and the merge helper.
 //
 // The link rows for this video are rebuilt from v.Actresses: existing
 // links for this video_code are deleted then re-inserted in the slice's
-// natural order. Actress entities are NOT created here — callers should
-// ensure they already exist (the production path inherits MigrateFromJSON's
-// guarantee that root.actresses{} populates SQLite before any video.actresses[]
-// reference is resolved). When v.Actresses references an unknown actress
-// name we silently skip the link row rather than fail the write; the
-// canonical truth still lives in the JSON side, and verify-sync will
-// flag the mismatch.
+// natural order. Actress entities are NOT created here — callers must
+// ensure they already exist (MigrateFromJSON populates root.actresses{}
+// before any video.actresses[] reference is resolved). When v.Actresses
+// references an unknown actress name the link row is silently skipped;
+// the strict migrate path reports the unresolved name separately.
 func (s *SQLiteStore) UpsertVideo(code string, v *VideoData) error {
 	if s == nil || s.db == nil {
 		return errors.New("sqlite store is not open")
@@ -65,8 +67,8 @@ func (s *SQLiteStore) DeleteVideo(code string) error {
 
 // UpsertActress inserts or updates an actress + its aliases. Aliases are
 // fully replaced (delete-then-insert) so that callers do not accumulate
-// stale aliases. Same notes as UpsertVideo about best-effort behaviour:
-// the caller's JSON-side state remains canonical.
+// stale aliases. SQLite is the canonical runtime store as of Slice C2;
+// JSON callers reach this data only through export / backup snapshots.
 func (s *SQLiteStore) UpsertActress(a *ActressData) error {
 	if s == nil || s.db == nil {
 		return errors.New("sqlite store is not open")

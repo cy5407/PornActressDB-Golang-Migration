@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -131,9 +130,6 @@ func TestCleanActressesActionDryRunDoesNotBackupOrMutate(t *testing.T) {
 	if err := db.UpdateVideo("ABF-062", video); err != nil {
 		t.Fatalf("Failed to seed video: %v", err)
 	}
-	if err := db.CompactJournal(); err != nil {
-		t.Fatalf("Failed to compact seed data: %v", err)
-	}
 
 	result, err := cleanActressesAction(db, false)
 	if err != nil {
@@ -150,11 +146,7 @@ func TestCleanActressesActionDryRunDoesNotBackupOrMutate(t *testing.T) {
 		t.Fatalf("expected backup dir to be absent, got err=%v", statErr)
 	}
 
-	reloaded := database.NewJSONDatabase(dir)
-	if loadErr := reloaded.Load(context.Background()); loadErr != nil {
-		t.Fatalf("Failed to reload db: %v", loadErr)
-	}
-	current, err := reloaded.GetVideo("ABF-062")
+	current, err := db.GetVideo("ABF-062")
 	if err != nil {
 		t.Fatalf("Failed to fetch video: %v", err)
 	}
@@ -162,14 +154,11 @@ func TestCleanActressesActionDryRunDoesNotBackupOrMutate(t *testing.T) {
 }
 
 func TestCleanActressesActionWriteBacksUpAndMutates(t *testing.T) {
-	db, dir := setupScannerTestDB(t)
+	db, _ := setupScannerTestDB(t)
 	video := database.NewVideo("ABF-177")
 	video.Actresses = []string{"絶対", "瀧本雫葉", "リミットブレイク"}
 	if err := db.UpdateVideo("ABF-177", video); err != nil {
 		t.Fatalf("Failed to seed video: %v", err)
-	}
-	if err := db.CompactJournal(); err != nil {
-		t.Fatalf("Failed to compact seed data: %v", err)
 	}
 
 	result, err := cleanActressesAction(db, true)
@@ -187,85 +176,37 @@ func TestCleanActressesActionWriteBacksUpAndMutates(t *testing.T) {
 		t.Fatalf("expected backup file to exist: %v", statErr)
 	}
 
-	reloaded := database.NewJSONDatabase(dir)
-	if loadErr := reloaded.Load(context.Background()); loadErr != nil {
-		t.Fatalf("Failed to reload db: %v", loadErr)
-	}
-	current, err := reloaded.GetVideo("ABF-177")
+	current, err := db.GetVideo("ABF-177")
 	if err != nil {
 		t.Fatalf("Failed to fetch video: %v", err)
 	}
 	assertActressesEqual(t, current.Actresses, []string{"瀧本雫葉"})
 }
 
-func setupScannerTestDB(t *testing.T) (*database.DualWriteStore, string) {
+// setupScannerTestDB builds a SQLite-only runtime store rooted in a
+// fresh tempdir. SkipBootstrap keeps SQLite empty (no data.json present
+// anyway) so each test starts from a clean slate. The data dir is
+// returned so callers can probe artefacts under <dir>/backup/, etc.
+func setupScannerTestDB(t *testing.T) (*database.SQLiteStore, string) {
 	t.Helper()
 	dir := t.TempDir()
-	jsonDB := database.NewJSONDatabase(dir)
-	if err := jsonDB.Load(context.Background()); err != nil {
-		t.Fatalf("Failed to load db: %v", err)
-	}
-	// Tests don't exercise the SQLite mirror; pass sqlite=nil to use
-	// the JSON-only embed pattern, identical to ACTRESS_DB_MODE=json_only.
-	store, err := database.NewDualWriteStore(jsonDB, nil, nil)
+	store, err := database.NewStore(database.StoreConfig{
+		DataDir:       dir,
+		SkipBootstrap: true,
+	})
 	if err != nil {
-		t.Fatalf("NewDualWriteStore: %v", err)
+		t.Fatalf("NewStore: %v", err)
 	}
+	t.Cleanup(func() { _ = store.Close() })
 	return store, dir
 }
 
-// loadDBWithFreshFixture builds a real classifier.exe-style data dir and
-// drives loadDBOrExit through it so the env→StoreConfig wiring is
-// exercised end-to-end (NewStore observes USE_SQLITE_READS via the
-// resolver inside loadDBOrExit). The fixture keeps SQLite available so
-// the shadow-read flag actually does something observable.
-func loadDBWithFreshFixture(t *testing.T) *database.DualWriteStore {
-	t.Helper()
-	dir := t.TempDir()
-	jsonDB := database.NewJSONDatabase(dir)
-	if err := jsonDB.Load(context.Background()); err != nil {
-		t.Fatalf("Failed to load db: %v", err)
-	}
-	if err := jsonDB.Save(); err != nil {
-		t.Fatalf("Failed to seed json db: %v", err)
-	}
-	store := loadDBOrExit(dir)
-	t.Cleanup(func() { _ = store.Close() })
-	return store
-}
-
-func TestLoadDBOrExit_EnablesSQLiteReadsWhenEnvTruthy(t *testing.T) {
-	cases := []string{"true", "1", "yes", "on", "TRUE", " YES "}
-	for _, env := range cases {
-		t.Run(env, func(t *testing.T) {
-			t.Setenv("USE_SQLITE_READS", env)
-			store := loadDBWithFreshFixture(t)
-			if !store.UseSQLiteReads() {
-				t.Errorf("USE_SQLITE_READS=%q should enable shadow reads", env)
-			}
-		})
-	}
-}
-
-func TestLoadDBOrExit_DefaultsToJSONReads(t *testing.T) {
-	for _, env := range []string{"", "false", "0", "off", "no", "garbage"} {
-		t.Run(env, func(t *testing.T) {
-			t.Setenv("USE_SQLITE_READS", env)
-			store := loadDBWithFreshFixture(t)
-			if store.UseSQLiteReads() {
-				t.Errorf("USE_SQLITE_READS=%q must NOT enable shadow reads", env)
-			}
-		})
-	}
-}
-
-func TestRunDBStats_JSONOutputIncludesSQLiteReadFallbackTotal(t *testing.T) {
-	// Drive the same code path runDBStats walks (DualWriteStore.GetStats)
-	// and assert the contract surfaced through `classifier.exe db stats`:
-	// the new B1 counter must be present alongside Phase A3 keys and the
-	// Python-parsable A0 keys.
-	t.Setenv("USE_SQLITE_READS", "true")
-	store := loadDBWithFreshFixture(t)
+func TestRunDBStats_JSONOutputIncludesContractKeys(t *testing.T) {
+	// Drive the same code path runDBStats walks (SQLiteStore.GetStats)
+	// and assert the Python-parsable contract: the A0 keys plus the
+	// retired Phase A3 / B1 counters MUST all appear (Python's helper
+	// reads every one of these).
+	store, _ := setupScannerTestDB(t)
 
 	stats, err := store.GetStats()
 	if err != nil {
@@ -278,9 +219,9 @@ func TestRunDBStats_JSONOutputIncludesSQLiteReadFallbackTotal(t *testing.T) {
 		"journal_size", "journal_age_seconds",
 		"dirty_videos", "dirty_actresses", "dirty_links",
 		"needs_compact", "total_videos",
-		// A3 additions.
+		// A3 additions (now retired but key must remain).
 		"sync_degraded_total", "sync_degraded_log_size",
-		// B1 addition.
+		// B1 addition (now retired but key must remain).
 		"sqlite_read_fallback_total",
 	}
 	for _, key := range required {
@@ -437,19 +378,16 @@ func TestParseDBCommandOptions_ParsesFromJSONFlag(t *testing.T) {
 }
 
 // TestCreateDualBackup_ProducesBothSnapshots drives the dual-backup
-// helper end-to-end against a real DualWriteStore (SQLite mirror
-// enabled) and asserts both files land on disk with the expected
-// extensions and the JSON has a parsable schema.
+// helper end-to-end against the SQLite-only runtime store and asserts
+// both files land on disk with the expected extensions and the JSON has
+// a parsable schema.
 func TestCreateDualBackup_ProducesBothSnapshots(t *testing.T) {
-	store, dir := setupScannerDualWriteFixture(t)
+	store, dir := setupScannerTestDB(t)
 	// Seed one video so the backups have non-trivial content.
 	video := database.NewVideo("STARS-707")
 	video.Title = "備份測試"
 	if err := store.UpdateVideo("STARS-707", video); err != nil {
 		t.Fatalf("UpdateVideo: %v", err)
-	}
-	if err := store.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
 	}
 
 	ctx := dbCommandContext{db: store, opts: dbCommandOptions{dataDir: dir}}
@@ -488,40 +426,24 @@ func TestCreateDualBackup_ProducesBothSnapshots(t *testing.T) {
 	}
 }
 
-// TestCreateDualBackup_JSONExportReflectsSQLiteNotJSONDatabase forces
-// the JSON DB and SQLite mirror to drift (we change a video title only
-// on the SQLite side) and then runs createDualBackup. The resulting
-// json_export_path must reflect SQLite's title, not data.json's stale
-// one — i.e. the JSON snapshot comes from sqlite.ExportToJSON, not from
-// a plain copy of data.json. The reviewer who flagged the original C1
-// pass relied on this test catching the prior `ctx.db.BackupCreate()`
-// shortcut.
-func TestCreateDualBackup_JSONExportReflectsSQLiteNotJSONDatabase(t *testing.T) {
-	store, dir := setupScannerDualWriteFixture(t)
+// TestCreateDualBackup_JSONExportReflectsSQLiteState writes one video,
+// then verifies the JSON export produced alongside the SQLite snapshot
+// faithfully reflects the SQLite-side state. The C1 reviewer's worry
+// was that an earlier implementation fell back to `data.json` and
+// produced a stale JSON snapshot; the SQLite-only runtime in C2
+// removes the JSON side entirely, so the regression risk is the
+// opposite: the JSON export must come from ExportToJSON, not from
+// some never-touched data.json.
+func TestCreateDualBackup_JSONExportReflectsSQLiteState(t *testing.T) {
+	store, dir := setupScannerTestDB(t)
 
 	const code = "STARS-808"
-	const jsonSideTitle = "JSON 端標題"
-	const sqliteSideTitle = "SQLite 端標題（漂移後）"
+	const expectedTitle = "SQLite 端標題"
 
-	original := database.NewVideo(code)
-	original.Title = jsonSideTitle
-	if err := store.UpdateVideo(code, original); err != nil {
+	v := database.NewVideo(code)
+	v.Title = expectedTitle
+	if err := store.UpdateVideo(code, v); err != nil {
 		t.Fatalf("UpdateVideo: %v", err)
-	}
-	if err := store.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	// Drift step: mutate the SQLite mirror directly so its title no
-	// longer matches the JSON DB's data.json.
-	sqlite := store.SQLite()
-	if sqlite == nil {
-		t.Fatal("expected SQLite mirror to be available")
-	}
-	drifted := database.NewVideo(code)
-	drifted.Title = sqliteSideTitle
-	if err := sqlite.UpsertVideo(code, drifted); err != nil {
-		t.Fatalf("UpsertVideo(SQLite only): %v", err)
 	}
 
 	ctx := dbCommandContext{db: store, opts: dbCommandOptions{dataDir: dir}}
@@ -546,30 +468,8 @@ func TestCreateDualBackup_JSONExportReflectsSQLiteNotJSONDatabase(t *testing.T) 
 	if !ok {
 		t.Fatalf("json export missing video %s; payload=%s", code, string(raw))
 	}
-	if got.Title != sqliteSideTitle {
-		t.Fatalf("json export title = %q, want %q (SQLite side); JSON-side stale title was %q — "+
-			"createDualBackup must use sqlite.ExportToJSON, not ctx.db.BackupCreate()",
-			got.Title, sqliteSideTitle, jsonSideTitle)
+	if got.Title != expectedTitle {
+		t.Fatalf("json export title = %q, want %q — createDualBackup must use sqlite.ExportToJSON",
+			got.Title, expectedTitle)
 	}
-}
-
-// setupScannerDualWriteFixture spins up a real on-disk JSON DB + SQLite
-// mirror so backup-create paths can be exercised. NewDualWriteStore
-// with sqlite=nil (used by setupScannerTestDB) skips the SQLite branch
-// entirely, which is the wrong fixture for C1 tests.
-func setupScannerDualWriteFixture(t *testing.T) (*database.DualWriteStore, string) {
-	t.Helper()
-	dir := t.TempDir()
-	store, err := database.NewStore(database.StoreConfig{
-		Mode:    database.ModeDualWrite,
-		DataDir: dir,
-	})
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	if store.SQLite() == nil {
-		t.Fatal("dual-write fixture should have a live SQLite mirror")
-	}
-	return store, dir
 }

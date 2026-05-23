@@ -30,8 +30,9 @@ func newTestApp(t *testing.T) *App {
 	app.cfgPath = cfgPath
 	app.mover.LogDir = filepath.Join(tmp, "logs")
 	app.Startup(context.Background())
-	// Phase A3: DualWriteStore holds a SQLite handle that Windows
-	// refuses to delete while open. Close it before t.TempDir cleanup.
+	// SQLiteStore holds an exclusive SQLite handle on Windows; close
+	// before t.TempDir cleanup so RemoveAll doesn't trip on a live
+	// file handle.
 	t.Cleanup(func() {
 		if app.db != nil {
 			_ = app.db.Close()
@@ -404,7 +405,20 @@ func TestBatchSearchAVWiki_SuccessPreservesOtherSourceStatusAndUpdatesOverallSum
 	}
 }
 
-func TestDbGetVideo_ReturnsEnsureDBLoadError(t *testing.T) {
+// Slice C2 turned the bootstrap-from-json pass into the cutover safety
+// gate: if SQLite is empty and data.json is unparseable, NewStore
+// surfaces the failure and ensureDB must NOT silently fall back to an
+// empty store. The historic JSON-side error surface
+// (TestDbGetVideo_ReturnsEnsureDBLoadError, TestBatchSearch_…WhenEnsureDBFails,
+// TestGetActressPrimaryStudios_…WhenEnsureDBFails) is retired because
+// the runtime is SQLite-only; the remaining contract is the one this
+// pair pins: bootstrap parse error surfaces, and app.db stays nil.
+
+func TestEnsureDB_BootstrapParseErrorClearsInstance(t *testing.T) {
+	// Empty SQLite + broken data.json → NewStore (and therefore
+	// ensureDB) must return the bootstrap parse error and leave
+	// app.db == nil. Anything that calls into the DB afterwards needs
+	// to see the failure, not pretend the runtime came up clean.
 	tmp := t.TempDir()
 	cfgPath := filepath.Join(tmp, "config.ini")
 	dbDir := filepath.Join(tmp, "db")
@@ -421,87 +435,56 @@ func TestDbGetVideo_ReturnsEnsureDBLoadError(t *testing.T) {
 
 	app := NewApp()
 	app.cfgPath = cfgPath
+	t.Cleanup(func() {
+		if app.db != nil {
+			_ = app.db.Close()
+			app.db = nil
+		}
+	})
+
+	err := app.ensureDB()
+	if err == nil {
+		t.Fatal("expected ensureDB to surface bootstrap parse error")
+	}
+	if !strings.Contains(err.Error(), "bootstrap-from-json") {
+		t.Fatalf("expected error to mention bootstrap-from-json, got %v", err)
+	}
+	if app.db != nil {
+		t.Fatal("expected ensureDB to leave db == nil after bootstrap failure")
+	}
+}
+
+func TestDbGetVideo_SurfacesBootstrapFailure(t *testing.T) {
+	// Verifies the bootstrap failure propagates through one of the
+	// real DB-touching Wails entry points (DbGetVideo), so a hand-
+	// edited or corrupt data.json sitting next to an empty SQLite
+	// cannot quietly look like an empty database to the frontend.
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.ini")
+	dbDir := filepath.Join(tmp, "db")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
+		t.Fatalf("failed to write broken data.json: %v", err)
+	}
+
+	app := NewApp()
+	app.cfgPath = cfgPath
+	t.Cleanup(func() {
+		if app.db != nil {
+			_ = app.db.Close()
+			app.db = nil
+		}
+	})
 
 	_, err := app.DbGetVideo("BROKEN-001")
 	if err == nil {
-		t.Fatal("expected DbGetVideo to surface ensureDB load error")
-	}
-	if !strings.Contains(err.Error(), "failed to parse database JSON") {
-		t.Fatalf("expected parse error from ensureDB, got %v", err)
-	}
-}
-
-func TestEnsureDB_ClearsInstanceWhenLoadFails(t *testing.T) {
-	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.ini")
-	dbDir := filepath.Join(tmp, "db")
-	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		t.Fatalf("failed to create db dir: %v", err)
-	}
-	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
-	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
-		t.Fatalf("failed to write broken data.json: %v", err)
-	}
-
-	app := NewApp()
-	app.cfgPath = cfgPath
-	if err := app.ensureDB(); err == nil {
-		t.Fatal("expected ensureDB to return error on load failure")
-	}
-	if app.db != nil {
-		t.Fatal("expected ensureDB to clear db instance after load failure")
-	}
-}
-
-func TestBatchSearch_ReturnsNoResultsWhenEnsureDBFails(t *testing.T) {
-	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.ini")
-	dbDir := filepath.Join(tmp, "db")
-	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		t.Fatalf("failed to create db dir: %v", err)
-	}
-	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
-	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
-		t.Fatalf("failed to write broken data.json: %v", err)
-	}
-
-	app := NewApp()
-	app.cfgPath = cfgPath
-	results := app.BatchSearch([]string{"BROKEN-001"}, 1)
-	if len(results) != 0 {
-		t.Fatalf("expected BatchSearch to abort on ensureDB failure, got %d results", len(results))
-	}
-	if app.db != nil {
-		t.Fatal("expected db to remain nil after failed BatchSearch init")
-	}
-}
-
-func TestGetActressPrimaryStudios_ReturnsEmptyWhenEnsureDBFails(t *testing.T) {
-	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.ini")
-	dbDir := filepath.Join(tmp, "db")
-	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		t.Fatalf("failed to create db dir: %v", err)
-	}
-	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
-	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
-		t.Fatalf("failed to write broken data.json: %v", err)
-	}
-
-	app := NewApp()
-	app.cfgPath = cfgPath
-	result := app.GetActressPrimaryStudios([]string{"葵司"})
-	if len(result) != 0 {
-		t.Fatalf("expected empty result when ensureDB fails, got %#v", result)
+		t.Fatal("expected DbGetVideo to surface bootstrap parse error")
 	}
 }
 
@@ -1557,150 +1540,13 @@ func TestBatchSearchAVWiki_ExecutesRealBatchSubprocess(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// Phase B2 — Wails backend SQLite shadow-read flip
-// ============================================================================
+// Slice C2 retired the USE_SQLITE_READS / DualWriteStore plumbing:
 //
-// These tests pin the contract that USE_SQLITE_READS is forwarded into
-// ensureDB → database.NewStore at app startup. Default behaviour (unset
-// or non-truthy) must keep the Phase A3 JSON-read path; truthy values
-// route DbGetVideo / DbListVideos onto the SQLite mirror; an unavailable
-// SQLite handle must fall back to JSON and bump the fallback counter so
-// the operator can spot the regression via store.SQLiteReadFallbackTotal.
-
-func TestEnsureDB_DefaultsToJSONReadsWhenFlagUnsetOrFalse(t *testing.T) {
-	for _, env := range []string{"", "false", "0", "off", "no", "garbage"} {
-		t.Run("env="+env, func(t *testing.T) {
-			t.Setenv("USE_SQLITE_READS", env)
-			app := newTestApp(t)
-			if app.db == nil {
-				t.Fatal("expected ensureDB to populate app.db")
-			}
-			if app.db.UseSQLiteReads() {
-				t.Errorf("USE_SQLITE_READS=%q must keep reads on JSON, got UseSQLiteReads()=true", env)
-			}
-		})
-	}
-}
-
-func TestEnsureDB_EnablesSQLiteReadsWhenEnvTruthy(t *testing.T) {
-	for _, env := range []string{"true", "1", "yes", "on", "TRUE", " YES "} {
-		t.Run("env="+env, func(t *testing.T) {
-			t.Setenv("USE_SQLITE_READS", env)
-			app := newTestApp(t)
-			if app.db == nil {
-				t.Fatal("expected ensureDB to populate app.db")
-			}
-			if !app.db.UseSQLiteReads() {
-				t.Errorf("USE_SQLITE_READS=%q must flip Wails backend onto SQLite reads, got UseSQLiteReads()=false", env)
-			}
-		})
-	}
-}
-
-func TestDbGetVideo_ReadsFromSQLiteWhenFlagTruthy(t *testing.T) {
-	t.Setenv("USE_SQLITE_READS", "true")
-	app := newTestApp(t)
-
-	// DualWriteStore.AddVideo writes JSON canonically and mirrors the
-	// row into SQLite. Both sides start in sync.
-	if err := app.db.AddVideo(&database.VideoData{
-		Code:         "READ-FLIP-001",
-		Title:        "json-side-title",
-		SearchStatus: "searched_found",
-	}); err != nil {
-		t.Fatalf("seed AddVideo: %v", err)
-	}
-
-	// Force JSON and SQLite to diverge by rewriting the SQLite-side row
-	// only. With the shadow-read flag on, DbGetVideo must return the
-	// SQLite value — proving the read actually went through SQLite and
-	// not the embedded JSONDatabase.
-	if err := app.db.SQLite().UpsertVideo("READ-FLIP-001", &database.VideoData{
-		Code:         "READ-FLIP-001",
-		Title:        "sqlite-side-title",
-		SearchStatus: "searched_found",
-	}); err != nil {
-		t.Fatalf("diverge SQLite row: %v", err)
-	}
-
-	v, err := app.DbGetVideo("READ-FLIP-001")
-	if err != nil {
-		t.Fatalf("DbGetVideo: %v", err)
-	}
-	if v.Title != "sqlite-side-title" {
-		t.Errorf("DbGetVideo title = %q, want sqlite-side-title (SQLite read path bypassed?)", v.Title)
-	}
-	if got := app.db.SQLiteReadFallbackTotal(); got != 0 {
-		t.Errorf("SQLiteReadFallbackTotal = %d, want 0 on happy path", got)
-	}
-}
-
-func TestDbListVideos_ReadsFromSQLiteWhenFlagTruthy(t *testing.T) {
-	t.Setenv("USE_SQLITE_READS", "true")
-	app := newTestApp(t)
-
-	if err := app.db.AddVideo(&database.VideoData{
-		Code:         "LIST-FLIP-001",
-		SearchStatus: "searched_found",
-	}); err != nil {
-		t.Fatalf("seed AddVideo: %v", err)
-	}
-
-	// Insert a phantom row directly into SQLite that does NOT exist in
-	// JSON. With the shadow-read flag on, DbListVideos must surface the
-	// phantom — proving the list came from SQLite rather than the
-	// embedded JSONDatabase.
-	if err := app.db.SQLite().UpsertVideo("LIST-PHANTOM-001", &database.VideoData{
-		Code:         "LIST-PHANTOM-001",
-		SearchStatus: "searched_found",
-	}); err != nil {
-		t.Fatalf("insert SQLite-only phantom: %v", err)
-	}
-
-	videos, err := app.DbListVideos()
-	if err != nil {
-		t.Fatalf("DbListVideos: %v", err)
-	}
-	got := map[string]bool{}
-	for _, v := range videos {
-		got[v.Code] = true
-	}
-	if !got["LIST-PHANTOM-001"] {
-		t.Errorf("DbListVideos missing SQLite-only phantom (got=%v) — read path did not flip", got)
-	}
-	if got := app.db.SQLiteReadFallbackTotal(); got != 0 {
-		t.Errorf("SQLiteReadFallbackTotal = %d, want 0 on happy path", got)
-	}
-}
-
-func TestDbGetVideo_FallsBackToJSONWhenSQLiteUnavailable(t *testing.T) {
-	t.Setenv("USE_SQLITE_READS", "true")
-	app := newTestApp(t)
-
-	if err := app.db.AddVideo(&database.VideoData{
-		Code:         "FALLBACK-001",
-		Title:        "json-side-title",
-		SearchStatus: "searched_found",
-	}); err != nil {
-		t.Fatalf("seed AddVideo: %v", err)
-	}
-
-	// Close the SQLite handle out from under the store so every
-	// shadow-read errors with ErrSQLiteStoreClosed. The DualWriteStore
-	// must fall back to JSON without surfacing an error to the caller.
-	if err := app.db.SQLite().Close(); err != nil {
-		t.Fatalf("close sqlite: %v", err)
-	}
-
-	v, err := app.DbGetVideo("FALLBACK-001")
-	if err != nil {
-		t.Fatalf("DbGetVideo after SQLite close: %v (expected silent JSON fallback)", err)
-	}
-	if v.Title != "json-side-title" {
-		t.Errorf("DbGetVideo fallback title = %q, want json-side-title", v.Title)
-	}
-	if got := app.db.SQLiteReadFallbackTotal(); got != 1 {
-		t.Errorf("SQLiteReadFallbackTotal = %d, want 1 after one fallback", got)
-	}
-}
+//   - TestEnsureDB_DefaultsToJSONReadsWhenFlagUnsetOrFalse
+//   - TestEnsureDB_EnablesSQLiteReadsWhenEnvTruthy
+//   - TestDbGetVideo_ReadsFromSQLiteWhenFlagTruthy
+//   - TestDbListVideos_ReadsFromSQLiteWhenFlagTruthy
+//   - TestDbGetVideo_FallsBackToJSONWhenSQLiteUnavailable
+//
+// The runtime is SQLite-only; there is no JSON-side fallback to flip
+// onto, so these tests no longer have a meaningful contract to pin.
