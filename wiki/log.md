@@ -5,6 +5,23 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-05-24] refactor | 移除 `run.py` launcher，主進入點改為 `actress-classifier.exe`
+
+**涉及檔案**：
+- 刪除 `run.py`（純 50 行 launcher，無業務邏輯，無人 import）
+- `CLAUDE.md` / `AGENTS.md` / `README.md`（中英）—「主進入點」與啟動指令改為 `actress-classifier.exe`
+- `.gemini/GEMINI.md`、`.github/copilot-instructions.md` — 同步更新進入點描述
+- `.claude/skills/actress-classifier/SKILL.md`、`.agents/skills/actress-classifier/SKILL.md` — 啟動指令更新
+- `.claude/skills/deployment-release/SKILL.md`、`.agents/skills/deployment-release/SKILL.md` — 打包檔案清單改為 `dist/portable/` 實際內容
+- `.claude/ralph-agent-golang.md` — Critical Constraints 與啟動測試指令更新
+- `scripts/setup-dev-env.sh` — 完成提示改為 `./actress-classifier`
+- `.github/analyze_code_usage.py` — 拿掉 run.py entry point 邏輯，改用 `src/scrapers/run_search.py` / `run_batch_search.py`
+- `.github/cleanup_project.py` — 驗證提示改為 `.\actress-classifier.exe`
+- `wiki/architecture/overview.md` — 主執行檔表格與啟動指令更新
+- `wiki/wiki-data.js` — 由 `gen_data.py` 重新產生
+
+**摘要**：`run.py` 過去只是「找 exe → subprocess.run」的薄殼，自 Wails 化後已無實質作用且無任何 Python 程式碼 import 它。`Start-ActressClassifier.bat` → `Setup-SearchRuntime.ps1` 直接啟動 `actress-classifier.exe`，正式分發路徑本來就沒經過 `run.py`。徹底移除以收斂 Python 邊界。
+
 ## [2026-05-02] docs | Wiki 可發現性大改：troubleshooting / getting-started / 驗證指令 / 雙向連結
 
 **涉及檔案**：

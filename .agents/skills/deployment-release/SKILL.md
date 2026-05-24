@@ -47,25 +47,20 @@ go test ./... -v
 
 ### 4. 打包檔案
 
-```
-發布檔案/
-├── classifier.exe
-├── run.py
-├── requirements.txt
-├── config.ini
-├── README.md
-├── src/
-├── data/
-└── logs/
-```
+正式發行請執行 `.\setup.ps1`，會產出：
 
-若要產生 Windows GUI 發行檔，可使用：
-
-```bash
-python -m PyInstaller --clean --noconfirm "女優分類系統_修復版.spec"
+```
+dist/portable/
+├── actress-classifier.exe   # Wails GUI（主程式）
+├── classifier.exe           # Go CLI
+├── Start-ActressClassifier.bat
+├── Setup-SearchRuntime.ps1
+├── studios.json / major_studios.json
+├── src/                     # 爬蟲 Python 來源
+└── requirements.txt
 ```
 
-PyInstaller 只會建立 GUI EXE；若要讓發行資料夾保留 Go 加速功能，需另外複製最新的 `classifier.exe` 到 `dist/`。
+並壓縮為 `dist/PornActressDB-windows-portable.zip`。
 
 ## 版本管理
 
@@ -81,8 +76,9 @@ PyInstaller 只會建立 GUI EXE；若要讓發行資料夾保留 Go 加速功�
 
 ## 相關檔案
 
-- `run.py` - 主程式進入點
+- `actress-classifier.exe` - Wails GUI 主程式
 - `cmd/scanner/main.go` - Go CLI 入口
+- `setup.ps1` - 端到端建置入口
 - `README.md` - 使用說明
 - `AGENTS.md` - 開發與建置規範
 - `.github/workflows/` - CI 驗證流程

@@ -187,7 +187,7 @@ class ProjectCleaner:
         report_lines.append("")
         report_lines.append("🧪 驗證指令：")
         report_lines.append("  python .github\\agent_verify.py")
-        report_lines.append("  python run.py --test-mode")
+        report_lines.append("  .\\actress-classifier.exe")
         report_lines.append("=" * 70)
         
         return "\n".join(report_lines)
@@ -235,7 +235,7 @@ def main():
         logger.info("=" * 70)
         logger.info("\n📋 後續步驟：")
         logger.info("  1. 執行驗證：python .github\\agent_verify.py")
-        logger.info("  2. 測試主程式：python run.py")
+        logger.info("  2. 測試主程式：.\\actress-classifier.exe")
         logger.info("  3. 確認無誤後可刪除 _to_delete 資料夾")
         logger.info("")
     else:

@@ -99,11 +99,8 @@ pytest --cov=src tests/
 
 ### 執行主程式
 ```bash
-# 啟動 GUI
-python run.py
-
-# 或直接執行
-python -m src.ui.main_gui
+# 啟動 Wails GUI
+.\actress-classifier.exe
 ```
 
 ---
@@ -399,7 +396,7 @@ package database
 ## 🚨 Critical Constraints
 
 ### 絕對不可違反的規則
-1. ❌ **不破壞現有功能**: 每次 commit 後 `python run.py` 必須正常啟動
+1. ❌ **不破壞現有功能**: 每次 commit 後 `.\actress-classifier.exe` 必須正常啟動
 2. ❌ **不移除 Python fallback**: Go 不可用時必須能降級到 Python
 3. ❌ **不修改 JSON 格式**: Go 輸出必須與 Python 完全相容
 4. ❌ **不重構 GUI**: `src/ui/` 永遠保留 Python (tkinter)
@@ -419,7 +416,7 @@ go test ./pkg/... -v
 pytest tests/ -v
 
 # 3. 啟動測試
-python run.py --test-mode  # 驗證 GUI 能啟動
+.\actress-classifier.exe  # 驗證 Wails GUI 能啟動
 
 # 4. 格式檢查
 go fmt ./...

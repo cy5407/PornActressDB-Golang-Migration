@@ -40,32 +40,27 @@ go test ./... -v
 
 ### 3. 更新版本
 
-編輯：`run.py`
-```python
-# 版本：v6.0.0 → v6.0.1（舉例）
-```
+依實際變更更新下列文件，而不是假設固定改單一版本號：
+- `README.md`
+- `AGENTS.md`
+- `wails-app/wails.json`（若版本字串存在於此）
 
 ### 4. 打包檔案
 
-```
-發布檔案/
-├── classifier.exe
-├── run.py
-├── requirements.txt
-├── config.ini
-├── README.md
-├── src/
-├── data/
-└── logs/
-```
+正式發行請執行 `.\setup.ps1`，會產出：
 
-若要產生 Windows GUI 發行檔，可使用：
-
-```bash
-python -m PyInstaller --clean --noconfirm "女優分類系統_修復版.spec"
+```
+dist/portable/
+├── actress-classifier.exe   # Wails GUI（主程式）
+├── classifier.exe           # Go CLI
+├── Start-ActressClassifier.bat
+├── Setup-SearchRuntime.ps1
+├── studios.json / major_studios.json
+├── src/                     # 爬蟲 Python 來源
+└── requirements.txt
 ```
 
-PyInstaller 只會建立 GUI EXE；若要讓發行資料夾保留 Go 加速功能，需另外複製最新的 `classifier.exe` 到 `dist/`。
+並壓縮為 `dist/PornActressDB-windows-portable.zip`。
 
 ## 版本管理
 
@@ -96,6 +91,8 @@ v6.0.0
 
 ## 相關檔案
 
-- `run.py` - 主程式進入點（版本號）
+- `actress-classifier.exe` - Wails GUI 主程式
+- `classifier.exe` - Go CLI
+- `setup.ps1` - 端到端建置入口
 - `CHANGELOG.md` - 變更日誌
 - `README.md` - 使用說明

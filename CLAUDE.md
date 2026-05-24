@@ -13,10 +13,9 @@
 
 **女優分類系統 (Actress Classifier)** 是一個以 **Wails (Go + React/TypeScript)** 為桌面 GUI、以 **Go CLI** 處理掃描 / 移動 / 資料庫等非搜尋主流程、以 **Python** 主要負責搜尋與爬蟲的 Windows 桌面工具。
 
-- **主 GUI**：`actress-classifier.exe`
+- **主 GUI / 主進入點**：`actress-classifier.exe`（直接執行）
 - **Go CLI**：`classifier.exe`
 - **Python 搜尋管線**：`src/scrapers/run_search.py`、`src/scrapers/run_batch_search.py`、`src/services/web_searcher.py`
-- **主進入點**：`run.py`（優先啟動已建好的 Wails 執行檔）
 
 ## 快速開始
 
@@ -32,21 +31,43 @@ pip install -r requirements.txt
 go build -o classifier.exe .\cmd\scanner
 ```
 
-> 不要直接編譯 `cmd\scanner\main.go`，否則會漏掉同套件其他 `.go` 檔案。
+> `cmd\scanner\` 內有 `main.go`、`cache_cmd.go`、`db_cmd.go`、`identify_cmd.go` 等多個檔案。請以套件路徑建置，不要直接編譯 `cmd\scanner\main.go`，否則會漏掉同套件其他 `.go` 檔案。
 
 ### 建置 Wails 桌面應用
 
 ```powershell
-Set-Location wails-app
+# 首次建置前必須先安裝前端相依（setup.ps1 不會代跑）
+Set-Location wails-app\frontend
+npm install
+Set-Location ..
+
+# 一般建置
 wails build
+
+# 熱重載開發模式
+wails dev
 ```
 
-> 正式發行請改跑 `.\setup.ps1`（位於專案根目錄）— 會建置 `classifier.exe` 與 `actress-classifier.exe`、組裝 `dist\portable\`、把 `studios.json` / `major_studios.json` 等資源複製到 EXE 同層、再壓成 `dist\PornActressDB-windows-portable.zip`。直接複製單一 EXE 出去會踩 `resolveStudiosPath` 找不到資源的雷。
+### 正式發行 / 完整建置
+
+```powershell
+.\setup.ps1
+```
+
+`setup.ps1` 是專案正式的端到端建置入口，會：
+
+1. 執行 `go mod download`
+2. 建置 `classifier.exe`
+3. 建置 `actress-classifier.exe` 並複製到專案根目錄
+4. 組裝 `dist\portable\`，把 `studios.json` / `major_studios.json` / `src\` / `requirements.txt` / 啟動器腳本一併放入
+5. 壓成 `dist\PornActressDB-windows-portable.zip`
+
+直接複製單一 EXE 出去會踩 `resolveStudiosPath` 找不到資源的雷；要分發就用 portable zip。
 
 ### 啟動
 
 ```powershell
-python run.py
+.\actress-classifier.exe
 ```
 
 ## 目前目錄結構
@@ -76,15 +97,50 @@ tools-rs\                    # Rust shadow-DB 工具（crate name db-tool）
 - `src/scrapers/cache_manager.py`：爬蟲快取層（仍由 Python 呼叫 Go CLI）
 - `src/utils/scanner.py`：Go CLI 掃描薄適配層
 - `wails-app/backend/app.go`：Wails 後端 API
+- `wails-app/go.mod`：Wails 子模組，靠 `replace actress-classifier => ../` 共用根 module 的 `pkg/`；改 `pkg/` 後 Wails 端不需要額外 publish
+
+## 資料流向
+
+桌面流程跨三種執行體，理解資料流向能避免改錯層：
+
+```text
+React UI (wails-app/frontend)
+        ↓ Wails bindings
+wails-app/backend/app.go
+   ├─ 非爬蟲（掃描 / 移動 / DB / 操作歷史）
+   │      ↓ exec
+   │   classifier.exe  ──→  data\json_db\data.json
+   │
+   └─ 搜尋 / 爬蟲
+          ↓ subprocess
+       python src\scrapers\run_search.py | run_batch_search.py
+          ↓ 透過 src/services/go_cli.py
+       classifier.exe db ...  ──→  data\json_db\data.json
+```
+
+- 「非爬蟲」一律走 Go CLI，不要在 Python 端加 fallback
+- 「搜尋」由 Python 主導，但寫回 DB 仍是透過 Go CLI
+- 修 DB schema 時，Go (`pkg/database`)、Python 委派層 (`src/models/json_database.py`)、Wails backend、`tools/verify/verify_json_db_schema.py` 四處都要同步
 
 ## 測試命令
 
 ### Python
 
 ```powershell
+# 全跑
 python -m pytest tests\ -q -p no:cacheprovider
+
+# 只跑整合測試
 python -m pytest tests\integration\ -v --tb=short -p no:cacheprovider
+
+# 指定檔案
 python -m pytest tests\test_incremental_db.py tests\test_json_database.py -q -p no:cacheprovider
+
+# 指定單一測試（用 ::）
+python -m pytest tests\test_json_database.py::TestJSONDatabase::test_compact -v
+
+# 用名稱關鍵字篩選
+python -m pytest tests\ -k "incremental and compact" -v
 ```
 
 ### Go
@@ -92,6 +148,9 @@ python -m pytest tests\test_incremental_db.py tests\test_json_database.py -q -p 
 ```powershell
 go test .\pkg\... -v
 go test .\cmd\scanner -v
+
+# 指定單一測試（-run 接 regex）
+go test .\pkg\database -run TestMerge -v
 ```
 
 ### Wails backend
@@ -99,6 +158,7 @@ go test .\cmd\scanner -v
 ```powershell
 Set-Location wails-app
 go test .\backend -v
+go test .\backend -run TestApp_Scan -v
 ```
 
 ## 開發規範
