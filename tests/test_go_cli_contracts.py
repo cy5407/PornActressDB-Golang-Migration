@@ -1059,3 +1059,293 @@ def test_db_get_video_default_data_dir_lookup_contract(monkeypatch):
     go_cli.db_get_video("STARS-707", "custom_dir")
     assert "-data-dir" in captured["args"]
     assert "custom_dir" in captured["args"]
+
+
+# ---------------------------------------------------------------------------
+# Phase D — wrapper contract locks for SQLite-only `db` subcommands.
+#
+# The Python helper does not (yet) wrap migrate-from-json / verify-sync /
+# resync-from-json / export-json. The tests below use monkeypatch to drive
+# `go_cli.run` (or its underlying subprocess call) with the exact JSON
+# shapes the Go CLI emits today, so any future runtime change to those
+# payload keys / stderr wording lights up here first — independent of
+# whether anyone has built a Python wrapper around them yet.
+# ---------------------------------------------------------------------------
+
+
+def test_db_migrate_from_json_strict_report_shape(monkeypatch):
+    """`db migrate-from-json` (strict mode, happy path) emits the full
+    MigrationReport JSON. Pin every key the report struct in
+    `pkg/database/migrate_from_json.go::MigrationReport` declares — when
+    the struct changes, this test is the canary for the Python side.
+    """
+    _patch_exe(monkeypatch)
+    report_payload = {
+        "success": True,
+        "source_path": "data/json_db/data.json",
+        "sqlite_path": "data/db.sqlite",
+        "videos_imported": 3,
+        "actresses_imported": 3,
+        "links_imported": 4,
+        "elapsed_ms": 17,
+    }
+
+    captured = {}
+
+    def fake_subprocess_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(report_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(
+        ["db", "migrate-from-json", "-data-dir", "data/json_db"]
+    )
+
+    # Every required key in the MigrationReport struct must round-trip
+    # through the Python boundary intact. omitempty fields (auto_created,
+    # unresolved, duplicates) are intentionally absent on the happy path.
+    for required in (
+        "success",
+        "source_path",
+        "sqlite_path",
+        "videos_imported",
+        "actresses_imported",
+        "links_imported",
+        "elapsed_ms",
+    ):
+        assert required in result, f"migrate report missing {required}: {result!r}"
+    assert result["success"] is True
+    assert result["videos_imported"] == 3
+    assert captured["cmd"][1:] == [
+        "db",
+        "migrate-from-json",
+        "-data-dir",
+        "data/json_db",
+    ]
+
+
+def test_db_migrate_from_json_auto_create_flag_present(monkeypatch):
+    """Lock two shapes that recovery tooling depends on:
+
+    1. Strict-mode failure surfaces the canonical "unresolved actress
+       references" stderr string via GoError, so callers can grep it and
+       recommend the recovery command.
+    2. The `-auto-create-missing-actresses` flag survives the wrapper
+       argv intact and the resulting MigrationReport carries auto_created
+       entries (per `MigrationAutoCreated`).
+    """
+    _patch_exe(monkeypatch)
+
+    # Part 1: strict-mode failure stderr.
+    strict_stderr = (
+        "migrate-from-json failed: migrate-from-json: "
+        "unresolved actress references (1 entries)"
+    )
+
+    def fake_strict_failure(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, stdout="{}", stderr=strict_stderr)
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_strict_failure)
+
+    with pytest.raises(go_cli.GoError) as ei:
+        go_cli.run(["db", "migrate-from-json", "-data-dir", "data/json_db"])
+    msg = str(ei.value)
+    assert "exit 1" in msg
+    assert "unresolved actress references" in msg, (
+        "strict-mode stderr must keep the canonical 'unresolved actress "
+        "references' phrase so callers can hint at -auto-create-missing-actresses"
+    )
+
+    # Part 2: -auto-create-missing-actresses round-trips through the CLI
+    # boundary and is reflected in the success report.
+    captured = {}
+    auto_payload = {
+        "success": True,
+        "source_path": "data/json_db/data.json",
+        "sqlite_path": "data/db.sqlite",
+        "videos_imported": 3,
+        "actresses_imported": 4,
+        "links_imported": 4,
+        "auto_created": [
+            {
+                "name": "新女優",
+                "actress_id": "auto_abcdef0123456789",
+                "video_code": "TEST-001",
+            }
+        ],
+        "elapsed_ms": 12,
+    }
+
+    def fake_auto_create(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(auto_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_auto_create)
+
+    result = go_cli.run(
+        [
+            "db",
+            "migrate-from-json",
+            "-data-dir",
+            "data/json_db",
+            "-auto-create-missing-actresses",
+        ]
+    )
+    assert "-auto-create-missing-actresses" in captured["cmd"], (
+        "wrapper must forward the recovery flag verbatim"
+    )
+    assert isinstance(result.get("auto_created"), list)
+    assert result["auto_created"][0]["actress_id"].startswith("auto_")
+
+
+def test_db_verify_sync_happy_payload_keys(monkeypatch):
+    """`db verify-sync` happy path: consistent=true, count fields present,
+    diffs omitted (omitempty in `VerifyReport`).
+    """
+    _patch_exe(monkeypatch)
+    payload = {
+        "consistent": True,
+        "video_count": 3,
+        "actress_count": 3,
+        "link_count": 4,
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "verify-sync", "-data-dir", "data/json_db"])
+
+    for required in ("consistent", "video_count", "actress_count", "link_count"):
+        assert required in result, f"verify-sync missing {required}: {result!r}"
+    assert result["consistent"] is True
+    # diffs is omitempty — happy path must NOT emit it. Catches a runtime
+    # regression that would always emit an empty list (harmless to read
+    # but a contract change worth noticing).
+    assert "diffs" not in result
+
+
+def test_db_resync_from_json_payload_keys(monkeypatch):
+    """`db resync-from-json` reuses the MigrationReport shape (it shares
+    `runImport` with migrate-from-json), so the same required keys apply.
+    """
+    _patch_exe(monkeypatch)
+    payload = {
+        "success": True,
+        "source_path": "data/json_db/data.json",
+        "sqlite_path": "data/db.sqlite",
+        "videos_imported": 3,
+        "actresses_imported": 3,
+        "links_imported": 4,
+        "elapsed_ms": 19,
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "resync-from-json", "-data-dir", "data/json_db"])
+
+    for required in (
+        "success",
+        "source_path",
+        "sqlite_path",
+        "videos_imported",
+        "actresses_imported",
+        "links_imported",
+        "elapsed_ms",
+    ):
+        assert required in result, f"resync report missing {required}: {result!r}"
+    assert result["success"] is True
+
+
+def test_db_export_json_payload_keys(monkeypatch):
+    """`db export-json -output <path>` emits the small wrapper payload
+    `{success, output, sqlite_path}` to stdout (the JSON DB itself is
+    written to the output file, not stdout, when -output is used).
+    """
+    _patch_exe(monkeypatch)
+    payload = {
+        "success": True,
+        "output": "data/json_db/data.json",
+        "sqlite_path": "data/db.sqlite",
+    }
+
+    captured = {}
+
+    def fake_subprocess_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(
+        [
+            "db",
+            "export-json",
+            "-data-dir",
+            "data/json_db",
+            "-output",
+            "data/json_db/data.json",
+        ]
+    )
+
+    for required in ("success", "output", "sqlite_path"):
+        assert required in result, f"export-json missing {required}: {result!r}"
+    assert result["success"] is True
+    # Reflect the -output we passed, so the wrapper can show users where
+    # the snapshot landed without re-parsing argv.
+    assert result["output"] == "data/json_db/data.json"
+    assert "-output" in captured["cmd"]
+
+
+def test_db_backup_create_dual_snapshot_legacy_path_alias(monkeypatch):
+    """Phase D §8.1 dedicated contract: the legacy `path` alias on
+    `db backup-create` must equal `json_export_path`. JSONDBManager.
+    create_backup() only reads `path`, so any drift here silently breaks
+    the Wails GUI's "備份" button.
+    """
+    captured = {}
+    payload = {
+        "success": True,
+        "backup_path": "data/backup/backup_2026-05-24_10-11-12.sqlite",
+        "json_export_path": "data/backup/backup_2026-05-24_10-11-12.json",
+        "path": "data/backup/backup_2026-05-24_10-11-12.json",
+    }
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return payload
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_backup_create("custom_db")
+
+    assert result["success"] is True
+    # The three keys must all be present; path is the legacy alias kept
+    # alive for src/models/json_database.py.create_backup().
+    assert "backup_path" in result
+    assert "json_export_path" in result
+    assert "path" in result
+    # Alias equality is the load-bearing contract.
+    assert result["path"] == result["json_export_path"], (
+        "legacy `path` alias must mirror json_export_path so the existing "
+        "JSONDBManager.create_backup() helper keeps producing the same JSON file"
+    )
+    # Sanity: aliased file is JSON, primary backup is SQLite.
+    assert result["path"].endswith(".json")
+    assert result["backup_path"].endswith(".sqlite")
+    assert captured["args"] == ["db", "backup-create", "-data-dir", "custom_db"]
