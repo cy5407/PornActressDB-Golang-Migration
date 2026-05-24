@@ -9,14 +9,13 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
 import httpx
 import pytest
 from bs4 import BeautifulSoup
 
 from src.services.safe_javdb_searcher import SafeJAVDBSearcher, _random_delay
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -212,9 +211,8 @@ def test_apply_cooldown_returns_session_when_no_cooldown(tmp_path):
 def test_apply_cooldown_triggers_when_errors_ge_5(tmp_path):
     """consecutive_errors >= 5 時應觸發冷卻（lines 339-347）"""
     s = _make_searcher(tmp_path)
-    with patch("time.sleep"):
-        with patch.object(s, "create_session"):
-            result = s._apply_cooldown_if_needed(s.session, 5)
+    with patch("time.sleep"), patch.object(s, "create_session"):
+        s._apply_cooldown_if_needed(s.session, 5)
     assert s.consecutive_errors == 0
 
 
@@ -465,7 +463,7 @@ def test_parse_detail_title_code_match_returns_true(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_apply_detail_panel_maker(tmp_path):
-    s = _make_searcher(tmp_path)
+    _make_searcher(tmp_path)
     info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
     panel_html = '<div class="value"><a href="/makers/1">S1 STYLE</a></div>'
     value_el = _soup(panel_html).find("div")
@@ -474,7 +472,7 @@ def test_apply_detail_panel_maker(tmp_path):
 
 
 def test_apply_detail_panel_date(tmp_path):
-    s = _make_searcher(tmp_path)
+    _make_searcher(tmp_path)
     info = SafeJAVDBSearcher._create_empty_detail_info("STARS-001")
     value_el = _soup('<div class="value">2023-05-10</div>').find("div")
     SafeJAVDBSearcher._apply_detail_panel_value(info, "日期", value_el)
@@ -703,7 +701,7 @@ def test_normalize_code_for_match_empty():
 def test_warmup_enabled_called_in_init(tmp_path):
     """_warmup_enabled=True 時應在 __init__ 呼叫 _warmup（line 93）"""
     with patch.object(SafeJAVDBSearcher, "_warmup") as mock_warmup:
-        s = SafeJAVDBSearcher(cache_dir=str(tmp_path), warmup_enabled=True)
+        SafeJAVDBSearcher(cache_dir=str(tmp_path), warmup_enabled=True)
     mock_warmup.assert_called_once()
 
 
@@ -733,7 +731,7 @@ def test_parse_detail_page_panel_no_value_element(tmp_path):
     </body></html>'''
     resp = _mock_response(200, html)
     # Should not raise
-    result = s._parse_detail_page(resp, "STARS-001", "http://url")
+    s._parse_detail_page(resp, "STARS-001", "http://url")
 
 
 # ---------------------------------------------------------------------------

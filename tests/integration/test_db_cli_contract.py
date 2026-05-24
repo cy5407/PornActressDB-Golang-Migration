@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CLASSIFIER_EXE = ROOT_DIR / ("classifier.exe" if _sys.platform == "win32" else "classifier")
 
@@ -191,7 +190,7 @@ def test_db_verify_sync_passes_after_migrate(tmp_path):
     fixture = _seed_fixture_data_dir(tmp_path, "json_db_minimal")
     shutil.copytree(fixture, data_root / "json_db")
 
-    common = dict(cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8", check=False)
+    common = {"cwd": str(tmp_path), "capture_output": True, "text": True, "encoding": "utf-8", "check": False}
     mig = subprocess.run(
         [str(CLASSIFIER_EXE), "db", "migrate-from-json", "-data-dir", "data/json_db"],
         **common,
@@ -214,7 +213,7 @@ def test_db_export_json_round_trips_with_verify_sync(tmp_path):
     fixture = _seed_fixture_data_dir(tmp_path, "json_db_minimal")
     shutil.copytree(fixture, data_root / "json_db")
 
-    common = dict(cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8", check=False)
+    common = {"cwd": str(tmp_path), "capture_output": True, "text": True, "encoding": "utf-8", "check": False}
     mig = subprocess.run(
         [str(CLASSIFIER_EXE), "db", "migrate-from-json", "-data-dir", "data/json_db"],
         **common,
@@ -250,7 +249,7 @@ def test_db_backup_create_emits_dual_snapshot_pair(tmp_path):
     fixture = _seed_fixture_data_dir(tmp_path, "json_db_minimal")
     shutil.copytree(fixture, data_root / "json_db")
 
-    common = dict(cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8", check=False)
+    common = {"cwd": str(tmp_path), "capture_output": True, "text": True, "encoding": "utf-8", "check": False}
     mig = subprocess.run(
         [str(CLASSIFIER_EXE), "db", "migrate-from-json", "-data-dir", "data/json_db"],
         **common,
@@ -297,7 +296,7 @@ def test_db_backup_restore_mutual_exclusion_exit_code_2(tmp_path):
     fixture = _seed_fixture_data_dir(tmp_path, "json_db_minimal")
     shutil.copytree(fixture, data_root / "json_db")
 
-    common = dict(cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8", check=False)
+    common = {"cwd": str(tmp_path), "capture_output": True, "text": True, "encoding": "utf-8", "check": False}
     cp = subprocess.run(
         [
             str(CLASSIFIER_EXE), "db", "backup-restore",
@@ -325,7 +324,7 @@ def test_db_backup_restore_accepts_sqlite_and_json_extensions(tmp_path):
     fixture = _seed_fixture_data_dir(tmp_path, "json_db_minimal")
     shutil.copytree(fixture, data_root / "json_db")
 
-    common = dict(cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8", check=False)
+    common = {"cwd": str(tmp_path), "capture_output": True, "text": True, "encoding": "utf-8", "check": False}
     mig = subprocess.run(
         [str(CLASSIFIER_EXE), "db", "migrate-from-json", "-data-dir", "data/json_db"],
         **common,
@@ -392,7 +391,7 @@ def test_db_resync_from_json_wipes_then_repopulates(tmp_path):
     fixture = _seed_fixture_data_dir(tmp_path, "json_db_minimal")
     shutil.copytree(fixture, data_root / "json_db")
 
-    common = dict(cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8", check=False)
+    common = {"cwd": str(tmp_path), "capture_output": True, "text": True, "encoding": "utf-8", "check": False}
     mig = subprocess.run(
         [str(CLASSIFIER_EXE), "db", "migrate-from-json", "-data-dir", "data/json_db"],
         **common,

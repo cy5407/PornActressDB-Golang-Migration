@@ -142,7 +142,7 @@ class TestStudioIdentifier:
         """測試載入不存在的規則檔案"""
         with tempfile.TemporaryDirectory() as tmpdir:
             non_existent = Path(tmpdir) / "non_existent.json"
-            identifier = StudioIdentifier(rules_file=str(non_existent))
+            StudioIdentifier(rules_file=str(non_existent))
             # 應該建立預設檔案
             assert non_existent.exists()
 

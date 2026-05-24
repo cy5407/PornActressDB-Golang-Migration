@@ -10,8 +10,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from src.utils.retry_utils import _secure_uniform
 from typing import Any
+
+from src.utils.retry_utils import _secure_uniform
 
 from .cache_manager import CacheManager, get_global_cache_manager
 from .encoding_utils import EncodingDetector

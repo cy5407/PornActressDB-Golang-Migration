@@ -380,8 +380,8 @@ func TestStableActressID_FormatAndDeterministic(t *testing.T) {
 		t.Errorf("StableActressID length = %d, want %d", len(id), len(AutoActressIDPrefix)+16)
 	}
 	// Must NOT collapse NFC/NFD variants — spec § 3.3.
-	nfc := "é"     // é, single codepoint
-	nfd := "é"    // e + combining acute
+	nfc := "é"  // é, single codepoint
+	nfd := "é" // e + combining acute
 	if StableActressID(nfc) == StableActressID(nfd) {
 		t.Error("StableActressID collapses NFC/NFD variants; spec § 3.3 forbids this")
 	}

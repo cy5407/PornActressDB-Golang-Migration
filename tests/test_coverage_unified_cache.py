@@ -1,10 +1,11 @@
 """補測 UnifiedCacheManager 覆蓋率。"""
 import pytest
+
 from src.services.unified_cache import (
     CacheStats,
     UnifiedCacheManager,
-    get_cache_manager,
     cleanup_all_caches,
+    get_cache_manager,
 )
 
 
@@ -560,7 +561,6 @@ def test_cleanup_all_caches_delegates(monkeypatch):
     uc._global_cache_manager = None
     called_with = {}
 
-    original_cleanup = UnifiedCacheManager.cleanup_all
 
     def fake_cleanup(self, ttl_days=None, max_size_mb=None):
         called_with["ttl"] = ttl_days

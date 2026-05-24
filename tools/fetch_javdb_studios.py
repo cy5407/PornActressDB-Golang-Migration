@@ -4,10 +4,10 @@ JAVDB 片商番號前綴爬蟲
 輸出結果會印在終端機，並寫入 tools/javdb_studio_codes.json
 """
 
-import re
-import time
 import json
+import re
 import sys
+import time
 
 try:
     from curl_cffi import requests
@@ -97,10 +97,10 @@ def find_maker_id_via_video(video_code: str) -> str | None:
 
 def extract_codes(html: str) -> list:
     codes = re.findall(r'[A-Z]{2,6}-\d{2,5}', html)
-    prefixes = sorted(set(
+    prefixes = sorted({
         m.group(1) for c in codes
         for m in [re.match(r'^([A-Z]+)', c)] if m
-    ))
+    })
     return prefixes
 
 

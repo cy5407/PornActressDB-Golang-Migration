@@ -173,6 +173,9 @@ coverage_report.txt
 # 本地保留的安全掃描原始產物
 security_reports/_local_archives/
 
+# tool-scan skill 的本機 scan 副產物（每次跑一個 timestamp 子資料夾）
+output/tool-scan/
+
 .venv/
 
 # 資料庫備份（本地大型 JSON，不進版控）

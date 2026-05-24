@@ -79,7 +79,7 @@ def verify_database(data: dict) -> VerificationReport:
             report.invalid_methods[str(search_method)] += 1
             report.warnings.append(f"{code}: 非 canonical search_method={search_method!r}")
 
-        for field_name in video.keys():
+        for field_name in video:
             if field_name not in VIDEO_ALLOWED_FIELDS and field_name != "id":
                 report.unknown_fields[field_name] += 1
                 report.errors.append(f"{code}: 未知欄位 {field_name}")

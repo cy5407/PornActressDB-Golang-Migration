@@ -20,14 +20,11 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import src.utils.json_utils as _json_utils
-
-# Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
-UTC = timezone.utc
 
 from src.models.json_database import JSONDBManager
 from src.models.json_types import (
@@ -35,10 +32,15 @@ from src.models.json_types import (
     VideoDict,
 )
 from src.services.go_cli import (
-    GoError as _GoBridgeError,
     db_compact_journal as _go_db_compact_journal,
+)
+from src.services.go_cli import (
     db_delete_video as _go_db_delete_video,
+)
+from src.services.go_cli import (
     db_get_video as _go_db_get_video,
+)
+from src.services.go_cli import (
     db_update_video as _go_db_update_video,
 )
 

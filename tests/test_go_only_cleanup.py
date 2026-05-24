@@ -5,7 +5,6 @@ import pytest
 from src.models.incremental_json_database import IncrementalJSONDB
 from src.models.json_database import JSONDBManager
 
-
 MODULES_WITHOUT_IMPORT_STUBS = [
     Path("src/models/json_database.py"),
     Path("src/models/incremental_json_database.py"),

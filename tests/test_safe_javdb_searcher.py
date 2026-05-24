@@ -229,7 +229,7 @@ def test_safe_request_does_not_hold_lock_during_cooldown_sleep(tmp_path, monkeyp
 
 def _make_search_html_with_mismatched_code(video_code: str) -> str:
     """產生一個搜尋結果頁面，其中只有與 video_code 不符的影片連結"""
-    return f"""
+    return """
     <html><body>
     <div class="item">
       <a href="/v/AWTB005">

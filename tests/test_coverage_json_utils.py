@@ -9,7 +9,6 @@ import pytest
 
 import src.utils.json_utils as json_utils
 
-
 # ──────────────────────────────
 # availability
 # ──────────────────────────────

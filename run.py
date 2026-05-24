@@ -13,6 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+
 def _find_wails_exe() -> Path | None:
     """尋找 Wails 編譯後的執行檔。"""
     root = Path(__file__).parent

@@ -10,14 +10,11 @@ JSON 資料庫管理器 (JSONDBManager)
 import hashlib
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import src.utils.json_utils as _json_utils
-# Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
-UTC = timezone.utc
-
 
 from src.models.json_types import (
     ISO_DATETIME_FORMAT,
@@ -36,17 +33,41 @@ from src.models.json_types import (
 )
 from src.services.go_cli import (
     GoError as _GoBridgeError,
+)
+from src.services.go_cli import (
     GoNotFoundError as _GoBridgeNotFoundError,
+)
+from src.services.go_cli import (
     db_backup_cleanup as _go_db_backup_cleanup,
+)
+from src.services.go_cli import (
     db_backup_create as _go_db_backup_create,
+)
+from src.services.go_cli import (
     db_backup_list as _go_db_backup_list,
+)
+from src.services.go_cli import (
     db_backup_restore as _go_db_backup_restore,
+)
+from src.services.go_cli import (
     db_delete_actress as _go_db_delete_actress,
+)
+from src.services.go_cli import (
     db_delete_video as _go_db_delete_video,
+)
+from src.services.go_cli import (
     db_get_actress as _go_db_get_actress,
+)
+from src.services.go_cli import (
     db_get_all_videos as _go_db_get_all_videos,
+)
+from src.services.go_cli import (
     db_get_video as _go_db_get_video,
+)
+from src.services.go_cli import (
     db_update_actress as _go_db_update_actress,
+)
+from src.services.go_cli import (
     db_update_video as _go_db_update_video,
 )
 
@@ -524,9 +545,7 @@ class JSONDBManager:
             merged_dict = get_empty_video()
             merged_dict["code"] = video_code
             merged_dict.update(video_info)
-            merged_dict["updated_at"] = datetime.now(UTC).strftime(
-                ISO_DATETIME_FORMAT
-            )
+            merged_dict["updated_at"] = datetime.now(UTC).strftime(ISO_DATETIME_FORMAT)
 
             success = _go_db_update_video(
                 video_code, merged_dict, data_dir=str(self.data_dir)
@@ -649,7 +668,9 @@ class JSONDBManager:
             raise ValidationError("女優 ID 不得為空")
 
         try:
-            success = _go_db_update_actress(actress_id, actress_info, data_dir=str(self.data_dir))
+            success = _go_db_update_actress(
+                actress_id, actress_info, data_dir=str(self.data_dir)
+            )
             if success:
                 self.data["actresses"][actress_id] = actress_info
                 logger.info(f"✅ 女優已新增/更新（Go）: {actress_id}")
@@ -658,7 +679,9 @@ class JSONDBManager:
             raise
         except Exception as e:
             logger.warning(f"⚠️ Go 委派 add_or_update_actress 失敗: {e}")
-            raise RuntimeError(f"Go add_or_update_actress 失敗: {actress_id}: {e}") from e
+            raise RuntimeError(
+                f"Go add_or_update_actress 失敗: {actress_id}: {e}"
+            ) from e
 
         raise RuntimeError(f"Go db_update_actress 回傳失敗: {actress_id}")
 
@@ -824,7 +847,9 @@ class JSONDBManager:
                 studio_stats.items(), key=lambda item: item[1]["total_count"]
             )[0]
             best_stats = studio_stats[best_studio]
-            max_ratio = best_stats["total_count"] / total_videos if total_videos > 0 else 0
+            max_ratio = (
+                best_stats["total_count"] / total_videos if total_videos > 0 else 0
+            )
 
             high_loyalty_result = self._find_high_loyalty_studio(
                 actress_name, studio_stats, total_videos, studio_count, major_studios
@@ -849,13 +874,15 @@ class JSONDBManager:
                     studio_count=studio_count,
                 )
 
-            best_studio, confidence, recommendation = self._determine_standard_classification(
-                best_studio,
-                best_stats,
-                studio_stats,
-                total_videos,
-                max_ratio,
-                major_studios,
+            best_studio, confidence, recommendation = (
+                self._determine_standard_classification(
+                    best_studio,
+                    best_stats,
+                    studio_stats,
+                    total_videos,
+                    max_ratio,
+                    major_studios,
+                )
             )
             logger.debug(
                 f"📊 標準分類: {actress_name} → {best_studio} "
@@ -894,7 +921,7 @@ class JSONDBManager:
             total_videos += 1
             stats = studio_stats.setdefault(
                 studio,
-			{
+                {
                     "studio_code": video.get("studio_code", ""),
                     "primary_count": 0,
                     "total_count": 0,

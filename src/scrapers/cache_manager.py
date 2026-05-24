@@ -18,9 +18,17 @@ from typing import Any
 
 from src.services.go_cli import (
     GoError as _GoBridgeError,
+)
+from src.services.go_cli import (
     GoNotFoundError as _GoBridgeNotFoundError,
+)
+from src.services.go_cli import (
     cache_delete as _go_cache_delete,
+)
+from src.services.go_cli import (
     cache_get as _go_cache_get,
+)
+from src.services.go_cli import (
     cache_set as _go_cache_set,
 )
 from src.utils.json_utils import dump as json_dump
@@ -197,7 +205,10 @@ class CacheManager:
             if compressed:
                 data = gzip.decompress(data)
             payload = json.loads(data.decode("utf-8"))
-            if not isinstance(payload, dict) or payload.get("version") != CACHE_PAYLOAD_VERSION:
+            if (
+                not isinstance(payload, dict)
+                or payload.get("version") != CACHE_PAYLOAD_VERSION
+            ):
                 raise ValueError("不支援的快取格式版本")
             return payload.get("value")
         except ValueError as e:
@@ -253,7 +264,7 @@ class CacheManager:
             return False
 
         # 第一位元組編碼壓縮旗標，以便讀回時還原
-        flag = b'\x01' if compressed else b'\x00'
+        flag = b"\x01" if compressed else b"\x00"
         payload = flag + serialized
 
         max_size_bytes = self.config.max_file_size_mb * 1024 * 1024
@@ -555,6 +566,7 @@ class CacheManager:
         """
         try:
             from src.services.go_cli import cache_prune
+
             go_result = cache_prune(
                 cache_dir=str(self.cache_dir),
                 ttl_days=ttl_days,
@@ -571,7 +583,9 @@ class CacheManager:
             raise RuntimeError(ERR_EMPTY_CACHE_PRUNE_RESULT)
         except Exception as e:
             logger.warning(f"⚠️ Go 快取清理失敗: {e}")
-            raise RuntimeError(f"Go CLI 不可用，無法清理過期快取 (cleanup_expired): {e}") from e
+            raise RuntimeError(
+                f"Go CLI 不可用，無法清理過期快取 (cleanup_expired): {e}"
+            ) from e
 
     def cleanup_by_size(
         self, max_size_mb: int = 500, min_keep_entries: int = 100
@@ -588,6 +602,7 @@ class CacheManager:
         """
         try:
             from src.services.go_cli import cache_prune
+
             go_result = cache_prune(
                 cache_dir=str(self.cache_dir),
                 ttl_days=9999,
@@ -605,7 +620,9 @@ class CacheManager:
             raise RuntimeError(ERR_EMPTY_CACHE_PRUNE_RESULT)
         except Exception as e:
             logger.warning(f"⚠️ Go 大小清理失敗: {e}")
-            raise RuntimeError(f"Go CLI 不可用，無法根據大小清理快取 (cleanup_by_size): {e}") from e
+            raise RuntimeError(
+                f"Go CLI 不可用，無法根據大小清理快取 (cleanup_by_size): {e}"
+            ) from e
 
     def get_cache_stats(self) -> dict[str, Any]:
         """
@@ -624,6 +641,7 @@ class CacheManager:
         """
         try:
             from src.services.go_cli import cache_get_stats
+
             go_result = cache_get_stats(cache_dir=str(self.cache_dir))
             if go_result:
                 go_result["memory_cache_entries"] = len(self.memory_cache)
@@ -631,7 +649,9 @@ class CacheManager:
             raise RuntimeError("Go cache_get_stats 回傳空結果")
         except Exception as e:
             logger.warning(f"⚠️ Go 快取統計失敗: {e}")
-            raise RuntimeError(f"Go CLI 不可用，無法取得快取統計 (get_cache_stats): {e}") from e
+            raise RuntimeError(
+                f"Go CLI 不可用，無法取得快取統計 (get_cache_stats): {e}"
+            ) from e
 
     def clear_all(self, confirm: bool = False) -> bool:
         """
@@ -649,6 +669,7 @@ class CacheManager:
 
         try:
             from src.services.go_cli import cache_clear
+
             result = cache_clear(cache_dir=str(self.cache_dir), dry_run=False)
             if result:
                 with self.memory_lock:
@@ -658,7 +679,9 @@ class CacheManager:
             raise RuntimeError("Go cache_clear 回傳空結果")
         except Exception as e:
             logger.warning(f"⚠️ Go 清空快取失敗: {e}")
-            raise RuntimeError(f"Go CLI 不可用，無法清除所有快取 (clear_all): {e}") from e
+            raise RuntimeError(
+                f"Go CLI 不可用，無法清除所有快取 (clear_all): {e}"
+            ) from e
 
     def auto_cleanup(
         self, ttl_days: int = 7, max_size_mb: int = 500, min_keep_entries: int = 100
@@ -676,6 +699,7 @@ class CacheManager:
         """
         try:
             from src.services.go_cli import cache_prune
+
             go_result = cache_prune(
                 cache_dir=str(self.cache_dir),
                 ttl_days=ttl_days,
@@ -698,7 +722,9 @@ class CacheManager:
             raise RuntimeError(ERR_EMPTY_CACHE_PRUNE_RESULT)
         except Exception as e:
             logger.warning(f"⚠️ Go 自動清理失敗: {e}")
-            raise RuntimeError(f"Go CLI 不可用，無法執行自動清理 (auto_cleanup): {e}") from e
+            raise RuntimeError(
+                f"Go CLI 不可用，無法執行自動清理 (auto_cleanup): {e}"
+            ) from e
 
     # ============================================================
     # 非同步介面

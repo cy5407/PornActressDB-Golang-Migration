@@ -5,7 +5,6 @@ actress_name_filter.py 覆蓋率補測
 
 from src.utils.actress_name_filter import ActressNameFilter
 
-
 # ──────────────────────────────
 # helper methods
 # ──────────────────────────────

@@ -40,7 +40,6 @@ from src.services.go_cli import (
     run,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -138,7 +137,8 @@ class TestResolveExe:
 
     def test_resolve_prefers_classifier_env_var(self):
         self._reset_exe_cache()
-        env_classifier = "/tmp/classifier"
+        # 下行使用的 /tmp 路徑只是測試替身字串，整段以 patch 攔截系統呼叫，不會實際碰到檔案系統。
+        env_classifier = "/tmp/classifier"  # nosec B108
         with patch.dict("os.environ", {"CLASSIFIER_EXE": env_classifier}, clear=False):
             with patch("src.services.go_cli._is_executable_file", side_effect=lambda path: path == env_classifier):
                 from src.services.go_cli import _resolve_exe
@@ -273,7 +273,7 @@ class TestCacheFunctions:
 
 class TestCachePruneClear:
     def test_cache_prune_dry_run_appends_flag(self):
-        with _mock_run({"deleted": 5}) as mock:
+        with _mock_run({"deleted": 5}):
             result = cache_prune(dry_run=True)
         assert result == {"deleted": 5}
 
@@ -282,7 +282,7 @@ class TestCachePruneClear:
             assert cache_prune() == {}
 
     def test_cache_clear_dry_run(self):
-        with _mock_run({"deleted": 3}) as mock:
+        with _mock_run({"deleted": 3}):
             result = cache_clear(dry_run=True)
         assert result == {"deleted": 3}
 

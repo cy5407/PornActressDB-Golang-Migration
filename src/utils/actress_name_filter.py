@@ -3,8 +3,8 @@
 用於過濾從網站擷取的標籤,避免將影片標題片段誤認為女優名字
 """
 
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 

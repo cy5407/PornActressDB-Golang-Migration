@@ -64,10 +64,10 @@ function Build-All {
     執行完整編譯檢查（Go + Python 語法）
     #>
     Write-Host "`n🏗️ 執行完整編譯檢查..." -ForegroundColor Magenta
-    
+
     Write-Host "`n[1/2] Go 編譯檢查..." -ForegroundColor Cyan
     go build ./...
-    
+
     Write-Host "`n[2/2] Python 語法檢查..." -ForegroundColor Cyan
     Get-ChildItem -Path src -Filter *.py -Recurse | Select-Object -First 10 | ForEach-Object {
         python -m py_compile $_.FullName
@@ -89,7 +89,7 @@ function Agent-Check {
     檢查 Agent 設定檔案是否完整
     #>
     Write-Host "`n🤖 檢查 Copilot Agent 設定..." -ForegroundColor Magenta
-    
+
     $files = @(
         @{Path = ".github\copilot-instructions.md"; Name = "Agent 指令檔" },
         @{Path = ".vscode\settings.json"; Name = "VS Code 設定" },
@@ -97,7 +97,7 @@ function Agent-Check {
         @{Path = ".github\AGENT_LOG.md"; Name = "任務記錄" },
         @{Path = ".github\agent_verify.py"; Name = "驗證腳本" }
     )
-    
+
     $allExist = $true
     foreach ($file in $files) {
         if (Test-Path $file.Path) {
@@ -108,7 +108,7 @@ function Agent-Check {
             $allExist = $false
         }
     }
-    
+
     if ($allExist) {
         Write-Host "`n✅ Agent 設定完整！" -ForegroundColor Green
     }
@@ -155,25 +155,25 @@ function Project-Status {
     #>
     Write-Host "`n📊 專案狀態摘要" -ForegroundColor Cyan
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Gray
-    
+
     # Git 狀態
     $branch = git rev-parse --abbrev-ref HEAD 2>$null
     if ($branch) {
         Write-Host "  分支: $branch" -ForegroundColor White
     }
-    
+
     # Go 模組
     if (Test-Path "go.mod") {
         $goVersion = (Get-Content go.mod | Select-String "^go ").ToString() -replace "go ", ""
         Write-Host "  Go: $goVersion" -ForegroundColor Blue
     }
-    
+
     # Python 版本
     $pythonVersion = python --version 2>&1
     if ($pythonVersion) {
         Write-Host "  Python: $($pythonVersion -replace 'Python ', '')" -ForegroundColor Yellow
     }
-    
+
     # CLI 是否存在
     if (Test-Path "classifier.exe") {
         $cliSize = (Get-Item "classifier.exe").Length / 1MB
@@ -182,7 +182,7 @@ function Project-Status {
     else {
         Write-Host "  CLI: ❌ 未建構 (執行 'bc' 建構)" -ForegroundColor Red
     }
-    
+
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Gray
     Write-Host ""
 }
@@ -196,13 +196,13 @@ function Fix-Dependencies {
     重新安裝專案相依套件
     #>
     Write-Host "`n📦 重新安裝相依套件..." -ForegroundColor Cyan
-    
+
     Write-Host "[1/2] Python 套件..." -ForegroundColor Yellow
     pip install -r requirements.txt
-    
+
     Write-Host "[2/2] Go 模組..." -ForegroundColor Blue
     go mod download
-    
+
     Write-Host "✅ 相依套件已更新" -ForegroundColor Green
 }
 Set-Alias -Name fd -Value Fix-Dependencies

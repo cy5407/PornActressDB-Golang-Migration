@@ -26,7 +26,6 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-
 # 每個 section 的起始標記（### 開頭）
 SECTION_RE = re.compile(r'^(### .+)$', re.MULTILINE)
 

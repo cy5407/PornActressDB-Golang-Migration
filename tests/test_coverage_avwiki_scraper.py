@@ -9,13 +9,12 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import aiohttp
+import pytest
 from bs4 import BeautifulSoup
 
-from src.scrapers.sources.avwiki_scraper import AVWikiScraper
 from src.scrapers.base_scraper import ErrorType, ScrapingException
-
+from src.scrapers.sources.avwiki_scraper import AVWikiScraper
 
 # ---------------------------------------------------------------------------
 # Helpers

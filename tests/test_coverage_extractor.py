@@ -23,9 +23,8 @@ class TestExtractorFallbackPaths:
         with patch.dict(
             sys.modules,
             {"services": None, "services.go_cli": None, "src.services.go_cli": None},
-        ):
-            with pytest.raises(RuntimeError, match="Go 番號提取不可用"):
-                extractor._extract_code_via_go("STARS-707.mp4")
+        ), pytest.raises(RuntimeError, match="Go 番號提取不可用"):
+            extractor._extract_code_via_go("STARS-707.mp4")
 
     def test_fallback_first_import_fails_second_succeeds(self, extractor):
         """當第一個匯入失敗、第二個成功時，應透過 src 路徑回傳結果（覆蓋 lines 22-27）"""

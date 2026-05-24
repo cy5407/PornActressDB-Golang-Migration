@@ -3,6 +3,7 @@
 """
 
 import pytest
+
 from src.utils.actress_name_filter import ActressNameFilter
 
 
@@ -20,7 +21,7 @@ class TestActressNameFilter:
             "桜ゆの",
             "神木麗",
         ]
-        
+
         for name in valid_names:
             assert ActressNameFilter.is_valid_actress_name(name), \
                 f"應該通過驗證但失敗: {name}"
@@ -39,7 +40,7 @@ class TestActressNameFilter:
             "せつスポーツ",  # 包含 "スポーツ"
             "初めての全裸わ",  # 包含 "初めて", "全裸"
         ]
-        
+
         for name in invalid_names:
             assert not ActressNameFilter.is_valid_actress_name(name), \
                 f"應該被過濾但通過: {name}"
@@ -48,16 +49,16 @@ class TestActressNameFilter:
         """測試邊界情況"""
         # 過短
         assert not ActressNameFilter.is_valid_actress_name("あ")
-        
+
         # 過長
         assert not ActressNameFilter.is_valid_actress_name("あ" * 20)
-        
+
         # 空字串
         assert not ActressNameFilter.is_valid_actress_name("")
-        
+
         # None
         assert not ActressNameFilter.is_valid_actress_name(None)
-        
+
         # 純數字
         assert not ActressNameFilter.is_valid_actress_name("12345")
 
@@ -70,9 +71,9 @@ class TestActressNameFilter:
             "清宮仁愛",  # 有效
             "半裸水着学園",  # 無效
         ]
-        
+
         filtered = ActressNameFilter.filter_actress_list(mixed_list)
-        
+
         assert len(filtered) == 2
         assert "市瀬あいり" in filtered
         assert "清宮仁愛" in filtered
@@ -86,7 +87,7 @@ class TestActressNameFilter:
             "市瀬あいりエレガンス",  # 較長
             "新人",  # 無效
         ]
-        
+
         best = ActressNameFilter.get_most_likely_actress(candidates)
         assert best == "市瀬あいり"
 
@@ -95,7 +96,7 @@ class TestActressNameFilter:
         # 平假名比例過高（標題片段）
         high_hiragana = "つい勃起しちゃう"
         assert not ActressNameFilter.is_valid_actress_name(high_hiragana)
-        
+
         # 正常女優名字（漢字+假名）
         normal_name = "桜ゆの"
         assert ActressNameFilter.is_valid_actress_name(normal_name)
@@ -107,7 +108,7 @@ class TestActressNameFilter:
             "田舎帰省で",  # 包含 "で"
             "成長期の",  # 包含 "の"
         ]
-        
+
         for fragment in verb_fragments:
             assert not ActressNameFilter.is_valid_actress_name(fragment), \
                 f"動詞片段應該被過濾: {fragment}"
@@ -119,7 +120,7 @@ class TestActressNameFilter:
             "巨乳女優",
             "中出解禁",
         ]
-        
+
         for title in chinese_titles:
             assert not ActressNameFilter.is_valid_actress_name(title), \
                 f"中文標題應該被過濾: {title}"

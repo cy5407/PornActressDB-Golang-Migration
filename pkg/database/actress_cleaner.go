@@ -53,7 +53,7 @@ func NewActressCleaner() *ActressCleaner {
 			"手でさするのは浮気にならな", "今日から澪がお前らの嫁",
 		),
 		replaceExact: map[string][]string{
-			"石川澪とラブラブでハメまくる": []string{"石川澪"},
+			"石川澪とラブラブでハメまくる": {"石川澪"},
 		},
 		protected: toStringSet("瀧本雫葉", "石川澪", "蒼乃美月", "綾瀬天", "東雲すみれ", "五芭", "天然美月"),
 	}
@@ -98,7 +98,7 @@ func (c *ActressCleaner) appendIfClean(cleaned *[]string, seen *map[string]struc
 	if name == "" {
 		return
 	}
-	if c.shouldRemove(name, map[string]struct{}{name: struct{}{}}) {
+	if c.shouldRemove(name, map[string]struct{}{name: {}}) {
 		*removed = append(*removed, name)
 		return
 	}
@@ -114,7 +114,7 @@ func (c *ActressCleaner) appendReplacementIfClean(cleaned *[]string, seen *map[s
 	if name == "" {
 		return
 	}
-	if c.shouldRemove(name, map[string]struct{}{name: struct{}{}}) {
+	if c.shouldRemove(name, map[string]struct{}{name: {}}) {
 		*removed = append(*removed, name)
 		return
 	}

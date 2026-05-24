@@ -1,0 +1,7 @@
+# False positives — these are not secrets.
+#
+# sonar.projectKey is SonarCloud's public project identifier (slug),
+# not a credential. The actual SonarCloud token lives in CI secrets,
+# never in this file.
+sonar-project.properties:generic-api-key:1
+abc899aecba87ab04f9202f9745cfa04a35c75d3:sonar-project.properties:generic-api-key:1

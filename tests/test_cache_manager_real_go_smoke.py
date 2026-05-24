@@ -1,5 +1,5 @@
-from src.scrapers.cache_manager import CacheConfig, CacheManager
 import src.scrapers.cache_manager as cache_manager_module
+from src.scrapers.cache_manager import CacheConfig, CacheManager
 from src.services import go_cli
 
 

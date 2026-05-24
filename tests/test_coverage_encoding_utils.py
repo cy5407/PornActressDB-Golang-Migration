@@ -1,16 +1,17 @@
 """補測 encoding_utils 覆蓋率。"""
 import logging
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from src.scrapers.encoding_utils import (
     EncodingDetector,
     EncodingWarningFilter,
-    safe_decode_content,
     create_safe_soup,
-    validate_japanese_content,
     install_encoding_warning_filter,
+    safe_decode_content,
+    validate_japanese_content,
 )
-
 
 # ──────────────────────────────
 # EncodingDetector.detect_and_decode
@@ -30,7 +31,7 @@ def test_detect_empty_bytes():
 
 def test_detect_utf8():
     d = _detector()
-    content = "Hello 日本語テスト".encode("utf-8")
+    content = "Hello 日本語テスト".encode()
     text, enc = d.detect_and_decode(content)
     assert "日本語" in text
     assert enc == "utf-8"
@@ -59,7 +60,7 @@ def test_detect_increments_attempts():
 
 def test_detect_increments_successes():
     d = _detector()
-    d.detect_and_decode("テスト".encode("utf-8"))
+    d.detect_and_decode("テスト".encode())
     assert d.detection_stats["successful_detections"] == 1
 
 
@@ -72,7 +73,7 @@ def test_detect_fallback_chardet(monkeypatch):
         _chardet, "detect", lambda b: {"encoding": "utf-8", "confidence": 0.95}
     )
     d = _detector()
-    text, enc = d.detect_and_decode("テスト".encode("utf-8"))
+    text, enc = d.detect_and_decode("テスト".encode())
     assert enc == "utf-8"
     assert d.detection_stats["chardet_usage"] == 1
 
@@ -115,9 +116,7 @@ def test_detect_all_fail_returns_str(monkeypatch):
     )
 
     # chardet 偵測到 utf-8，但解碼仍然失敗
-    original_decode = bytes.decode  # keep reference
 
-    decoded_calls = {"n": 0}
     # 只能透過 patch 函數内部邏輯：讓 chardet 返回 None encoding
     monkeypatch.setattr(
         _chardet, "detect", lambda b: {"encoding": None, "confidence": 0.0}
@@ -163,7 +162,7 @@ def test_get_stats_empty():
 
 def test_get_stats_with_data():
     d = _detector()
-    d.detect_and_decode("テスト".encode("utf-8"))
+    d.detect_and_decode("テスト".encode())
     s = d.get_stats()
     assert "%" in s["success_rate"]
     assert s["most_used_encoding"] != "none"
@@ -227,7 +226,7 @@ def test_create_soup_exception_fallback():
 
 
 def test_safe_decode_content_utf8():
-    text, enc = safe_decode_content("テスト".encode("utf-8"))
+    text, enc = safe_decode_content("テスト".encode())
     assert "テスト" in text
 
 

@@ -36,7 +36,6 @@ try:
 except ImportError:  # pragma: no cover
     from src.utils.json_utils import dump as json_dump
     from src.utils.json_utils import load as json_load
-from src.utils.log_sanitizer import sanitize_url_for_log
 
 logger = logging.getLogger(__name__)
 
