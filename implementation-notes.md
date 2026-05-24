@@ -527,3 +527,33 @@ so an extension-swap helper is no longer needed.
 
 - The v3 Rust command ignores legacy `data.journal`.
   The requested source is `data.json`, and runtime SQLite no longer replays JSON journal files. If an operator needs journal-era data, they must compact/export it before invoking `db-import-json-v3`.
+
+# Implementation Notes — Root `links[]` 100 % round-trip via `legacy_video_actress_links`
+
+## Design Decisions
+
+- 新增 `legacy_video_actress_links` 作為 root `links[]` 的逐筆快照表。
+  `pkg/database/sqlite_schema.sql` 加入一張無 FK 約束的表：`ordinal INTEGER PRIMARY KEY`、`video_code/actress_id/role_type/timestamp` 都是 `TEXT NOT NULL DEFAULT ''`。任何 `video_code=""` 或 `actress_id=""` 的 legacy/orphan link 都靠這張表保存；FK-constrained 的 `video_actress_links` 因為外鍵指向 `videos(code)` / `actresses(id)`，無法接受空字串的 orphan，所以必須另開一張表。
+
+- 維持 `PRAGMA user_version = 3`。
+  這次改動只新增 table，沒有修改既有欄位或既有表的語意。`SQLiteSchemaVersion` (Go) 與 `V3_SCHEMA_VERSION` (Rust) 都保持 `3`；只更新 `V3_REQUIRED_TABLES` 把新表加入結構驗證清單。屬於 additive backward-compatible schema 異動，不需要走 `db-migrate` 升版流程。為了支援既有 v3 SQLite，`InitSchema` 在 `user_version=3` 時也會重新套用 `CREATE TABLE IF NOT EXISTS` / view DDL，確保 `legacy_video_actress_links` 可被補建；若要讓表內有資料，仍需要 import / resync 一次以從 JSON 填入 root `links[]`。
+
+- `MigrateFromJSON` / `ResyncFromJSON`：override 之後逐筆寫入新表，`ordinal = 原 JSON 陣列 index`。
+  既有 `applyLinkOverrides` 仍照舊只更新 FK-constrained `video_actress_links`（spec § 3.1 Pass 3 行為不變）。`saveLegacyRootLinks` 額外用 root `links[]` 的原始順序寫入 `legacy_video_actress_links`，作為 export / verify 的 ground truth。
+
+- `ExportToJSON`：`loadLinksFromSQLite` 改讀 `legacy_video_actress_links ORDER BY ordinal`。
+  以 import 時記下的順序還原 root `links[]`，包含 orphan。`videos[].actresses[]` 仍由 `video_actress_links` 還原（行為不變）。
+
+- `VerifySync`：原本 `verifyLinks` 對 `video_actress_links` 的 role_type / timestamp 比對保留；新增 `verifyLegacyLinks` 對新表做 1:1 ordinal 比對。
+  原 `verifyLinks` 遇到 `VideoCode == ""` 會 skip 該筆（orphan 改由 `verifyLegacyLinks` 負責），避免誤報「missing_in_sqlite」。新 diff 種類 `legacy_link`，key 形如 `ordinal:<n>`。
+
+- Rust `db-import-json-v3` 同步加入 `save_legacy_root_links` 與 wipe 名單。
+  Go 與 Rust 兩條匯入路徑都會把 orphan 寫進新表；schema-drift 測試 (`V3_REQUIRED_TABLES` 含新表) 鎖住兩端一致。
+
+## Tradeoffs
+
+- `legacy_video_actress_links` 是 **import-time 快照**，runtime 的 `AddVideo` / `UpdateVideo` 不會回填。
+  也就是說，在 migrate 之後再用 runtime API 新增影片，export 出來的 root `links[]` 不會包含這些 runtime 新增的關聯。`videos[].actresses[]` 仍會包含，因為它由 `video_actress_links` 還原。原本的 round-trip 行為（runtime-add 後 export 出來的 root `links[]` 會反映 runtime 新增）有所改變——但這是達成「JSON `links[]` 100 % 逐字保存」的必要取捨；如果之後 runtime 需要也讓新增進入 root `links[]`，可在 `sqlite_runtime.AddVideo` 順手 append 到新表，留待後續 slice 決定。
+
+- Orphan 在 `verifyLinks` 端的處理是 skip 而非「比對到 NULL」。
+  這避免了「missing_in_sqlite」誤報，但代價是 `verifyLinks` 無法察覺 `video_actress_links` 端漏掉一筆原本有 `video_code` 的 link——這層保護改由 `verifyLegacyLinks` 的 ordinal 比對承擔，配合上原本針對 `video_actress_links` 的 role/timestamp 比對，覆蓋率與原本相當。

@@ -289,21 +289,28 @@ func loadVideosAndOrderedLinks(db *sql.DB, idToName map[string]string) (map[stri
 	return videos, perVideo, linkRows.Err()
 }
 
+// loadLinksFromSQLite reconstructs JSON `root.links[]` from the
+// `legacy_video_actress_links` snapshot table populated by
+// MigrateFromJSON / ResyncFromJSON. Reading from this table (instead of
+// deriving from `video_actress_links`) guarantees a verbatim round-trip
+// of the original JSON list, including orphan entries with empty
+// video_code or actress_id that the FK-constrained runtime table
+// cannot hold.
 func loadLinksFromSQLite(db *sql.DB) ([]VideoActressLink, error) {
 	rows, err := db.Query(`
 		SELECT video_code, actress_id, role_type, timestamp
-		  FROM video_actress_links
-		 ORDER BY video_code, ordinal
+		  FROM legacy_video_actress_links
+		 ORDER BY ordinal
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("select links: %w", err)
+		return nil, fmt.Errorf("select legacy_video_actress_links: %w", err)
 	}
 	defer rows.Close()
 	var out []VideoActressLink
 	for rows.Next() {
 		var l VideoActressLink
 		if err := rows.Scan(&l.VideoCode, &l.ActressID, &l.RoleType, &l.Timestamp); err != nil {
-			return nil, fmt.Errorf("scan link: %w", err)
+			return nil, fmt.Errorf("scan legacy link: %w", err)
 		}
 		out = append(out, l)
 	}

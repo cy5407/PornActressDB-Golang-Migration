@@ -117,8 +117,8 @@ classifier.exe db migrate-from-json -auto-create-missing-actresses
 - `pkg/database/sqlite_runtime.go` — runtime API：`AddVideo` / `UpdateVideo` / `GetActress` / `GetStats` / `Backup*` / `Merge*` / journal-shaped no-ops (`Save` / `Compact` / `CompactJournal` / `CompactIfNeeded`)
 - `pkg/database/sqlite_crud.go` — primitive upsert / read
 - `pkg/database/sqlite_backup.go` — `VACUUM INTO` 為主、`PRAGMA wal_checkpoint + 檔案 copy` 為 fallback；`RestoreSQLiteFile` 採 rename-aside rollback
-- `pkg/database/migrate_from_json.go` / `verify_sync.go` / `export_json.go` — 匯入 / 等價檢查 / 匯出
-- `pkg/database/sqlite_schema.sql` — **canonical schema**；Go 與 Rust 共用（見下方）
+- `pkg/database/migrate_from_json.go` / `verify_sync.go` / `export_json.go` — 匯入 / 等價檢查 / 匯出。root `links[]` 在 import 時除了套用 override，還會逐筆寫入 `legacy_video_actress_links`（含 `video_code=""` 的 orphan）；export 從該表照 ordinal 還原 `root.links[]`。
+- `pkg/database/sqlite_schema.sql` — **canonical schema**；Go 與 Rust 共用（見下方）。v3 含 `legacy_video_actress_links`（無 FK 的 root `links[]` ordinal 快照）；此表為 additive 新增，`user_version` 保持 3。
 - `pkg/database/jsondb.go` — 保留為匯入 / 匯出 / 測試 fixture 助手；**不是 runtime store**
 
 ### Go CLI 入口

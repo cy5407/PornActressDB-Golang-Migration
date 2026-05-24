@@ -61,6 +61,7 @@ func TestSQLiteStore_InitSchema_CreatesAllTablesAndViews(t *testing.T) {
 		"actresses",
 		"actress_aliases",
 		"video_actress_links",
+		"legacy_video_actress_links",
 	} {
 		var got string
 		err := store.db.QueryRow(
@@ -147,6 +148,28 @@ func TestSQLiteStore_InitSchema_IsIdempotentOnExistingV3(t *testing.T) {
 	}
 	if v != SQLiteSchemaVersion {
 		t.Errorf("user_version after 2nd init = %d, want %d", v, SQLiteSchemaVersion)
+	}
+}
+
+func TestSQLiteStore_InitSchema_AppliesAdditiveObjectsOnExistingV3(t *testing.T) {
+	store := newSQLiteStoreForTest(t, "additive.sqlite")
+
+	if err := store.InitSchema(); err != nil {
+		t.Fatalf("first InitSchema: %v", err)
+	}
+	if _, err := store.db.Exec(`DROP TABLE legacy_video_actress_links`); err != nil {
+		t.Fatalf("drop additive table: %v", err)
+	}
+	if err := store.InitSchema(); err != nil {
+		t.Fatalf("InitSchema on existing v3: %v", err)
+	}
+
+	var name string
+	err := store.db.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='legacy_video_actress_links'`,
+	).Scan(&name)
+	if err != nil {
+		t.Fatalf("legacy_video_actress_links not recreated: %v", err)
 	}
 }
 
@@ -255,6 +278,7 @@ func TestSQLiteSchemaSQL_ContainsExpectedV3Markers(t *testing.T) {
 		"actresses",
 		"actress_aliases",
 		"video_actress_links",
+		"legacy_video_actress_links",
 	} {
 		marker := "CREATE TABLE IF NOT EXISTS " + table
 		if !strings.Contains(sqliteSchemaSQL, marker) {

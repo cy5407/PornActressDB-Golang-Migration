@@ -36,7 +36,7 @@ func dbMigrateFromJSONCmd(args []string) {
 		srcPath = paths.DataFile
 	}
 
-	if err := os.MkdirAll(filepath.Dir(paths.SQLitePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(paths.SQLitePath), 0o750); err != nil {
 		fmt.Fprintf(os.Stderr, "建立 SQLite 目錄失敗: %v\n", err)
 		os.Exit(1)
 	}
@@ -94,7 +94,7 @@ func dbResyncFromJSONCmd(args []string) {
 		srcPath = paths.DataFile
 	}
 
-	if err := os.MkdirAll(filepath.Dir(paths.SQLitePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(paths.SQLitePath), 0o750); err != nil {
 		fmt.Fprintf(os.Stderr, "建立 SQLite 目錄失敗: %v\n", err)
 		os.Exit(1)
 	}
@@ -173,7 +173,7 @@ func dbExportJSONCmd(args []string) {
 		return
 	}
 
-	if err := os.MkdirAll(filepath.Dir(*output), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(*output), 0o750); err != nil {
 		fmt.Fprintf(os.Stderr, "建立輸出目錄失敗: %v\n", err)
 		os.Exit(1)
 	}

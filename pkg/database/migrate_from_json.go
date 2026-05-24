@@ -1,13 +1,19 @@
 package database
 
 import (
-	"crypto/sha1"
+	// SHA-1 is used here strictly for deterministic actress ID derivation
+	// (StableActressID, spec § 3.3) — not for any cryptographic property.
+	// Switching to SHA-256 would change every previously generated ID and
+	// invalidate existing data; collision-resistance is irrelevant for an
+	// internal 64-bit identifier.
+	"crypto/sha1" //#nosec G505 -- deterministic ID derivation, not crypto
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -88,7 +94,7 @@ var ErrMigrationDuplicate = errors.New("migrate-from-json: duplicate actress ref
 // folding, to avoid collapsing names the user considers distinct.
 func StableActressID(name string) string {
 	trimmed := strings.TrimSpace(name)
-	sum := sha1.Sum([]byte(trimmed))
+	sum := sha1.Sum([]byte(trimmed)) //#nosec G401 -- deterministic ID, not crypto
 	return AutoActressIDPrefix + hex.EncodeToString(sum[:])[:16]
 }
 
@@ -183,6 +189,10 @@ func (s *SQLiteStore) runImport(sourcePath string, opts MigrationOptions, wipeFi
 		return report, err
 	}
 
+	if err := saveLegacyRootLinks(tx, root.Links); err != nil {
+		return report, err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return report, fmt.Errorf("commit tx: %w", err)
 	}
@@ -191,11 +201,14 @@ func (s *SQLiteStore) runImport(sourcePath string, opts MigrationOptions, wipeFi
 	return report, nil
 }
 
-// wipeImportTables removes every row from the four data tables in
+// wipeImportTables removes every row from the data tables in
 // dependency-safe order. db_meta is left alone; the seeded singleton
 // values stay around to be upserted by migrateDBMeta.
+// legacy_video_actress_links is the JSON-import snapshot table — wiped
+// here so resync rebuilds it from the canonical JSON source.
 func wipeImportTables(tx *sql.Tx) error {
 	for _, table := range []string{
+		"legacy_video_actress_links",
 		"video_actress_links",
 		"actress_aliases",
 		"videos",
@@ -209,7 +222,11 @@ func wipeImportTables(tx *sql.Tx) error {
 }
 
 func loadJSONDatabaseRoot(path string) (*DatabaseData, error) {
-	raw, err := os.ReadFile(path)
+	// Path comes from operator-provided CLI flag (`db migrate-from-json -source`)
+	// or store bootstrap; Clean strips any `..` traversal without altering
+	// legitimate absolute or relative paths.
+	cleaned := filepath.Clean(path)
+	raw, err := os.ReadFile(cleaned) //#nosec G304 -- operator-supplied path, cleaned above
 	if err != nil {
 		return nil, fmt.Errorf("read source JSON %q: %w", path, err)
 	}
@@ -485,6 +502,33 @@ func insertLinkRow(tx *sql.Tx, videoCode, actressID, roleType string, ordinal in
 		videoCode, actressID, roleType, ordinal, displayName, timestamp,
 	); err != nil {
 		return fmt.Errorf("insert link %s↔%s: %w", videoCode, actressID, err)
+	}
+	return nil
+}
+
+// saveLegacyRootLinks writes the JSON `root.links[]` list verbatim to
+// `legacy_video_actress_links` with the input array index as ordinal.
+// Orphan entries (empty video_code or actress_id) are preserved here
+// because the FK-constrained `video_actress_links` cannot hold them.
+// On migrate the table is empty (fresh InitSchema seeds nothing);
+// on resync wipeImportTables already deleted any prior rows.
+func saveLegacyRootLinks(tx *sql.Tx, links []VideoActressLink) error {
+	if len(links) == 0 {
+		return nil
+	}
+	stmt, err := tx.Prepare(
+		`INSERT INTO legacy_video_actress_links(
+			ordinal, video_code, actress_id, role_type, timestamp
+		) VALUES(?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare legacy_video_actress_links insert: %w", err)
+	}
+	defer stmt.Close()
+	for i, l := range links {
+		if _, err := stmt.Exec(i, l.VideoCode, l.ActressID, l.RoleType, l.Timestamp); err != nil {
+			return fmt.Errorf("insert legacy_video_actress_links[%d]: %w", i, err)
+		}
 	}
 	return nil
 }

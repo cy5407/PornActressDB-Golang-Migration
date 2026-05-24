@@ -1,0 +1,11 @@
+# Repo-level Cargo workspace.
+#
+# Why: this is a multi-language repo (Go + Python + Rust). The actual
+# Rust crate `db-tool` lives under `tools-rs/`, so running `cargo` from
+# the repo root would otherwise fail with "could not find Cargo.toml".
+# Declaring `tools-rs` as a workspace member lets cargo, clippy, audit
+# and IDE Rust analyzers resolve from root.
+
+[workspace]
+members = ["tools-rs"]
+resolver = "2"

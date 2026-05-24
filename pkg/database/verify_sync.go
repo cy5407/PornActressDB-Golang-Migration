@@ -56,6 +56,9 @@ func (s *SQLiteStore) VerifySync(jsonPath string) (*VerifyReport, error) {
 	if err := verifyLinks(s.db, root, report); err != nil {
 		return nil, err
 	}
+	if err := verifyLegacyLinks(s.db, root, report); err != nil {
+		return nil, err
+	}
 	if err := verifyDBMeta(s.db, root, report); err != nil {
 		return nil, err
 	}
@@ -320,8 +323,14 @@ func verifyLinks(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
 	// JSON-side: a link conceptually exists if either (a) videos[].actresses
 	// referenced it during Pass 2, or (b) root.links lists it. Both should
 	// have already been written by MigrateFromJSON.
+	// Orphan root.links entries (empty video_code) cannot live in the
+	// FK-constrained video_actress_links table — they are tracked
+	// separately by verifyLegacyLinks against legacy_video_actress_links.
 	jsonSeen := map[string]bool{}
 	for _, l := range root.Links {
+		if l.VideoCode == "" {
+			continue
+		}
 		key := l.VideoCode + "|" + l.ActressID
 		jsonSeen[key] = true
 		sv, ok := sqliteSide[key]
@@ -361,6 +370,92 @@ func verifyLinks(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
 		}
 	}
 	return nil
+}
+
+// verifyLegacyLinks compares root.links[] verbatim against the
+// legacy_video_actress_links snapshot table. The table is the canonical
+// store for the JSON `root.links[]` list (filled by MigrateFromJSON /
+// ResyncFromJSON), so the two sides must match field-for-field, in the
+// same order. Diffs are emitted with kind = "legacy_link" and a key
+// shaped "ordinal:<n>".
+func verifyLegacyLinks(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
+	rows, err := db.Query(`
+		SELECT ordinal, video_code, actress_id, role_type, timestamp
+		  FROM legacy_video_actress_links
+		 ORDER BY ordinal
+	`)
+	if err != nil {
+		return fmt.Errorf("select legacy_video_actress_links: %w", err)
+	}
+	defer rows.Close()
+
+	type legacyRow struct {
+		Ordinal   int
+		VideoCode string
+		ActressID string
+		RoleType  string
+		Timestamp string
+	}
+	var sqliteSide []legacyRow
+	for rows.Next() {
+		var l legacyRow
+		if err := rows.Scan(&l.Ordinal, &l.VideoCode, &l.ActressID, &l.RoleType, &l.Timestamp); err != nil {
+			return fmt.Errorf("scan legacy_video_actress_links: %w", err)
+		}
+		sqliteSide = append(sqliteSide, l)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate legacy_video_actress_links: %w", err)
+	}
+
+	n := len(root.Links)
+	if m := len(sqliteSide); m > n {
+		n = m
+	}
+	for i := 0; i < n; i++ {
+		key := fmt.Sprintf("ordinal:%d", i)
+		switch {
+		case i >= len(sqliteSide):
+			report.Diffs = append(report.Diffs, VerifyDiff{
+				Kind: "legacy_link", Key: key, Reason: "missing_in_sqlite",
+				JSONValue: root.Links[i].VideoCode + "|" + root.Links[i].ActressID,
+			})
+		case i >= len(root.Links):
+			report.Diffs = append(report.Diffs, VerifyDiff{
+				Kind: "legacy_link", Key: key, Reason: "missing_in_json",
+				SQLiteValue: sqliteSide[i].VideoCode + "|" + sqliteSide[i].ActressID,
+			})
+		default:
+			diffLegacyLinkRow(key, root.Links[i], sqliteSide[i].VideoCode,
+				sqliteSide[i].ActressID, sqliteSide[i].RoleType, sqliteSide[i].Timestamp, report)
+		}
+	}
+	return nil
+}
+
+func diffLegacyLinkRow(
+	key string,
+	jl VideoActressLink,
+	svVideoCode, svActressID, svRole, svTimestamp string,
+	report *VerifyReport,
+) {
+	for _, c := range []struct {
+		field   string
+		jsonVal string
+		sqliVal string
+	}{
+		{"video_code", jl.VideoCode, svVideoCode},
+		{"actress_id", jl.ActressID, svActressID},
+		{"role_type", jl.RoleType, svRole},
+	} {
+		if c.jsonVal != c.sqliVal {
+			report.Diffs = append(report.Diffs, VerifyDiff{
+				Kind: "legacy_link", Key: key, Field: c.field, Reason: "field_diff",
+				JSONValue: c.jsonVal, SQLiteValue: c.sqliVal,
+			})
+		}
+	}
+	diffTimestampSecondTolerance(key, "legacy_link", "timestamp", jl.Timestamp, svTimestamp, report)
 }
 
 func jsonHasVideoActress(root *DatabaseData, videoCode, actressID string) bool {

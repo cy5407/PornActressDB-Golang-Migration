@@ -98,7 +98,7 @@ func (s *SQLiteStore) InitSchema() error {
 	case 0:
 		return s.initFresh()
 	case SQLiteSchemaVersion:
-		return nil
+		return s.applySchemaObjects()
 	default:
 		return fmt.Errorf("%w: found user_version=%d, want %d",
 			ErrSchemaVersionMismatch, current, SQLiteSchemaVersion)
@@ -106,14 +106,21 @@ func (s *SQLiteStore) InitSchema() error {
 }
 
 func (s *SQLiteStore) initFresh() error {
-	if _, err := s.db.Exec(sqliteSchemaSQL); err != nil {
-		return fmt.Errorf("apply schema: %w", err)
+	if err := s.applySchemaObjects(); err != nil {
+		return err
 	}
 	if err := s.seedDBMeta(); err != nil {
 		return err
 	}
 	if _, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", SQLiteSchemaVersion)); err != nil {
 		return fmt.Errorf("set user_version: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) applySchemaObjects() error {
+	if _, err := s.db.Exec(sqliteSchemaSQL); err != nil {
+		return fmt.Errorf("apply schema: %w", err)
 	}
 	return nil
 }

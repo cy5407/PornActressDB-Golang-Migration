@@ -205,6 +205,7 @@ pub fn import_runtime_json(
     }
 
     apply_link_overrides(&tx, &root.links)?;
+    save_legacy_root_links(&tx, &root.links)?;
     tx.commit().context("commit transaction")?;
 
     report.success = true;
@@ -264,6 +265,7 @@ fn open_runtime_db(path: &Path) -> Result<Connection> {
 
 fn wipe_runtime_tables(tx: &Transaction<'_>) -> Result<()> {
     for table in [
+        "legacy_video_actress_links",
         "video_actress_links",
         "actress_aliases",
         "videos",
@@ -561,6 +563,34 @@ fn insert_link_row(
     Ok(())
 }
 
+/// Persist the JSON `root.links[]` list verbatim into
+/// `legacy_video_actress_links`. Orphan entries with empty `video_code`
+/// or `actress_id` round-trip through this table because the
+/// FK-constrained `video_actress_links` cannot hold them.
+fn save_legacy_root_links(tx: &Transaction<'_>, links: &[VideoActressLink]) -> Result<()> {
+    if links.is_empty() {
+        return Ok(());
+    }
+    let mut stmt = tx
+        .prepare(
+            r#"INSERT INTO legacy_video_actress_links(
+                ordinal, video_code, actress_id, role_type, timestamp
+            ) VALUES(?, ?, ?, ?, ?)"#,
+        )
+        .context("prepare legacy_video_actress_links insert")?;
+    for (i, link) in links.iter().enumerate() {
+        stmt.execute(params![
+            i as i64,
+            link.video_code,
+            link.actress_id,
+            link.role_type,
+            link.timestamp,
+        ])
+        .with_context(|| format!("insert legacy_video_actress_links[{i}]"))?;
+    }
+    Ok(())
+}
+
 fn apply_link_overrides(tx: &Transaction<'_>, links: &[VideoActressLink]) -> Result<()> {
     for link in links {
         let role = if link.role_type.is_empty() {
@@ -780,6 +810,68 @@ mod tests {
             report.auto_created[0].actress_id,
             stable_actress_id("未知女優")
         );
+    }
+
+    #[test]
+    fn orphan_root_link_persists_in_legacy_table() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let json_path = write_json(
+            temp.path(),
+            r#"{
+                "videos": {
+                    "ABC-001": {
+                        "title": "Title",
+                        "actresses": ["Name A"],
+                        "updated_at": "2026-01-08T00:00:00Z"
+                    }
+                },
+                "actresses": {
+                    "a1": {"name": "Name A", "aliases": []}
+                },
+                "links": [
+                    {"video_code": "ABC-001", "actress_id": "a1", "role_type": "主演", "timestamp": "ts1"},
+                    {"video_code": "", "actress_id": "", "role_type": "", "timestamp": ""}
+                ]
+            }"#,
+        );
+        let sqlite_path = temp.path().join("runtime.sqlite");
+
+        let report = import_runtime_json(
+            &json_path,
+            &sqlite_path,
+            ImportOptions {
+                replace: true,
+                auto_create_missing_actresses: false,
+            },
+        )
+        .expect("import");
+        assert!(report.success, "import failed: {report:?}");
+
+        let conn = Connection::open(&sqlite_path).expect("open sqlite");
+        let legacy_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM legacy_video_actress_links", [], |row| {
+                row.get(0)
+            })
+            .expect("count legacy");
+        assert_eq!(legacy_count, 2, "expected 2 legacy rows (1 normal + 1 orphan)");
+
+        let orphan_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM legacy_video_actress_links WHERE video_code = '' AND actress_id = ''",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count orphan");
+        assert_eq!(orphan_count, 1, "orphan link not preserved");
+
+        let runtime_orphans: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM video_actress_links WHERE video_code = ''",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count runtime orphan");
+        assert_eq!(runtime_orphans, 0, "orphan leaked into FK-constrained table");
     }
 
     #[test]

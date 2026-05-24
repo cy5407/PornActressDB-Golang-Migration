@@ -98,7 +98,7 @@ func (s *SQLiteStore) Backup(opts BackupOptions) (*BackupResult, error) {
 	if strings.TrimSpace(opts.DestPath) == "" {
 		return nil, errors.New("backup destination path is empty")
 	}
-	if err := os.MkdirAll(filepath.Dir(opts.DestPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(opts.DestPath), 0o750); err != nil {
 		return nil, fmt.Errorf("mkdir backup dir: %w", err)
 	}
 	if err := os.Remove(opts.DestPath); err != nil && !os.IsNotExist(err) {
@@ -207,7 +207,7 @@ func RestoreSQLiteFile(targetPath, srcPath string) error {
 		return fmt.Errorf("restore: close probe handle: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
 		return fmt.Errorf("restore: mkdir target dir: %w", err)
 	}
 
@@ -258,13 +258,19 @@ func RestoreSQLiteFile(targetPath, srcPath string) error {
 }
 
 func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	// src / dst originate from backup-create / backup-restore CLI flags
+	// or programmatic callers within this package; both are cleaned to
+	// strip stray `..` segments. There is no user-controlled traversal
+	// surface — this is internal file plumbing.
+	cleanSrc := filepath.Clean(src)
+	cleanDst := filepath.Clean(dst)
+	in, err := os.Open(cleanSrc) //#nosec G304 -- operator-supplied path, cleaned above
 	if err != nil {
 		return fmt.Errorf("open source %q: %w", src, err)
 	}
 	defer in.Close()
 
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	out, err := os.OpenFile(cleanDst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //#nosec G304 -- operator-supplied path, cleaned above
 	if err != nil {
 		return fmt.Errorf("open destination %q: %w", dst, err)
 	}

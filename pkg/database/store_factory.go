@@ -79,7 +79,7 @@ func NewStore(cfg StoreConfig) (*SQLiteStore, error) {
 	if sqlitePath == "" {
 		return nil, errors.New("NewStore: sqlite path is empty")
 	}
-	if err := os.MkdirAll(filepath.Dir(sqlitePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(sqlitePath), 0o750); err != nil {
 		return nil, fmt.Errorf("mkdir sqlite parent: %w", err)
 	}
 

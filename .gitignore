@@ -176,6 +176,9 @@ security_reports/_local_archives/
 # tool-scan skill 的本機 scan 副產物（每次跑一個 timestamp 子資料夾）
 output/tool-scan/
 
+# Cargo build artefacts (Rust workspace at root targets `tools-rs/`)
+/target/
+
 .venv/
 
 # 資料庫備份（本地大型 JSON，不進版控）

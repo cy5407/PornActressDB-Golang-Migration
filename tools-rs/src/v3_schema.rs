@@ -26,6 +26,7 @@ pub const V3_REQUIRED_TABLES: &[&str] = &[
     "actresses",
     "actress_aliases",
     "video_actress_links",
+    "legacy_video_actress_links",
 ];
 
 /// Views that must exist in a healthy v3 database. Matches

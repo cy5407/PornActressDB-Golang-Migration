@@ -72,6 +72,21 @@ CREATE TABLE IF NOT EXISTS video_actress_links (
 
 CREATE INDEX IF NOT EXISTS idx_links_actress ON video_actress_links(actress_id);
 
+-- 2.4b legacy_video_actress_links --------------------------------------------
+-- Verbatim snapshot of the JSON `root.links[]` list captured at import time.
+-- Exists so 100 % of JSON `links[]` round-trips through SQLite — including
+-- legacy/orphan entries with empty `video_code` or `actress_id`, which the
+-- FK-constrained `video_actress_links` table cannot hold.
+-- Additive: this table is new in this revision but the structural
+-- PRAGMA user_version stays at 3 (no breaking changes to existing tables).
+CREATE TABLE IF NOT EXISTS legacy_video_actress_links (
+    ordinal     INTEGER PRIMARY KEY,
+    video_code  TEXT NOT NULL DEFAULT '',
+    actress_id  TEXT NOT NULL DEFAULT '',
+    role_type   TEXT NOT NULL DEFAULT '',
+    timestamp   TEXT NOT NULL DEFAULT ''
+);
+
 -- 2.5 statistics views (derived, never persisted) -----------------------------
 DROP VIEW IF EXISTS actress_video_counts;
 CREATE VIEW actress_video_counts AS
