@@ -56,6 +56,29 @@ fn write_fixture(dir: &Path, body: &str) -> std::path::PathBuf {
     json_path
 }
 
+const RUNTIME_V3_FIXTURE: &str = r#"{
+    "schema_version": "1.0.0",
+    "metadata": {"description": "runtime fixture", "encoding": "UTF-8"},
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-02T00:00:00Z",
+    "videos": {
+        "V3-001": {
+            "title": "Runtime One",
+            "studio": "S1",
+            "actresses": ["Alias A", "Name B"],
+            "metadata": {"source": "rust-test", "confidence": 0.75},
+            "updated_at": "2026-01-03T00:00:00Z"
+        }
+    },
+    "actresses": {
+        "a1": {"name": "Name A", "aliases": ["Alias A"], "created_at": "ca", "updated_at": "ua"},
+        "b1": {"name": "Name B", "aliases": [], "created_at": "cb", "updated_at": "ub"}
+    },
+    "links": [
+        {"video_code": "V3-001", "actress_id": "a1", "role_type": "配角", "timestamp": "override"}
+    ]
+}"#;
+
 #[test]
 fn end_to_end_init_import_compare_succeeds() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -210,6 +233,42 @@ fn db_import_json_emits_deprecation_warning_to_stderr() {
         stderr.contains("deprecated"),
         "stderr should mark db-import-json deprecated, got: {stderr}"
     );
+}
+
+#[test]
+fn db_import_json_v3_imports_runtime_schema_and_verifies() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let json_path = write_fixture(temp.path(), RUNTIME_V3_FIXTURE);
+    let sqlite_path = temp.path().join("runtime.sqlite");
+
+    let import_out = run(db_tool().args([
+        "db-import-json-v3",
+        "--json",
+        json_path.to_str().unwrap(),
+        "--sqlite",
+        sqlite_path.to_str().unwrap(),
+        "--replace",
+    ]));
+    let import_stdout = String::from_utf8(import_out.stdout).unwrap();
+    assert!(import_stdout.contains("\"success\": true"));
+    assert!(import_stdout.contains("\"videos_imported\": 1"));
+    assert!(import_stdout.contains("\"actresses_imported\": 2"));
+    assert!(import_stdout.contains("\"links_imported\": 2"));
+
+    let verify_out = run(db_tool().args(["db-verify", "--sqlite", sqlite_path.to_str().unwrap()]));
+    let verify_stdout = String::from_utf8(verify_out.stdout).unwrap();
+    assert!(verify_stdout.contains("\"success\": true"));
+    assert!(verify_stdout.contains("\"schema_version\": 3"));
+
+    let conn = rusqlite::Connection::open(sqlite_path).expect("open sqlite");
+    let role: String = conn
+        .query_row(
+            "SELECT role_type FROM video_actress_links WHERE video_code = 'V3-001' AND actress_id = 'a1'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read role");
+    assert_eq!(role, "配角");
 }
 
 #[test]

@@ -13,10 +13,10 @@ import (
 // the canonical form for both sides is the JSON-encoded representation
 // of the underlying value.
 type VerifyDiff struct {
-	Kind        string `json:"kind"`         // "video" / "actress" / "actress_alias" / "link" / "db_meta"
-	Key         string `json:"key"`          // identifier (code / id / link key / meta key)
-	Field       string `json:"field"`        // empty when Reason != "field_diff"
-	Reason      string `json:"reason"`       // "missing_in_sqlite" / "missing_in_json" / "field_diff"
+	Kind        string `json:"kind"`   // "video" / "actress" / "actress_alias" / "link" / "db_meta"
+	Key         string `json:"key"`    // identifier (code / id / link key / meta key)
+	Field       string `json:"field"`  // empty when Reason != "field_diff"
+	Reason      string `json:"reason"` // "missing_in_sqlite" / "missing_in_json" / "field_diff"
 	JSONValue   string `json:"json_value,omitempty"`
 	SQLiteValue string `json:"sqlite_value,omitempty"`
 }
@@ -230,12 +230,32 @@ func verifyActresses(db *sql.DB, root *DatabaseData, report *VerifyReport) error
 	}
 	for id := range sqliteSide {
 		if _, ok := root.Actresses[id]; !ok {
+			if jsonHasDerivedAutoActress(root, id, sqliteSide[id].Name) {
+				continue
+			}
 			report.Diffs = append(report.Diffs, VerifyDiff{
 				Kind: "actress", Key: id, Reason: "missing_in_json",
 			})
 		}
 	}
 	return nil
+}
+
+func jsonHasDerivedAutoActress(root *DatabaseData, actressID, sqliteName string) bool {
+	if !strings.HasPrefix(actressID, AutoActressIDPrefix) {
+		return false
+	}
+	for _, v := range root.Videos {
+		if v == nil {
+			continue
+		}
+		for _, display := range v.Actresses {
+			if display == sqliteName && StableActressID(display) == actressID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func diffAliasSet(actressID string, jsonAliases, sqliteAliases []string, report *VerifyReport) {

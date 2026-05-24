@@ -509,3 +509,21 @@ so an extension-swap helper is no longer needed.
   side is left untouched; after a SQLite-side restore the operator
   is expected to follow up with `db export-json` to re-sync JSON, or
   accept the drift until the next dual-write convergence.
+
+# Implementation Notes — Rust runtime v3 JSON import
+
+## Design Decisions
+
+- Added `db-import-json-v3` instead of changing `db-import-json`.
+  The existing `db-import-json` command still targets the deprecated v2 shadow schema and is covered by legacy tests. A new command keeps the v2 diagnostic path stable while giving Rust an explicit runtime-v3 import path.
+
+- The Rust importer applies the canonical `pkg/database/sqlite_schema.sql` via `tools-rs/src/v3_schema.rs`.
+  This preserves the Go/Rust schema-sharing contract and avoids creating a second schema file under `tools-rs/` or `schemas/`.
+
+- The Rust importer mirrors Go `MigrateFromJSON` semantics.
+  It imports `db_meta`, `videos`, `actresses`, `actress_aliases`, and `video_actress_links`; strict mode fails loudly on unresolved actress names; `--auto-create-missing-actresses` uses `auto_<sha1(trim(name))[:16]>`; duplicate actress references inside one video roll back the transaction.
+
+## Tradeoffs
+
+- The v3 Rust command ignores legacy `data.journal`.
+  The requested source is `data.json`, and runtime SQLite no longer replays JSON journal files. If an operator needs journal-era data, they must compact/export it before invoking `db-import-json-v3`.

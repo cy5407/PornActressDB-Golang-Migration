@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Wails GUI**：`actress-classifier.exe`（Go backend + React/TypeScript frontend）
 - **Go CLI**：`classifier.exe`（掃描、移動、SQLite 資料庫、操作歷史；非搜尋主流程的唯一寫入入口）
 - **Python 搜尋管線**：`src/scrapers/run_search.py`、`run_batch_search.py`、`src/services/web_searcher.py`（由 GUI 透過 subprocess 呼叫，僅負責爬蟲）
-- **Rust `db-tool`**（`tools-rs/`）：runtime SQLite 結構驗證 (`db-verify`) 與 schema 遷移骨架 (`db-migrate`)；仍保留 legacy v2 shadow-DB 診斷子命令
+- **Rust `db-tool`**（`tools-rs/`）：runtime SQLite v3 匯入 / 結構驗證 / schema 遷移骨架 (`db-import-json-v3` / `db-verify` / `db-migrate`)；仍保留 legacy v2 shadow-DB 診斷子命令
 - **主進入點**：`run.py`（優先啟動已建好的 Wails 執行檔）
 
 ## 建置與測試
@@ -142,6 +142,16 @@ backup / restore CLI 名稱**固定**為 `classifier.exe db backup-create` / `db
 - `tools-rs/tests/integration_db_tool.rs::embedded_v3_schema_matches_canonical_go_package_file`
 - `tools-rs/tests/integration_db_tool.rs::db_verify_*`
 
+### Rust `db-tool` 新定位
+
+| 子命令 | schema | 狀態 |
+|--------|--------|------|
+| `db-import-json-v3` | v3 runtime | **生效** — 用 Rust 把 `data.json` 精準匯入 runtime v3 SQLite；與 Go `migrate-from-json` 對齊 |
+| `db-verify` | v3 runtime | **生效** — 驗證 `data/db.sqlite` 結構與 `user_version` |
+| `db-migrate` | v3 runtime | **生效** — 目前僅 v3→v3 no-op 骨架 |
+| `db-init` / `db-stats` / `db-compare-json` / `db-benchmark` / `query` | v2 shadow | **legacy 保留** — 歷史診斷工具 |
+| `db-import-json` | v2 shadow | **deprecated** — 仍可執行但 stderr 印 deprecation warning |
+
 ### Python 委派層（薄）
 
 - `src/services/go_cli.py` — Python 呼叫 `classifier.exe` 的唯一入口；`is_available(...)` / `run(...)` 都必須收到 `go_exe_path` / `exe_path`
@@ -183,6 +193,7 @@ backup / restore CLI 名稱**固定**為 `classifier.exe db backup-create` / `db
   - `classifier.exe db verify-sync` — SQLite ↔ JSON 等價檢查
   - `classifier.exe db export-json -output ...` — 從 SQLite 產生 JSON 快照
   - `classifier.exe db resync-from-json -source ...` — wipe & 重建（drift 時用）
+  - `cargo run --manifest-path tools-rs\Cargo.toml -- db-import-json-v3 --json data\json_db\data.json --sqlite data\db.sqlite --replace` — Rust runtime v3 匯入（需要從 JSON 重建 SQLite 時使用）
   - `python tools\verify\verify_json_db_schema.py data\json_db\data.json` — JSON 端 schema 驗證
 
 ## 常見工作
@@ -230,4 +241,4 @@ go build -o classifier.exe .\cmd\scanner
 - `README.md` 是對外使用說明；架構或測試命令改變時請同步更新。
 - `implementation-notes.md` 是 SQLite 遷移各 slice 的設計決策紀錄（C1 / C2 / C3）；改 SQLite 相關行為前先讀。
 - `wiki/architecture/database.md` 是目前最權威的 DB 架構參考；`wiki/architecture/sqlite-shadow-db.md` 已標為 historical / 退役。
-- `tools-rs/` 是 Rust crate (`db-tool`)。第一版的 shadow-DB 角色已退役，但 binary 仍保留 v2 子命令（`db-init` / `db-stats` / `db-compare-json` / `db-benchmark` / `query`）作為診斷工具；`db-import-json` 跑時 stderr 會顯示 deprecated warning。新加的 `db-verify` / `db-migrate` 對象是 v3 runtime DB（`data/db.sqlite`）。
+- `tools-rs/` 是 Rust crate (`db-tool`)。第一版的 shadow-DB 角色已退役，但 binary 仍保留 v2 子命令（`db-init` / `db-stats` / `db-compare-json` / `db-benchmark` / `query`）作為診斷工具；`db-import-json` 跑時 stderr 會顯示 deprecated warning。`db-import-json-v3` / `db-verify` / `db-migrate` 對象是 v3 runtime DB（`data/db.sqlite`）。

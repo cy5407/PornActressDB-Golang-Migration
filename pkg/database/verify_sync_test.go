@@ -192,6 +192,25 @@ func TestVerifySync_DetectsExtraVideoInSQLite(t *testing.T) {
 	}
 }
 
+func TestVerifySync_AcceptsDerivedAutoCreatedActress(t *testing.T) {
+	store := migrateTestStore(t)
+	root := minimalRoot()
+	root.Videos["STARS-707"].Actresses = []string{"田中美奈実", "未知女優"}
+	src := writeJSONDB(t, root)
+
+	if _, err := store.MigrateFromJSON(src, MigrationOptions{AutoCreateMissingActresses: true}); err != nil {
+		t.Fatalf("setup migrate auto-create: %v", err)
+	}
+
+	report, err := store.VerifySync(src)
+	if err != nil {
+		t.Fatalf("VerifySync: %v", err)
+	}
+	if !report.Consistent {
+		t.Errorf("auto-created actress should verify as derived from videos[].actresses, diffs = %+v", report.Diffs)
+	}
+}
+
 func TestVerifySync_DetectsLinkRoleDifference(t *testing.T) {
 	store, src, _ := verifySetup(t)
 
