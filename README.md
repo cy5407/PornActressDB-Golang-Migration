@@ -10,8 +10,9 @@
 
 ```
 actress-classifier.exe   ← 桌面 GUI（Go + React/TypeScript，Wails 框架）
-classifier.exe           ← Go CLI（掃描、移動、資料庫工具）
+classifier.exe           ← Go CLI（掃描、移動、SQLite 資料庫、操作歷史）
 Python 搜尋管線          ← 爬蟲後端（AV-WIKI、JAVDB），由 GUI 透過 subprocess 呼叫 `run_search.py` / `run_batch_search.py`
+SQLite v3                ← Runtime source of truth（`data\db.sqlite`）；JSON DB 僅作匯入匯出與歷史備份
 ```
 
 > Python 主要只保留搜尋 / 爬蟲用途；掃描、移動、資料庫、操作歷史與片商工具以 Go / Go CLI 為主。
@@ -153,11 +154,12 @@ classifier.exe db clean-actresses
 classifier.exe db clean-actresses -write
 ```
 
-## JSON 資料庫
+## 資料庫
 
-預設位置：`data\json_db\data.json`
+Runtime 主資料庫為 **SQLite v3**：`data\db.sqlite`（`PRAGMA user_version = 3`）。
+JSON DB（`data\json_db\data.json`）僅作為**匯入來源、匯出目標、歷史備份**，runtime 不再寫 JSON。
 
-README 這裡只列常用欄位摘要；完整 schema 與欄位說明請見 `wiki/architecture/database.md`。
+> 完整 schema、Go ↔ Rust schema 共用機制、`-data-dir` 解析規則等請見 `wiki/architecture/database.md`。
 
 主要欄位摘要：`code`、`title`、`studio`、`actresses`、`search_status`、`last_search_date`、`search_method`、`avwiki_actress_status`、`avwiki_last_search_date`、`javdb_actress_status`、`javdb_last_search_date`、`file_path`、`error`、`error_kind`
 
@@ -177,23 +179,50 @@ README 這裡只列常用欄位摘要；完整 schema 與欄位說明請見 `wik
 | `cascade` | 多源級聯 |
 | `legacy-import` | 舊版匯入 |
 
+### 從 JSON 匯入到 SQLite（一次性切換）
+
+首次啟動時若 `data\db.sqlite` 不存在或為空，且同層有 `data.json`，`NewStore` 會自動把 JSON 匯入 SQLite。手動觸發或修復用：
+
+```powershell
+# 從 JSON 重建 SQLite（嚴格模式：未知女優會報錯）
+classifier.exe db migrate-from-json -data-dir data\json_db
+
+# 同上但自動建立未知女優（auto_<sha1>）
+classifier.exe db migrate-from-json -data-dir data\json_db -auto-create-missing-actresses
+
+# wipe & 重建（drift 時用）
+classifier.exe db resync-from-json -source data\json_db\data.json
+```
+
 ### 資料庫維護
 
 ```powershell
-# 驗證格式
-python tools\verify\verify_json_db_schema.py data\json_db\data.json
+# SQLite ↔ JSON 等價檢查
+classifier.exe db verify-sync
+
+# 從 SQLite 匯出 JSON 快照（給備份或外部工具用）
+classifier.exe db export-json -output snapshot.json
 
 # 女優名單清洗（dry-run；只輸出變更，不寫入）
 classifier.exe db clean-actresses
 
-# 真正寫入清洗結果（會先自動建立 backup）
+# 真正寫入清洗結果（會先自動建立 dual snapshot 備份：.sqlite + .json）
 classifier.exe db clean-actresses -write
 
 # 列出既有 backup
 classifier.exe db backup-list
 
+# 建立 dual snapshot 備份（同時產 .sqlite + .json 兩個檔）
+classifier.exe db backup-create
+
 # 還原指定 backup（注意：這裡必須用 -backup-path）
-classifier.exe db backup-restore -backup-path data\json_db\backup\backup_YYYY-MM-DD_HH-MM-SS.json
+classifier.exe db backup-restore -backup-path data\json_db\backup\backup_YYYY-MM-DD_HH-MM-SS.sqlite
+
+# JSON 端 schema 驗證（給原始 data.json 用）
+python tools\verify\verify_json_db_schema.py data\json_db\data.json
+
+# Rust db-tool：驗證 SQLite 結構（integrity_check + user_version + 必要表/view）
+cargo run --manifest-path tools-rs\Cargo.toml -- db-verify --sqlite data\db.sqlite
 ```
 
 `clean-actresses` 是目前正式的 DB 清洗工具，會掃描所有影片的 `actresses` 欄位，移除已知污染字串、重複拼接名稱，以及像 `三田` 這種在 `三田真鈴` 同時存在時才應清掉的片段名稱。
@@ -201,7 +230,7 @@ classifier.exe db backup-restore -backup-path data\json_db\backup\backup_YYYY-MM
 行為重點：
 - 預設是 dry-run，不會修改 DB
 - 加 `-write` 才會真的寫入
-- `-write` 時會先呼叫 `backup-create` 自動備份，再把變更 compact 回主 DB
+- `-write` 時會先呼叫 `backup-create` 自動建立 dual snapshot（`.sqlite` + `.json`），再把變更套用到主 DB
 - 輸出 JSON 會包含 `scanned_videos`、`changed_videos`、`removed_actresses` 與逐筆 `changes`
 - 目前屬於高信心規則清洗，不是通用全文正規化器；若要擴規則，請同步更新 `pkg/database/actress_cleaner.go` 與對應測試
 
@@ -223,7 +252,7 @@ wails-app\                # Wails 桌面應用原始碼
 │
 cmd\scanner\              # Go CLI 入口
 pkg\                      # Go 套件
-│   database\             # JSON 資料庫
+│   database\             # SQLite v3 runtime + JSON 匯入匯出
 │   extractor\            # 番號提取
 │   mover\                # 檔案移動（含批次/回滾）
 │   studio\               # 片商識別
@@ -232,7 +261,14 @@ src\                      # Python 搜尋管線
 │   scrapers\             # AV-WIKI、JAVDB 爬蟲
 │   services\             # 搜尋核心
 │
-data\json_db\             # JSON 資料庫（執行時產生）
+tools-rs\                 # Rust db-tool（runtime SQLite 驗證 / 匯入 / 結構檢查）
+│
+data\                     # 執行時產生
+│   db.sqlite             # SQLite v3 主資料庫（runtime source of truth）
+│   db.sqlite-wal         # SQLite WAL（自動產生）
+│   db.sqlite-shm         # SQLite 共用記憶體（自動產生）
+│   json_db\data.json     # JSON DB（匯入來源 / 匯出目標 / 歷史備份；非 runtime）
+│   json_db\backup\       # 備份目錄（dual snapshot：.sqlite + .json）
 tools\                    # 維護腳本
 ```
 
@@ -266,8 +302,9 @@ Extracts video codes from filenames, runs the default cascade search flow (mainl
 ## Architecture
 
 - **`actress-classifier.exe`** — Desktop GUI (Go + React/TypeScript via Wails)
-- **`classifier.exe`** — Go CLI for scanning, moving, and database operations
+- **`classifier.exe`** — Go CLI for scanning, moving, SQLite database, and operation history
 - **Python search pipeline** — Web scrapers called via subprocess by the GUI
+- **SQLite v3** — Runtime source of truth at `data\db.sqlite`; the JSON DB is kept only for import / export / historical backup
 
 ## Quick Start
 

@@ -557,3 +557,158 @@ so an extension-swap helper is no longer needed.
 
 - Orphan 在 `verifyLinks` 端的處理是 skip 而非「比對到 NULL」。
   這避免了「missing_in_sqlite」誤報，但代價是 `verifyLinks` 無法察覺 `video_actress_links` 端漏掉一筆原本有 `video_code` 的 link——這層保護改由 `verifyLegacyLinks` 的 ordinal 比對承擔，配合上原本針對 `video_actress_links` 的 role/timestamp 比對，覆蓋率與原本相當。
+
+---
+
+# Implementation Notes — 2026-05-25 Session (runtime JSON cleanup → lint sweep → multi-part fix)
+
+> 一個 session 內把分支從「Python subprocess 仍讀 data.json」收尾到 release-ready：
+> 移除 runtime JSON 讀取 → tool-scan 全面清理 → Rust clippy strict → 修 multi-part bug + 文件。
+
+## Design decisions
+
+### Python search subprocess 改走 `_GoCLIDB`，而非 lazy-load `IncrementalJSONDB`
+
+C2 切到 SQLite-only 後，Python `run_search.py` 的 `db=None` fallback 仍會建構 `IncrementalJSONDB(...)` →
+`JSONDBManager(...)` → 開啟並全檔讀 `data.json` + `data.index`。每次 Wails GUI 觸發單筆搜尋
+subprocess 都會踩一次。
+
+採用「新增 `_GoCLIDB` thin adapter，純委派 `services.go_cli` subprocess」而非「lazy load `IncrementalJSONDB`」：
+- lazy load 只能延後問題，第一次 method call 仍會打開 `data.json`。
+- thin adapter 永遠不直接打開 JSON 檔，符合 C2 之後「runtime 不讀 JSON」的硬性目標。
+- 命名 `_GoCLIDB` 而非 `_FallbackDB`：production runtime（GUI subprocess 跑 `run_search.py main()`）
+  根本不傳 `db=`，必走此類別 → Go CLI subprocess。`db=` 參數是測試注入點，反過來叫 fallback 會誤導維護者。
+
+`_GoCLIDB.update_video` 對齊 `IncrementalJSONDB.update_video` 契約：影片不存在時 raise，而非 silent
+upsert — 即使 outer `_update_source_search_status` 的 `try/except` 會把 raise 轉成 silent return，
+contract 仍要對齊以避免 caller assumption 漂移。
+
+### gosec G401/G505：sha1 在 `StableActressID` 用途為 deterministic ID 非 crypto，採 `#nosec` 而非換 SHA-256
+
+`pkg/database/migrate_from_json.go::StableActressID` 用 sha1 生 `auto_<hex[:16]>` 作為自動建立女優的
+deterministic id（spec § 3.3）。**這不是 cryptographic 用途**，collision-resistance 不是需求；改 SHA-256 反而
+會改變每個既有 auto-created actress 的 id，打破 referential integrity 與既有 export。
+
+採 `#nosec G401`（行內標註）+ `#nosec G505`（import 標註）+ 中文 inline 註解解釋語意。
+
+### gosec G301：`0o755` → `0o750` 是 surgical 修法而非 `#nosec`
+
+`pkg/database/store_factory.go` / `sqlite_backup.go` / `cmd/scanner/db_sqlite_cmd.go` 共 6 處 `os.MkdirAll(..., 0o755)`。
+Windows ACL 不真的看 unix perm bits（NTFS 走 DACL），所以 0o755 → 0o750 在 Windows 行為完全無變。
+但 POSIX 環境（WSL / Linux 跑 Go test）會更嚴格 — others 不能 read/execute。
+本專案是 user-scope 桌面 app，0o750 合理；改 perm 比加 `#nosec` 抑制更乾淨。
+
+### gosec G304：`filepath.Clean` + `#nosec`，不引入 allowlist 機制
+
+`os.Open(path)` / `os.ReadFile(path)` 的 path 來自 operator CLI flag（`db migrate-from-json -source`、
+`db backup-restore -backup-path` 等）。沒有不可信輸入面，但 lint 需要 hint 它已被驗證。
+採 `filepath.Clean` 標準化（strip `..` 殘留）+ `#nosec G304` 註解，**不引入 path allowlist 機制** —
+那層複雜度對單機桌面工具是 overkill。
+
+### Root `Cargo.toml` workspace 而非改 tool-scan orchestrator
+
+tool-scan `cargo clippy` / `cargo audit` 在 repo root 失敗：`could not find Cargo.toml`。原因是
+Rust crate 在 `tools-rs/` 子目錄，root 沒 manifest。
+
+選項：(A) 加 root workspace `Cargo.toml`、(B) 改 `~/.claude/skills/tool-scan/run_tool_scan.py` 支援
+子目錄、(C) 跑 tool-scan 加 `--target tools-rs`。
+
+採 A：(B) 動全域 skill，影響其他 repo；(C) 每次手動指定且會漏掉 Python/Go scan。
+A 是 multi-language repo 的標準做法，且 root 從此可直接跑 `cargo build` / `cargo test`，IDE Rust analyzer
+也能從 root 開。`tools-rs/Cargo.lock` 在 workspace 模式下成為 vestigial（cargo 忽略它），auto mode 拒絕刪
+tracked 檔所以暫留，留 follow-up 清理。
+
+### Clippy strict 三項收斂：context struct + type alias
+
+`tools-rs/src/runtime_import.rs`：
+
+- `migrate_actresses` 回傳 `Result<(HashMap, HashMap, HashMap)>` → 引入 `struct ActressMaps { id_by_name, id_by_alias, id_to_name }` + `impl ActressMaps { fn resolve(&self, display) }`，回傳 `Result<ActressMaps>`。
+- `migrate_video_actresses` 8 個參數收成 `&mut ActressMaps`（減 3 個 args → 5 個，過 7 個門檻）。
+- `auto_create_actress` 同步改吃 `&mut ActressMaps`。
+
+對齊 clippy `type_complexity` 與 `too_many_arguments` 而不用 `#[allow]` — 因為三個 map 在邏輯上就是
+「actress resolution state」一個概念，本來就該 bundle，這個 refactor 同時提升可讀性。
+
+`verify.rs::to_ascii_lowercase() != "ok"` → `!eq_ignore_ascii_case("ok")`：one-liner。
+
+### Scan dedupe 移除：multi-part fix 暴露 latent edge case
+
+`wails-app/backend/app.go::ScanDirectory` 原本 `seen[code]` map「同番號只保留第一個 path」。
+GUI 實測發現 multi-part 切割檔（`KUSE-042-1.mp4` + `KUSE-042-2.mp4`）只搬到第一個，第二個被 scan 階段就丟掉。
+
+根因：dedupe 的職責應該在 BatchSearch（每 code 只爬一次）而非 scan（列出磁碟上每個影片）。
+Scan 階段提早 drop file path 把資料殺在最上游，下游沒救。
+
+修法：移除 `seen` map，每個帶番號的影片檔各自一筆 `ScanResult`。前端 React key 用 `r.path`、
+selection 用 `r.code`（multi-part 兩 part 一起選 = 想要的 UX）、BatchSearch 對重複 code 走 DB cache。
+
+**暴露的 latent edge case**：同檔名跨目錄（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.mp4`）會在 BatchMove 撞 dest。
+GUI 預設 `skip` 保資料安全，但 `overwrite` 會丟資料。記錄為 wiki pitfall + 4 種未來修法選項，現階段不修
+（採「選項 A 接受現狀」）。詳見 `docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md`。
+
+### `config.ini` `[go_integration]` section 有 duplicate option 是本機檔損壞
+
+GUI 實測每筆搜尋都失敗，stderr 訊息 `option 'enable_operation_log' in section 'go_integration' already exists`。
+查 `config.ini` line 33-38 是重複 + garbage（`gy = skip` 看起來是 partial-write 殘骸）。
+
+`config.ini` 在 `.gitignore` 內，是本機檔；`config.ini.example` 才是 repo 範本。直接刪重複段保留 line 26-32 乾淨版本。
+不修 `configparser strict mode` 行為（strict 抓重複 option 是正確的）；不改 `config.ini.example`（範本本來就 OK）。
+
+不確定哪個寫入路徑造成 duplicate write — Wails preferences UI 寫 config / 手動編輯 / 某次 import 流程都可能。
+**Open question** 列入下節。
+
+## Deviations
+
+- **gosec G304 不引入 path validation framework**：採 `filepath.Clean + #nosec`。代價是若未來有不可信輸入面（例如 HTTP API），需要重新審視；目前是純本機 CLI / Wails，無此面向。
+
+- **`tools-rs/Cargo.lock` 沒刪**：workspace 模式下成為 vestigial，但 auto mode classifier 拒絕刪 tracked 檔。功能上 cargo 會忽略它，無 build 問題；視覺乾淨度小傷。留 follow-up。
+
+- **ruff `--unsafe-fixes` 把 `from X import (a as A, b as B, ...)` 拆成多個 single-line `from X import (a as A,)`**：醜但 valid。沒手動 revert — 改回去得逐檔 manual edit，且 ruff 下一次 strict 跑會再拆開。接受。
+
+- **同名跨目錄 edge case 不立即修**：在 wiki + docs 完整記錄 4 種修法（A 接受現狀 / B in-batch dest 偵測 / C `(dir, code)` 複合 key / D 完整修法），現階段選 A 因為 GUI 預設 `skip` 保資料安全，且 user 還沒主動回報踩雷。
+
+## Tradeoffs
+
+- **Scan 不再 dedupe 之後，selection UX 略不直觀**：兩個 multi-part part 共享一個 code，`toggleSelected(r.code)` 會同時選/取消兩個 row。對 multi-part 是想要的行為，對「同名跨目錄」是違反直覺的行為。選 surgical 修法（保留 selection 邏輯），等同名跨目錄 case 有人實際踩雷再考慮重構 selection identity。
+
+- **Test 改 stateful fake 而非真實 SQLite 整合測試**：`tests/test_split_search_entrypoints.py` 新增 5 個 `_GoCLIDB` fallback 路徑測試，用 `_install_stateful_go_cli_fakes` monkeypatch `services.go_cli.db_get_video` / `db_update_video`。比拉真實 `classifier.exe` subprocess 快很多但少一層 contract 驗證；那層由既有 `tests/test_go_cli_contracts.py` 補。
+
+- **Multi commit 拆分**：本 session 切了 5 個 commit（A 組 / lint cleanup / B 組 + Cargo workspace + gosec / clippy strict + gitignore / 多 part fix + 文件）。每個都通過全套測試 + push。代價是 PR review 多看幾次，益處是 `git revert` 顆粒度好。
+
+## Open questions
+
+1. **`config.ini` `[go_integration]` 為何 duplicate write**：本 session 修了損壞檔，但沒查出寫入來源。可能 candidate：Wails `PreferencesDialog` 寫 config、Python 某 helper、過去 commit 的 partial-write bug 殘留。建議未來踩到時抓 `git log -p config.ini.example` + Wails preferences flow。
+
+2. **Wails 是否還有其他 ConfigParser strict 觸發點**：只看到 search subprocess 的 stderr 報錯，但其他 Python helper（`tools/`, `src/services/`）也有 `ConfigParser`，未驗證它們是否會被 duplicate option 弄掛。
+
+3. **同名跨目錄 BatchMove race**：若 BatchMove goroutine pool 並行，兩個 worker 同時 stat 同 dest 不存在 → 兩個都 rename → 後者覆蓋前者。預設 `skip` 也救不了 race。要驗證 BatchMove 是序列還是並行，或加 dest-level mutex。
+
+4. **`tools-rs/Cargo.lock` 清理**：workspace 模式下成為 vestigial，下次有適合的 commit 時 `git rm`。
+
+5. **`ScanResult` selection identity**：multi-part 兩 part 用同 `code` selection 是正解，同名跨目錄是 false positive。長期考慮把 selection key 改成 `path` 並調整 UX（顯示「全選 2 個檔」等）。
+
+## Timeline cross-check
+
+Commit timestamps below are from `git log --date=iso-strict origin/main..HEAD`
+and are therefore the source of truth for what actually landed on the branch.
+All commits show author `Yuta`; the Claude/Codex owner column is inferred from
+the local session transcript, not from git metadata.
+
+| Time (Asia/Taipei) | Commit / event | Owner in session | Evidence / scope |
+|--------------------|----------------|------------------|------------------|
+| 2026-05-24 20:42:14 | `9e4cb80` `docs: Phase D align agent guidance with SQLite runtime contracts` | Claude Code | Agent guidance aligned with SQLite-only runtime. |
+| 2026-05-24 20:58:31 | `ffc4bca` `feat: add Rust runtime v3 JSON import` | Claude Code | Rust `db-import-json-v3` added before main-data smoke. |
+| 2026-05-24 22:04 approx. | Main desktop data import, no commit | Codex + Claude worker output | `C:\Users\cy5407\Desktop\PornActressDB-Golang-Migration\data\json_db\data.json` imported into `data\db.sqlite` with Rust importer; verified `videos=3485`, `actresses=1087`, `links=3807`, `legacy_root_link_mismatches=0`. This is a local data operation, intentionally not versioned. |
+| 2026-05-24 22:08 approx. | `setup.ps1` Wails build, no commit | Codex local verification | Built `classifier.exe`, `actress-classifier.exe`, and `dist\PornActressDB-windows-portable.zip` in the worktree for manual smoke testing. |
+| 2026-05-24 22:16-22:17 approx. | Wails manual smoke, no commit | User + Codex verification | Worktree `config.ini` was pointed at the main desktop `data` directory so Wails read `data\db.sqlite`; GUI scanned/searched 9 codes and SQLite contained all 9 while `data.json` contained none. |
+| 2026-05-24 23:16:37 | `72af0d5` `feat: route Python search subprocess writes through Go CLI` | Claude Code, reviewed after Codex prompt | Runtime JSON read path removed from `run_search.py`; later wording corrected so Go CLI is documented as the default runtime backend, not fallback. |
+| 2026-05-24 23:37:59 | `66e4292` `chore: address tool-scan findings (gitleaks fp, bandit B108, ruff sweep, gofmt)` | Claude Code | tool-scan cleanup. |
+| 2026-05-24 23:53:15 | `2d570a0` `feat: root-links round-trip via legacy_video_actress_links + Rust v3 importer` | Claude Code + Codex review/prompt | Root `links[]` preservation and gosec cleanup committed after the local main-data import proved the missing root-link issue. |
+| 2026-05-25 00:05:56 | `ac600e8` `chore: make Rust clippy strict clean and ignore local DB artifacts` | Claude Code | Root Cargo workspace strict clippy cleanup + ignored DB artefacts. |
+
+Cross-check conclusion: the commit order matches the session order. The main
+desktop data migration and Wails 9-code smoke test happened **between**
+`ffc4bca` and `72af0d5`; they are not commits because they touched local data
+and build artefacts only. The later commits (`72af0d5`, `66e4292`,
+`2d570a0`, `ac600e8`) are code/doc/tooling changes that made the behaviour
+reproducible from source.

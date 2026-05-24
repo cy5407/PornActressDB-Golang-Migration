@@ -58,6 +58,7 @@
 | 頁面 | 摘要 | 來源 |
 |------|------|------|
 | [Wails 掃描重複番號](pitfalls/wails-scan-duplicate.md) ✅ | WalkDir 無去重導致同番號多次出現；`seen[]` map 已修 | E2E 實測 |
+| [**同檔名跨目錄 destination 撞名**](pitfalls/scan-same-filename-cross-dir-conflict.md) 〰️ | scan 移除 code dedupe 之後暴露的 in-batch dest collision；GUI 預設 `skip` 保資料安全；4 種未來修法見 [docs/茶包射手](../docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md) | 2026-05-25 |
 | [**同路徑移動永久刪除檔案**](pitfalls/wails-move-same-path-delete.md) ✅ | 輸入==輸出目錄時二次移動觸發偽衝突；三層修復 + 垃圾桶 | 2026-04-08 |
 | [Wails 移動後路徑未更新](pitfalls/wails-move-stale-paths.md) 〰️ | 移動成功後 scanResults 仍持有舊路徑 | 2026-04-07 |
 

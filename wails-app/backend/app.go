@@ -116,7 +116,11 @@ type ScanResult struct {
 
 // ScanDirectory scans the given directory for video files and extracts their codes.
 // When recursive=true (default), scans all subdirectories to any depth.
-// Duplicate codes are deduplicated: first occurrence wins.
+// Every video file with a recognisable code becomes its own ScanResult — multi-part
+// files that share a code (e.g. KUSE-042-1.mp4 + KUSE-042-2.mp4 both extract to
+// KUSE-042) are kept as separate entries so each underlying file can be moved.
+// Downstream BatchSearch tolerates duplicate codes by hitting the per-code DB
+// cache on the second pass, so the search budget does not grow.
 // Supports cancellation via CancelOperation. Emits "scan:progress" events during walk.
 func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResult {
 	scanCtx, cancel := context.WithCancel(a.ctx)
@@ -130,7 +134,6 @@ func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResul
 	}()
 
 	var results []ScanResult
-	seen := make(map[string]bool) // 去重：相同番號只保留第一個路徑
 	supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
 	for _, ext := range extractor.SupportedFormats {
 		supportedFormats[ext] = true
@@ -159,8 +162,7 @@ func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResul
 		}
 		scanned++
 		code := a.extractor.ExtractCode(filepath.Base(path))
-		if code != "" && !seen[code] {
-			seen[code] = true
+		if code != "" {
 			results = append(results, ScanResult{Path: path, Code: code})
 			a.emitEvent("scan:progress", len(results), code)
 		}

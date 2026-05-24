@@ -108,6 +108,42 @@ func TestScanDirectory_IgnoresNonVideoFiles(t *testing.T) {
 	}
 }
 
+func TestScanDirectory_KeepsMultiplePartsWithSameCode(t *testing.T) {
+	app := newTestApp(t)
+	tmp := t.TempDir()
+
+	// Multi-part files share the same extracted code (KUSE-042) but live as
+	// distinct files on disk. Both must reach the move step.
+	for _, name := range []string{"KUSE-042-1.mp4", "KUSE-042-2.mp4"} {
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte("fake"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results := app.ScanDirectory(tmp, 4, true)
+	if len(results) != 2 {
+		t.Fatalf("expected both multi-part files to be scanned, got %d results: %#v", len(results), results)
+	}
+
+	codes := map[string]int{}
+	for _, r := range results {
+		codes[r.Code]++
+	}
+	if codes["KUSE-042"] != 2 {
+		t.Errorf("expected 2 entries for KUSE-042, got %d", codes["KUSE-042"])
+	}
+
+	paths := map[string]bool{}
+	for _, r := range results {
+		paths[filepath.Base(r.Path)] = true
+	}
+	for _, want := range []string{"KUSE-042-1.mp4", "KUSE-042-2.mp4"} {
+		if !paths[want] {
+			t.Errorf("missing path %q in results", want)
+		}
+	}
+}
+
 func TestScanDirectory_NonRecursive(t *testing.T) {
 	app := newTestApp(t)
 	tmp := t.TempDir()

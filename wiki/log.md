@@ -5,6 +5,22 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-05-25] fix + pitfall | Scan 階段移除 code dedupe 修 multi-part 切割檔 + 記錄同名跨目錄 latent edge case
+
+**涉及檔案**：
+- `wails-app/backend/app.go::ScanDirectory` — 移除 `seen[code]` map；改成每個帶番號的影片檔各自一筆 `ScanResult`；註解說明 multi-part 設計與 BatchSearch 對重複 code 走 cache 不會 2× 爬蟲
+- `wails-app/backend/app_test.go::TestScanDirectory_KeepsMultiplePartsWithSameCode` — 新測試，建 `KUSE-042-1.mp4` + `KUSE-042-2.mp4` 兩個 multi-part 切割檔，assert 兩筆都回來
+- `docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md` — **新檔**；詳細記錄問題、根因、目前修法、殘留的同名跨目錄 edge case、4 種未來修法（A 接受現狀 / B in-batch dest 偵測 / C `(dir, code)` 複合 key / D 完整修法）
+- `wiki/pitfalls/scan-same-filename-cross-dir-conflict.md` — **新檔**；wiki 簡要條目，連到上面 docs
+- `wiki/index.md` — 在「掃描 / 移動」段加新 pitfall 條目，狀態 〰️
+- `wiki/wiki-data.js` — 由 `python wiki/gen_data.py` 重新產生
+
+**摘要**：
+- GUI 實測踩到：`KUSE-042` 被拆成 `-1.mp4` + `-2.mp4`，scan 階段的 `seen[code]` 把第二個丟掉，導致 search / move 階段看不到它。
+- 根因：Scan 階段不該對 code 做 dedupe — 那個職責屬於下游 BatchSearch（DB cache 已能處理）。Scan 應該如實列出磁碟上每個影片檔。
+- 修法：移除 dedupe。前端 React key 用 `r.path` 不受影響；selection 用 `r.code` 讓 multi-part 兩 part 一起選取（正好是想要的 UX）；BatchSearch 對重複 code 第二次走 cache。
+- 殘留 edge case：同名跨目錄（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.mp4`）會在 BatchMove 撞 dest。GUI 預設 `skip` 保資料安全，但 `overwrite` 會丟資料、`rename` 會改檔名。記錄為 pitfall + 4 種未來修法選項，現階段不修。
+
 ## [2026-05-23] refactor | C3：runtime SQLite-only 確認；Rust db-tool 加 db-verify / db-migrate、db-import-json deprecate；schema Go/Rust 共用
 
 **涉及檔案**：
