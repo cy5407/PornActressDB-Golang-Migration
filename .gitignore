@@ -159,6 +159,21 @@ coverage_report.txt
 /data/json_db/data.index
 /data/json_db/data.backup_*.json
 
+# Runtime SQLite (C2 之後的 source of truth) — 本機 per-machine，不進版控
+/data/db.sqlite
+/data/db.sqlite-shm
+/data/db.sqlite-wal
+# SQLite WAL/SHM sidecars anywhere in the tree (e.g. wails-app/backend/...)
+*.sqlite-shm
+*.sqlite-wal
+
+# Scraper local caches and stats (per-machine accumulation)
+/data/javdb_search_cache.json
+/data/javdb_stats.json
+
+# 本機 sandbox / 暫存 DB 備份目錄（手動拋丟用，內含 .sqlite + WAL）
+/ignored/
+
 # Wails backend 錯位產生的執行期 DB 產物（不應追蹤）
 /wails-app/backend/data/json_db/data.json
 /wails-app/backend/data/json_db/data.journal

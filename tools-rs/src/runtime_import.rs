@@ -187,16 +187,8 @@ pub fn import_runtime_json(
         wipe_runtime_tables(&tx)?;
     }
     migrate_db_meta(&tx, &root)?;
-    let (mut id_by_name, id_by_alias, mut id_to_name) = migrate_actresses(&tx, &root, &mut report)?;
-    migrate_videos_and_links(
-        &tx,
-        &root,
-        opts,
-        &mut report,
-        &mut id_by_name,
-        &id_by_alias,
-        &mut id_to_name,
-    )?;
+    let mut maps = migrate_actresses(&tx, &root, &mut report)?;
+    migrate_videos_and_links(&tx, &root, opts, &mut report, &mut maps)?;
 
     sort_report_lists(&mut report);
     if !report.unresolved.is_empty() || !report.duplicates.is_empty() {
@@ -307,18 +299,39 @@ fn migrate_db_meta(tx: &Transaction<'_>, root: &DatabaseRoot) -> Result<()> {
     Ok(())
 }
 
+/// Actress-resolution state shared across the migration helpers.
+///
+/// Three lookup maps that all stay in sync: every actress row we
+/// insert appears in at least `id_by_name` + `id_to_name`, plus
+/// every alias appears in `id_by_alias`. Bundling them lets the
+/// `migrate_*` helpers take a single `&mut` parameter instead of
+/// threading three independent map references (which trips
+/// clippy::too_many_arguments and clippy::type_complexity).
+#[derive(Default)]
+struct ActressMaps {
+    /// canonical name → actress id
+    id_by_name: HashMap<String, String>,
+    /// alias → actress id
+    id_by_alias: HashMap<String, String>,
+    /// actress id → canonical name (reverse lookup for display_name)
+    id_to_name: HashMap<String, String>,
+}
+
+impl ActressMaps {
+    fn resolve(&self, display: &str) -> Option<String> {
+        self.id_by_name
+            .get(display)
+            .or_else(|| self.id_by_alias.get(display))
+            .cloned()
+    }
+}
+
 fn migrate_actresses(
     tx: &Transaction<'_>,
     root: &DatabaseRoot,
     report: &mut ImportReport,
-) -> Result<(
-    HashMap<String, String>,
-    HashMap<String, String>,
-    HashMap<String, String>,
-)> {
-    let mut id_by_name = HashMap::new();
-    let mut id_by_alias = HashMap::new();
-    let mut id_to_name = HashMap::new();
+) -> Result<ActressMaps> {
+    let mut maps = ActressMaps::default();
 
     for (id, maybe_actress) in &root.actresses {
         let Some(actress) = maybe_actress else {
@@ -331,19 +344,19 @@ fn migrate_actresses(
             &actress.created_at,
             &actress.updated_at,
         )?;
-        id_by_name.insert(actress.name.clone(), id.clone());
-        id_to_name.insert(id.clone(), actress.name.clone());
+        maps.id_by_name.insert(actress.name.clone(), id.clone());
+        maps.id_to_name.insert(id.clone(), actress.name.clone());
         for alias in &actress.aliases {
             tx.execute(
                 "INSERT INTO actress_aliases(actress_id, alias) VALUES(?, ?)",
                 params![id, alias],
             )
             .with_context(|| format!("insert alias {alias} for actress {id}"))?;
-            id_by_alias.insert(alias.clone(), id.clone());
+            maps.id_by_alias.insert(alias.clone(), id.clone());
         }
         report.actresses_imported += 1;
     }
-    Ok((id_by_name, id_by_alias, id_to_name))
+    Ok(maps)
 }
 
 fn migrate_videos_and_links(
@@ -351,9 +364,7 @@ fn migrate_videos_and_links(
     root: &DatabaseRoot,
     opts: ImportOptions,
     report: &mut ImportReport,
-    id_by_name: &mut HashMap<String, String>,
-    id_by_alias: &HashMap<String, String>,
-    id_to_name: &mut HashMap<String, String>,
+    maps: &mut ActressMaps,
 ) -> Result<()> {
     for (code, maybe_video) in &root.videos {
         let Some(video) = maybe_video else {
@@ -361,16 +372,7 @@ fn migrate_videos_and_links(
         };
         insert_video_row(tx, code, video)?;
         report.videos_imported += 1;
-        migrate_video_actresses(
-            tx,
-            code,
-            video,
-            opts,
-            report,
-            id_by_name,
-            id_by_alias,
-            id_to_name,
-        )?;
+        migrate_video_actresses(tx, code, video, opts, report, maps)?;
     }
     Ok(())
 }
@@ -381,24 +383,16 @@ fn migrate_video_actresses(
     video: &VideoData,
     opts: ImportOptions,
     report: &mut ImportReport,
-    id_by_name: &mut HashMap<String, String>,
-    id_by_alias: &HashMap<String, String>,
-    id_to_name: &mut HashMap<String, String>,
+    maps: &mut ActressMaps,
 ) -> Result<()> {
     let mut ordinals_by_actress: HashMap<String, Vec<usize>> = HashMap::new();
 
     for (ordinal, display) in video.actresses.iter().enumerate() {
-        let actress_id = match resolve_actress_id(display, id_by_name, id_by_alias) {
+        let actress_id = match maps.resolve(display) {
             Some(id) => id,
-            None if opts.auto_create_missing_actresses => auto_create_actress(
-                tx,
-                display,
-                &video.updated_at,
-                report,
-                id_by_name,
-                id_to_name,
-                code,
-            )?,
+            None if opts.auto_create_missing_actresses => {
+                auto_create_actress(tx, display, &video.updated_at, report, maps, code)?
+            }
             None => {
                 report.unresolved.push(UnresolvedEntry {
                     video_code: code.to_string(),
@@ -414,7 +408,7 @@ fn migrate_video_actresses(
             continue;
         }
 
-        let display_name = match id_to_name.get(&actress_id) {
+        let display_name = match maps.id_to_name.get(&actress_id) {
             Some(name) if name != display => display.as_str(),
             _ => "",
         };
@@ -437,7 +431,7 @@ fn migrate_video_actresses(
         ordinals.sort_unstable();
         report.duplicates.push(DuplicateEntry {
             video_code: code.to_string(),
-            actress_name: id_to_name.get(&actress_id).cloned().unwrap_or_default(),
+            actress_name: maps.id_to_name.get(&actress_id).cloned().unwrap_or_default(),
             actress_id,
             ordinals,
         });
@@ -445,34 +439,22 @@ fn migrate_video_actresses(
     Ok(())
 }
 
-fn resolve_actress_id(
-    display: &str,
-    id_by_name: &HashMap<String, String>,
-    id_by_alias: &HashMap<String, String>,
-) -> Option<String> {
-    id_by_name
-        .get(display)
-        .or_else(|| id_by_alias.get(display))
-        .cloned()
-}
-
 fn auto_create_actress(
     tx: &Transaction<'_>,
     display: &str,
     timestamp: &str,
     report: &mut ImportReport,
-    id_by_name: &mut HashMap<String, String>,
-    id_to_name: &mut HashMap<String, String>,
+    maps: &mut ActressMaps,
     video_code: &str,
 ) -> Result<String> {
     let id = stable_actress_id(display);
-    if id_to_name.contains_key(&id) {
-        id_by_name.insert(display.to_string(), id.clone());
+    if maps.id_to_name.contains_key(&id) {
+        maps.id_by_name.insert(display.to_string(), id.clone());
         return Ok(id);
     }
     insert_actress_row(tx, &id, display, timestamp, timestamp)?;
-    id_by_name.insert(display.to_string(), id.clone());
-    id_to_name.insert(id.clone(), display.to_string());
+    maps.id_by_name.insert(display.to_string(), id.clone());
+    maps.id_to_name.insert(id.clone(), display.to_string());
     report.actresses_imported += 1;
     report.auto_created.push(AutoCreatedEntry {
         name: display.to_string(),

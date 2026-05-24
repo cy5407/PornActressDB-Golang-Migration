@@ -48,7 +48,7 @@ pub fn verify(sqlite_path: &Path) -> Result<VerifyReport> {
             "user_version is {schema_version}, want {V3_SCHEMA_VERSION}"
         ));
     }
-    if integrity_check.to_ascii_lowercase() != "ok" {
+    if !integrity_check.eq_ignore_ascii_case("ok") {
         failure_reasons.push(format!("integrity_check returned {integrity_check:?}"));
     }
     if !missing_tables.is_empty() {
