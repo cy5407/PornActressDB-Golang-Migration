@@ -158,6 +158,134 @@ def test_run_search_creates_minimal_real_db_record_for_brand_new_code(tmp_path):
     assert created["avwiki_last_search_date"] == "2026-04-10T00:00:00Z"
 
 
+def _install_stateful_go_cli_fakes(monkeypatch, initial: dict | None = None) -> dict:
+    """安裝會記錄狀態的 fake go_cli：db_update_video 寫入後，後續 db_get_video 看得到。"""
+    import services.go_cli as go_cli_module
+
+    state: dict[str, dict] = {}
+    if initial:
+        state[initial["code"]] = dict(initial)
+
+    def fake_get_video(code, data_dir):
+        return dict(state[code]) if code in state else None
+
+    def fake_update_video(code, video, data_dir):
+        state[code] = dict(video)
+        return True
+
+    monkeypatch.setattr(go_cli_module, "db_get_video", fake_get_video)
+    monkeypatch.setattr(go_cli_module, "db_update_video", fake_update_video)
+    return state
+
+
+def test_go_cli_db_default_creates_minimal_record_for_unknown_code(monkeypatch):
+    """db=None（= runtime 預設路徑）：影片不存在時 build minimal video 並走 Go CLI 寫入，不讀 data.json。"""
+    state = _install_stateful_go_cli_fakes(monkeypatch)
+
+    run_search_module._update_source_search_status(
+        "NEW-001",
+        {"actresses": ["A"], "search_status": "ok"},
+        "javdb",
+        now="2026-04-10T00:00:00Z",
+    )
+
+    assert "NEW-001" in state, "runtime 預設應透過 go_cli 寫入新影片"
+    record = state["NEW-001"]
+    assert record["code"] == "NEW-001"
+    assert record["javdb_actress_status"] == "found"
+    assert record["javdb_last_search_date"] == "2026-04-10T00:00:00Z"
+    assert record["created_at"] == "2026-04-10T00:00:00Z"
+    assert record["updated_at"] == "2026-04-10T00:00:00Z"
+
+
+def test_go_cli_db_default_merges_existing_record(monkeypatch):
+    """db=None（= runtime 預設路徑）：影片存在時，update 應 merge 既有欄位，不會 wipe。"""
+    state = _install_stateful_go_cli_fakes(
+        monkeypatch,
+        initial={
+            "code": "AARM-247",
+            "title": "保留標題",
+            "studio": "アロマ企画",
+            "actresses": ["仲川そら"],
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+    )
+
+    run_search_module._update_source_search_status(
+        "AARM-247",
+        {"actresses": []},
+        "javdb",
+        now="2026-04-10T00:00:00Z",
+    )
+
+    merged = state["AARM-247"]
+    assert merged["title"] == "保留標題"  # 既有欄位被保留
+    assert merged["studio"] == "アロマ企画"
+    assert merged["javdb_actress_status"] == "not_found"
+    assert merged["javdb_last_search_date"] == "2026-04-10T00:00:00Z"
+    assert merged["updated_at"] == "2026-04-10T00:00:00Z"
+
+
+def test_go_cli_db_default_swallows_go_cli_failures(monkeypatch):
+    """db=None（= runtime 預設路徑）：go_cli.db_update_video 回 False 時 _GoCLIDB 會 raise，
+    最外層 _update_source_search_status 的 try/except 將其轉為 silent return。"""
+    import services.go_cli as go_cli_module
+
+    monkeypatch.setattr(go_cli_module, "db_get_video", lambda code, data_dir: None)
+    monkeypatch.setattr(
+        go_cli_module, "db_update_video", lambda code, video, data_dir: False
+    )
+
+    # 不應拋出 — 失敗會被外層 try/except 吞掉
+    run_search_module._update_source_search_status(
+        "FAIL-001",
+        {"actresses": []},
+        "avwiki",
+        now="2026-04-10T00:00:00Z",
+    )
+
+
+def test_go_cli_db_update_video_raises_when_record_missing(monkeypatch):
+    """直接呼叫 _GoCLIDB.update_video 對齊 IncrementalJSONDB 契約：影片不存在 → raise。"""
+    import services.go_cli as go_cli_module
+
+    monkeypatch.setattr(go_cli_module, "db_get_video", lambda code, data_dir: None)
+    monkeypatch.setattr(
+        go_cli_module, "db_update_video", lambda code, video, data_dir: True
+    )
+
+    db = run_search_module._GoCLIDB("ignored")
+    with pytest.raises(RuntimeError, match="影片不存在"):
+        db.update_video("GHOST-001", {"foo": "bar"})
+
+
+def test_go_cli_db_does_not_open_real_data_json(monkeypatch):
+    """整段 _update_source_search_status 走 _GoCLIDB 路徑時，不會 open 任何 data.json / data.index。"""
+    import builtins
+
+    _install_stateful_go_cli_fakes(monkeypatch)
+
+    real_open = builtins.open
+    opened: list[str] = []
+
+    def tracking_open(file, *args, **kwargs):
+        path_str = str(file)
+        if path_str.endswith("data.json") or path_str.endswith("data.index"):
+            opened.append(path_str)
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", tracking_open)
+
+    run_search_module._update_source_search_status(
+        "NEW-002",
+        {"actresses": ["B"]},
+        "javdb",
+        now="2026-04-10T00:00:00Z",
+    )
+
+    assert opened == [], f"runtime 預設路徑不應 open data.json/data.index，實際被打開: {opened}"
+
+
 def test_run_batch_search_search_one_accepts_source_mode(monkeypatch):
     run_batch_search_module._thread_local = threading.local()
     called = {}
