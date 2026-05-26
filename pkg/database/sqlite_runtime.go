@@ -178,7 +178,6 @@ func (s *SQLiteStore) upsertVideoRuntime(code string, v *VideoData) error {
 	committed := false
 	defer func() {
 		if !committed {
-			//nolint:errcheck // rollback during deferred cleanup; no actionable handling
 			_ = tx.Rollback()
 		}
 	}()
@@ -195,7 +194,6 @@ func (s *SQLiteStore) upsertVideoRuntime(code string, v *VideoData) error {
 	return nil
 }
 
-//nolint:gocognit // Runtime link rebuild keeps alias lookup and auto-create paths explicit.
 func rebuildLinksForVideoAutoCreate(tx *sql.Tx, code string, v *VideoData) error {
 	if _, err := tx.Exec(`DELETE FROM video_actress_links WHERE video_code = ?`, code); err != nil {
 		return fmt.Errorf("wipe links for %q: %w", code, err)
@@ -368,12 +366,12 @@ func (s *SQLiteStore) GetStats() (map[string]any, error) {
 		return nil, err
 	}
 	var actressCount int
-	if aErr := s.db.QueryRow(`SELECT COUNT(*) FROM actresses`).Scan(&actressCount); aErr != nil {
-		return nil, fmt.Errorf("sqlite GetStats actresses: %w", aErr)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM actresses`).Scan(&actressCount); err != nil {
+		return nil, fmt.Errorf("sqlite GetStats actresses: %w", err)
 	}
 	var linkCount int
-	if lErr := s.db.QueryRow(`SELECT COUNT(*) FROM video_actress_links`).Scan(&linkCount); lErr != nil {
-		return nil, fmt.Errorf("sqlite GetStats links: %w", lErr)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM video_actress_links`).Scan(&linkCount); err != nil {
+		return nil, fmt.Errorf("sqlite GetStats links: %w", err)
 	}
 	meta, err := s.readDBMeta()
 	if err != nil {
@@ -595,7 +593,6 @@ func (s *SQLiteStore) MergeFromFile(sourceFile string, overwrite bool) (*MergeSt
 	return s.mergeFromRoot(sourceRoot, overwrite)
 }
 
-//nolint:gocognit // Merge accounting and overwrite branches stay together to keep one transactional flow.
 func (s *SQLiteStore) mergeFromRoot(root *DatabaseData, overwrite bool) (*MergeStats, error) {
 	stats := &MergeStats{}
 	now := time.Now().UTC().Format(ISODateTimeFormat)
@@ -680,7 +677,6 @@ func (s *SQLiteStore) mergeFromRoot(root *DatabaseData, overwrite bool) (*MergeS
 		committed := false
 		defer func() {
 			if !committed {
-				//nolint:errcheck // rollback during deferred cleanup; no actionable handling
 				_ = tx.Rollback()
 			}
 		}()

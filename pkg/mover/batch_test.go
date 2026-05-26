@@ -80,8 +80,6 @@ func TestBatchMove_SerialExecutionInvariant(t *testing.T) {
 // `range items` 迴圈必須直接同步呼叫 `m.MoveFile(...)`。任何把 MoveFile 包進
 // `go func() { ... }()`、丟給 errgroup、或透過 channel 餵 worker 的改動都會在
 // 此 fatal，不需執行 runtime 路徑。
-//
-//nolint:gocognit // AST guard intentionally checks several node shapes to lock serial BatchMove semantics.
 func assertBatchMoveStaticallySerial(t *testing.T) {
 	t.Helper()
 

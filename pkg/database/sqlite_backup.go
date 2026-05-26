@@ -181,8 +181,6 @@ var restoreCopyFile = copyFile
 // The caller is responsible for releasing any open handle on
 // targetPath (e.g. SQLiteStore.Close) before calling this — on Windows
 // the rename will otherwise fail with "Access is denied".
-//
-//nolint:gocognit // Restore rollback is deliberately linear and explicit for Windows file safety.
 func RestoreSQLiteFile(targetPath, srcPath string) error {
 	if strings.TrimSpace(targetPath) == "" {
 		return errors.New("restore: target path is empty")

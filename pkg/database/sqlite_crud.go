@@ -36,7 +36,6 @@ func (s *SQLiteStore) UpsertVideo(code string, v *VideoData) error {
 	committed := false
 	defer func() {
 		if !committed {
-			//nolint:errcheck // rollback during deferred cleanup; no actionable handling
 			_ = tx.Rollback()
 		}
 	}()
@@ -84,7 +83,6 @@ func (s *SQLiteStore) UpsertActress(a *ActressData) error {
 	committed := false
 	defer func() {
 		if !committed {
-			//nolint:errcheck // rollback during deferred cleanup; no actionable handling
 			_ = tx.Rollback()
 		}
 	}()

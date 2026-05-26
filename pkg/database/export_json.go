@@ -118,7 +118,6 @@ func writeJSONDatabaseRoot(path string, root *DatabaseData) error {
 	return nil
 }
 
-//nolint:gocognit // Export keeps db_meta compatibility branches explicit for legacy JSON payloads.
 func loadDBMetaInto(db *sql.DB, root *DatabaseData) error {
 	rows, err := db.Query(`SELECT key, value FROM db_meta`)
 	if err != nil {
@@ -172,8 +171,8 @@ func loadActressesFromSQLite(db *sql.DB) (map[string]*ActressData, map[string]st
 	idToName := map[string]string{}
 	for rows.Next() {
 		a := ActressData{Aliases: []string{}}
-		if scanErr := rows.Scan(&a.ID, &a.Name, &a.CreatedAt, &a.UpdatedAt); scanErr != nil {
-			return nil, nil, fmt.Errorf("scan actress: %w", scanErr)
+		if err := rows.Scan(&a.ID, &a.Name, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, nil, fmt.Errorf("scan actress: %w", err)
 		}
 		if al, ok := aliases[a.ID]; ok {
 			a.Aliases = al
@@ -181,8 +180,8 @@ func loadActressesFromSQLite(db *sql.DB) (map[string]*ActressData, map[string]st
 		out[a.ID] = &a
 		idToName[a.ID] = a.Name
 	}
-	if rowsErr := rows.Err(); rowsErr != nil {
-		return nil, nil, fmt.Errorf("iterate actresses: %w", rowsErr)
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("iterate actresses: %w", err)
 	}
 
 	// Fill video_count from the canonical view.
@@ -243,7 +242,7 @@ func loadVideosAndOrderedLinks(db *sql.DB, idToName map[string]string) (map[stri
 	videos := map[string]*VideoData{}
 	for rows.Next() {
 		v := VideoData{Actresses: []string{}}
-		if scanErr := rows.Scan(
+		if err := rows.Scan(
 			&v.Code, &v.ID, &v.Title, &v.Studio, &v.StudioCode,
 			&v.ReleaseDate, &v.URL,
 			&v.SearchStatus, &v.SearchMethod, &v.LastSearchDate,
@@ -252,13 +251,13 @@ func loadVideosAndOrderedLinks(db *sql.DB, idToName map[string]string) (map[stri
 			&v.Metadata.Source, &v.Metadata.Confidence,
 			&v.CreatedAt, &v.UpdatedAt, &v.OriginalFilename, &v.FilePath,
 			&v.Error, &v.ErrorKind,
-		); scanErr != nil {
-			return nil, nil, fmt.Errorf("scan video: %w", scanErr)
+		); err != nil {
+			return nil, nil, fmt.Errorf("scan video: %w", err)
 		}
 		videos[v.Code] = &v
 	}
-	if rowsErr := rows.Err(); rowsErr != nil {
-		return nil, nil, fmt.Errorf("iterate videos: %w", rowsErr)
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("iterate videos: %w", err)
 	}
 
 	// Per-video name list reconstructed from video_actress_links by

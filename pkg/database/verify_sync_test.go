@@ -98,7 +98,6 @@ func TestVerifySync_DetectsFieldDifference(t *testing.T) {
 	}
 	if titleDiff == nil {
 		t.Fatalf("expected title field_diff, diffs = %+v", report.Diffs)
-		return
 	}
 	if titleDiff.JSONValue != "A" || titleDiff.SQLiteValue != "mutated" {
 		t.Errorf("title diff = %+v", *titleDiff)
