@@ -1,6 +1,6 @@
-// Unit test for src/lib/studioMoveGuard.ts.
+// Unit test for src/lib/studioMoveGuard.ts and src/lib/paths.ts.
 //
-// Frontend has no test runner; this script transpiles the TS helper with
+// Frontend has no test runner; this script transpiles the TS helpers with
 // esbuild (already installed) and runs assertions via node:assert. Run with:
 //   node scripts/studio-move-guard.test.mjs
 import esbuild from 'esbuild';
@@ -11,19 +11,23 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const tsSource = readFileSync(join(here, '..', 'src', 'lib', 'studioMoveGuard.ts'), 'utf8');
-const { code } = esbuild.transformSync(tsSource, {
-  loader: 'ts',
-  format: 'esm',
-  target: 'es2022',
-});
 
-const outDir = mkdtempSync(join(tmpdir(), 'guard-test-'));
-const outFile = join(outDir, 'studioMoveGuard.mjs');
-writeFileSync(outFile, code);
+async function loadTs(relPathFromFrontendRoot, outName) {
+  const src = readFileSync(join(here, '..', relPathFromFrontendRoot), 'utf8');
+  const { code } = esbuild.transformSync(src, {
+    loader: 'ts',
+    format: 'esm',
+    target: 'es2022',
+  });
+  const outDir = mkdtempSync(join(tmpdir(), 'guard-test-'));
+  const outFile = join(outDir, outName);
+  writeFileSync(outFile, code);
+  return import(pathToFileURL(outFile).href);
+}
 
-const mod = await import(pathToFileURL(outFile).href);
-const { evaluateStudioMoveGuard, formatStudioMoveBlockedMessage } = mod;
+const { evaluateStudioMoveGuard, formatStudioMoveBlockedMessage } =
+  await loadTs('src/lib/studioMoveGuard.ts', 'studioMoveGuard.mjs');
+const { basenameOf } = await loadTs('src/lib/paths.ts', 'paths.mjs');
 
 function move(o) {
   return {
@@ -201,6 +205,94 @@ ok('formatStudioMoveBlockedMessage — overflow indicates more codes', () => {
   }));
   const msg = formatStudioMoveBlockedMessage(items);
   assert.match(msg, /等 8 個番號/);
+});
+
+ok('same-path skip (source == destination) does NOT block', () => {
+  // Go MoveFile 的同路徑保護：來源已經在目標位置 → success+skipped 的合法 no-op。
+  // 即使來源仍在 scanResults，也不該被 T3 guard 誤判。
+  const samePath = 'D:\\out\\夏目響\\KUSE-042-1.mp4';
+  const r = evaluateStudioMoveGuard({
+    scanResults: [{ path: samePath, code: 'KUSE-042' }],
+    lastBatchResult: batch([
+      move({
+        source: samePath,
+        destination: samePath,
+        success: true,
+        skipped: true,
+      }),
+    ]),
+  });
+  assert.deepEqual(r.blocked, []);
+});
+
+ok('same-path skip with forward-slash variant still treated as no-op', () => {
+  const r = evaluateStudioMoveGuard({
+    scanResults: [{ path: 'D:/out/夏目響/KUSE-042-1.mp4', code: 'KUSE-042' }],
+    lastBatchResult: batch([
+      move({
+        source: 'D:\\out\\夏目響\\KUSE-042-1.mp4',
+        destination: 'D:/out/夏目響/KUSE-042-1.mp4',
+        success: true,
+        skipped: true,
+      }),
+    ]),
+  });
+  assert.deepEqual(r.blocked, []);
+});
+
+ok('regression — cross-dir same-name skip still blocks alongside same-path skip', () => {
+  const r = evaluateStudioMoveGuard({
+    scanResults: [
+      { path: 'C:\\B\\KUSE-042-1.mp4', code: 'KUSE-042' },
+      { path: 'D:\\out\\夏目響\\OTHER-001.mp4', code: 'OTHER-001' },
+    ],
+    lastBatchResult: batch([
+      move({
+        source: 'C:\\B\\KUSE-042-1.mp4',
+        destination: 'D:\\out\\夏目響\\KUSE-042-1.mp4',
+        success: true,
+        skipped: true,
+      }),
+      move({
+        source: 'D:\\out\\夏目響\\OTHER-001.mp4',
+        destination: 'D:\\out\\夏目響\\OTHER-001.mp4',
+        success: true,
+        skipped: true,
+      }),
+    ]),
+  });
+  assert.equal(r.blocked.length, 1);
+  assert.equal(r.blocked[0].code, 'KUSE-042');
+});
+
+console.log('\nbasenameOf');
+
+ok('multi-part same code different basenames produce distinct destinations', () => {
+  const outputDir = 'D:\\out';
+  const actress = '夏目響';
+  const src1 = 'C:\\in\\A\\KUSE-042-1.mp4';
+  const src2 = 'C:\\in\\A\\KUSE-042-2.mp4';
+  const dst1 = `${outputDir}\\${actress}\\${basenameOf(src1)}`;
+  const dst2 = `${outputDir}\\${actress}\\${basenameOf(src2)}`;
+  assert.equal(dst1, 'D:\\out\\夏目響\\KUSE-042-1.mp4');
+  assert.equal(dst2, 'D:\\out\\夏目響\\KUSE-042-2.mp4');
+  assert.notEqual(dst1, dst2);
+});
+
+ok('basename with spaces is preserved verbatim', () => {
+  assert.equal(basenameOf('C:\\in\\A\\STARS-707 4K.mp4'), 'STARS-707 4K.mp4');
+});
+
+ok('basenameOf accepts forward slashes', () => {
+  assert.equal(basenameOf('C:/in/A/KUSE-042-1.mp4'), 'KUSE-042-1.mp4');
+});
+
+ok('basenameOf returns empty string for empty input', () => {
+  assert.equal(basenameOf(''), '');
+});
+
+ok('basenameOf returns the input itself when no separator present', () => {
+  assert.equal(basenameOf('KUSE-042-1.mp4'), 'KUSE-042-1.mp4');
 });
 
 console.log(`\nOK — ${cases} case(s) passed`);
