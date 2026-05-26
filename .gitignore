@@ -133,6 +133,8 @@ coverage.html
 
 # Rust sidecar build output
 /tools-rs/target/
+# Workspace root owns the lock; vestigial member lock should not be tracked
+/tools-rs/Cargo.lock
 
 # 備份目錄
 backups/

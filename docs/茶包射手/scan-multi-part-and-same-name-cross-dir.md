@@ -97,7 +97,11 @@ C:\Downloads\AV\
 | `overwrite` | 覆蓋 file A 搬過去的檔 | ❌ **資料遺失** |
 | `rename` | 自動 rename 成 `KUSE-042-1 (1).mp4` | ✅ 兩個都保留，但檔名變了 |
 
-此外，若 `BatchMove` 走 goroutine pool 並行，兩個 worker 同時 `os.Stat` 都看不到對方 → 兩個都 `os.Rename` 到同 dest → 後者覆蓋前者，**即使 `skip` 也可能踩到 race**。
+此外，理論上若 `BatchMove` 改走 goroutine pool 並行，兩個 worker 同時 `os.Stat` 都看不到對方 → 兩個都 `os.Rename` 到同 dest → 後者覆蓋前者，**即使 `skip` 也會踩到 race**。
+
+**目前序列不踩**：實測 `pkg/mover/batch.go:22` 是 `for i, item := range items` 單迴圈，每筆呼叫一次 `MoveFile` 並等其回傳，無 goroutine pool。同名跨目錄場景下第一筆搬完成、dest 已落地，第二筆才進入 `MoveFile`，於 `os.Stat(dst)` 偵測到既有檔→套用 `skip` 留在原處；不存在 worker 並行的 race。此 invariant 由 `pkg/mover/batch_test.go::TestBatchMove_SerialExecutionInvariant` 鎖住（observer goroutine 確認 source 消失時間單調非遞減 + `result.Results` 與 input 同順序），若未來有人為了吞吐量改成 goroutine pool，會被測試擋下。
+
+殘留問題不在 race，而在「skip 後 file B 留在原地、user 不知道第一筆搬到哪」與「直接按片商分類時誤搬留在原地的 file B」—— 已記在 `docs/sqlite-migration-tail-tasks.md` T2 / T3。
 
 ---
 
@@ -112,7 +116,10 @@ C:\Downloads\AV\
   - GUI 預設 `skip` 已保證資料不會遺失（最壞情況：file B 留在原地）
   - 同名跨目錄是 user 自己整理檔案的選擇，極少見
   - User 可以從 batch result log 看出哪些檔被 skip
-- **代價**：使用 `overwrite` 模式的 user 可能踩雷；race condition 下偶發資料遺失
+- **代價**：
+  - 使用 `overwrite` 模式的 user 可能踩雷（同 dest 後者會覆蓋前者，這是 `overwrite` 語意本身決定的，不是 race）
+  - **目前序列實作下不存在 race condition** — `pkg/mover/batch.go:22` 為 `for i, item := range items` 單迴圈、每筆同步呼叫 `MoveFile` 並等回傳；同 dest 兩筆會以「第一筆完成、dest 落地 → 第二筆 `os.Stat(dst)` 偵測到既有檔 → 套用 `skip`/`overwrite`/`rename`」的順序進行，無「兩 worker 同時 stat 都看不到對方」的 race window。此 invariant 由 `pkg/mover/batch_test.go::TestBatchMove_SerialExecutionInvariant` 雙層鎖定（AST static guard 擋下 `go` 語句與非同步分派 + runtime observer 鎖完成時間單調非遞減）
+  - **未來風險**：若有人為了吞吐量改成 goroutine pool / errgroup 並行而沒保留 T1 的序列 invariant，「同時 stat 看不到對方 → 兩個都 rename 到同 dest → 後者覆蓋前者，即使 `skip` 也救不了」這個 race 才會重新出現；屆時 T1 的測試會在 PR CI 直接擋下
 - **檔案變動**：0
 
 ### 選項 B：`CheckConflicts` 增加 in-batch destination 偵測

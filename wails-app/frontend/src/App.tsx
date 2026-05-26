@@ -25,6 +25,11 @@ import {
   mergeSearchResultsWithCachedVideos,
   shouldFetchCachedVideoFallback,
 } from '@/lib/classification';
+import { buildSkipCompanionMap, formatSkipReason } from '@/lib/skipReason';
+import {
+  evaluateStudioMoveGuard,
+  formatStudioMoveBlockedMessage,
+} from '@/lib/studioMoveGuard';
 import type {
   CachedVideoLookup,
   CachedVideoLookupError,
@@ -122,6 +127,7 @@ function ActionToolbar() {
     clearSearchResults,
     addSearchResult,
     setLastBatchResult,
+    lastBatchResult,
     setShowSearchResults,
   } = useTaskStore();
 
@@ -580,10 +586,10 @@ function ActionToolbar() {
       pushEvent(result.failed_count > 0 ? 'warning' : 'success', summary);
 
       // Debug: 逐筆記錄移動詳情
+      const moveCompanions = buildSkipCompanionMap(result.results);
       for (const r of result.results ?? []) {
         if (r.skipped) {
-          const reason = r.source === r.destination ? '來源=目標（同路徑）' : (r.error || '衝突略過');
-          pushEvent('debug', `[略過] ${r.source} → ${r.destination}（${reason}）`);
+          pushEvent('debug', `[略過] ${r.source} → ${r.destination}（${formatSkipReason(r, moveCompanions)}）`);
         } else if (!r.success) {
           pushEvent('debug', `[失敗] ${r.source} → ${r.destination}（${r.error}）`);
         } else {
@@ -616,6 +622,20 @@ function ActionToolbar() {
       setStatusMessage('沒有可移動的項目', 'warning');
       return;
     }
+
+    // T3 guard：若上一輪 BatchMove 有 skip 但檔案仍留在 scanResults，handleStudioMove
+    // 會把那些檔案的 parentDir 誤認成女優目錄並整個搬走。先擋下，請使用者處理。
+    const guard = evaluateStudioMoveGuard({ scanResults: targets, lastBatchResult });
+    if (guard.blocked.length > 0) {
+      const msg = formatStudioMoveBlockedMessage(guard.blocked);
+      setStatusMessage(msg, 'warning');
+      pushEvent('warning', `⚠️ ${msg}`);
+      for (const b of guard.blocked) {
+        pushEvent('debug', `[T3 阻擋] ${b.path}（code=${b.code}, 父目錄=${b.parentDir}, 略過去處=${b.skippedDestination}）`);
+      }
+      return;
+    }
+
     setStatus('moving');
     resetProgress();
     const inputDirKey = normalizeDirKey(inputDir);
@@ -761,10 +781,11 @@ function ActionToolbar() {
     pushEvent(finalResult.failed_count > 0 ? 'warning' : 'success', summary);
 
     // Debug: 片商分類逐筆詳情
-    for (const r of [...(cleanDirResult.results ?? []), ...(mergeFinalizeResult.results ?? [])]) {
+    const studioResults = [...(cleanDirResult.results ?? []), ...(mergeFinalizeResult.results ?? [])];
+    const studioCompanions = buildSkipCompanionMap(studioResults);
+    for (const r of studioResults) {
       if (r.skipped) {
-        const reason = r.source === r.destination ? '來源=目標（同路徑）' : (r.error || '衝突略過');
-        pushEvent('debug', `[略過] ${r.source} → ${r.destination}（${reason}）`);
+        pushEvent('debug', `[略過] ${r.source} → ${r.destination}（${formatSkipReason(r, studioCompanions)}）`);
       } else if (!r.success) {
         pushEvent('debug', `[失敗] ${r.source} → ${r.destination}（${r.error}）`);
       } else {

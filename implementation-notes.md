@@ -681,7 +681,11 @@ GUI 實測每筆搜尋都失敗，stderr 訊息 `option 'enable_operation_log' i
 
 2. **Wails 是否還有其他 ConfigParser strict 觸發點**：只看到 search subprocess 的 stderr 報錯，但其他 Python helper（`tools/`, `src/services/`）也有 `ConfigParser`，未驗證它們是否會被 duplicate option 弄掛。
 
-3. **同名跨目錄 BatchMove race**：若 BatchMove goroutine pool 並行，兩個 worker 同時 stat 同 dest 不存在 → 兩個都 rename → 後者覆蓋前者。預設 `skip` 也救不了 race。要驗證 BatchMove 是序列還是並行，或加 dest-level mutex。
+3. ~~**同名跨目錄 BatchMove race**~~：**已關閉（2026-05-26）**。
+   - 原疑慮：若 BatchMove 走 goroutine pool 並行，兩個 worker 同時 stat 同 dest 不存在 → 兩個都 rename → 後者覆蓋前者，預設 `skip` 也救不了 race。
+   - 結論：**BatchMove 目前為序列，race 不存在**。`pkg/mover/batch.go:22` 為 `for i, item := range items` 單迴圈，每筆同步呼叫 `m.MoveFile` 並等回傳，無 goroutine pool / errgroup / worker channel。同名跨目錄場景下，第一筆搬完成、dest 已落地後第二筆才進入 `MoveFile`，於 `os.Stat(dst)` 偵測到既有檔，套用 `skip` 留在原處 — 不存在「兩 worker 同時 stat 看不到對方」的 race window。
+   - Invariant 鎖定：`pkg/mover/batch_test.go::TestBatchMove_SerialExecutionInvariant` 雙層擋人 — (a) AST static guard 直接 parse `batch.go`，檢查 `batchMoveWithType` body 沒有 `*ast.GoStmt`、且 `range items` 迴圈直接同步呼叫 `m.MoveFile`；(b) runtime observer goroutine 鎖定 source 消失時間單調非遞減 + `Results` 與 input 同順序。任何把 MoveFile 包進 `go func(){...}()` / errgroup / channel worker 的改動會在 PR CI 立刻被擋下。
+   - 殘留：skip 後 file B 留在原地不是 race，是「user 不知道第一筆搬到哪」+「按片商分類時 file B 被誤認成獨立女優目錄」— 已切成獨立任務，見 `docs/sqlite-migration-tail-tasks.md` T2（前端 skip reason 串接）與 T3（`handleStudioMove` guard）。
 
 4. **`tools-rs/Cargo.lock` 清理**：workspace 模式下成為 vestigial，下次有適合的 commit 時 `git rm`。
 
@@ -712,3 +716,319 @@ desktop data migration and Wails 9-code smoke test happened **between**
 and build artefacts only. The later commits (`72af0d5`, `66e4292`,
 `2d570a0`, `ac600e8`) are code/doc/tooling changes that made the behaviour
 reproducible from source.
+
+## T3 — handleStudioMove guard (2026-05-26)
+
+### Design decisions
+
+- **Block signal = skipped-source-still-in-scanResults**, not the
+  `parentDir(r.path) ∉ movedActressDirs` test the original T3 sketch
+  proposes. The sketch's set comparison only works when
+  `outputDir === inputDir` (input-side parentDir then aligns with
+  destination-side actress dir); the chosen signal is precise for the
+  actual T3 scenario (`removeMovedFilesFromStore` strips successful
+  moves, so any remaining scan row whose path matches a skipped source
+  is the residual file that would mislead `handleStudioMove` into
+  treating its parent as an actress folder). `movedActressDirs` is
+  still computed but only emitted for debug visibility.
+- **Guard lives in a pure helper** (`wails-app/frontend/src/lib/studioMoveGuard.ts`)
+  so the no-runner frontend can still get automated coverage via
+  `npm run test:guard` (esbuild transform + `node:assert/strict`,
+  11 cases). The Wails UI integration itself is not covered by an
+  automated test; manual GUI repro:
+  1. inputDir 建 `A\KUSE-042-1.mp4` 與 `B\KUSE-042-1.mp4`（同 code 同 basename）
+  2. GUI 掃描 → 兩筆都進 scanResults
+  3. 點「移動」（衝突策略 = skip）→ A 搬到
+     `<outputDir>\<actress>\KUSE-042-1.mp4`、B 留在 `B\KUSE-042-1.mp4` 並在
+     `lastBatchResult` 標為 skipped
+  4. 直接點「片商分類」→ 預期：狀態列出現「偵測到 1 個檔案未進入女優目錄
+     （番號：KUSE-042），請先處理略過清單或重新 scan」+ Debug 列出
+     `[T3 阻擋] C:\...\B\KUSE-042-1.mp4`，**不**進入 `setStatus('moving')`、
+     **不**呼叫 `BatchMoveDirs`
+- **Block UX is fail-loud, not silent**: status bar warning + Debug
+  event per blocked row; we do not auto-resolve (no silent skip, no
+  implicit merge) because T3's whole point is letting the user notice
+  the dangling-skip state before they nuke a stray directory.
+
+### Tradeoffs
+
+- The guard relies on `lastBatchResult`. If the user reloaded the app
+  between handleMove and handleStudioMove, lastBatchResult is null and
+  the guard returns no blocks. That's accepted: by then the residual
+  file's parent dir is ambiguous from the frontend's perspective, and
+  a fresh scan would normally precede the next move flow.
+- `test:guard` is a TS-via-esbuild side-channel, not vitest. We avoided
+  introducing a test framework just for one helper; if more frontend
+  unit tests appear, this should be replaced with vitest + JSDOM.
+
+## T4 / T5 — config.ini duplicate write 追因與 ConfigParser strict 觸發點審計 (2026-05-26)
+
+> 對應 `docs/sqlite-migration-tail-tasks.md` T4 / T5；open questions 1 / 2 收尾。
+> 結論：**未發現可修補的 code-level bug**，duplicate write 來源不在 repo 內任一寫入路徑。
+
+### 搜尋範圍
+
+```text
+rg "enable_operation_log"  src/ tools/ wails-app/
+rg "go_integration"        src/ tools/ wails-app/
+rg "ConfigParser|configparser" .（全 repo，過濾出 src/ tools/ wails-app/）
+rg "O_APPEND|\"a\"|\"ab\"|>>.*config\.ini" .
+git log --all -S "enable_operation_log" / -S "gy = skip"
+```
+
+### 已盤點到的 config.ini 寫入點（生產代碼，非測試）
+
+| # | 檔案 | API | 模式 | 風險 |
+|---|------|-----|------|------|
+| W1 | `src/models/config.py::ConfigManager.save_config` | `with self.config_file.open("w") + self.config.write(f)` | `O_TRUNC`，full canonical rewrite | 不會產生 duplicate option（`ConfigParser.write` 永遠輸出 canonical form） |
+| W2 | `wails-app/backend/services/config.go::ConfigService.Save` | `os.WriteFile(c.cfgPath, []byte(content), 0600)` | `O_TRUNC`，full rewrite | 不會產生 duplicate option（`buildIni` 對每個 key 只寫一次，見 L207-240） |
+| W3 | `wails-app/backend/services/config.go::ConfigService.Reset` | 同 W2，內容換成 `DefaultPreferences()` | `O_TRUNC` | 同 W2 |
+
+`os.WriteFile` 與 Python `open("w")` 都是 `O_CREAT|O_WRONLY|O_TRUNC`：先截斷再寫；行程被殺只會留下「比預期短」的 prefix，**不會**留下「舊內容 + 新內容」的 duplicate。`pkg/safefile.WriteFile`（pkg/safefile/safefile.go:69）同樣是 `O_TRUNC`，行為一致。
+
+### 已盤點到的 config.ini 讀取點
+
+| 檔案 | API | 對 duplicate option 的反應 |
+|------|-----|----------------------------|
+| `src/models/config.py` (L57) | `configparser.ConfigParser().read(...)` | `strict=True`（預設）→ `DuplicateOptionError` 立刻 raise；caller 整個 init 失敗 |
+| `wails-app/backend/services/config.go::parseIni` (L118-137) | 手寫掃描 + `setField` switch | 寬鬆解析：duplicate key 直接以「最後一筆」覆蓋；不報錯 |
+
+### 沒有找到的東西（也是結論的一部分）
+
+- **零個** `O_APPEND` 或 `open(..., "a")` 寫入到 `config.ini` 的 codepath（grep 結果為空）。
+- **零個** 其他 ConfigParser 使用點：`tools/` 完全沒有 `configparser` import；`src/services/` 也沒有；唯一第二處是 `tests/test_batch_d_services_core.py:2` 屬測試 fixture。
+- `git log -S "enable_operation_log"` 與 `git log -S "gy = skip"` 都沒翻出歷史上的 append-style 寫入或 partial-write fixer；config.ini 自己曾被 commit (`d60cfa8 chore: stop tracking local config and obsolete docs` 移除前)，但內容只有 32 行單份 section。
+- `setup.ps1` 只 copy `config.ini.example` 不寫 `config.ini`；`Setup-SearchRuntime.ps1` 完全不碰 config.ini；`run.py` / `Start-ActressClassifier.bat` 也都不寫。
+
+### 結論
+
+1. **T4**：當前 repo 任一寫入路徑都不會在單次 save 內產生 `[go_integration]` duplicate option。Wails Save 是 truncating writer + buildIni canonical 序列化；Python `ConfigManager.save_config` 是 truncating writer + `ConfigParser.write` canonical 序列化。**Wails GUI 實際上是 self-healing**：load → parseIni 寬鬆吸收 duplicate（last wins） → struct → buildIni 寫回 canonical。
+2. **T5**：production 程式中 `ConfigParser` 唯一使用點是 `ConfigManager`（其建構式 `__init__ → load_config → ConfigParser.read`），這正是 search subprocess 看到 `DuplicateOptionError` 的源頭。**沒有第二個 helper 會被 duplicate option 弄掛**；`tools/` 與 `src/services/` 內無其他 strict trigger。
+3. 2026-05-25 觀察到的損壞檔（line 33-38 重複 + `gy = skip` garbage）成因不在 repo 內。最合理的解釋是 repo 外部事件之一：
+   - 操作者手動編輯（如把舊版範本貼到既有 config.ini 尾端）；
+   - 行程／編輯器於非 `os.WriteFile`-style 寫入過程被殺造成 FS-level 殘留（極罕見，但若曾用過 text editor 的「Save As 之後再 Save」可能踩到）；
+   - 過去某個已被刪除的 helper（如 `tools/integration/go_integration.py`，commit `0019901` 已移除，但歷史上也不寫 config.ini）。
+
+### 剩餘風險與建議
+
+- **無 code patch 可下**：所有 in-tree writers 都是 canonical truncating writer。引入 atomic-write（tmp + rename）能擋掉「行程在 `Write` 中被殺造成短 prefix」這種極端情境，但**不能擋 duplicate-option 損壞**（duplicate 不可能來自單次 `O_TRUNC` 寫入）。
+- **strict 模式不放寬**（沿用 2026-05-25 決策，本檔 L655）：`configparser strict=True` 抓到重複 option 立刻 fail 是正確行為；放寬會把資料損壞藏成「靜默 last-wins」，搬移／搜尋時更難 debug。
+- **若未來再踩到**，建議補一段防禦碼在 `ConfigManager.__init__`：捕 `DuplicateOptionError` → log file path + 建議「先比對 `config.ini.example` 還原 `[go_integration]` 區塊」+ raise（保持 fail-loud）。**這次不下**，因為（a）無 repro、（b）使用者已在 implementation-notes L655 明確說「不修 strict mode 行為」，需先確認方向再寫補丁。
+- **無新增測試**：本次調查屬「無 bug 確認」型，沒有 regression hook 可錨定；強行加 test 會變成測 stdlib 行為（`ConfigParser.write` 是 canonical、`os.WriteFile` 是 truncating），無意義。
+
+### 沒跑的測試 / 環境限制
+
+- 本次未跑 `python -m pytest tests`、未跑 `go test`、未跑 Rust tests。原因：未動任何代碼，純文檔追加；同時 worktree 不確定有無 `classifier.exe` 構建，CLAUDE.md 也說明 Go-only 邊界對 Python 測試是契約鎖定（`tests/test_go_cli_contracts.py`）。若未來補 `ConfigManager` 防禦碼，再跑 `python -m pytest tests/test_batch_d_services_core.py -q`（含 ConfigManager validation 測試）即可。
+
+- **Supervisor verify 全量 pytest 失敗 — 與 T4/T5 結論無關**：外層 review 跑 `python -m pytest tests -q -p no:cacheprovider` 得到 exit=2，原因是 **collection failure**：`tests/test_pornactressdb_audit.py` 嘗試 `import docs.pornactressdb_audit`，但 `docs/pornactressdb_audit.py` 不在 repo 內（baseline 早已缺檔，與本次 T4/T5 文檔追加無因果）。這是 pre-existing collection 障礙，不是 T4/T5 引入的回歸，也不是 `classifier.exe` 或 SQLite runtime 問題。**不要把 verify exit=2 解讀為「T4/T5 全 pytest 通過」**。
+- **替代驗證命令**（避開缺檔模組，鎖定 T4/T5 相關契約）：
+  - `python -m pytest tests/test_batch_d_services_core.py -q -p no:cacheprovider` — 覆蓋 `ConfigManager` validation；T4 / T5 結論若未來補上防禦碼，這是首要 regression hook。
+  - `python -m pytest tests/test_go_cli_contracts.py -q -p no:cacheprovider` — Go CLI 契約鎖；T4/T5 不動 contract，跑這支只是回歸保險。
+  - `python -m pytest tests --ignore=tests/test_pornactressdb_audit.py -q -p no:cacheprovider` — 跳過缺檔模組後可進入正常 run（仍可能有其他 baseline 失敗，但 collection 不再卡關）。
+- 替代驗證實際執行狀態：
+  - 全量 `python -m pytest tests -q -p no:cacheprovider` 因 `tests/test_pornactressdb_audit.py` 缺 `docs/pornactressdb_audit.py` 而 collection fail（exit=2），與 T4/T5 無因果。
+  - **已實際執行** `python -m pytest tests/test_batch_d_services_core.py -q -p no:cacheprovider`（supervisor revision verify 階段）→ **7 tests 全數通過**，覆蓋 `ConfigManager` validation；本檔接下來若補防禦碼，可直接以此為 regression hook。
+  - 其他列出的命令（`tests/test_go_cli_contracts.py`、`tests --ignore=tests/test_pornactressdb_audit.py`）僅為建議的後續驗證入口，本次調查未執行。
+- T4/T5 的「無 code-level bug」結論主體仍建立在 **靜態原始碼盤點**（grep 寫入點 / 讀取點 / git log），非 runtime 驗證 — 這是調查範圍本身的限制，請外層 review 留意。
+
+## T7 — 工作區未提交檔案決議 (2026-05-26)
+
+> 對應 `docs/sqlite-migration-tail-tasks.md` T7（不修改該檔，本節為報告型決議）。
+> 範圍：盤點 `codex/shadow-db-sqlite` 上 `git status` 的所有 dirty + untracked，
+> 分到「本輪 backlog 產物應納入」「應 ignore」「應刪除」「需要 owner 決策」四桶。
+> **本次未刪除任何檔案、未 commit、未 push、未 reset、未 checkout、未 clean、未 revert。**
+
+### 盤點來源
+
+```text
+$ git status --porcelain
+ M .gitignore
+ D docs/superpowers/specs/2026-05-23-sqlite-migration-design.md
+ M docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md
+ M implementation-notes.md
+D  tools-rs/Cargo.lock
+ M wails-app/frontend/package.json
+ M wails-app/frontend/src/App.tsx
+?? .agents/skills/claude-api/
+?? .agents/skills/mcp-builder/
+?? .agents/skills/source-command-ralph-loop/
+?? .agents/skills/webapp-testing/
+?? docs/agent-loop-demo.md
+?? docs/sqlite-migration-tail-tasks.md
+?? docs/supervisor-worktree-check.md
+?? pkg/mover/batch_test.go
+?? wails-app/frontend/scripts/
+?? wails-app/frontend/src/lib/skipReason.ts
+?? wails-app/frontend/src/lib/studioMoveGuard.ts
+```
+
+### Bucket 1：本輪 backlog 產物應納入（T1～T6 收尾的代碼/文件）
+
+| Status | 路徑 | 對應 Task | 角色 |
+|--------|------|-----------|------|
+| `??` | `pkg/mover/batch_test.go` | T1 | `TestBatchMove_SerialExecutionInvariant`（AST static guard + runtime observer） |
+| `M`  | `docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md` | T1 | 「若並行會踩 race」段更新為「目前序列不踩，T1 鎖住」 |
+| `M`  | `implementation-notes.md` | T1 / T3 / T4 / T5 | open question 3 收尾 + T3 設計筆記 + T4/T5 調查紀錄（含本節 T7 報告） |
+| `??` | `wails-app/frontend/src/lib/skipReason.ts` | T2 | skip reason 後處理（將 skip 行配對到同 dest 的成功筆） |
+| `??` | `wails-app/frontend/src/lib/studioMoveGuard.ts` | T3 | `handleStudioMove` 前置 guard 純函式 |
+| `??` | `wails-app/frontend/scripts/studio-move-guard.test.mjs` | T3 | 透過 esbuild + `node:assert/strict` 驗證 guard 11 個 case |
+| `M`  | `wails-app/frontend/src/App.tsx` | T2 + T3 | 引入 `buildSkipCompanionMap` / `formatSkipReason`（T2）+ `evaluateStudioMoveGuard` 前置 guard（T3） |
+| `M`  | `wails-app/frontend/package.json` | T3 | 新增 `test:guard` script |
+| `D`(staged) | `tools-rs/Cargo.lock` | T6 | workspace 後 vestigial member lock 移除 |
+| `M`  | `.gitignore` | T6 | 加入 `/tools-rs/Cargo.lock` ignore 條目（防 `cargo` 再產生時被誤追蹤） |
+
+**建議**：上列檔案組成 T1～T6 的可提交批次；應該在後續 commit 一併納入（owner 決定要單 PR 還是切多 commit）。本次不擅自 `git add` / `git commit`。
+
+### Bucket 2：應 ignore
+
+- **目前 dirty/untracked 集合內，無「應立刻加進 .gitignore」的新檔**。
+  - `/tools-rs/Cargo.lock` 已在 Bucket 1 的 `.gitignore` 變更內處理；除此之外 .gitignore 既有規則對本次盤點足夠。
+
+### Bucket 3：應刪除（受限指令範圍內，本次不執行）
+
+- **本輪 Claude session 沒有產生任何臨時檔**：此 T7 audit 純讀檔 + 一次 `implementation-notes.md` append，不寫 supervisor / agent log、不放 fixture、不留 scratch artifact。
+- 既有的 `docs/agent-loop-demo.md`、`docs/supervisor-worktree-check.md` 來自**先前**的 supervisor / agent-loop demo session（見下方 Bucket 4 細節），不在「本次 supervisor demo 明確產生且不屬於 repo 的臨時檔」的授權刪除範圍內 → 不刪、轉 Bucket 4 由 owner 決策。
+- **結論：本桶為空，無刪除動作。**
+
+### Bucket 4：需要 owner 決策
+
+#### 4-1. 原 T7 顯式列出的三個
+
+| Status | 路徑 | 性質 | 建議思考的問題 |
+|--------|------|------|----------------|
+| `D`(unstaged) | `docs/superpowers/specs/2026-05-23-sqlite-migration-design.md` | 原 SQLite 遷移 spec（commit `4ae4138` 引入，647 行），已在工作樹刪除但未 stage | 內容是否確認**全數**已轉錄到 `implementation-notes.md` / `docs/plans/2026-05-23-sqlite-migration-plan.md`？若是 → `git add -u` 該路徑、隨 T1～T6 一起 commit；若否 → 補轉錄再刪 |
+| `??` | `docs/agent-loop-demo.md` | 2026-05-26 Codex App outer driver 透過 `ask-supervisor.ps1` 驅動 Claude worker 的閉環 demo 產物（內文自述「本次 demo 不觸碰產品程式碼」） | 此檔意圖是長期文檔還是一次性 demo log？若長期 → commit；若 demo log → `.gitignore` 或刪除（owner 拍板） |
+| `??` | `docs/supervisor-worktree-check.md` | 2026-05-26 對本 worktree 做的唯讀盤點報告，內文自述「未修改任何原始碼、設定檔或依賴檔」 | 同上：長期 reference 還是一次性 check report？決定 commit / ignore / 刪除 |
+
+#### 4-2. 原 T7 撰寫後新增、但仍屬 owner 決策範疇
+
+| Status | 路徑 | 性質 | 建議思考的問題 |
+|--------|------|------|----------------|
+| `??` | `docs/sqlite-migration-tail-tasks.md` | T7 自身來源檔（本次 backlog 任務列） | 此 backlog 是否該進版控？若是 → commit；若視為本機 working doc → `.gitignore`。**不擅自處理**：它正是 T7 的母文件，動到它要 owner 同意 |
+| `??` | `.agents/skills/claude-api/` | 新 skill 套件（含 `LICENSE.txt` + `SKILL.md` + 多語言 reference samples） | 既有 `.agents/skills/<skill>/SKILL.md` 多數已 tracked（見 `git ls-files .agents/`）。是否要追蹤此 skill？team 策略決定 |
+| `??` | `.agents/skills/mcp-builder/` | 新 skill 套件（含 reference + scripts） | 同上 |
+| `??` | `.agents/skills/source-command-ralph-loop/` | 新 skill 套件（單一 SKILL.md） | 同上 |
+| `??` | `.agents/skills/webapp-testing/` | 新 skill 套件（含 examples + scripts） | 同上 |
+
+**為何不擅自處理 `.agents/skills/*/` 新增**：其他既有 skills 已 tracked，意味本 repo 確實是 skill 文件的歸屬地之一；但這四個 dir 也可能是 Claude Code 環境/外部插件 sync 自動落地，team 可能不希望版控（如 plugin marketplace 同步產物）。屬於跨「IDE 環境 vs repo」邊界的 owner 決策，不在 T7 spec 範圍內，先列出待裁示。
+
+### 仍剩的 dirty / untracked 對照表（決議套用前 vs 套用後預期）
+
+> 套用 Bucket 1 的 commit 後（owner 真的 commit 之後），剩下的就只有 Bucket 4 的 owner-decision 集合。
+
+| 狀態 | 路徑 | 套用 Bucket 1 後是否仍 dirty/untracked |
+|------|------|---------------------------------------|
+| `M`  | `.gitignore` | 否（隨 T6 一起 commit） |
+| `D`  | `docs/superpowers/specs/2026-05-23-sqlite-migration-design.md` | 是 — owner 決策（Bucket 4-1） |
+| `M`  | `docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md` | 否（隨 T1 commit） |
+| `M`  | `implementation-notes.md` | 否（隨 backlog batch commit） |
+| `D`(staged) | `tools-rs/Cargo.lock` | 否（隨 T6 commit） |
+| `M`  | `wails-app/frontend/package.json` | 否（隨 T3 commit） |
+| `M`  | `wails-app/frontend/src/App.tsx` | 否（隨 T2+T3 commit） |
+| `??` | `.agents/skills/claude-api/` | 是 — owner 決策（Bucket 4-2） |
+| `??` | `.agents/skills/mcp-builder/` | 是 — owner 決策（Bucket 4-2） |
+| `??` | `.agents/skills/source-command-ralph-loop/` | 是 — owner 決策（Bucket 4-2） |
+| `??` | `.agents/skills/webapp-testing/` | 是 — owner 決策（Bucket 4-2） |
+| `??` | `docs/agent-loop-demo.md` | 是 — owner 決策（Bucket 4-1） |
+| `??` | `docs/sqlite-migration-tail-tasks.md` | 是 — owner 決策（Bucket 4-2，T7 母檔） |
+| `??` | `docs/supervisor-worktree-check.md` | 是 — owner 決策（Bucket 4-1） |
+| `??` | `pkg/mover/batch_test.go` | 否（隨 T1 commit） |
+| `??` | `wails-app/frontend/scripts/` | 否（隨 T3 commit；目前內含 `studio-move-guard.test.mjs`） |
+| `??` | `wails-app/frontend/src/lib/skipReason.ts` | 否（隨 T2 commit） |
+| `??` | `wails-app/frontend/src/lib/studioMoveGuard.ts` | 否（隨 T3 commit） |
+
+### 與 `docs/sqlite-migration-tail-tasks.md` 列出狀態的差異
+
+T7 spec 撰寫時的盤點（該檔 L196-201）只列了三項：
+- `D docs/superpowers/specs/2026-05-23-sqlite-migration-design.md`
+- `?? docs/agent-loop-demo.md`
+- `?? docs/supervisor-worktree-check.md`
+
+本次盤點時點為 T7 spec 撰寫之後，多出的條目皆為 **T1～T6 進行中產生的代碼/測試/文件**（Bucket 1）以及 **與 T7 spec 同時段或之後落地的外部 skill drop / backlog 母檔**（Bucket 4-2）。原 T7 列舉並未過時，只是新增了未列出的條目，按上述分桶處理即可。
+
+### 未執行也不建議自動執行的動作
+
+- `git add` / `git commit` / `git push` — owner 決定 commit 切分。
+- `git rm` / `git restore` — 任何路徑都未 restore / 未 rm。
+- 刪除 `docs/agent-loop-demo.md` / `docs/supervisor-worktree-check.md` — 內容看起來是 demo / audit 報告，但**不在「本次 supervisor demo 明確產生且不屬於 repo 的臨時檔」**範圍（它們屬於先前 session 的產物），owner 決定保留或丟棄。
+- 對 `.agents/skills/*/` 四個 untracked dir 做任何 `.gitignore` 變更 — 涉及 IDE / plugin sync 邊界政策，不擅自決策。
+
+### 後續 owner 動作建議（非強制，僅 checklist）
+
+1. 確認 Bucket 1 全表 OK → `git add` Bucket 1 條目（含已 staged 的 `D tools-rs/Cargo.lock`）→ 切 commit。
+2. 對 Bucket 4-1 的 spec 刪除：確認內容已轉錄 → `git add -u docs/superpowers/specs/2026-05-23-sqlite-migration-design.md` 隨同 batch commit。
+3. 對 Bucket 4-1 的兩份 supervisor / agent-loop demo docs：擇一執行 commit / `.gitignore` / 刪除。
+4. 對 Bucket 4-2 的 `docs/sqlite-migration-tail-tasks.md`：決定要不要進版控（建議「進」，因 backlog 母檔 cross-reference 已被 `implementation-notes.md` 引用）。
+5. 對 Bucket 4-2 的 `.agents/skills/{claude-api,mcp-builder,source-command-ralph-loop,webapp-testing}/`：依 team 對 skill 套件版控的政策決定 commit / `.gitignore`。
+
+## T8 — ScanResult selection identity 重構 deferred rationale (2026-05-26)
+
+> 對應 `docs/sqlite-migration-tail-tasks.md` T8（`scan-multi-part-and-same-name-cross-dir.md` 選項 D 完整修法）。
+> 結論：**T1+T2+T3 落地後 T8 不再 release-blocking，延後到實際 user pain 出現再做**。本節不修 `docs/sqlite-migration-tail-tasks.md`，亦不動現有 T8 相關代碼路徑（`pkg/mover/types.go::MoveItemRequest` 無 `ConflictType` 欄位、`wails-app/backend/app.go::CheckConflicts` 無 `seenDest` map、`ConflictResolutionDialog.tsx` 無 in-batch 衝突顯示分支，維持現狀）。
+
+### Release-blocking 風險已被 T1+T2+T3 完整覆蓋
+
+T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.mp4`）拆成三條風險，逐條對應已落地的防線：
+
+| 風險 | 不修 T8 的後果 | 已落地的擋人機制 | 證據 |
+|------|----------------|------------------|------|
+| 資料遺失（同 dest 被覆蓋） | `overwrite` 策略下後者覆蓋前者；若 BatchMove 並行化甚至 `skip` 也救不了 | 1. GUI 預設 `skip` 已保證序列下不丟資料。2. T1 雙層測試（AST static guard + runtime observer）鎖住 `pkg/mover/batch.go::batchMoveWithType` 嚴格序列，無 worker race window；任何嘗試引入 `go` 語句 / errgroup / channel pool 的改動會在 PR CI 直接被擋 | `pkg/mover/batch_test.go::TestBatchMove_SerialExecutionInvariant` |
+| User 不知道第一筆搬到哪 | skip 後 file B 留在原地，user 從 batch result 無法直接看到「同檔已搬至何處」 | T2 `buildSkipCompanionMap`（dest → success result 反查）+ `formatSkipReason`（將 skip 行配對到同 dest 的成功筆）已輸出「同檔已從 `<source>` 搬至此處」到 GUI | `wails-app/frontend/src/lib/skipReason.ts:12-35`；`App.tsx:589` / `App.tsx:785` 兩處 call site |
+| 按片商分類誤搬殘留檔 | `handleStudioMove` 用 `parentDir(r.path)` 分組，會把留在 `B\` 的 skip 檔當成女優目錄誤搬整個 `B\` | T3 `evaluateStudioMoveGuard` 在 `setStatus('moving')` 之前以「skipped source 仍出現在 scanResults」為精準訊號 fail-loud 擋下；不靜默處理 | `wails-app/frontend/src/lib/studioMoveGuard.ts:38`；`App.tsx:628`；guard 已有 11-case `studio-move-guard.test.mjs` 覆蓋 |
+
+三條風險全閉合後，T8 的角色從「修 release-blocking bug」變成「proactive UX」— 把 in-batch dest 衝突往前提到 `CheckConflicts → ConflictResolutionDialog` 階段，讓 user 在進入 BatchMove 之前就能挑策略（rename / 取消 / 改 dest），而不是在 batch result 才看到 skip 訊息。差別是「事前選」vs「事後看」，不是資料安全與否。
+
+### 不立即實作 T8 的理由
+
+1. **沒有 user 實際 pain**：原 `scan-multi-part-and-same-name-cross-dir.md` § 「決策軌跡」記錄當下選擇選項 A（接受現狀），條件是「user 還沒主動回報踩雷」。本輪 release 推演中亦未出現 user 投訴，僅是工程內部 risk pre-mortem 列出。在缺乏「user 真的踩到」訊號下實作 T8，違反 user 全域 CLAUDE.md L1 「Simplicity First / No features beyond what was asked」原則。
+2. **T2 already covers the post-hoc visibility need**：T2 在 batch result 與 status bar 上顯示「同檔已從 `<source>` 搬至此處」對應的失敗模式（user 想知道發生什麼事）已可滿足；T8 處理的是「user 想在事前就決定怎麼處理」這個更高階的 UX 需求，**屬於增量**而非缺失。
+3. **改動面積大且觸及前端對話框**：T8 完整版需要動 `pkg/mover/types.go::MoveItemRequest`（或 `ConflictItem`）加 `ConflictType`、`wails-app/backend/app.go::CheckConflicts` 加 `seenDest` map + `Reason` 文字、前端 `ConflictResolutionDialog.tsx` 加 conflict type 分支顯示與「全選 rename」快速選項、外加回歸測試 4+ 處。對單一未踩雷的 edge case 投這個量是 over-engineering。
+4. **不會掩蓋既有 bug**：若未來真的有 user 踩雷，T1/T2/T3 的 fail-loud 訊號（skip reason + studio-move guard block + serial invariant test）會比 T8 沒做更早被看見 — 不存在「不做 T8 會把問題藏起來」的反例。
+
+### 觸發條件（任一成立即重新評估 T8）
+
+- **Trigger A — User pain**：repo issue / wiki pitfall / GUI bug report 出現「同名跨目錄做女優分類時，第二份檔被略過後我不知道該怎麼處理」或「我想在搬之前就看到這兩個檔會撞到」類型的回報 ≥ 1 次。
+- **Trigger B — 預設衝突策略改動**：若 `wails-app/backend/services/config.go` 預設 `OnConflict` 從 `skip` 改成 `overwrite` 或 `rename`（後兩者會讓「事後看到」變成「資料已動」），T2 的事後修補就不足，必須改為事前阻擋 → 升 T8 為 release-blocking。
+- **Trigger C — BatchMove 並行化提案**：任何 PR 要把 `pkg/mover/batch.go::batchMoveWithType` 改成 goroutine pool / errgroup / channel worker。T1 invariant 會擋下，但若 reviewer 決定放行（例如有性能需求且配對重設計 dest-level lock），race 重現 → 必須在 `CheckConflicts` 階段先把同 dest 攔下，T8 升為 prereq。
+- **Trigger D — Bulk import 場景擴張**：若未來 GUI 支援「一次匯入多個來源資料夾」（例如 BatchScan 同時掃 `D:\已分類\` + `E:\待整理\`），同名跨目錄變成主流路徑而非 edge case，需要事前提示 → 升 T8 為功能必需。
+- **Trigger E — `handleStudioMove` guard 命中率**：T3 guard 已就位，若 telemetry / 使用者回報顯示「片商分類被 guard 擋下」的事件率非極低值（>2% 月活躍），代表 user 實際上常踩此情境，事前防止比事後阻擋更友善 → 升 T8。
+
+### 未來最小切片（不在本次實作；列入 future work，僅供觸發後對照）
+
+> 觸發條件成立時的最小可動切片，**不**是現在要做的事；亦不對應 `sqlite-migration-tail-tasks.md` T8 段落內任何項目的改寫。
+
+**Phase 1（後端，最小可上線）**：
+
+1. `pkg/mover/types.go::ConflictItem` 加一欄 `Reason string`（不引入 enum，純字串塞「磁碟既有」或「與同批次 `<first source>` 指向同一目的地」），避免動 contract version。
+2. `wails-app/backend/app.go::CheckConflicts` 在現有 `os.Stat(item.Destination)` 之前加 `seenDest map[string]string`（absolute dest → first source），命中即追加一筆 `ConflictItem`（帶上 Phase 1 的 Reason）並 `continue`。
+3. 加一支單元測試 `wails-app/backend/app_test.go::TestCheckConflicts_InBatchDestCollision`，固定「兩筆 source 指向同 dest 時，第二筆會出現在 conflict list 且 Reason 含 first source path」。
+
+**只做 Phase 1 就能讓 user 看到事前衝突**：既有 `ConflictResolutionDialog.tsx` 已會將 `ConflictItem` 列出來給 user 挑策略，只是不會分類顯示。Phase 1 用 Reason 文字傳達分類，免動 React 元件。
+
+**Phase 2（前端 UX，可選）**：僅在 user pain 證實「事前知道但分類不夠清楚」時才做：
+
+4. `ConflictResolutionDialog.tsx` 把 Reason 拆成兩個區塊顯示（「磁碟已存在」群組 / 「同批次衝突」群組），對後者額外提供「全選 rename」捷徑。
+5. 對應的元件測試（若屆時前端已導入 vitest 就用 vitest，否則沿用 `frontend/scripts/` 的 esbuild side-channel 模式）。
+
+**這個切片刻意不做的事**（避免「設計而非實作」漂移）：
+
+- **不**引入 `ConflictType` enum 欄位 — Reason 字串足以區分，加 enum 等於 contract change，要動 wails bindings 與所有 caller。
+- **不**動 `MoveItemRequest`，只動 `ConflictItem`（更小的 contract 表面）。
+- **不**改 scan 階段任何邏輯 — scan 全保留已是現狀，T8 的職責在 `CheckConflicts`，不該下沉到 `ScanDirectory`。
+- **不**動 `ScanResult` selection identity（從 `code` 改 `path`）— `scan-multi-part-and-same-name-cross-dir.md` 提的選項 D 暗示這個改動，但 multi-part 兩 part 用同 `code` selection 是正確 UX，動 selection key 反而會破壞 multi-part 共選。selection 與 in-batch dest 偵測是兩個獨立問題，T8 只解後者。
+
+### 影響檔案盤點（若未來觸發，僅供對照）
+
+| 階段 | 檔案 | 動作 |
+|------|------|------|
+| Phase 1 | `pkg/mover/types.go` | `ConflictItem` 加 `Reason string` |
+| Phase 1 | `wails-app/backend/app.go::CheckConflicts` | 加 `seenDest` map + 兩種 reason 字串 |
+| Phase 1 | `wails-app/backend/app_test.go` | 加 `TestCheckConflicts_InBatchDestCollision` |
+| Phase 2 | `wails-app/frontend/src/components/ConflictResolutionDialog.tsx` | Reason 分群顯示 + 全選 rename 捷徑 |
+| Phase 2 | `wails-app/frontend/scripts/` 或 vitest | 元件測試 |
+
+### 與既有 backlog 的關係
+
+- `docs/sqlite-migration-tail-tasks.md` T8 段（L222-258）保持原狀，**不修改**；本節作為 T1/T2/T3 落地後對 T8 的補充判定，放在 implementation-notes.md 內為單一事實來源。
+- `docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md` § 「決策軌跡」目前仍記錄「未來踩雷則走選項 D」，本節將「選項 D」進一步切成 Phase 1+2；待真正觸發 T8 時，可順便回去把該檔的「決策軌跡」表更新為「採 Phase 1 最小切片」。
+- 本檔 L692 open question 5（`ScanResult` selection identity 長期改 `path`）**不在 T8 範圍** — 那是 multi-part UX 層的長期討論，與 in-batch dest 衝突無關，繼續以 open question 保留。
