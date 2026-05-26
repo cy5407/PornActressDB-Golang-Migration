@@ -51,8 +51,13 @@ export function evaluateStudioMoveGuard(args: {
   for (const r of results) {
     if (!r) continue;
     if (r.skipped) {
-      const key = normalizePath(r.source);
-      if (key && !skippedSources.has(key)) skippedSources.set(key, r);
+      const srcKey = normalizePath(r.source);
+      const dstKey = normalizePath(r.destination ?? '');
+      // source == destination 在 Go 端是合法 no-op skip（MoveFile 的同路徑保護），
+      // 來源並未真的留在「不是女優目錄」的位置 — 不應觸發 T3 guard。
+      if (srcKey && srcKey !== dstKey && !skippedSources.has(srcKey)) {
+        skippedSources.set(srcKey, r);
+      }
     }
     if (r.success && !r.skipped && r.destination) {
       const dir = parentDirOf(r.destination);

@@ -16,6 +16,7 @@ import {
   ActressChoice,
 } from '@/components/MultiActressDialog';
 import { Button } from '@/components/ui/button';
+import { basenameOf } from '@/lib/paths';
 import { useTaskStore } from '@/stores/taskStore';
 import { useWailsEvents } from '@/lib/wailsEvents';
 import {
@@ -490,12 +491,6 @@ function ActionToolbar() {
     setStatus('moving');
     resetProgress();
 
-    const pathExt = (p: string): string => {
-      const lastDot = p.lastIndexOf('.');
-      const lastSep = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-      return lastDot > lastSep ? p.slice(lastDot) : '';
-    };
-
     const searchResultByCode = new Map(searchResults.map((sr) => [sr.code, sr]));
     const cachedVideos: CachedVideoLookup[] = [];
     const fallbackErrors: CachedVideoLookupError[] = [];
@@ -568,12 +563,13 @@ function ActionToolbar() {
       `📦 開始移動 ${targets.length} 個檔案 → ${folderSet.size} 個資料夾（${outputDir}）`
     );
 
-    // T5 女優資料夾：目標路徑為 outputDir\女優名\番號.ext
+    // T5 女優資料夾：目標路徑為 outputDir\女優名\<原始 basename>，僅換資料夾不改檔名，
+    // 避免 multi-part 同 code 不同 basename（KUSE-042-1.mp4 / KUSE-042-2.mp4）被壓成同一目標。
     const items = targets.map((r) => {
       const actress = codeToActress.get(r.code) ?? '未分類';
       return {
         source: r.path,
-        destination: `${outputDir}\\${actress}\\${r.code}${pathExt(r.path)}`,
+        destination: `${outputDir}\\${actress}\\${basenameOf(r.path)}`,
         on_conflict: conflictStrategy,
       };
     });
