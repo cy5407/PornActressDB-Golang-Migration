@@ -131,6 +131,51 @@ def _determine_source_status(raw: dict | None) -> str:
     return "found" if actresses else "not_found"
 
 
+class _GoCLIDB:
+    """搜尋管線寫入 source-status 的 **runtime 預設 backend**：純委派 Go CLI。
+
+    這不是 fallback —— production runtime（Wails subprocess 跑 `run_search.py main()`）
+    呼叫 `_update_source_search_status(...)` 時不會傳 `db=`，必走此類別 → Go CLI。
+    `db=` 參數存在的目的是讓測試注入 in-memory fake；測試走 `db=fake`，
+    runtime 走 `_GoCLIDB` → Go CLI subprocess。
+
+    Why: runtime SQLite-only 切換後，Python subprocess 不應再 import
+    IncrementalJSONDB / JSONDBManager 那條會在初始化時 open(data.json) 全檔讀
+    的 chain。此 adapter 只透過 services.go_cli 走 subprocess，永遠不直接打開
+    JSON 檔案。
+    """
+
+    def __init__(self, data_dir: str) -> None:
+        self.data_dir = data_dir
+
+    def get_video_info(self, code: str) -> dict | None:
+        from services import go_cli
+
+        try:
+            return go_cli.db_get_video(code, self.data_dir)
+        except go_cli.GoError:
+            return None
+
+    def add_or_update_video(self, code: str, info: dict) -> None:
+        from services import go_cli
+
+        if not go_cli.db_update_video(code, info, self.data_dir):
+            raise RuntimeError(f"Go db_update_video 失敗: {code}")
+
+    def update_video(self, code: str, updates: dict) -> None:
+        # 對齊 IncrementalJSONDB.update_video 契約：影片不存在時 raise，
+        # 而非 silent upsert。呼叫端 _update_source_search_status 在這之前
+        # 已保證影片存在（先 add_or_update_video 才呼叫此處）。
+        from services import go_cli
+
+        existing = self.get_video_info(code)
+        if not existing:
+            raise RuntimeError(f"影片不存在: {code}")
+        merged = {**existing, **updates}
+        if not go_cli.db_update_video(code, merged, self.data_dir):
+            raise RuntimeError(f"Go db_update_video 失敗: {code}")
+
+
 def _update_source_search_status(
     code: str,
     raw: dict | None,
@@ -147,9 +192,7 @@ def _update_source_search_status(
         timestamp = now or datetime.now(UTC).isoformat()
 
         if db is None:
-            from models.incremental_json_database import IncrementalJSONDB
-
-            db = IncrementalJSONDB(os.path.join(_PROJECT_ROOT, "data", "json_db"))
+            db = _GoCLIDB(os.path.join(_PROJECT_ROOT, "data", "json_db"))
 
         existing = db.get_video_info(code)
         if not existing:

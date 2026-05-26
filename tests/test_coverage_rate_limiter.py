@@ -9,7 +9,9 @@
 import asyncio
 import threading
 import time
+
 import pytest
+
 from src.scrapers.rate_limiter import (
     DomainConfig,
     DomainLimiter,
@@ -20,7 +22,6 @@ from src.scrapers.rate_limiter import (
     get_global_rate_limiter,
     rate_limited,
 )
-
 
 # ──────────────────────────────
 # _secure_uniform

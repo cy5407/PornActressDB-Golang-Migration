@@ -1,0 +1,116 @@
+{
+  "schema_version": "1.0.0",
+  "metadata": {
+    "description": "Python 女優分類系統 JSON 資料庫",
+    "encoding": "UTF-8"
+  },
+  "data_hash": "",
+  "created_at": "2026-05-23T00:00:00Z",
+  "updated_at": "2026-05-23T00:00:00Z",
+  "videos": {
+    "STARS-707": {
+      "code": "STARS-707",
+      "title": "範例作品 A",
+      "studio": "SOD Create",
+      "studio_code": "STARS",
+      "release_date": "2025-01-15",
+      "url": "https://example.test/STARS-707",
+      "actresses": ["田中美奈実"],
+      "search_status": "success",
+      "last_search_date": "2026-05-22T12:00:00Z",
+      "created_at": "2026-05-20T08:00:00Z",
+      "updated_at": "2026-05-22T12:00:00Z",
+      "metadata": {
+        "source": "javdb",
+        "confidence": 0.95
+      }
+    },
+    "MIDV-567": {
+      "code": "MIDV-567",
+      "title": "範例作品 B",
+      "studio": "MOODYZ",
+      "studio_code": "MIDV",
+      "release_date": "2025-03-21",
+      "url": "https://example.test/MIDV-567",
+      "actresses": ["佐藤亞美", "鈴木花子"],
+      "search_status": "success",
+      "last_search_date": "2026-05-22T12:30:00Z",
+      "created_at": "2026-05-20T08:00:00Z",
+      "updated_at": "2026-05-22T12:30:00Z",
+      "metadata": {
+        "source": "avwiki",
+        "confidence": 0.88
+      }
+    },
+    "SSIS-001": {
+      "code": "SSIS-001",
+      "title": "範例作品 C",
+      "studio": "S1",
+      "studio_code": "SSIS",
+      "release_date": "2024-12-10",
+      "url": "https://example.test/SSIS-001",
+      "actresses": ["田中美奈実"],
+      "search_status": "success",
+      "last_search_date": "2026-05-22T13:00:00Z",
+      "created_at": "2026-05-20T08:00:00Z",
+      "updated_at": "2026-05-22T13:00:00Z",
+      "metadata": {
+        "source": "javdb",
+        "confidence": 0.91
+      }
+    }
+  },
+  "actresses": {
+    "tanaka-minami": {
+      "id": "tanaka-minami",
+      "name": "田中美奈実",
+      "aliases": ["田中みなみ"],
+      "video_count": 2,
+      "created_at": "2026-05-20T08:00:00Z",
+      "updated_at": "2026-05-22T13:00:00Z"
+    },
+    "sato-ami": {
+      "id": "sato-ami",
+      "name": "佐藤亞美",
+      "aliases": [],
+      "video_count": 1,
+      "created_at": "2026-05-20T08:00:00Z",
+      "updated_at": "2026-05-22T12:30:00Z"
+    },
+    "suzuki-hanako": {
+      "id": "suzuki-hanako",
+      "name": "鈴木花子",
+      "aliases": [],
+      "video_count": 1,
+      "created_at": "2026-05-20T08:00:00Z",
+      "updated_at": "2026-05-22T12:30:00Z"
+    }
+  },
+  "links": [
+    {
+      "video_code": "STARS-707",
+      "actress_id": "tanaka-minami",
+      "role_type": "主演",
+      "timestamp": "2026-05-22T12:00:00Z"
+    },
+    {
+      "video_code": "MIDV-567",
+      "actress_id": "sato-ami",
+      "role_type": "主演",
+      "timestamp": "2026-05-22T12:30:00Z"
+    },
+    {
+      "video_code": "MIDV-567",
+      "actress_id": "suzuki-hanako",
+      "role_type": "主演",
+      "timestamp": "2026-05-22T12:30:00Z"
+    },
+    {
+      "video_code": "SSIS-001",
+      "actress_id": "tanaka-minami",
+      "role_type": "主演",
+      "timestamp": "2026-05-22T13:00:00Z"
+    }
+  ],
+  "statistics": {}
+}

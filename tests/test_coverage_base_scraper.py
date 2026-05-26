@@ -2,7 +2,7 @@
 import asyncio
 from unittest.mock import MagicMock, patch
 
-from src.scrapers.base_scraper import HealthChecker, HealthCheckConfig
+from src.scrapers.base_scraper import HealthCheckConfig, HealthChecker
 
 
 def test_start_health_check_task_schedules_coroutine():

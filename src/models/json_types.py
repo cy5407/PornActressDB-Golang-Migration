@@ -8,11 +8,8 @@ JSON 資料庫型別定義和常數
 若持久化 schema 有衝突，應以 Go 端 `VideoData` 定義為準，再同步更新這裡。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, TypedDict
-
-# Python 3.10 相容性：UTC 在 3.11+ 才新增，改用 timezone.utc
-UTC = timezone.utc
 
 # ============================================================================
 # 資料結構型別定義 (TypedDict)

@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import aiohttp
 
 from src.utils.log_sanitizer import sanitize_url_for_log
+
 from .cache_manager import CacheManager, get_global_cache_manager
 from .encoding_utils import EncodingDetector, install_encoding_warning_filter
 from .rate_limiter import get_global_rate_limiter

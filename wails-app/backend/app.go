@@ -31,7 +31,7 @@ type App struct {
 	ctx           context.Context
 	extractor     *extractor.CodeExtractor
 	mover         *mover.Mover
-	db            *database.JSONDatabase
+	db            *database.SQLiteStore
 	dbFileModTime time.Time
 	studio        *studio.StudioIdentifier
 	cfgSvc        *services.ConfigService
@@ -116,7 +116,11 @@ type ScanResult struct {
 
 // ScanDirectory scans the given directory for video files and extracts their codes.
 // When recursive=true (default), scans all subdirectories to any depth.
-// Duplicate codes are deduplicated: first occurrence wins.
+// Every video file with a recognisable code becomes its own ScanResult — multi-part
+// files that share a code (e.g. KUSE-042-1.mp4 + KUSE-042-2.mp4 both extract to
+// KUSE-042) are kept as separate entries so each underlying file can be moved.
+// Downstream BatchSearch tolerates duplicate codes by hitting the per-code DB
+// cache on the second pass, so the search budget does not grow.
 // Supports cancellation via CancelOperation. Emits "scan:progress" events during walk.
 func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResult {
 	scanCtx, cancel := context.WithCancel(a.ctx)
@@ -130,7 +134,6 @@ func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResul
 	}()
 
 	var results []ScanResult
-	seen := make(map[string]bool) // 去重：相同番號只保留第一個路徑
 	supportedFormats := make(map[string]bool, len(extractor.SupportedFormats))
 	for _, ext := range extractor.SupportedFormats {
 		supportedFormats[ext] = true
@@ -159,8 +162,7 @@ func (a *App) ScanDirectory(dir string, workers int, recursive bool) []ScanResul
 		}
 		scanned++
 		code := a.extractor.ExtractCode(filepath.Base(path))
-		if code != "" && !seen[code] {
-			seen[code] = true
+		if code != "" {
 			results = append(results, ScanResult{Path: path, Code: code})
 			a.emitEvent("scan:progress", len(results), code)
 		}
@@ -1038,29 +1040,35 @@ func (a *App) ensureDB() error {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 	dataDir := resolveDataDir(a.cfgPath)
+	// Track the JSON data file's mtime even though SQLite is now the
+	// runtime store. On an empty SQLite DB this lets ensureDB surface
+	// bootstrap-from-JSON failures promptly; once SQLite is populated,
+	// NewStore ignores data.json and keeps SQLite authoritative.
 	dataFile := filepath.Join(dataDir, "data.json")
 
 	if a.db != nil {
 		if info, err := os.Stat(dataFile); err == nil && !info.ModTime().Equal(a.dbFileModTime) {
+			// File on disk changed under us — drop the cached store
+			// and let the block below reload. Close the old SQLite
+			// handle so Windows isn't holding the file open.
+			_ = a.db.Close()
 			a.db = nil
 		}
 	}
 
 	if a.db == nil {
-		db := database.NewJSONDatabase(dataDir)
-		if err := db.Load(context.Background()); err != nil {
+		// Slice C2: SQLite is the canonical runtime store. NewStore
+		// runs the one-shot bootstrap-from-JSON path on a brand-new
+		// SQLite file when a sibling data.json is present, so the
+		// Wails app keeps working across the JSON → SQLite cutover
+		// without an explicit migrate step.
+		store, err := database.NewStore(database.StoreConfig{DataDir: dataDir})
+		if err != nil {
 			a.db = nil
 			a.dbFileModTime = time.Time{}
 			return err
 		}
-		// 啟動時若 journal 有未合併資料，立即寫入 data.json，
-		// 避免下次搜尋因全部命中快取（早期返回）而永遠跳過 Compact。
-		if _, err := db.CompactIfNeeded(); err != nil {
-			a.db = nil
-			a.dbFileModTime = time.Time{}
-			return err
-		}
-		a.db = db
+		a.db = store
 	}
 
 	if info, err := os.Stat(dataFile); err == nil {
@@ -1074,6 +1082,12 @@ func (a *App) ensureDB() error {
 func (a *App) resetDB() {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
+	// SQLiteStore holds an exclusive SQLite handle on Windows; close
+	// before dropping so a follow-up preference reset / DB reopen
+	// doesn't fail with "file in use".
+	if a.db != nil {
+		_ = a.db.Close()
+	}
 	a.db = nil
 	a.dbFileModTime = time.Time{}
 }

@@ -76,7 +76,7 @@ class TestJsonUtils:
             temp_path = f.name
 
         try:
-            with open(temp_path, "r") as f:
+            with open(temp_path) as f:
                 result = load(f)
             assert result == {"test": "data"}
         finally:
@@ -92,7 +92,7 @@ class TestJsonUtils:
             with open(temp_path, "w") as f:
                 dump(obj, f)
 
-            with open(temp_path, "r") as f:
+            with open(temp_path) as f:
                 result = json.load(f)
             assert result == obj
         finally:
@@ -108,7 +108,7 @@ class TestJsonUtils:
             with open(temp_path, "w") as f:
                 dump(obj, f, indent=2)
 
-            with open(temp_path, "r") as f:
+            with open(temp_path) as f:
                 content = f.read()
             assert "\n" in content
         finally:

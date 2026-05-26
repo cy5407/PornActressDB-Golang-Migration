@@ -2,7 +2,6 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from src.services import go_cli
 
@@ -10,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 class UnifiedFileScanner:
-    def __init__(self, use_go: bool = False, go_workers: int = 10, go_exe_path: Optional[str] = None):
+    def __init__(self, use_go: bool = False, go_workers: int = 10, go_exe_path: str | None = None):
         self.use_go, self.go_workers, self.go_exe_path = use_go, go_workers, go_exe_path
-        self._go_available: Optional[bool] = None
+        self._go_available: bool | None = None
 
     @property
     def go_bridge(self):

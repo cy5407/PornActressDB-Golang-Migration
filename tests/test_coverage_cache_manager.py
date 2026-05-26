@@ -11,8 +11,12 @@ from unittest.mock import patch
 
 import pytest
 
-from src.scrapers.cache_manager import CACHE_PAYLOAD_VERSION, CacheConfig, CacheEntry, CacheManager
-
+from src.scrapers.cache_manager import (
+    CACHE_PAYLOAD_VERSION,
+    CacheConfig,
+    CacheEntry,
+    CacheManager,
+)
 
 # ---------- helper ----------
 

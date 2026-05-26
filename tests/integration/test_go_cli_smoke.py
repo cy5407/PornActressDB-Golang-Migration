@@ -5,9 +5,9 @@ from pathlib import Path
 from src.models.json_database import JSONDBManager
 from src.services import go_cli
 
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 import sys as _sys
+
 CLASSIFIER_EXE = ROOT_DIR / ("classifier.exe" if _sys.platform == "win32" else "classifier")
 
 
@@ -56,7 +56,7 @@ def test_go_cli_normalize_studio_name_uses_real_classifier():
 
 def test_go_cli_cache_round_trip_uses_real_classifier(tmp_path):
     cache_dir = tmp_path / "cache"
-    payload = "真實 cache round-trip".encode("utf-8")
+    payload = "真實 cache round-trip".encode()
 
     assert go_cli.cache_set("demo-key", payload, ttl_hours=1, cache_dir=str(cache_dir)) is True
     assert go_cli.cache_get("demo-key", cache_dir=str(cache_dir)) == payload

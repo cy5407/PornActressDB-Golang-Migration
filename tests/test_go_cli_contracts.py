@@ -51,17 +51,26 @@ def test_db_backup_restore_uses_backup_restore_subcommand(monkeypatch):
 
 
 def test_db_backup_create_uses_backup_create_subcommand(monkeypatch):
+    """Slice C1: `db backup-create` returns the dual-snapshot shape with
+    both `backup_path` (SQLite) and `json_export_path` (JSON export).
+    """
     captured = {}
 
     def fake_run(args, *, timeout=30):
         captured["args"] = args
-        return {"success": True, "path": "backup/demo.json"}
+        return {
+            "success": True,
+            "backup_path": "data/backup/backup_2026-05-23.sqlite",
+            "json_export_path": "data/backup/backup_2026-05-23.json",
+        }
 
     monkeypatch.setattr(go_cli, "run", fake_run)
 
     result = go_cli.db_backup_create("custom_db")
 
-    assert result == {"success": True, "path": "backup/demo.json"}
+    assert result["success"] is True
+    assert result["backup_path"].endswith(".sqlite")
+    assert result["json_export_path"].endswith(".json")
     assert captured["args"] == ["db", "backup-create", "-data-dir", "custom_db"]
 
 
@@ -468,3 +477,875 @@ def test_normalize_studio_name_raises_on_go_error(monkeypatch):
 
     with pytest.raises(go_cli.GoError, match="normalize failed"):
         go_cli.normalize_studio_name("MOODYZ DIVA")
+
+
+# ---------------------------------------------------------------------------
+# Slice A0 — per-subcommand happy-path JSON contracts (spec § 7.1)
+#
+# Goal: pin the JSON shape that classifier.exe currently returns for every
+# `db` subcommand the Python helper relies on, so any later slice that
+# changes that shape lights up here first.
+# ---------------------------------------------------------------------------
+
+
+def test_db_get_video_returns_video_dict_for_existing_code(monkeypatch):
+    captured = {}
+    video_payload = {
+        "code": "STARS-707",
+        "title": "範例作品",
+        "studio": "SOD Create",
+        "actresses": ["田中美奈実"],
+        "search_status": "success",
+    }
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return video_payload
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_get_video("STARS-707", "custom_db")
+
+    assert result == video_payload
+    assert captured["args"] == ["db", "get", "-data-dir", "custom_db", "STARS-707"]
+
+
+def test_db_get_video_omits_data_dir_when_default(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"code": "STARS-707"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.db_get_video("STARS-707")
+
+    # spec § 7.1: default data/json_db must NOT add -data-dir to argv
+    # (compatibility lookup is implicit when the flag is absent).
+    assert captured["args"] == ["db", "get", "STARS-707"]
+    assert "-data-dir" not in captured["args"]
+
+
+def test_db_get_video_returns_none_when_not_found(monkeypatch):
+    def fake_run(args, *, timeout=30):
+        raise go_cli.GoError("classifier 回傳錯誤 (exit 1): video not found")
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_get_video("MISSING-001", "custom_db") is None
+
+
+def test_db_delete_video_happy_path(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True, "action": "delete", "code": "STARS-707"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_delete_video("STARS-707", "custom_db") is True
+    assert captured["args"] == ["db", "delete", "-data-dir", "custom_db", "STARS-707"]
+
+
+def test_db_delete_video_returns_false_on_not_found(monkeypatch):
+    def fake_run(args, *, timeout=30):
+        raise go_cli.GoError("classifier 回傳錯誤 (exit 1): video not found")
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_delete_video("MISSING-001", "custom_db") is False
+
+
+def test_db_get_all_videos_full_uses_full_flag(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return [{"code": "STARS-707"}, {"code": "MIDV-567"}]
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_get_all_videos("custom_db")
+
+    assert result == [{"code": "STARS-707"}, {"code": "MIDV-567"}]
+    assert captured["args"] == ["db", "list", "--full", "-data-dir", "custom_db"]
+
+
+def test_db_compact_journal_pins_current_return_shape(monkeypatch):
+    """Lock the *current* `db compact -json` return shape.
+
+    Spec § 7.1 / plan A0 describe a richer no-op return for Phase C
+    (`{"success":true,"noop":true,"journal_size":0,"needs_compact":false,
+    "reason":"..."}`), but today the CLI only emits success/action/data_dir.
+    This test pins reality so Slice C1 can detect the contract change.
+    The Python helper only reads `success`, so the wrapper must keep
+    working when extra fields are added later.
+    """
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {
+            "success": True,
+            "action": "compact",
+            "data_dir": "custom_db",
+        }
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_compact_journal("custom_db") is True
+    assert captured["args"] == ["db", "compact", "-json", "-data-dir", "custom_db"]
+
+
+def test_db_compact_journal_accepts_phase_c_noop_shape(monkeypatch):
+    """Forward-compat: Python wrapper must not break when Phase C adds fields.
+
+    spec § 7.1: Phase C no-op returns the keys
+    `success / noop / journal_size / needs_compact / reason`. The wrapper
+    today only reads `success`, so it must keep returning True for the
+    richer shape too.
+    """
+
+    def fake_run(args, *, timeout=30):
+        return {
+            "success": True,
+            "noop": True,
+            "journal_size": 0,
+            "needs_compact": False,
+            "reason": "sqlite has no journal to compact",
+        }
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_compact_journal() is True
+
+
+def test_db_compact_journal_noop_payload_fields_complete(monkeypatch):
+    """Slice C1: the Go-emitted no-op JSON must carry every key Python
+    consumers may sample. IncrementalJSONDB.compact() only inspects
+    `success` today, but spec § 7.1 promises the full set so future
+    callers (and operators reading the CLI manually) can rely on it.
+    """
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {
+            "success": True,
+            "noop": True,
+            "journal_size": 0,
+            "needs_compact": False,
+            "reason": "sqlite has no journal to compact",
+            "action": "compact",
+            "data_dir": "custom_db",
+        }
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_compact_journal("custom_db") is True
+    # The wrapper sends -json; pin that so Go-side flag plumbing changes
+    # surface in this test.
+    assert captured["args"] == ["db", "compact", "-json", "-data-dir", "custom_db"]
+
+
+def test_db_compact_journal_noop_payload_round_trips_through_subprocess(monkeypatch):
+    """Slice C1: the no-op payload — exactly as the Go CLI emits it —
+    must round-trip through go_cli.run and reach Python wrapper code
+    intact. Catches accidental field renames or json.dumps issues on
+    the Go side at the contract boundary.
+    """
+    _patch_exe(monkeypatch)
+    noop_payload = {
+        "success": True,
+        "noop": True,
+        "journal_size": 0,
+        "needs_compact": False,
+        "reason": "sqlite has no journal to compact",
+        "action": "compact",
+        "data_dir": "custom_db",
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(noop_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "compact", "-json", "-data-dir", "custom_db"])
+    # All keys present (spec § 7.1 promises the full set).
+    for key in ("success", "noop", "journal_size", "needs_compact", "reason"):
+        assert key in result, f"compact no-op payload missing required key: {key}"
+    assert result["success"] is True
+    assert result["noop"] is True
+    assert result["journal_size"] == 0
+    assert result["needs_compact"] is False
+    assert "sqlite" in result["reason"].lower()
+    # Wrapper must still return True end-to-end.
+    monkeypatch.setattr(go_cli, "run", lambda args, *, timeout=30: noop_payload)
+    assert go_cli.db_compact_journal("custom_db") is True
+
+
+def test_db_compact_journal_omits_data_dir_when_default(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.db_compact_journal()
+
+    assert captured["args"] == ["db", "compact", "-json"]
+
+
+def test_db_stats_subcommand_returns_full_stats_dict(monkeypatch):
+    """`db stats` is invoked directly via go_cli.run (no helper today).
+
+    Pins the full key set that pkg/database.GetStats() emits, so any
+    Phase B/C change to those keys is caught here.
+    """
+    _patch_exe(monkeypatch)
+    stats_payload = {
+        "video_count": 3,
+        "actress_count": 3,
+        "link_count": 4,
+        "schema_version": "1.0.0",
+        "created_at": "2026-05-23T00:00:00Z",
+        "updated_at": "2026-05-23T00:00:00Z",
+        "journal_size": 0,
+        "journal_age_seconds": 0.0,
+        "dirty_videos": 0,
+        "dirty_actresses": 0,
+        "dirty_links": 0,
+        "needs_compact": False,
+        "total_videos": 3,
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(stats_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "stats", "-data-dir", "custom_db"])
+
+    # Spec § 7.1: these are the fields Python IncrementalJSONDB mirrors.
+    for required in (
+        "journal_size",
+        "journal_age_seconds",
+        "dirty_videos",
+        "dirty_actresses",
+        "dirty_links",
+        "needs_compact",
+        "total_videos",
+    ):
+        assert required in result, f"missing required stats key: {required}"
+    assert result["total_videos"] == 3
+    assert result["needs_compact"] is False
+
+
+def test_db_stats_with_phase_b1_fields_still_parses(monkeypatch):
+    """Forward-compat: `db stats` under USE_SQLITE_READS=true emits the
+    Phase A3 fields (`sync_degraded_total` / `sync_degraded_log_size`)
+    plus the Phase B1 `sqlite_read_fallback_total` counter. Python only
+    reads the A0 subset via go_cli.run, so the richer payload must round-
+    trip untouched and the Python helper must keep returning a dict.
+    """
+    _patch_exe(monkeypatch)
+    stats_payload = {
+        # A0 keys.
+        "video_count": 3,
+        "actress_count": 3,
+        "link_count": 4,
+        "schema_version": "1.0.0",
+        "created_at": "2026-05-23T00:00:00Z",
+        "updated_at": "2026-05-23T00:00:00Z",
+        "journal_size": 0,
+        "journal_age_seconds": 0.0,
+        "dirty_videos": 0,
+        "dirty_actresses": 0,
+        "dirty_links": 0,
+        "needs_compact": False,
+        "total_videos": 3,
+        # A3 additions.
+        "sync_degraded_total": 0,
+        "sync_degraded_log_size": 0,
+        # B1 addition.
+        "sqlite_read_fallback_total": 0,
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(stats_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "stats", "-data-dir", "custom_db"])
+
+    assert result["sqlite_read_fallback_total"] == 0
+    assert result["sync_degraded_total"] == 0
+    assert result["sync_degraded_log_size"] == 0
+    # A0 keys must still be intact alongside the new ones.
+    for required in (
+        "journal_size",
+        "journal_age_seconds",
+        "dirty_videos",
+        "dirty_actresses",
+        "dirty_links",
+        "needs_compact",
+        "total_videos",
+    ):
+        assert required in result
+
+
+def test_db_list_codes_returns_string_array(monkeypatch):
+    """`db list` (without --full) emits a JSON string array, not an object."""
+    _patch_exe(monkeypatch)
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout='["STARS-707","MIDV-567","SSIS-001"]', stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "list", "-data-dir", "custom_db"])
+
+    assert isinstance(result, list)
+    assert result == ["STARS-707", "MIDV-567", "SSIS-001"]
+
+
+def test_db_actress_get_returns_actress_dict(monkeypatch):
+    captured = {}
+    actress_payload = {
+        "id": "tanaka-minami",
+        "name": "田中美奈実",
+        "aliases": ["田中みなみ"],
+        "video_count": 2,
+        "created_at": "2026-05-20T08:00:00Z",
+        "updated_at": "2026-05-22T13:00:00Z",
+    }
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return actress_payload
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_get_actress("tanaka-minami", "custom_db")
+
+    assert result == actress_payload
+    # spec § 7.1: actress dict must expose id/name/aliases/video_count.
+    for required in ("id", "name", "aliases", "video_count"):
+        assert required in result
+    assert captured["args"] == [
+        "db",
+        "actress-get",
+        "-data-dir",
+        "custom_db",
+        "tanaka-minami",
+    ]
+
+
+def test_db_actress_list_returns_id_array(monkeypatch):
+    _patch_exe(monkeypatch)
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout='["tanaka-minami","sato-ami","suzuki-hanako"]',
+            stderr="",
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "actress-list", "-data-dir", "custom_db"])
+
+    assert isinstance(result, list)
+    assert "tanaka-minami" in result
+
+
+def test_db_clean_actresses_returns_report_dict(monkeypatch):
+    """`db clean-actresses` emits a dbCleanActressesResult JSON object."""
+    _patch_exe(monkeypatch)
+    payload = {
+        "success": True,
+        "dry_run": True,
+        "scanned_videos": 3,
+        "changed_videos": 0,
+        "removed_actresses": 0,
+        "changes": [],
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "clean-actresses", "-data-dir", "custom_db"])
+
+    for required in (
+        "success",
+        "dry_run",
+        "scanned_videos",
+        "changed_videos",
+        "removed_actresses",
+        "changes",
+    ):
+        assert required in result, f"missing required key: {required}"
+    assert result["changes"] == []
+
+
+def test_db_backup_create_returns_dual_snapshot_paths(monkeypatch):
+    """Slice C1: `db backup-create` must emit `backup_path` (SQLite) and
+    `json_export_path` (JSON export of the SQLite store). The legacy
+    `path` field is preserved as an alias of `json_export_path` so the
+    existing JSONDBManager.create_backup() helper (which only reads
+    `path`) keeps working without Python-side changes.
+    """
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {
+            "success": True,
+            "backup_path": "data/backup/backup_2026-05-23_12-34-56.sqlite",
+            "json_export_path": "data/backup/backup_2026-05-23_12-34-56.json",
+            "path": "data/backup/backup_2026-05-23_12-34-56.json",
+        }
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_backup_create("custom_db")
+
+    assert result["success"] is True
+    assert "backup_path" in result
+    assert "json_export_path" in result
+    assert result["backup_path"].endswith(".sqlite")
+    assert result["json_export_path"].endswith(".json")
+    # Legacy alias: JSONDBManager.create_backup() reads result["path"] and
+    # expects a JSON snapshot. It must equal json_export_path so the JSON
+    # helper keeps producing the same artefact callers used pre-C1.
+    assert "path" in result
+    assert result["path"] == result["json_export_path"]
+    # Both snapshots share a parent directory so backup-list discovers them
+    # together (the json sibling is what backup-list returns).
+    from pathlib import PurePosixPath
+    assert PurePosixPath(result["backup_path"]).parent == PurePosixPath(result["json_export_path"]).parent
+    assert captured["args"] == ["db", "backup-create", "-data-dir", "custom_db"]
+
+
+def test_db_backup_restore_mutual_exclusion_exit_2(monkeypatch):
+    """Slice C1: passing both -backup-path and -from-json is a config
+    error. The CLI must exit 2 with the canonical message and Python
+    must surface it through GoError (callers can grep the message).
+    """
+    _patch_exe(monkeypatch)
+    canonical = "error: -backup-path and -from-json are mutually exclusive; pass exactly one"
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 2, stdout="", stderr=canonical)
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    with pytest.raises(go_cli.GoError) as ei:
+        go_cli.run([
+            "db", "backup-restore",
+            "-backup-path", "data/backup/x.sqlite",
+            "-from-json", "data/backup/y.json",
+        ])
+    msg = str(ei.value)
+    assert "exit 2" in msg
+    assert "mutually exclusive" in msg
+    assert "-backup-path" in msg and "-from-json" in msg
+
+
+def test_db_backup_restore_missing_inputs_exit_2(monkeypatch):
+    """Slice C1: passing neither flag is also a config error with the
+    other canonical message. Same exit code so callers can distinguish
+    "bad CLI input" (exit 2) from "restore failed" (exit 1).
+    """
+    _patch_exe(monkeypatch)
+    canonical = (
+        "error: db backup-restore requires either -backup-path <sqlite> "
+        "or -from-json <json>"
+    )
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 2, stdout="", stderr=canonical)
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    with pytest.raises(go_cli.GoError) as ei:
+        go_cli.run(["db", "backup-restore"])
+    msg = str(ei.value)
+    assert "exit 2" in msg
+    assert "requires either -backup-path" in msg
+    assert "-from-json" in msg
+
+
+def test_db_backup_list_returns_count_and_backups(monkeypatch):
+    """`db backup-list` happy path returns {"backups": [...], "count": N}."""
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"backups": ["a.json", "b.json", "c.json"], "count": 3}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_backup_list("custom_db")
+
+    assert result == ["a.json", "b.json", "c.json"]
+    assert captured["args"] == ["db", "backup-list", "-data-dir", "custom_db"]
+
+
+def test_db_backup_list_handles_empty_backups(monkeypatch):
+    def fake_run(args, *, timeout=30):
+        return {"backups": [], "count": 0}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.db_backup_list("custom_db") == []
+
+
+def test_db_backup_cleanup_default_args_omit_optional_flags(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"deleted": 0, "success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_backup_cleanup("custom_db")
+
+    assert result == 0
+    assert captured["args"] == ["db", "backup-cleanup", "-data-dir", "custom_db"]
+
+
+def test_db_get_video_default_data_dir_lookup_contract(monkeypatch):
+    """spec § 7.1: default `data/json_db` must trigger compatibility lookup.
+
+    Today that means "do not append -data-dir to argv"; future slices may
+    extend the contract (e.g. point at data/db.sqlite), but the Python
+    surface must keep dispatching the flag the same way.
+    """
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"code": "STARS-707"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.db_get_video("STARS-707")  # uses default data_dir
+    assert "-data-dir" not in captured["args"]
+
+    captured.clear()
+    go_cli.db_get_video("STARS-707", "data/json_db")  # explicit default
+    assert "-data-dir" not in captured["args"]
+
+    captured.clear()
+    go_cli.db_get_video("STARS-707", "custom_dir")
+    assert "-data-dir" in captured["args"]
+    assert "custom_dir" in captured["args"]
+
+
+# ---------------------------------------------------------------------------
+# Phase D — wrapper contract locks for SQLite-only `db` subcommands.
+#
+# The Python helper does not (yet) wrap migrate-from-json / verify-sync /
+# resync-from-json / export-json. The tests below use monkeypatch to drive
+# `go_cli.run` (or its underlying subprocess call) with the exact JSON
+# shapes the Go CLI emits today, so any future runtime change to those
+# payload keys / stderr wording lights up here first — independent of
+# whether anyone has built a Python wrapper around them yet.
+# ---------------------------------------------------------------------------
+
+
+def test_db_migrate_from_json_strict_report_shape(monkeypatch):
+    """`db migrate-from-json` (strict mode, happy path) emits the full
+    MigrationReport JSON. Pin every key the report struct in
+    `pkg/database/migrate_from_json.go::MigrationReport` declares — when
+    the struct changes, this test is the canary for the Python side.
+    """
+    _patch_exe(monkeypatch)
+    report_payload = {
+        "success": True,
+        "source_path": "data/json_db/data.json",
+        "sqlite_path": "data/db.sqlite",
+        "videos_imported": 3,
+        "actresses_imported": 3,
+        "links_imported": 4,
+        "elapsed_ms": 17,
+    }
+
+    captured = {}
+
+    def fake_subprocess_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(report_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(
+        ["db", "migrate-from-json", "-data-dir", "data/json_db"]
+    )
+
+    # Every required key in the MigrationReport struct must round-trip
+    # through the Python boundary intact. omitempty fields (auto_created,
+    # unresolved, duplicates) are intentionally absent on the happy path.
+    for required in (
+        "success",
+        "source_path",
+        "sqlite_path",
+        "videos_imported",
+        "actresses_imported",
+        "links_imported",
+        "elapsed_ms",
+    ):
+        assert required in result, f"migrate report missing {required}: {result!r}"
+    assert result["success"] is True
+    assert result["videos_imported"] == 3
+    assert captured["cmd"][1:] == [
+        "db",
+        "migrate-from-json",
+        "-data-dir",
+        "data/json_db",
+    ]
+
+
+def test_db_migrate_from_json_auto_create_flag_present(monkeypatch):
+    """Lock two shapes that recovery tooling depends on:
+
+    1. Strict-mode failure surfaces the canonical "unresolved actress
+       references" stderr string via GoError, so callers can grep it and
+       recommend the recovery command.
+    2. The `-auto-create-missing-actresses` flag survives the wrapper
+       argv intact and the resulting MigrationReport carries auto_created
+       entries (per `MigrationAutoCreated`).
+    """
+    _patch_exe(monkeypatch)
+
+    # Part 1: strict-mode failure stderr.
+    strict_stderr = (
+        "migrate-from-json failed: migrate-from-json: "
+        "unresolved actress references (1 entries)"
+    )
+
+    def fake_strict_failure(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, stdout="{}", stderr=strict_stderr)
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_strict_failure)
+
+    with pytest.raises(go_cli.GoError) as ei:
+        go_cli.run(["db", "migrate-from-json", "-data-dir", "data/json_db"])
+    msg = str(ei.value)
+    assert "exit 1" in msg
+    assert "unresolved actress references" in msg, (
+        "strict-mode stderr must keep the canonical 'unresolved actress "
+        "references' phrase so callers can hint at -auto-create-missing-actresses"
+    )
+
+    # Part 2: -auto-create-missing-actresses round-trips through the CLI
+    # boundary and is reflected in the success report.
+    captured = {}
+    auto_payload = {
+        "success": True,
+        "source_path": "data/json_db/data.json",
+        "sqlite_path": "data/db.sqlite",
+        "videos_imported": 3,
+        "actresses_imported": 4,
+        "links_imported": 4,
+        "auto_created": [
+            {
+                "name": "新女優",
+                "actress_id": "auto_abcdef0123456789",
+                "video_code": "TEST-001",
+            }
+        ],
+        "elapsed_ms": 12,
+    }
+
+    def fake_auto_create(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(auto_payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_auto_create)
+
+    result = go_cli.run(
+        [
+            "db",
+            "migrate-from-json",
+            "-data-dir",
+            "data/json_db",
+            "-auto-create-missing-actresses",
+        ]
+    )
+    assert "-auto-create-missing-actresses" in captured["cmd"], (
+        "wrapper must forward the recovery flag verbatim"
+    )
+    assert isinstance(result.get("auto_created"), list)
+    assert result["auto_created"][0]["actress_id"].startswith("auto_")
+
+
+def test_db_verify_sync_happy_payload_keys(monkeypatch):
+    """`db verify-sync` happy path: consistent=true, count fields present,
+    diffs omitted (omitempty in `VerifyReport`).
+    """
+    _patch_exe(monkeypatch)
+    payload = {
+        "consistent": True,
+        "video_count": 3,
+        "actress_count": 3,
+        "link_count": 4,
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "verify-sync", "-data-dir", "data/json_db"])
+
+    for required in ("consistent", "video_count", "actress_count", "link_count"):
+        assert required in result, f"verify-sync missing {required}: {result!r}"
+    assert result["consistent"] is True
+    # diffs is omitempty — happy path must NOT emit it. Catches a runtime
+    # regression that would always emit an empty list (harmless to read
+    # but a contract change worth noticing).
+    assert "diffs" not in result
+
+
+def test_db_resync_from_json_payload_keys(monkeypatch):
+    """`db resync-from-json` reuses the MigrationReport shape (it shares
+    `runImport` with migrate-from-json), so the same required keys apply.
+    """
+    _patch_exe(monkeypatch)
+    payload = {
+        "success": True,
+        "source_path": "data/json_db/data.json",
+        "sqlite_path": "data/db.sqlite",
+        "videos_imported": 3,
+        "actresses_imported": 3,
+        "links_imported": 4,
+        "elapsed_ms": 19,
+    }
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(["db", "resync-from-json", "-data-dir", "data/json_db"])
+
+    for required in (
+        "success",
+        "source_path",
+        "sqlite_path",
+        "videos_imported",
+        "actresses_imported",
+        "links_imported",
+        "elapsed_ms",
+    ):
+        assert required in result, f"resync report missing {required}: {result!r}"
+    assert result["success"] is True
+
+
+def test_db_export_json_payload_keys(monkeypatch):
+    """`db export-json -output <path>` emits the small wrapper payload
+    `{success, output, sqlite_path}` to stdout (the JSON DB itself is
+    written to the output file, not stdout, when -output is used).
+    """
+    _patch_exe(monkeypatch)
+    payload = {
+        "success": True,
+        "output": "data/json_db/data.json",
+        "sqlite_path": "data/db.sqlite",
+    }
+
+    captured = {}
+
+    def fake_subprocess_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    result = go_cli.run(
+        [
+            "db",
+            "export-json",
+            "-data-dir",
+            "data/json_db",
+            "-output",
+            "data/json_db/data.json",
+        ]
+    )
+
+    for required in ("success", "output", "sqlite_path"):
+        assert required in result, f"export-json missing {required}: {result!r}"
+    assert result["success"] is True
+    # Reflect the -output we passed, so the wrapper can show users where
+    # the snapshot landed without re-parsing argv.
+    assert result["output"] == "data/json_db/data.json"
+    assert "-output" in captured["cmd"]
+
+
+def test_db_backup_create_dual_snapshot_legacy_path_alias(monkeypatch):
+    """Phase D §8.1 dedicated contract: the legacy `path` alias on
+    `db backup-create` must equal `json_export_path`. JSONDBManager.
+    create_backup() only reads `path`, so any drift here silently breaks
+    the Wails GUI's "備份" button.
+    """
+    captured = {}
+    payload = {
+        "success": True,
+        "backup_path": "data/backup/backup_2026-05-24_10-11-12.sqlite",
+        "json_export_path": "data/backup/backup_2026-05-24_10-11-12.json",
+        "path": "data/backup/backup_2026-05-24_10-11-12.json",
+    }
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return payload
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.db_backup_create("custom_db")
+
+    assert result["success"] is True
+    # The three keys must all be present; path is the legacy alias kept
+    # alive for src/models/json_database.py.create_backup().
+    assert "backup_path" in result
+    assert "json_export_path" in result
+    assert "path" in result
+    # Alias equality is the load-bearing contract.
+    assert result["path"] == result["json_export_path"], (
+        "legacy `path` alias must mirror json_export_path so the existing "
+        "JSONDBManager.create_backup() helper keeps producing the same JSON file"
+    )
+    # Sanity: aliased file is JSON, primary backup is SQLite.
+    assert result["path"].endswith(".json")
+    assert result["backup_path"].endswith(".sqlite")
+    assert captured["args"] == ["db", "backup-create", "-data-dir", "custom_db"]

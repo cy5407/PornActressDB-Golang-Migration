@@ -1,7 +1,9 @@
 """補測 UnifiedFileScanner 覆蓋率。"""
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from src.utils.scanner import UnifiedFileScanner
 
 

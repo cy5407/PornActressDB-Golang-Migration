@@ -13,7 +13,6 @@ from bs4 import BeautifulSoup
 
 from src.scrapers.sources.shiroutowiki_scraper import ShiroutoWikiScraper
 
-
 SEARCH_HTML = """
 <html>
   <body>

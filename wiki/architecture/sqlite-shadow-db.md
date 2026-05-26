@@ -1,29 +1,44 @@
-# SQLite 影子資料庫
+---
+status: archived
+---
 
-> 更新：2026-04-27
+# SQLite 影子資料庫（歷史 / 已退役）
+
+> 更新：2026-05-23（C3：runtime 已切換為 SQLite-only，本頁標歷史）
+
+> ⚠️ **本頁描述的「shadow SQLite」第一版角色已退役。**
+>
+> - C2（2026-05-23）後，runtime source of truth 已從 JSON 切到 SQLite v3（`data/db.sqlite`）。
+> - 「正式資料是 JSON、SQLite 是 shadow」的前提已不成立。
+> - `tools-rs/db-tool` 的 `db-init` / `db-import-json` / `db-stats` / `db-compare-json` / `db-benchmark` / `query …` 仍可執行，但 schema 仍是 v2，**用途已退化為診斷 / 歷史比對**。`db-import-json` 跑時 stderr 會顯示 deprecated warning。
+> - 新增的 `db-verify` / `db-migrate` 子命令對象是 v3 runtime SQLite，**不是這份 v2 shadow schema**。請改讀 [database.md](database.md) 對應段落。
+>
+> 本頁保留為歷史紀錄，方便理解第一版 shadow DB 的設計選擇與當時的邊界決策。
 
 ---
 
-## 一句話
+## 一句話（歷史背景）
 
-Rust crate `db-tool`（位於 `tools-rs/`，Cargo package name `db-tool`、目錄就是 `tools-rs/` 本身，不是 `tools-rs/db-tool/`）是放在正式 JSON DB 旁邊的 SQLite 試驗場。
+Rust crate `db-tool`（位於 `tools-rs/`，Cargo package name `db-tool`、目錄就是 `tools-rs/` 本身，不是 `tools-rs/db-tool/`）原本是放在正式 JSON DB 旁邊的 SQLite 試驗場。
 
-它不取代 `data.json` / `data.journal`，也不會自動接進 Wails。它只是把目前 JSON DB 的資料整理成 SQLite 影子副本，讓我們安全地驗證「未來是否值得把主資料庫遷移到 SQLite」。
+最初的設計目標：**不取代 `data.json` / `data.journal`，也不自動接進 Wails；只把 JSON DB 的資料整理成 SQLite 影子副本，安全地驗證「未來是否值得把主資料庫遷移到 SQLite」**。
+
+→ 這個驗證已在 2026-05 完成；A1 ~ C2 把主資料庫真正搬到了 SQLite，本頁的 shadow 定位也就跟著退役。
 
 ---
 
-## 目前定位
+## 第一版定位（歷史）
 
-| 項目 | 狀態 |
+| 項目 | 狀態（當時） |
 |------|------|
-| 正式資料來源 | 仍是 `data/json_db/data.json` + `data.journal` |
+| 正式資料來源 | `data/json_db/data.json` + `data.journal` |
 | SQLite 角色 | 可重建、可刪除的 shadow DB |
-| 寫入主流程 | 不變，仍由 Go CLI / Go DB 維護 JSON DB |
-| Wails 自動執行 | 尚未接入，不會自動跑 |
+| 寫入主流程 | Go CLI / Go DB 維護 JSON DB |
+| Wails 自動執行 | 不接入 |
 | 主要用途 | import / stats / compare / benchmark / 人工檢視 |
 | 固定 shadow DB 路徑 | `data/shadow.sqlite` |
 
-第一版的核心原則是：**先證明 SQLite 影子資料與 JSON 等價，再談正式切換**。
+當時的核心原則：**先證明 SQLite 影子資料與 JSON 等價，再談正式切換**。
 
 ---
 
@@ -204,22 +219,34 @@ cargo run --manifest-path tools-rs\Cargo.toml -- db-benchmark `
 
 ---
 
-## 後續路線
+## 後續路線（歷史）
 
-建議分階段推進：
+當時規劃分階段推進：
 
-1. Shadow SQLite：手動 import / compare / benchmark。
-2. 開發者 script：把 compact 檢查、import、compare 串成一個明確流程。
-3. Wails 診斷入口：提供手動按鈕或維護頁查看 shadow DB 狀態。
-4. SQLite 讀取快取：仍由 JSON 寫入，但可嘗試讀取加速。
-5. SQLite 成為 source of truth：需重新設計 backup、restore、migration 與 Wails 寫入契約。
+1. ~~Shadow SQLite：手動 import / compare / benchmark。~~ ✅ 已完成
+2. ~~開發者 script：把 compact 檢查、import、compare 串成一個明確流程。~~ ✅ 由 Go CLI 接手
+3. ~~Wails 診斷入口：提供手動按鈕或維護頁查看 shadow DB 狀態。~~ ⏸ 直接跳過
+4. ~~SQLite 讀取快取：仍由 JSON 寫入，但可嘗試讀取加速。~~ ✅ B1 / B2
+5. ~~SQLite 成為 source of truth：需重新設計 backup、restore、migration 與 Wails 寫入契約。~~ ✅ C1 / C2
 
-目前只完成第 1 階段。
+→ 第 5 階段於 2026-05 完成（C2）；shadow DB 概念退役。後續以 v3 runtime SQLite 為準，請見 [database.md](database.md)。
+
+---
+
+## C3 之後的 db-tool 定位
+
+| 子命令 | 對象 schema | 狀態 |
+|--------|-------------|------|
+| `db-init` / `db-import-json` / `db-stats` / `db-compare-json` / `db-benchmark` / `query …` | v2 shadow | **legacy**；`db-import-json` 有 deprecation warning |
+| `db-verify` | v3 runtime | **新**（C3） |
+| `db-migrate` | v3 runtime | **新**（C3）；目前只實作 v3 → v3 no-op |
+
+`db-verify` / `db-migrate` 與本頁描述的「shadow DB」概念無關，它們對象是 [database.md](database.md) 中的 v3 runtime SQLite。
 
 ---
 
 ## 相關頁面
 
-- [database.md](database.md)
+- [database.md](database.md) — **目前 SQLite-only 架構主頁**
 - [go-cli.md](go-cli.md)
 - [tech-stack-decisions.md](tech-stack-decisions.md)

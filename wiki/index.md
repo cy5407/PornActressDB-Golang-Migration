@@ -20,8 +20,8 @@
 | [架構總覽](architecture/overview.md) | Wails + Go + Python 混合架構、雙 Go module、各層職責 |
 | [Go CLI 設計](architecture/go-cli.md) | classifier.exe 命令結構、JSON stdout 規範、scan 番號提取契約 |
 | [Go Bridge](architecture/go-bridge.md) | 現行 Python→Go 委派入口 `go_cli.py` 與舊橋接層移除狀態 |
-| [資料庫系統](architecture/database.md) | IncrementalJSONDB / JSONDBManager / Journal 機制 |
-| [SQLite 影子資料庫](architecture/sqlite-shadow-db.md) | Rust crate `db-tool`（位於 `tools-rs/`）建立 shadow SQLite、import / compare / benchmark 邊界與實測結果 |
+| [資料庫系統](architecture/database.md) | SQLite v3 為 source of truth、`pkg/database/sqlite_schema.sql` canonical、Go/Rust 共用 schema |
+| [SQLite 影子資料庫](architecture/sqlite-shadow-db.md) 📦 | 第一版 shadow SQLite（**歷史 / 退役**）；C2 後 runtime 直接走 SQLite，本頁保留為歷史紀錄 |
 | [搜尋引擎](architecture/search-engine.md) | AV-WIKI → JAVDB 級聯搜尋、來源專用 API 與批次併發邊界 |
 | [技術選型決策](architecture/tech-stack-decisions.md) | Wails + Go CLI + Python 搜尋 runtime 的現行分工 |
 | [**Wails GUI 架構**](architecture/wails-gui.md) | Wails v2 + React 架構、完整 Bindings 對照、相關踩坑分組 |
@@ -58,6 +58,7 @@
 | 頁面 | 摘要 | 來源 |
 |------|------|------|
 | [Wails 掃描重複番號](pitfalls/wails-scan-duplicate.md) ✅ | WalkDir 無去重導致同番號多次出現；`seen[]` map 已修 | E2E 實測 |
+| [**同檔名跨目錄 destination 撞名**](pitfalls/scan-same-filename-cross-dir-conflict.md) 〰️ | scan 移除 code dedupe 之後暴露的 in-batch dest collision；GUI 預設 `skip` 保資料安全；4 種未來修法見 [docs/茶包射手](../docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md) | 2026-05-25 |
 | [**同路徑移動永久刪除檔案**](pitfalls/wails-move-same-path-delete.md) ✅ | 輸入==輸出目錄時二次移動觸發偽衝突；三層修復 + 垃圾桶 | 2026-04-08 |
 | [Wails 移動後路徑未更新](pitfalls/wails-move-stale-paths.md) 〰️ | 移動成功後 scanResults 仍持有舊路徑 | 2026-04-07 |
 
@@ -70,6 +71,7 @@
 | [Wails DB data.json 從未更新](pitfalls/wails-db-json-never-updated.md) ✅ | BatchSearch / ensureDB 三處補 Compact() 呼叫 | 2026-04-07 |
 | [Wails DB 資料格式不一致](pitfalls/wails-db-format-migration.md) ✅ | Go 寫入統一為 `searched_found`；含 2903 筆資料合併紀錄 | 2026-04-08 |
 | [Wails 快取狀態判定不一致](pitfalls/wails-cache-status-mismatch.md) 〰️ | 前後端對「已搜尋」判斷不一致 | 2026-04-07 |
+| [Schema 共用：Go //go:embed vs Rust include_str!](pitfalls/schema-share-go-embed-vs-rust-include.md) ✅ | C3 schema 共用方向不對稱；canonical 必須留在 Go package 內 | 2026-05-23 |
 
 #### 搜尋
 

@@ -2,9 +2,9 @@ from pathlib import Path
 
 from src.utils.scanner import UnifiedFileScanner
 
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 import sys as _sys
+
 CLASSIFIER_EXE = ROOT_DIR / ("classifier.exe" if _sys.platform == "win32" else "classifier")
 
 

@@ -1,11 +1,11 @@
 import asyncio
-import copy
 import configparser
+import copy
+import sys
 import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
-import sys
 from typing import Any
 
 import pytest

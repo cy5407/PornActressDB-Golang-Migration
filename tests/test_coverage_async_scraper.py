@@ -4,17 +4,18 @@
 """
 import asyncio
 import time
-import pytest
-import aiohttp
-from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import aiohttp
+import pytest
+
 from src.scrapers.async_scraper import (
     AsyncWebScraper,
     BatchWebScraper,
     ScrapingConfig,
     ScrapingResult,
 )
-
 
 # ──────────────────────────────
 # Dataclass 預設值
@@ -604,7 +605,7 @@ def test_scrape_multiple_sync_runtime_error_fallback(scraper):
     with patch.object(scraper, "scrape_multiple", new=AsyncMock(return_value=ok_result)):
         with patch("asyncio.get_event_loop", side_effect=RuntimeError("no loop")):
             with patch("asyncio.run", return_value=ok_result) as mock_run:
-                results = scraper.scrape_multiple_sync(["http://a.com"])
+                scraper.scrape_multiple_sync(["http://a.com"])
     assert mock_run.called
 
 

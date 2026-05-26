@@ -26,7 +26,6 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.models.json_types import SEARCH_METHODS, SEARCH_STATUSES, VIDEO_ALLOWED_FIELDS
 
-
 STATUS_MAPPING = {
     "": SEARCH_STATUSES["IMPORTED"],
     "success": SEARCH_STATUSES["SEARCHED_FOUND"],

@@ -4,7 +4,9 @@
 """
 import threading
 import time
+
 import pytest
+
 from src.utils.progress_tracker import SearchProgressInfo
 
 

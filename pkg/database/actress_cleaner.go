@@ -53,7 +53,7 @@ func NewActressCleaner() *ActressCleaner {
 			"手でさするのは浮気にならな", "今日から澪がお前らの嫁",
 		),
 		replaceExact: map[string][]string{
-			"石川澪とラブラブでハメまくる": []string{"石川澪"},
+			"石川澪とラブラブでハメまくる": {"石川澪"},
 		},
 		protected: toStringSet("瀧本雫葉", "石川澪", "蒼乃美月", "綾瀬天", "東雲すみれ", "五芭", "天然美月"),
 	}
@@ -98,7 +98,7 @@ func (c *ActressCleaner) appendIfClean(cleaned *[]string, seen *map[string]struc
 	if name == "" {
 		return
 	}
-	if c.shouldRemove(name, map[string]struct{}{name: struct{}{}}) {
+	if c.shouldRemove(name, map[string]struct{}{name: {}}) {
 		*removed = append(*removed, name)
 		return
 	}
@@ -114,7 +114,7 @@ func (c *ActressCleaner) appendReplacementIfClean(cleaned *[]string, seen *map[s
 	if name == "" {
 		return
 	}
-	if c.shouldRemove(name, map[string]struct{}{name: struct{}{}}) {
+	if c.shouldRemove(name, map[string]struct{}{name: {}}) {
 		*removed = append(*removed, name)
 		return
 	}
@@ -125,7 +125,16 @@ func (c *ActressCleaner) appendReplacementIfClean(cleaned *[]string, seen *map[s
 	*cleaned = append(*cleaned, name)
 }
 
-func (c *ActressCleaner) ApplyToDatabase(db *JSONDatabase, write bool) (*ActressCleanupReport, error) {
+// ActressCleanupTarget is the minimal store surface ApplyToDatabase needs.
+// It lets the cleaner work against any backing store (SQLite-only runtime,
+// the legacy JSONDatabase fixture path used by tools, etc.) without
+// hard-coding a type. UpdateVideo is only invoked when write is true.
+type ActressCleanupTarget interface {
+	GetAllVideos() ([]*VideoData, error)
+	UpdateVideo(code string, v *VideoData) error
+}
+
+func (c *ActressCleaner) ApplyToDatabase(db ActressCleanupTarget, write bool) (*ActressCleanupReport, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db cannot be nil")
 	}

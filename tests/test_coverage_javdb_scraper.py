@@ -13,12 +13,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from bs4 import BeautifulSoup
 
+from src.scrapers.base_scraper import ErrorType, ScrapingException
 from src.scrapers.sources.javdb_scraper import (
     JAVDBScraper,
     _parse_retry_after_value,
 )
-from src.scrapers.base_scraper import ErrorType, ScrapingException
-
 
 # ---------------------------------------------------------------------------
 # Helpers

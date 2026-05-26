@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.scrapers.sources.avwiki_scraper import AVWikiScraper
 from src.models.extractor import UnifiedCodeExtractor
+from src.scrapers.sources.avwiki_scraper import AVWikiScraper
 
 
 class TestUnifiedCodeExtractor:

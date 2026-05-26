@@ -25,7 +25,6 @@ from src.models.json_types import (
 )
 from src.services.go_cli import GoError, GoNotFoundError
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -52,9 +51,8 @@ class TestLoadDataErrors:
         mgr = _make_manager(tmp_path)
         with patch.object(
             mgr, "_load_data_internal", side_effect=CorruptedDataError("bad")
-        ):
-            with pytest.raises(CorruptedDataError, match="bad"):
-                mgr._load_all_data()
+        ), pytest.raises(CorruptedDataError, match="bad"):
+            mgr._load_all_data()
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +64,7 @@ class TestLoadDataInternal:
         """data.json 不存在時應呼叫 _ensure_data_file_exists（lines 147-148）"""
         db_dir = str(tmp_path / "json_db")
         os.makedirs(db_dir, exist_ok=True)
-        mgr = JSONDBManager(db_dir)
+        JSONDBManager(db_dir)
         # data.json 應已被建立
         assert (Path(db_dir) / "data.json").exists()
 
@@ -85,9 +83,8 @@ class TestLoadDataInternal:
         mgr = JSONDBManager(db_dir)
         with patch.object(
             mgr, "_validate_json_format", side_effect=CorruptedDataError("inner")
-        ):
-            with pytest.raises(CorruptedDataError, match="inner"):
-                mgr._load_data_internal()
+        ), pytest.raises(CorruptedDataError, match="inner"):
+            mgr._load_data_internal()
 
 
 # ---------------------------------------------------------------------------
@@ -180,27 +177,24 @@ class TestBackupErrors:
         mgr = _make_manager(tmp_path)
         with patch(
             "src.models.json_database._go_db_backup_create", return_value={}
-        ):
-            with pytest.raises(RuntimeError, match="Go backup-create 回傳空結果"):
-                mgr.create_backup()
+        ), pytest.raises(RuntimeError, match="Go backup-create 回傳空結果"):
+            mgr.create_backup()
 
     def test_restore_from_backup_go_returns_false(self, tmp_path):
         """Go backup-restore 回傳 False 時應拋出（line 442）"""
         mgr = _make_manager(tmp_path)
         with patch(
             "src.models.json_database._go_db_backup_restore", return_value=False
-        ):
-            with pytest.raises(RuntimeError, match="Go backup-restore 回傳失敗"):
-                mgr.restore_from_backup("/some/backup.json")
+        ), pytest.raises(RuntimeError, match="Go backup-restore 回傳失敗"):
+            mgr.restore_from_backup("/some/backup.json")
 
     def test_get_backup_list_go_returns_none_raises(self, tmp_path):
         """Go backup-list 回傳 None 時應拋出（line 454）"""
         mgr = _make_manager(tmp_path)
         with patch(
             "src.models.json_database._go_db_backup_list", return_value=None
-        ):
-            with pytest.raises(RuntimeError, match="Go backup-list 回傳空結果"):
-                mgr.get_backup_list()
+        ), pytest.raises(RuntimeError, match="Go backup-list 回傳空結果"):
+            mgr.get_backup_list()
 
     def test_cleanup_old_backups_defaults(self, tmp_path):
         """cleanup_old_backups 使用預設值（lines 470-472）"""
@@ -221,9 +215,8 @@ class TestBackupErrors:
         with patch(
             "src.models.json_database._go_db_backup_cleanup",
             side_effect=GoError("cleanup failed"),
-        ):
-            with pytest.raises(RuntimeError, match="Go backup-cleanup 失敗"):
-                mgr.cleanup_old_backups()
+        ), pytest.raises(RuntimeError, match="Go backup-cleanup 失敗"):
+            mgr.cleanup_old_backups()
 
 
 # ---------------------------------------------------------------------------
@@ -254,9 +247,8 @@ class TestAddOrUpdateVideoErrors:
         mgr = _make_manager(tmp_path)
         with patch(
             "src.models.json_database._go_db_update_video", return_value=False
-        ):
-            with pytest.raises(RuntimeError, match="Go db_update_video 回傳失敗"):
-                mgr.add_or_update_video("X-001", info={"title": "t"})
+        ), pytest.raises(RuntimeError, match="Go db_update_video 回傳失敗"):
+            mgr.add_or_update_video("X-001", info={"title": "t"})
 
     def test_unexpected_exception_wrapped(self, tmp_path):
         """非 ValidationError 例外應包裝成 RuntimeError（lines 533-534）"""
@@ -264,9 +256,8 @@ class TestAddOrUpdateVideoErrors:
         with patch(
             "src.models.json_database._go_db_update_video",
             side_effect=ConnectionError("network"),
-        ):
-            with pytest.raises(RuntimeError, match="Go 委派 add_or_update_video 失敗"):
-                mgr.add_or_update_video("X-001", info={"title": "t"})
+        ), pytest.raises(RuntimeError, match="Go 委派 add_or_update_video 失敗"):
+            mgr.add_or_update_video("X-001", info={"title": "t"})
 
 
 # ---------------------------------------------------------------------------
@@ -290,9 +281,8 @@ class TestGetVideoInfoErrors:
         with patch(
             "src.models.json_database._go_db_get_video",
             side_effect=GoError("go cli error"),
-        ):
-            with pytest.raises(RuntimeError):
-                mgr.get_video_info("X-001")
+        ), pytest.raises(RuntimeError):
+            mgr.get_video_info("X-001")
 
 
 # ---------------------------------------------------------------------------
@@ -314,10 +304,9 @@ class TestDeleteVideoErrors:
         mgr = _make_manager(tmp_path)
         with patch(
             "src.models.json_database._go_db_delete_video",
-            side_effect=IOError("io error"),
-        ):
-            with pytest.raises(RuntimeError, match="Go delete_video 失敗"):
-                mgr.delete_video("X-001")
+            side_effect=OSError("io error"),
+        ), pytest.raises(RuntimeError, match="Go delete_video 失敗"):
+            mgr.delete_video("X-001")
 
 
 # ---------------------------------------------------------------------------
@@ -349,18 +338,16 @@ class TestAddOrUpdateActressErrors:
         with patch(
             "src.models.json_database._go_db_update_actress",
             side_effect=RuntimeError("go error"),
-        ):
-            with pytest.raises(RuntimeError, match="Go add_or_update_actress 失敗"):
-                mgr.add_or_update_actress({"id": "actress-1", "name": "A"})
+        ), pytest.raises(RuntimeError, match="Go add_or_update_actress 失敗"):
+            mgr.add_or_update_actress({"id": "actress-1", "name": "A"})
 
     def test_go_returns_false_raises(self, tmp_path):
         """Go 回傳 False 時應拋出 RuntimeError（line 652）"""
         mgr = _make_manager(tmp_path)
         with patch(
             "src.models.json_database._go_db_update_actress", return_value=False
-        ):
-            with pytest.raises(RuntimeError, match="Go db_update_actress 回傳失敗"):
-                mgr.add_or_update_actress({"id": "actress-1", "name": "A"})
+        ), pytest.raises(RuntimeError, match="Go db_update_actress 回傳失敗"):
+            mgr.add_or_update_actress({"id": "actress-1", "name": "A"})
 
 
 # ---------------------------------------------------------------------------
@@ -384,9 +371,8 @@ class TestGetActressInfoErrors:
         with patch(
             "src.models.json_database._go_db_get_actress",
             side_effect=GoError("go error"),
-        ):
-            with pytest.raises(RuntimeError):
-                mgr.get_actress_info("actress-1")
+        ), pytest.raises(RuntimeError):
+            mgr.get_actress_info("actress-1")
 
 
 # ---------------------------------------------------------------------------
@@ -408,10 +394,9 @@ class TestDeleteActressErrors:
         mgr = _make_manager(tmp_path)
         with patch(
             "src.models.json_database._go_db_delete_actress",
-            side_effect=IOError("io error"),
-        ):
-            with pytest.raises(RuntimeError, match="Go delete_actress 失敗"):
-                mgr.delete_actress("actress-1")
+            side_effect=OSError("io error"),
+        ), pytest.raises(RuntimeError, match="Go delete_actress 失敗"):
+            mgr.delete_actress("actress-1")
 
 
 # ---------------------------------------------------------------------------

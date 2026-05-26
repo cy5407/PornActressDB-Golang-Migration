@@ -14,6 +14,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from src.utils.log_sanitizer import sanitize_url_for_log
+
 logger = logging.getLogger(__name__)
 
 

@@ -60,6 +60,11 @@ pub fn db_import_json(
     replace: bool,
     allow_dirty_journal: bool,
 ) -> Result<()> {
+    eprintln!(
+        "warning: db-import-json is deprecated and operates on the legacy v2 shadow-DB schema. \
+         The runtime database is now v3 SQLite owned by the Go side (classifier.exe db migrate-from-json). \
+         This subcommand is kept for back-compat scripts and will not be removed without notice."
+    );
     let timer = Instant::now();
     let started_at = now_utc_rfc3339();
     let source_consistent = ensure_clean_journal(json_path, journal_path, allow_dirty_journal)?;

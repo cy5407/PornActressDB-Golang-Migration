@@ -1,0 +1,65 @@
+name: SQLite Verify-Sync Gate
+
+# Phase A release gate per docs/plans/2026-05-23-sqlite-migration-plan.md:
+# build classifier.exe → migrate JSON fixture into SQLite → verify-sync.
+# Any non-zero exit fails the job.
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'pkg/database/**'
+      - 'cmd/scanner/**'
+      - 'tests/fixtures/json_db_minimal/**'
+      - '.github/workflows/sqlite-verify-sync.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'pkg/database/**'
+      - 'cmd/scanner/**'
+      - 'tests/fixtures/json_db_minimal/**'
+      - '.github/workflows/sqlite-verify-sync.yml'
+
+jobs:
+  verify-sync:
+    name: migrate-from-json + verify-sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Step 1 — build classifier
+        run: go build -o classifier ./cmd/scanner
+
+      - name: Step 2 — prepare JSON DB fixture in scratch dir
+        run: |
+          mkdir -p ci-scratch/json_db_minimal
+          cp tests/fixtures/json_db_minimal/data.json ci-scratch/json_db_minimal/
+
+      - name: Step 3 — migrate fixture into SQLite (with resync fallback)
+        run: |
+          set -e
+          if ! ./classifier db migrate-from-json -data-dir ci-scratch/json_db_minimal; then
+            echo "::warning::migrate-from-json failed, attempting resync-from-json"
+            ./classifier db resync-from-json -data-dir ci-scratch/json_db_minimal
+          fi
+
+      - name: Step 4 — verify-sync (gate)
+        run: ./classifier db verify-sync -data-dir ci-scratch/json_db_minimal
+
+      - name: Upload SQLite artefact on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-verify-sync-debug
+          path: ci-scratch/
+          retention-days: 7

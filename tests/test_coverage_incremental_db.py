@@ -6,7 +6,7 @@
 """
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -21,8 +21,6 @@ from src.models.incremental_json_database import (
 from src.models.json_database import JSONDBManager
 from src.models.json_types import JSONDatabaseError
 
-UTC = timezone.utc
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -32,7 +30,7 @@ def _make_db(tmp_path: Path) -> IncrementalJSONDB:
     db_dir = str(tmp_path / "json_db")
     os.makedirs(db_dir, exist_ok=True)
     # 先用 JSONDBManager 建立合法的 data.json
-    mgr = JSONDBManager(db_dir)
+    JSONDBManager(db_dir)
     return IncrementalJSONDB(db_dir)
 
 
@@ -98,28 +96,25 @@ class TestUpdateVideoErrors:
         with patch(
             "src.models.incremental_json_database._go_db_update_video",
             return_value=False,
-        ):
-            with patch.object(db.base_db, "get_video_info", return_value={"code": "X-001"}):
-                with pytest.raises(RuntimeError, match="回傳失敗"):
-                    db.update_video("X-001", {"title": "t"})
+        ), patch.object(db.base_db, "get_video_info", return_value={"code": "X-001"}):
+            with pytest.raises(RuntimeError, match="回傳失敗"):
+                db.update_video("X-001", {"title": "t"})
 
     def test_json_database_error_is_reraised(self, tmp_path):
         """JSONDatabaseError 應直接重新拋出（line 177）"""
         db = _make_db(tmp_path)
         with patch.object(
             db.base_db, "get_video_info", side_effect=JSONDatabaseError("not found")
-        ):
-            with pytest.raises(JSONDatabaseError):
-                db.update_video("MISSING", {"title": "t"})
+        ), pytest.raises(JSONDatabaseError):
+            db.update_video("MISSING", {"title": "t"})
 
     def test_unexpected_exception_wrapped_as_runtime(self, tmp_path):
         """其他例外應被包裝成 RuntimeError（lines 179-180）"""
         db = _make_db(tmp_path)
         with patch.object(
             db.base_db, "get_video_info", side_effect=ValueError("oops")
-        ):
-            with pytest.raises(RuntimeError, match="Go update_video 失敗"):
-                db.update_video("X-001", {"title": "t"})
+        ), pytest.raises(RuntimeError, match="Go update_video 失敗"):
+            db.update_video("X-001", {"title": "t"})
 
 
 # ---------------------------------------------------------------------------
@@ -132,18 +127,16 @@ class TestAddVideoErrors:
         with patch(
             "src.models.incremental_json_database._go_db_update_video",
             return_value=False,
-        ):
-            with pytest.raises(RuntimeError, match="回傳失敗"):
-                db.add_video({"code": "NEW-001", "title": "t"})
+        ), pytest.raises(RuntimeError, match="回傳失敗"):
+            db.add_video({"code": "NEW-001", "title": "t"})
 
     def test_unexpected_exception_wrapped(self, tmp_path):
         db = _make_db(tmp_path)
         with patch(
             "src.models.incremental_json_database._go_db_update_video",
             side_effect=ConnectionError("network"),
-        ):
-            with pytest.raises(RuntimeError, match="Go add_video 失敗"):
-                db.add_video({"code": "NEW-001", "title": "t"})
+        ), pytest.raises(RuntimeError, match="Go add_video 失敗"):
+            db.add_video({"code": "NEW-001", "title": "t"})
 
 
 # ---------------------------------------------------------------------------
@@ -156,18 +149,16 @@ class TestDeleteVideoErrors:
         with patch(
             "src.models.incremental_json_database._go_db_delete_video",
             return_value=False,
-        ):
-            with pytest.raises(RuntimeError, match="回傳失敗"):
-                db.delete_video("X-001")
+        ), pytest.raises(RuntimeError, match="回傳失敗"):
+            db.delete_video("X-001")
 
     def test_unexpected_exception_wrapped(self, tmp_path):
         db = _make_db(tmp_path)
         with patch(
             "src.models.incremental_json_database._go_db_delete_video",
-            side_effect=IOError("io"),
-        ):
-            with pytest.raises(RuntimeError, match="Go delete_video 失敗"):
-                db.delete_video("X-001")
+            side_effect=OSError("io"),
+        ), pytest.raises(RuntimeError, match="Go delete_video 失敗"):
+            db.delete_video("X-001")
 
 
 # ---------------------------------------------------------------------------
@@ -210,9 +201,8 @@ class TestAddOrUpdateVideo:
         db = _make_db(tmp_path)
         with patch.object(
             db.base_db, "get_video_info", return_value={"code": "E-001", "title": "old"}
-        ):
-            with patch.object(db, "update_video") as mock_update:
-                db.add_or_update_video("E-001", {"title": "new"})
+        ), patch.object(db, "update_video") as mock_update:
+            db.add_or_update_video("E-001", {"title": "new"})
         mock_update.assert_called_once_with("E-001", {"title": "new"})
 
     def test_add_new_video(self, tmp_path):
@@ -273,9 +263,8 @@ class TestCompactErrors:
         with patch(
             "src.models.incremental_json_database._go_db_compact_journal",
             return_value=False,
-        ):
-            with pytest.raises(JSONDatabaseError):
-                db.compact()
+        ), pytest.raises(JSONDatabaseError):
+            db.compact()
 
     def test_compact_unexpected_exception_raises(self, tmp_path):
         """compact 遇到非 JSONDatabaseError 時應包裝後拋出（lines 354-356）"""
@@ -283,9 +272,8 @@ class TestCompactErrors:
         with patch(
             "src.models.incremental_json_database._go_db_compact_journal",
             side_effect=RuntimeError("unexpected"),
-        ):
-            with pytest.raises(JSONDatabaseError, match="合併失敗"):
-                db.compact()
+        ), pytest.raises(JSONDatabaseError, match="合併失敗"):
+            db.compact()
 
 
 # ---------------------------------------------------------------------------

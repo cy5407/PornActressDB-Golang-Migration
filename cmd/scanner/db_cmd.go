@@ -1,12 +1,14 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"actress-classifier/pkg/database"
 	"actress-classifier/pkg/safefile"
@@ -21,12 +23,13 @@ type dbCommandOptions struct {
 	studioStats    bool
 	write          bool
 	backupPath     string
+	fromJSON       string
 	backupDays     int
 	backupMaxCount int
 }
 
 type dbCommandContext struct {
-	db   *database.JSONDatabase
+	db   *database.SQLiteStore
 	opts dbCommandOptions
 }
 
@@ -74,7 +77,7 @@ type studioFixSummary struct {
 
 func dbCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios|actress-get|actress-update|actress-delete|actress-list|backup-create|backup-restore|backup-list|backup-cleanup> [選項]")
+		fmt.Fprintln(os.Stderr, "用法: classifier.exe db <get|update|delete|list|stats|compact|merge|fix-studios|actress-get|actress-update|actress-delete|actress-list|backup-create|backup-restore|backup-list|backup-cleanup|migrate-from-json|verify-sync|resync-from-json|export-json> [選項]")
 		os.Exit(1)
 	}
 
@@ -104,6 +107,18 @@ func routeDBSpecialSubcommand(subCmd string, args []string) bool {
 	case "merge":
 		dbMergeCmd(args)
 		return true
+	case "migrate-from-json":
+		dbMigrateFromJSONCmd(args)
+		return true
+	case "verify-sync":
+		dbVerifySyncCmd(args)
+		return true
+	case "resync-from-json":
+		dbResyncFromJSONCmd(args)
+		return true
+	case "export-json":
+		dbExportJSONCmd(args)
+		return true
 	default:
 		return false
 	}
@@ -117,7 +132,8 @@ func parseDBCommandOptions(subCmd string, args []string) (dbCommandOptions, []st
 	actressStats := fs.Bool("actress", false, "顯示女優統計")
 	studioStats := fs.Bool("studio", false, "顯示片商統計")
 	write := fs.Bool("write", false, "真正寫入資料庫（預設為 dry-run）")
-	backupPath := fs.String("backup-path", "", "備份檔案路徑（用於 backup-restore）")
+	backupPath := fs.String("backup-path", "", "備份檔案路徑（用於 backup-restore；可為 .sqlite 或 .json）")
+	fromJSON := fs.String("from-json", "", "從 JSON export 還原（與 -backup-path 互斥；走 resync-from-json 流程）")
 	backupDays := fs.Int("days", 30, "備份保留天數（用於 backup-cleanup）")
 	backupMaxCount := fs.Int("max-count", 50, "最大備份數量（用於 backup-cleanup）")
 	parseFlagsOrExit(fs, args)
@@ -129,18 +145,19 @@ func parseDBCommandOptions(subCmd string, args []string) (dbCommandOptions, []st
 		studioStats:    *studioStats,
 		write:          *write,
 		backupPath:     *backupPath,
+		fromJSON:       *fromJSON,
 		backupDays:     *backupDays,
 		backupMaxCount: *backupMaxCount,
 	}, fs.Args()
 }
 
-func loadDBOrExit(dataDir string) *database.JSONDatabase {
-	db := database.NewJSONDatabase(dataDir)
-	if err := db.Load(context.Background()); err != nil {
+func loadDBOrExit(dataDir string) *database.SQLiteStore {
+	store, err := database.NewStore(database.StoreConfig{DataDir: dataDir})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
 		os.Exit(1)
 	}
-	return db
+	return store
 }
 
 var dbHandlers = map[string]func(dbCommandContext, []string){
@@ -186,7 +203,6 @@ func runDBUpdate(ctx dbCommandContext, remaining []string) {
 		fmt.Fprintf(os.Stderr, "更新影片失敗: %v\n", err)
 		os.Exit(1)
 	}
-	saveDBOrExit(ctx.db)
 	if ctx.opts.jsonOutput {
 		outputJSON(map[string]any{"success": true, "action": "update", "code": code, "data_dir": ctx.opts.dataDir})
 		return
@@ -200,11 +216,17 @@ func runDBDelete(ctx dbCommandContext, remaining []string) {
 		os.Exit(1)
 	}
 	code := remaining[0]
+	// SQLiteStore.DeleteVideo is idempotent. The Python helper relies
+	// on a non-zero exit ("video not found") to return False from
+	// db_delete_video, so check existence first to preserve that.
+	if _, err := ctx.db.GetVideo(code); err != nil {
+		fmt.Fprintf(os.Stderr, "刪除影片失敗: %v\n", err)
+		os.Exit(1)
+	}
 	if err := ctx.db.DeleteVideo(code); err != nil {
 		fmt.Fprintf(os.Stderr, "刪除影片失敗: %v\n", err)
 		os.Exit(1)
 	}
-	saveDBOrExit(ctx.db)
 	if ctx.opts.jsonOutput {
 		outputJSON(map[string]any{"success": true, "action": "delete", "code": code, "data_dir": ctx.opts.dataDir})
 		return
@@ -257,16 +279,39 @@ func runDBStats(ctx dbCommandContext, _ []string) {
 	outputJSON(stats)
 }
 
+// runDBCompact handles `db compact` and `db compact -json`.
+//
+// Phase C1 retires JSON-side journal compaction: SQLite is the new
+// canonical store and has no journal a CLI caller can flush. Per the
+// migration plan (spec § 5 / Slice C1) and the user-facing contract in
+// docs/plans/2026-05-23-sqlite-migration-plan.md, this subcommand is
+// now a no-op that still returns a well-formed JSON payload Python's
+// IncrementalJSONDB.compact() can consume — it only inspects "success".
+//
+// The reply also carries the legacy "action"/"data_dir" keys for
+// backward compatibility, plus the Phase C-specific keys "noop",
+// "journal_size", "needs_compact" and "reason".
 func runDBCompact(ctx dbCommandContext, _ []string) {
-	if err := ctx.db.CompactJournal(); err != nil {
-		fmt.Fprintf(os.Stderr, "合併 journal 失敗: %v\n", err)
-		os.Exit(1)
-	}
+	payload := compactNoopPayload(ctx.opts.dataDir)
 	if ctx.opts.jsonOutput {
-		outputJSON(map[string]any{"success": true, "action": "compact", "data_dir": ctx.opts.dataDir})
+		outputJSON(payload)
 		return
 	}
-	printSuccess("Journal 合併成功")
+	printSuccess("Compact 為 no-op：SQLite 無 journal 需要合併")
+}
+
+// compactNoopPayload is the canonical Phase C compact -json reply.
+// Exposed in package main (lower-case) for tests in main_test.go.
+func compactNoopPayload(dataDir string) map[string]any {
+	return map[string]any{
+		"success":       true,
+		"noop":          true,
+		"journal_size":  0,
+		"needs_compact": false,
+		"reason":        "sqlite has no journal to compact",
+		"action":        "compact",
+		"data_dir":      dataDir,
+	}
 }
 
 func runDBActressGet(ctx dbCommandContext, remaining []string) {
@@ -295,7 +340,6 @@ func runDBActressUpdate(ctx dbCommandContext, remaining []string) {
 		fmt.Fprintf(os.Stderr, "更新女優失敗: %v\n", err)
 		os.Exit(1)
 	}
-	saveDBOrExit(ctx.db)
 	if ctx.opts.jsonOutput {
 		outputJSON(map[string]any{"success": true, "action": "actress-update", "id": actressID})
 		return
@@ -309,11 +353,17 @@ func runDBActressDelete(ctx dbCommandContext, remaining []string) {
 		os.Exit(1)
 	}
 	actressID := remaining[0]
+	// SQLiteStore.DeleteActress is idempotent; mirror runDBDelete's
+	// existence check so callers (including the Python helper) keep
+	// observing a non-zero exit when the actress doesn't exist.
+	if _, err := ctx.db.GetActress(actressID); err != nil {
+		fmt.Fprintf(os.Stderr, "刪除女優失敗: %v\n", err)
+		os.Exit(1)
+	}
 	if err := ctx.db.DeleteActress(actressID); err != nil {
 		fmt.Fprintf(os.Stderr, "刪除女優失敗: %v\n", err)
 		os.Exit(1)
 	}
-	saveDBOrExit(ctx.db)
 	if ctx.opts.jsonOutput {
 		outputJSON(map[string]any{"success": true, "action": "actress-delete", "id": actressID})
 		return
@@ -339,7 +389,7 @@ func runDBCleanActresses(ctx dbCommandContext, _ []string) {
 	outputJSON(result)
 }
 
-func cleanActressesAction(db *database.JSONDatabase, write bool) (*dbCleanActressesResult, error) {
+func cleanActressesAction(db *database.SQLiteStore, write bool) (*dbCleanActressesResult, error) {
 	cleaner := database.NewActressCleaner()
 	result := &dbCleanActressesResult{
 		Success: true,
@@ -355,6 +405,10 @@ func cleanActressesAction(db *database.JSONDatabase, write bool) (*dbCleanActres
 		result.BackupPath = backupPath
 	}
 
+	// Slice C2: ApplyToDatabase now takes the minimal
+	// ActressCleanupTarget interface, so the SQLite-only runtime drops
+	// straight in. UpdateVideo on *SQLiteStore writes through to the
+	// canonical store; the JSON DB is no longer in the loop here.
 	report, err := cleaner.ApplyToDatabase(db, write)
 	if err != nil {
 		return nil, err
@@ -365,34 +419,185 @@ func cleanActressesAction(db *database.JSONDatabase, write bool) (*dbCleanActres
 	result.RemovedActresses = report.RemovedActresses
 	result.Changes = report.Changes
 
-	if write && report.ChangedVideos > 0 {
-		if err := db.CompactJournal(); err != nil {
-			return nil, err
-		}
-	}
-
 	return result, nil
 }
 
+// runDBBackupCreate handles `db backup-create`.
+//
+// Phase C1 makes this a dual-snapshot rooted in SQLite: both files are
+// derived from the live SQLite mirror (the JSON snapshot is `db
+// export-json` semantics, not a copy of data.json). Either side missing
+// means the backup is unusable, so we fail the whole subcommand if
+// either step errors. Naming keeps the "backup_<ts>" prefix used by
+// backup-list / backup-cleanup so existing tooling still discovers the
+// JSON snapshot.
+//
+// The reply carries an extra `path` alias of `json_export_path` so the
+// legacy JSONDBManager.create_backup() helper (which only reads `path`)
+// keeps working without touching Python.
 func runDBBackupCreate(ctx dbCommandContext, _ []string) {
-	path, err := ctx.db.BackupCreate()
+	jsonPath, sqlitePath, err := createDualBackup(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "建立備份失敗: %v\n", err)
 		os.Exit(1)
 	}
-	outputJSON(map[string]any{"path": path, "success": true})
+	outputJSON(map[string]any{
+		"success":          true,
+		"backup_path":      sqlitePath,
+		"json_export_path": jsonPath,
+		// Legacy alias for JSONDBManager.create_backup() / restore_from_backup
+		// which still read `path` and expect a JSON-snapshot file.
+		"path": jsonPath,
+	})
 }
 
+// createDualBackup writes both the SQLite backup file and a JSON export
+// of the SQLite store, then returns their paths. Both snapshots share
+// the same timestamp and live in <data-dir>/backup/. Splitting the side
+// effects out of runDBBackupCreate keeps the testable boundary on a
+// function that returns errors instead of calling os.Exit.
+//
+// The JSON snapshot is produced via sqlite.ExportToJSON — it must
+// reflect SQLite state, not a copy of data.json. The dual-write store
+// keeps the two in lockstep on the happy path, but during incident
+// response (resync-from-json, manual SQL fixes) they can drift, and an
+// operator triggering backup-create expects the new canonical SQLite
+// data, not stale JSON.
+func createDualBackup(ctx dbCommandContext) (jsonPath, sqlitePath string, err error) {
+	if ctx.db == nil {
+		return "", "", errors.New("sqlite store unavailable; cannot produce dual backup")
+	}
+
+	backupDir := filepath.Join(ctx.opts.dataDir, "backup")
+	if err := safefile.MkdirAll(backupDir, 0o700); err != nil {
+		return "", "", fmt.Errorf("backup mkdir: %w", err)
+	}
+
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	jsonPath = filepath.Join(backupDir, "backup_"+timestamp+".json")
+	sqlitePath = filepath.Join(backupDir, "backup_"+timestamp+".sqlite")
+
+	if _, err := ctx.db.Backup(database.BackupOptions{DestPath: sqlitePath}); err != nil {
+		return "", "", fmt.Errorf("backup sqlite: %w", err)
+	}
+	if _, err := ctx.db.ExportToJSON(database.ExportOptions{OutputPath: jsonPath}); err != nil {
+		// Roll back the SQLite snapshot so we don't leave a half-finished
+		// backup pair on disk that backup-list would later surface.
+		_ = os.Remove(sqlitePath)
+		return "", "", fmt.Errorf("backup json export: %w", err)
+	}
+	return jsonPath, sqlitePath, nil
+}
+
+// runDBBackupRestore handles `db backup-restore`.
+//
+// Phase C1 introduces the -from-json flag for restoring SQLite from a
+// JSON export (resync-from-json flow). -backup-path remains the canonical
+// "restore the SQLite database file" entrypoint and additionally accepts
+// a legacy .json path for backward compatibility with the Python helper
+// (src/services/go_cli.py:db_backup_restore), which passes JSON files
+// via -backup-path.
+//
+// The two flags are mutually exclusive; missing both is also an error.
+// Both validation failures exit with code 2 to distinguish them from
+// run-time backup errors (exit 1).
 func runDBBackupRestore(ctx dbCommandContext, _ []string) {
-	if strings.TrimSpace(ctx.opts.backupPath) == "" {
-		fmt.Fprintln(os.Stderr, "用法: classifier.exe db backup-restore -backup-path <備份路徑> [-data-dir <目錄>]")
+	if vErr := validateBackupRestoreInputs(ctx.opts.backupPath, ctx.opts.fromJSON); vErr != nil {
+		fmt.Fprintln(os.Stderr, vErr.message)
+		os.Exit(vErr.exitCode)
+	}
+
+	bp := strings.TrimSpace(ctx.opts.backupPath)
+	fj := strings.TrimSpace(ctx.opts.fromJSON)
+
+	if bp != "" {
+		runBackupRestoreFromBackupPath(ctx, bp)
+		return
+	}
+	runBackupRestoreFromJSON(ctx, fj)
+}
+
+// backupRestoreInputError carries the validation outcome out of the
+// pure helper so main_test.go can assert exit code + message without
+// the test ever calling os.Exit.
+type backupRestoreInputError struct {
+	message  string
+	exitCode int
+}
+
+func validateBackupRestoreInputs(backupPath, fromJSON string) *backupRestoreInputError {
+	bp := strings.TrimSpace(backupPath)
+	fj := strings.TrimSpace(fromJSON)
+	if bp != "" && fj != "" {
+		return &backupRestoreInputError{
+			message:  "error: -backup-path and -from-json are mutually exclusive; pass exactly one",
+			exitCode: 2,
+		}
+	}
+	if bp == "" && fj == "" {
+		return &backupRestoreInputError{
+			message:  "error: db backup-restore requires either -backup-path <sqlite> or -from-json <json>",
+			exitCode: 2,
+		}
+	}
+	return nil
+}
+
+func runBackupRestoreFromBackupPath(ctx dbCommandContext, backupPath string) {
+	lower := strings.ToLower(backupPath)
+	switch {
+	case strings.HasSuffix(lower, ".sqlite"):
+		runBackupRestoreFromSQLite(ctx, backupPath)
+	default:
+		// Legacy JSON backup path: keep working so the Python helper
+		// doesn't break when callers still hand it backup_*.json files.
+		if err := ctx.db.BackupRestore(backupPath); err != nil {
+			fmt.Fprintf(os.Stderr, "還原備份失敗: %v\n", err)
+			os.Exit(1)
+		}
+		outputJSON(map[string]any{
+			"success":     true,
+			"restored":    "json",
+			"backup_path": backupPath,
+		})
+	}
+}
+
+func runBackupRestoreFromSQLite(ctx dbCommandContext, backupPath string) {
+	paths := database.ResolveDataDirPaths(ctx.opts.dataDir)
+	// Release the SQLite handle so Windows can overwrite the target file.
+	if err := ctx.db.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "釋放 SQLite 連線失敗: %v\n", err)
 		os.Exit(1)
 	}
-	if err := ctx.db.BackupRestore(ctx.opts.backupPath); err != nil {
-		fmt.Fprintf(os.Stderr, "還原備份失敗: %v\n", err)
+	if err := database.RestoreSQLiteFile(paths.SQLitePath, backupPath); err != nil {
+		fmt.Fprintf(os.Stderr, "還原 SQLite 失敗: %v\n", err)
 		os.Exit(1)
 	}
-	outputJSON(map[string]any{"success": true})
+	outputJSON(map[string]any{
+		"success":     true,
+		"restored":    "sqlite",
+		"backup_path": backupPath,
+		"sqlite_path": paths.SQLitePath,
+	})
+}
+
+func runBackupRestoreFromJSON(ctx dbCommandContext, jsonPath string) {
+	if ctx.db == nil {
+		fmt.Fprintln(os.Stderr, "還原 JSON 失敗: SQLite 不可用，無法執行 resync")
+		os.Exit(1)
+	}
+	report, err := ctx.db.ResyncFromJSON(jsonPath, database.MigrationOptions{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "還原 JSON 失敗: %v\n", err)
+		os.Exit(1)
+	}
+	outputJSON(map[string]any{
+		"success":   true,
+		"restored":  "json",
+		"from_json": jsonPath,
+		"report":    report,
+	})
 }
 
 func runDBBackupList(ctx dbCommandContext, _ []string) {
@@ -428,13 +633,6 @@ func readJSONFileOrExit(path string, target any) {
 	}
 }
 
-func saveDBOrExit(db *database.JSONDatabase) {
-	if err := db.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
-		os.Exit(1)
-	}
-}
-
 func dbMergeCmd(args []string) {
 	fs := flag.NewFlagSet("db merge", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "data/json_db", "資料庫目錄")
@@ -447,19 +645,16 @@ func dbMergeCmd(args []string) {
 		os.Exit(1)
 	}
 
-	db := database.NewJSONDatabase(*dataDir)
-	if err := db.Load(context.Background()); err != nil {
+	db, err := database.NewStore(database.StoreConfig{DataDir: *dataDir})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "無法載入資料庫: %v\n", err)
 		os.Exit(1)
 	}
+	defer db.Close()
 
 	stats, err := db.MergeFromFile(*sourceFile, *overwrite)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "合併資料庫失敗: %v\n", err)
-		os.Exit(1)
-	}
-	if err := db.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
 		os.Exit(1)
 	}
 	outputJSON(stats)
@@ -474,9 +669,12 @@ func dbFixStudiosCmd(args []string) {
 		os.Exit(1)
 	}
 	db := loadDBOrExit(opts.dataDir)
+	defer db.Close()
 	videos := getAllVideosOrExit(db)
 	summary := applyStudioFixes(db, videos, si, opts.force)
-	saveStudioFixChangesIfNeeded(db, summary.updated)
+	// SQLite-only runtime: every UpdateVideoFields call inside
+	// applyStudioFixes already durably wrote through to SQLite (WAL
+	// handles fsync), so there is no separate "save changes" step.
 
 	result := map[string]any{
 		"success":         true,
@@ -503,7 +701,7 @@ func parseDBFixStudiosOptions(args []string) dbFixStudiosOptions {
 	}
 }
 
-func getAllVideosOrExit(db *database.JSONDatabase) []*database.VideoData {
+func getAllVideosOrExit(db *database.SQLiteStore) []*database.VideoData {
 	videos, err := db.GetAllVideos()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "取得影片清單失敗: %v\n", err)
@@ -512,7 +710,7 @@ func getAllVideosOrExit(db *database.JSONDatabase) []*database.VideoData {
 	return videos
 }
 
-func applyStudioFixes(db *database.JSONDatabase, videos []*database.VideoData, si *studio.StudioIdentifier, force bool) studioFixSummary {
+func applyStudioFixes(db *database.SQLiteStore, videos []*database.VideoData, si *studio.StudioIdentifier, force bool) studioFixSummary {
 	summary := studioFixSummary{
 		changes: make([]changeEntry, 0),
 	}
@@ -540,7 +738,7 @@ func buildStudioFixPlan(video *database.VideoData, newStudio string, force bool)
 	}
 }
 
-func applyStudioFixPlan(db *database.JSONDatabase, plan studioFixPlan, summary *studioFixSummary) bool {
+func applyStudioFixPlan(db *database.SQLiteStore, plan studioFixPlan, summary *studioFixSummary) bool {
 	switch plan.status {
 	case studioFixSkip:
 		summary.skipped++
@@ -557,14 +755,4 @@ func applyStudioFixPlan(db *database.JSONDatabase, plan studioFixPlan, summary *
 	summary.updated++
 	summary.changes = append(summary.changes, plan.change)
 	return true
-}
-
-func saveStudioFixChangesIfNeeded(db *database.JSONDatabase, updated int) {
-	if updated == 0 {
-		return
-	}
-	if err := db.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "儲存資料庫失敗: %v\n", err)
-		os.Exit(1)
-	}
 }

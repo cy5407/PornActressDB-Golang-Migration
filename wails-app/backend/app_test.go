@@ -30,6 +30,15 @@ func newTestApp(t *testing.T) *App {
 	app.cfgPath = cfgPath
 	app.mover.LogDir = filepath.Join(tmp, "logs")
 	app.Startup(context.Background())
+	// SQLiteStore holds an exclusive SQLite handle on Windows; close
+	// before t.TempDir cleanup so RemoveAll doesn't trip on a live
+	// file handle.
+	t.Cleanup(func() {
+		if app.db != nil {
+			_ = app.db.Close()
+			app.db = nil
+		}
+	})
 	return app
 }
 
@@ -96,6 +105,42 @@ func TestScanDirectory_IgnoresNonVideoFiles(t *testing.T) {
 	}
 	if results[0].Code != "STARS-707" {
 		t.Fatalf("expected STARS-707, got %q", results[0].Code)
+	}
+}
+
+func TestScanDirectory_KeepsMultiplePartsWithSameCode(t *testing.T) {
+	app := newTestApp(t)
+	tmp := t.TempDir()
+
+	// Multi-part files share the same extracted code (KUSE-042) but live as
+	// distinct files on disk. Both must reach the move step.
+	for _, name := range []string{"KUSE-042-1.mp4", "KUSE-042-2.mp4"} {
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte("fake"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results := app.ScanDirectory(tmp, 4, true)
+	if len(results) != 2 {
+		t.Fatalf("expected both multi-part files to be scanned, got %d results: %#v", len(results), results)
+	}
+
+	codes := map[string]int{}
+	for _, r := range results {
+		codes[r.Code]++
+	}
+	if codes["KUSE-042"] != 2 {
+		t.Errorf("expected 2 entries for KUSE-042, got %d", codes["KUSE-042"])
+	}
+
+	paths := map[string]bool{}
+	for _, r := range results {
+		paths[filepath.Base(r.Path)] = true
+	}
+	for _, want := range []string{"KUSE-042-1.mp4", "KUSE-042-2.mp4"} {
+		if !paths[want] {
+			t.Errorf("missing path %q in results", want)
+		}
 	}
 }
 
@@ -396,7 +441,20 @@ func TestBatchSearchAVWiki_SuccessPreservesOtherSourceStatusAndUpdatesOverallSum
 	}
 }
 
-func TestDbGetVideo_ReturnsEnsureDBLoadError(t *testing.T) {
+// Slice C2 turned the bootstrap-from-json pass into the cutover safety
+// gate: if SQLite is empty and data.json is unparseable, NewStore
+// surfaces the failure and ensureDB must NOT silently fall back to an
+// empty store. The historic JSON-side error surface
+// (TestDbGetVideo_ReturnsEnsureDBLoadError, TestBatchSearch_…WhenEnsureDBFails,
+// TestGetActressPrimaryStudios_…WhenEnsureDBFails) is retired because
+// the runtime is SQLite-only; the remaining contract is the one this
+// pair pins: bootstrap parse error surfaces, and app.db stays nil.
+
+func TestEnsureDB_BootstrapParseErrorClearsInstance(t *testing.T) {
+	// Empty SQLite + broken data.json → NewStore (and therefore
+	// ensureDB) must return the bootstrap parse error and leave
+	// app.db == nil. Anything that calls into the DB afterwards needs
+	// to see the failure, not pretend the runtime came up clean.
 	tmp := t.TempDir()
 	cfgPath := filepath.Join(tmp, "config.ini")
 	dbDir := filepath.Join(tmp, "db")
@@ -413,87 +471,56 @@ func TestDbGetVideo_ReturnsEnsureDBLoadError(t *testing.T) {
 
 	app := NewApp()
 	app.cfgPath = cfgPath
+	t.Cleanup(func() {
+		if app.db != nil {
+			_ = app.db.Close()
+			app.db = nil
+		}
+	})
+
+	err := app.ensureDB()
+	if err == nil {
+		t.Fatal("expected ensureDB to surface bootstrap parse error")
+	}
+	if !strings.Contains(err.Error(), "bootstrap-from-json") {
+		t.Fatalf("expected error to mention bootstrap-from-json, got %v", err)
+	}
+	if app.db != nil {
+		t.Fatal("expected ensureDB to leave db == nil after bootstrap failure")
+	}
+}
+
+func TestDbGetVideo_SurfacesBootstrapFailure(t *testing.T) {
+	// Verifies the bootstrap failure propagates through one of the
+	// real DB-touching Wails entry points (DbGetVideo), so a hand-
+	// edited or corrupt data.json sitting next to an empty SQLite
+	// cannot quietly look like an empty database to the frontend.
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.ini")
+	dbDir := filepath.Join(tmp, "db")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
+		t.Fatalf("failed to write broken data.json: %v", err)
+	}
+
+	app := NewApp()
+	app.cfgPath = cfgPath
+	t.Cleanup(func() {
+		if app.db != nil {
+			_ = app.db.Close()
+			app.db = nil
+		}
+	})
 
 	_, err := app.DbGetVideo("BROKEN-001")
 	if err == nil {
-		t.Fatal("expected DbGetVideo to surface ensureDB load error")
-	}
-	if !strings.Contains(err.Error(), "failed to parse database JSON") {
-		t.Fatalf("expected parse error from ensureDB, got %v", err)
-	}
-}
-
-func TestEnsureDB_ClearsInstanceWhenLoadFails(t *testing.T) {
-	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.ini")
-	dbDir := filepath.Join(tmp, "db")
-	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		t.Fatalf("failed to create db dir: %v", err)
-	}
-	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
-	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
-		t.Fatalf("failed to write broken data.json: %v", err)
-	}
-
-	app := NewApp()
-	app.cfgPath = cfgPath
-	if err := app.ensureDB(); err == nil {
-		t.Fatal("expected ensureDB to return error on load failure")
-	}
-	if app.db != nil {
-		t.Fatal("expected ensureDB to clear db instance after load failure")
-	}
-}
-
-func TestBatchSearch_ReturnsNoResultsWhenEnsureDBFails(t *testing.T) {
-	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.ini")
-	dbDir := filepath.Join(tmp, "db")
-	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		t.Fatalf("failed to create db dir: %v", err)
-	}
-	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
-	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
-		t.Fatalf("failed to write broken data.json: %v", err)
-	}
-
-	app := NewApp()
-	app.cfgPath = cfgPath
-	results := app.BatchSearch([]string{"BROKEN-001"}, 1)
-	if len(results) != 0 {
-		t.Fatalf("expected BatchSearch to abort on ensureDB failure, got %d results", len(results))
-	}
-	if app.db != nil {
-		t.Fatal("expected db to remain nil after failed BatchSearch init")
-	}
-}
-
-func TestGetActressPrimaryStudios_ReturnsEmptyWhenEnsureDBFails(t *testing.T) {
-	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.ini")
-	dbDir := filepath.Join(tmp, "db")
-	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		t.Fatalf("failed to create db dir: %v", err)
-	}
-	cfg := "[database]\njson_data_dir = " + dbDir + "\n"
-	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dbDir, "data.json"), []byte("{broken json"), 0o600); err != nil {
-		t.Fatalf("failed to write broken data.json: %v", err)
-	}
-
-	app := NewApp()
-	app.cfgPath = cfgPath
-	result := app.GetActressPrimaryStudios([]string{"葵司"})
-	if len(result) != 0 {
-		t.Fatalf("expected empty result when ensureDB fails, got %#v", result)
+		t.Fatal("expected DbGetVideo to surface bootstrap parse error")
 	}
 }
 
@@ -1548,3 +1575,14 @@ func TestBatchSearchAVWiki_ExecutesRealBatchSubprocess(t *testing.T) {
 		t.Fatalf("unexpected methods from real subprocess: %#v", results)
 	}
 }
+
+// Slice C2 retired the USE_SQLITE_READS / DualWriteStore plumbing:
+//
+//   - TestEnsureDB_DefaultsToJSONReadsWhenFlagUnsetOrFalse
+//   - TestEnsureDB_EnablesSQLiteReadsWhenEnvTruthy
+//   - TestDbGetVideo_ReadsFromSQLiteWhenFlagTruthy
+//   - TestDbListVideos_ReadsFromSQLiteWhenFlagTruthy
+//   - TestDbGetVideo_FallsBackToJSONWhenSQLiteUnavailable
+//
+// The runtime is SQLite-only; there is no JSON-side fallback to flip
+// onto, so these tests no longer have a meaningful contract to pin.

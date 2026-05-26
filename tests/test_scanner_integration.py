@@ -116,7 +116,7 @@ def test_scan_with_codes():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
-        test_files = create_test_files(temp_path)
+        create_test_files(temp_path)
 
         scanner = UnifiedFileScanner(use_go=False)
         try:
