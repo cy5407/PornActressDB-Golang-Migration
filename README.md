@@ -56,7 +56,6 @@ SQLite v3                ← Runtime source of truth（`data\db.sqlite`）；JSO
 - 正式釋出 / 一般使用：`Start-ActressClassifier.bat`
 - 已完成搜尋環境設定後可直接啟動：`actress-classifier.exe`
 - CLI / 輔助工具：`classifier.exe`（Windows）或 `classifier`（Linux / macOS）
-- 開發 / 輔助啟動入口：`python run.py`（會優先尋找並啟動已建好的 Wails 執行檔）
 
 ### 開發者（自行建置）
 
@@ -323,7 +322,6 @@ Run entry points:
 - Release / normal desktop entry: `Start-ActressClassifier.bat`
 - Direct app entry after search runtime is ready: `actress-classifier.exe`
 - CLI / helper entry: `classifier.exe` (Windows) or `classifier` (Linux/macOS)
-- Dev / helper launcher: `python run.py` (prefers an already-built Wails executable)
 
 ## Workflow
 

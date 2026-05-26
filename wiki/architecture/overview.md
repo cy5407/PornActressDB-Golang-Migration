@@ -52,9 +52,8 @@
 
 | 執行檔 | 說明 |
 |--------|------|
-| `actress-classifier.exe` | Wails 桌面 GUI（主程式） |
+| `actress-classifier.exe` | Wails 桌面 GUI（主程式 / 主進入點） |
 | `classifier.exe` | Go CLI（掃描/移動/DB/快取/片商） |
-| `run.py` | 優先啟動 Wails GUI，開發用入口 |
 
 ---
 
@@ -166,8 +165,8 @@ cd wails-app
 wails build
 # → wails-app\build\bin\actress-classifier.exe
 
-# 啟動（開發用）
-python run.py
+# 啟動
+.\actress-classifier.exe
 ```
 
 ---

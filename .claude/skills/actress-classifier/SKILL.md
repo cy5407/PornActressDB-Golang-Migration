@@ -74,8 +74,8 @@ src/
 ## 常用指令
 
 ```bash
-# 執行程式
-python run.py
+# 啟動 Wails GUI
+.\actress-classifier.exe
 
 # 測試模組匯入
 python -c "import sys; sys.path.insert(0, 'src'); from ui.main_gui import UnifiedActressClassifierGUI; print('OK')"

@@ -13,11 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **女優分類系統 (Actress Classifier)** — Windows 桌面工具。三層架構：
 
-- **Wails GUI**：`actress-classifier.exe`（Go backend + React/TypeScript frontend）
+- **主 GUI / 主進入點**：`actress-classifier.exe`（Wails：Go backend + React/TypeScript frontend，直接執行）
 - **Go CLI**：`classifier.exe`（掃描、移動、SQLite 資料庫、操作歷史；非搜尋主流程的唯一寫入入口）
 - **Python 搜尋管線**：`src/scrapers/run_search.py`、`run_batch_search.py`、`src/services/web_searcher.py`（由 GUI 透過 subprocess 呼叫，僅負責爬蟲）
 - **Rust `db-tool`**（`tools-rs/`）：runtime SQLite v3 匯入 / 結構驗證 / schema 遷移骨架 (`db-import-json-v3` / `db-verify` / `db-migrate`)；仍保留 legacy v2 shadow-DB 診斷子命令
-- **主進入點**：`run.py`（優先啟動已建好的 Wails 執行檔）
 
 ## 建置與測試
 
@@ -49,7 +48,7 @@ pip install -r requirements.txt
 ### 啟動
 
 ```powershell
-python run.py
+.\actress-classifier.exe
 ```
 
 ### 測試

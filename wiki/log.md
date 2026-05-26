@@ -21,6 +21,23 @@
 - 修法：移除 dedupe。前端 React key 用 `r.path` 不受影響；selection 用 `r.code` 讓 multi-part 兩 part 一起選取（正好是想要的 UX）；BatchSearch 對重複 code 第二次走 cache。
 - 殘留 edge case：同名跨目錄（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.mp4`）會在 BatchMove 撞 dest。GUI 預設 `skip` 保資料安全，但 `overwrite` 會丟資料、`rename` 會改檔名。記錄為 pitfall + 4 種未來修法選項，現階段不修。
 
+## [2026-05-24] refactor | 移除 `run.py` launcher，主進入點改為 `actress-classifier.exe`
+
+**涉及檔案**：
+- 刪除 `run.py`（純 50 行 launcher，無業務邏輯，無人 import）
+- `CLAUDE.md` / `AGENTS.md` / `README.md`（中英）—「主進入點」與啟動指令改為 `actress-classifier.exe`
+- `.gemini/GEMINI.md`、`.github/copilot-instructions.md` — 同步更新進入點描述
+- `.claude/skills/actress-classifier/SKILL.md`、`.agents/skills/actress-classifier/SKILL.md` — 啟動指令更新
+- `.claude/skills/deployment-release/SKILL.md`、`.agents/skills/deployment-release/SKILL.md` — 打包檔案清單改為 `dist/portable/` 實際內容
+- `.claude/ralph-agent-golang.md` — Critical Constraints 與啟動測試指令更新
+- `scripts/setup-dev-env.sh` — 完成提示改為 `./actress-classifier`
+- `.github/analyze_code_usage.py` — 拿掉 run.py entry point 邏輯，改用 `src/scrapers/run_search.py` / `run_batch_search.py`
+- `.github/cleanup_project.py` — 驗證提示改為 `.\actress-classifier.exe`
+- `wiki/architecture/overview.md` — 主執行檔表格與啟動指令更新
+- `wiki/wiki-data.js` — 由 `gen_data.py` 重新產生
+
+**摘要**：`run.py` 過去只是「找 exe → subprocess.run」的薄殼，自 Wails 化後已無實質作用且無任何 Python 程式碼 import 它。`Start-ActressClassifier.bat` → `Setup-SearchRuntime.ps1` 直接啟動 `actress-classifier.exe`，正式分發路徑本來就沒經過 `run.py`。徹底移除以收斂 Python 邊界。
+
 ## [2026-05-23] refactor | C3：runtime SQLite-only 確認；Rust db-tool 加 db-verify / db-migrate、db-import-json deprecate；schema Go/Rust 共用
 
 **涉及檔案**：

@@ -32,12 +32,7 @@ class CodeUsageAnalyzer:
                 for py_file in directory.rglob("*.py"):
                     if "__pycache__" not in str(py_file):
                         self.all_files.add(py_file)
-        
-        # 加入主程式
-        run_py = self.project_root / "run.py"
-        if run_py.exists():
-            self.all_files.add(run_py)
-            
+
         logger.info(f"📊 找到 {len(self.all_files)} 個 Python 檔案")
         
     def parse_imports(self, file_path: Path) -> Set[str]:
@@ -96,12 +91,13 @@ class CodeUsageAnalyzer:
     def find_entry_points(self) -> Set[Path]:
         """找出主要進入點"""
         entry_points = set()
-        
-        # 主程式
-        run_py = self.project_root / "run.py"
-        if run_py.exists():
-            entry_points.add(run_py)
-            
+
+        # 爬蟲搜尋進入點
+        for entry_name in ("run_search.py", "run_batch_search.py"):
+            entry_path = self.src_dir / "scrapers" / entry_name
+            if entry_path.exists():
+                entry_points.add(entry_path)
+
         # 測試檔案
         for test_file in self.tests_dir.rglob("test_*.py"):
             entry_points.add(test_file)

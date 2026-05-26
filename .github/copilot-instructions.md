@@ -26,8 +26,8 @@ python -m pytest tests/ -v
 # 特定模組測試
 python -m pytest tests/test_incremental_db.py -v
 
-# 執行主程式（僅用於整合測試）
-python run.py --test-mode
+# 啟動主程式（手動驗證）
+.\actress-classifier.exe
 ```
 
 #### Go 驗證
@@ -85,7 +85,7 @@ golangci-lint run
 - **Python 3.11+** - 主程式邏輯與 GUI
 - **Go 1.21+** - 效能關鍵模組（檔案掃描、移動）
 - **Tkinter** - 桌面 GUI 介面
-- **主進入點**：`run.py`
+- **主進入點**：`actress-classifier.exe`（Wails 桌面 GUI）
 - **Go CLI**：`cmd/scanner/main.go` → 編譯為 `classifier.exe`
 - **版本**：v5.4.3
 
@@ -177,8 +177,8 @@ perf: 效能優化
 
 4. **整合至 GUI**
    ```bash
-   # 修改：src/ui/main_window.py，加入按鈕
-   python run.py --test-mode  # 手動測試 UI
+   # 修改：wails-app/frontend/src/ 或 wails-app/backend/app.go
+   .\actress-classifier.exe  # 手動測試 UI
    ```
 
 ### 範例 2：修復 Python 錯誤

@@ -20,9 +20,8 @@
 
 ### 狀態檢查
 - **Go 模組**: `go.mod`, `go.sum`
-- **Go 進入點**: `cmd/scanner/main.go`
-- **編譯產物**: `classifier.exe`
-- **Python 進入點**: `run.py`
+- **Go CLI 進入點**: `cmd/scanner/main.go` → `classifier.exe`
+- **Wails GUI 進入點**: `wails-app/` → `actress-classifier.exe`
 
 ## 常用指令
 
@@ -38,14 +37,10 @@ go build -o classifier.exe ./cmd/scanner
 .\classifier.exe -dir "目標資料夾路徑"
 ```
 
-### Python 開發
+### 啟動主程式
 ```powershell
-# 啟動主程式
-python run.py
-
-# 執行測試腳本
-python check_database.py
-python tools/integration/go_integration.py "測試路徑"
+# 啟動 Wails GUI
+.\actress-classifier.exe
 ```
 
 ## 專案結構索引
