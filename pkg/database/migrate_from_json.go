@@ -129,17 +129,16 @@ func (s *SQLiteStore) ResyncFromJSON(sourcePath string, opts MigrationOptions) (
 	return s.runImport(sourcePath, opts, true /* wipeFirst */)
 }
 
+//nolint:gocognit // Import ordering is intentionally explicit to preserve fail-loud migration semantics.
 func (s *SQLiteStore) runImport(sourcePath string, opts MigrationOptions, wipeFirst bool) (*MigrationReport, error) {
 	start := time.Now()
-	report := &MigrationReport{
-		SourcePath: sourcePath,
-		SQLitePath: s.path,
-	}
+	report := &MigrationReport{SourcePath: sourcePath}
 	defer func() { report.ElapsedMs = time.Since(start).Milliseconds() }()
 
 	if s == nil || s.db == nil {
 		return report, errors.New("sqlite store is not open")
 	}
+	report.SQLitePath = s.path
 
 	root, err := loadJSONDatabaseRoot(sourcePath)
 	if err != nil {
@@ -153,18 +152,19 @@ func (s *SQLiteStore) runImport(sourcePath string, opts MigrationOptions, wipeFi
 	committed := false
 	defer func() {
 		if !committed {
+			//nolint:errcheck // rollback during deferred cleanup; no actionable handling
 			_ = tx.Rollback()
 		}
 	}()
 
 	if wipeFirst {
-		if err := wipeImportTables(tx); err != nil {
-			return report, err
+		if wErr := wipeImportTables(tx); wErr != nil {
+			return report, wErr
 		}
 	}
 
-	if err := migrateDBMeta(tx, root); err != nil {
-		return report, err
+	if metaErr := migrateDBMeta(tx, root); metaErr != nil {
+		return report, metaErr
 	}
 
 	idByName, idByAlias, actressNames, err := migrateActresses(tx, root, report)
@@ -335,6 +335,7 @@ func migrateVideosAndLinks(
 	return nil
 }
 
+//nolint:gocognit // Link migration keeps duplicate detection and strict/auto-create branches explicit.
 func migrateVideoActresses(
 	tx *sql.Tx,
 	code string,

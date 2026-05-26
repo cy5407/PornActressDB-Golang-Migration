@@ -55,8 +55,8 @@ func TestBackup_AutoStrategy_UsesVacuumIntoOnHappyPath(t *testing.T) {
 	if res.Bytes <= 0 {
 		t.Errorf("bytes = %d, want > 0", res.Bytes)
 	}
-	if _, err := os.Stat(dst); err != nil {
-		t.Fatalf("backup file not produced: %v", err)
+	if _, statErr := os.Stat(dst); statErr != nil {
+		t.Fatalf("backup file not produced: %v", statErr)
 	}
 
 	// Reopen the backup and confirm both videos round-trip.
@@ -98,8 +98,8 @@ func TestBackup_AutoStrategy_FallsBackToCheckpointCopyWhenVacuumIntoFails(t *tes
 	if res.Strategy != BackupStrategyCheckpointCopy {
 		t.Errorf("strategy = %s, want checkpoint_copy", res.Strategy)
 	}
-	if _, err := os.Stat(dst); err != nil {
-		t.Fatalf("backup file not produced: %v", err)
+	if _, statErr := os.Stat(dst); statErr != nil {
+		t.Fatalf("backup file not produced: %v", statErr)
 	}
 
 	restored, err := OpenSQLiteStore(dst)
@@ -222,12 +222,12 @@ func TestRestoreSQLiteFile_RoundTrips(t *testing.T) {
 
 	// Close the source so the file lock releases (Windows requires this).
 	targetPath := src.path
-	if err := src.Close(); err != nil {
-		t.Fatalf("Close source: %v", err)
+	if closeErr := src.Close(); closeErr != nil {
+		t.Fatalf("Close source: %v", closeErr)
 	}
 
-	if err := RestoreSQLiteFile(targetPath, backupPath); err != nil {
-		t.Fatalf("RestoreSQLiteFile: %v", err)
+	if restoreErr := RestoreSQLiteFile(targetPath, backupPath); restoreErr != nil {
+		t.Fatalf("RestoreSQLiteFile: %v", restoreErr)
 	}
 
 	restored, err := OpenSQLiteStore(targetPath)
@@ -306,6 +306,8 @@ func TestRestoreSQLiteFile_RemovesWALSidecars(t *testing.T) {
 // place so the caller is never left without a database. This regression-
 // guards the prior implementation, which used `os.Remove(targetPath)`
 // before copying: a copy failure there would have lost the live DB.
+//
+//nolint:gocognit // Fault-injection test keeps setup, failure trigger, and rollback assertions in one scenario.
 func TestRestoreSQLiteFile_RollsBackOriginalOnCopyFailure(t *testing.T) {
 	// 1. Seed a live target with content we can verify after rollback.
 	live := seededBackupSource(t, "live-pre-restore.sqlite")

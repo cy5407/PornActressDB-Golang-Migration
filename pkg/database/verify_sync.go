@@ -171,6 +171,7 @@ func diffVideoFields(code string, jv *VideoData, sv *VideoData, report *VerifyRe
 	diffTimestampSecondTolerance(code, "video", "updated_at", jv.UpdatedAt, sv.UpdatedAt, report)
 }
 
+//nolint:gocognit // Verification keeps mismatch reporting branches explicit for actionable diff output.
 func verifyActresses(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
 	rows, err := db.Query(`SELECT id, name, created_at, updated_at FROM actresses`)
 	if err != nil {
@@ -185,9 +186,9 @@ func verifyActresses(db *sql.DB, root *DatabaseData, report *VerifyReport) error
 	sqliteSide := map[string]actressRow{}
 	for rows.Next() {
 		var a actressRow
-		if err := rows.Scan(&a.ID, &a.Name, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if scanErr := rows.Scan(&a.ID, &a.Name, &a.CreatedAt, &a.UpdatedAt); scanErr != nil {
 			rows.Close()
-			return fmt.Errorf("scan actress row: %w", err)
+			return fmt.Errorf("scan actress row: %w", scanErr)
 		}
 		sqliteSide[a.ID] = a
 	}
@@ -288,6 +289,7 @@ func diffAliasSet(actressID string, jsonAliases, sqliteAliases []string, report 
 	}
 }
 
+//nolint:gocognit // Link verification is explicit so each mismatch maps to a precise report entry.
 func verifyLinks(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
 	rows, err := db.Query(`
 		SELECT video_code, actress_id, role_type, ordinal, display_name, timestamp
@@ -458,6 +460,7 @@ func diffLegacyLinkRow(
 	diffTimestampSecondTolerance(key, "legacy_link", "timestamp", jl.Timestamp, svTimestamp, report)
 }
 
+//nolint:gocognit // Legacy/root link lookup handles several JSON compatibility shapes by design.
 func jsonHasVideoActress(root *DatabaseData, videoCode, actressID string) bool {
 	v, ok := root.Videos[videoCode]
 	if !ok || v == nil {
@@ -488,6 +491,7 @@ func jsonHasVideoActress(root *DatabaseData, videoCode, actressID string) bool {
 	return false
 }
 
+//nolint:gocognit // db_meta verification keeps tolerated timestamp/hash differences explicit.
 func verifyDBMeta(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
 	rows, err := db.Query(`SELECT key, value FROM db_meta`)
 	if err != nil {

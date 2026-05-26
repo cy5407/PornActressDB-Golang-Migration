@@ -314,6 +314,7 @@ func TestValidateBackupRestoreInputs_BothFlagsFails(t *testing.T) {
 	vErr := validateBackupRestoreInputs("foo.sqlite", "bar.json")
 	if vErr == nil {
 		t.Fatal("expected validation error when both flags are set")
+		return
 	}
 	if vErr.exitCode != 2 {
 		t.Errorf("exitCode = %d, want 2", vErr.exitCode)
@@ -336,6 +337,7 @@ func TestValidateBackupRestoreInputs_NeitherFlagFails(t *testing.T) {
 	vErr := validateBackupRestoreInputs("", "   ")
 	if vErr == nil {
 		t.Fatal("expected validation error when both flags are empty")
+		return
 	}
 	if vErr.exitCode != 2 {
 		t.Errorf("exitCode = %d, want 2", vErr.exitCode)
@@ -404,11 +406,11 @@ func TestCreateDualBackup_ProducesBothSnapshots(t *testing.T) {
 	if filepath.Dir(jsonPath) != filepath.Dir(sqlitePath) {
 		t.Errorf("backups not co-located: json=%q sqlite=%q", jsonPath, sqlitePath)
 	}
-	if _, err := os.Stat(jsonPath); err != nil {
-		t.Fatalf("json backup not produced: %v", err)
+	if _, statErr := os.Stat(jsonPath); statErr != nil {
+		t.Fatalf("json backup not produced: %v", statErr)
 	}
-	if _, err := os.Stat(sqlitePath); err != nil {
-		t.Fatalf("sqlite backup not produced: %v", err)
+	if _, statErr := os.Stat(sqlitePath); statErr != nil {
+		t.Fatalf("sqlite backup not produced: %v", statErr)
 	}
 
 	// The SQLite backup must reopen as a valid v3 DB.

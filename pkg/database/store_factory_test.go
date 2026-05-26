@@ -60,13 +60,13 @@ func TestNewStore_DefaultDataDirCompatibilityLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
 	}
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatalf("Chdir: %v", err)
+	if chdirErr := os.Chdir(tmp); chdirErr != nil {
+		t.Fatalf("Chdir: %v", chdirErr)
 	}
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 
-	if err := os.MkdirAll(filepath.Join(tmp, DefaultDataDir), 0o755); err != nil {
-		t.Fatalf("mkdir default data dir: %v", err)
+	if mkdirErr := os.MkdirAll(filepath.Join(tmp, DefaultDataDir), 0o755); mkdirErr != nil {
+		t.Fatalf("mkdir default data dir: %v", mkdirErr)
 	}
 
 	store, err := NewStore(StoreConfig{}) // DataDir empty → DefaultDataDir
@@ -206,8 +206,8 @@ func TestNewStore_BrokenJSONIgnoredWhenSQLitePopulated(t *testing.T) {
 	_ = first.Close()
 
 	// Now corrupt the JSON file behind SQLite's back.
-	if err := os.WriteFile(filepath.Join(dataDir, DataFileName), []byte("{garbage"), 0o600); err != nil {
-		t.Fatalf("corrupt data.json: %v", err)
+	if writeErr := os.WriteFile(filepath.Join(dataDir, DataFileName), []byte("{garbage"), 0o600); writeErr != nil {
+		t.Fatalf("corrupt data.json: %v", writeErr)
 	}
 
 	second, err := NewStore(StoreConfig{DataDir: dataDir})

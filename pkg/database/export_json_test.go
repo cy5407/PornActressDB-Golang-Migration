@@ -17,6 +17,7 @@ func TestExportToJSON_ReturnsValidStructureForEmptyStore(t *testing.T) {
 	}
 	if root == nil {
 		t.Fatal("export = nil")
+		return
 	}
 	if root.SchemaVersion != SchemaVersion {
 		t.Errorf("SchemaVersion = %q, want %q", root.SchemaVersion, SchemaVersion)
@@ -65,6 +66,7 @@ func TestExportToJSON_AfterMigrate_PopulatesAllSections(t *testing.T) {
 	tanaka := root.Actresses["tanaka-minami"]
 	if tanaka == nil {
 		t.Fatal("tanaka-minami missing")
+		return
 	}
 	if tanaka.VideoCount != 2 {
 		t.Errorf("tanaka-minami video_count = %d, want 2 (appears in STARS-707 + SSIS-001)", tanaka.VideoCount)
@@ -113,6 +115,7 @@ func TestExportToJSON_StatisticsView(t *testing.T) {
 	}
 	if tanakaS1 == nil {
 		t.Fatalf("missing (tanaka-minami, S1) enhanced row: %+v", enhanced)
+		return
 	}
 	if tanakaS1.VideoCount != 2 {
 		t.Errorf("(tanaka, S1).video_count = %d, want 2", tanakaS1.VideoCount)
@@ -133,6 +136,7 @@ func TestExportToJSON_PreservesVideoActressOrder(t *testing.T) {
 	v := root.Videos["MIDV-567"]
 	if v == nil {
 		t.Fatal("MIDV-567 missing")
+		return
 	}
 	want := []string{"佐藤亞美", "鈴木花子"}
 	if !equalStringSlices(v.Actresses, want) {
