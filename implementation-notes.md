@@ -1054,3 +1054,27 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 - F841 / F541（codemod 副作用，共 63 件）走 `ruff check --fix` 而非手改：自動修正風險低且 spec 明確要求 `ruff format` 收尾。
 - **libcst 不列入 `requirements.txt`**：codemod 是 one-shot dev tool，列入會污染 production deps；改在 `scripts/migrate_log_exception.py` module docstring 標注 `Requires: pip install libcst`。Codex review 提出但 spec「純風格建議列入 implementation-notes.md 不修」適用。
 - **不為 codemod 新增 committed test file**：Phase 1 spec 未要求；inline 驗證已覆蓋 top-level / nested def / lambda / class method 四種 case 並確認 idempotent。新增 pytest 檔會擴大 Phase 1 scope。
+
+## [2026-05-28 02:58] Phase 2 — pkg/database CC reduction（9 函式）
+
+**Design decisions**
+
+- 不嘗試 generic loader（`loadAll[T]` 之類）；verify_sync.go 三個查詢分別實作 `loadSQLiteActressRows` / `loadActressAliasesByID` / `loadSQLiteVideoActressLinks`，每個 Scan 簽名都不同，generic 收益低。
+- `migrateContext` 用於 migrate_from_json.go 三個函式間共享 `tx/opts/report` + 三個 lookup map；同檔內未擴散至 `autoCreateActress`（仍取 7 個原始參數）以避免變動範圍超出 spec。
+- `verifyLinkRow` / `verifyActressRow` 升到 file scope 而非保留 inline 匿名 type；helper 簽名才能在檔尾統一表達，且兩個型別都是 verify 流程內部用，未外洩。
+
+**Deviations**
+
+- L338 `migrateVideoActresses` 收 params 到 3 個（spec 上限是 7），比要求更激進；附帶 `migrateVideosAndLinks` 也改吃 ctx（原 7 params→2），確保 call chain 命名與型別一致。
+- sqlite_backup.go 抽出 **4** 個 helper（spec 允許 2–3 個）：`validateRestoreInputs` / `probeBackupSource` / `stageExistingTarget` / `rollbackAfterCopyFailure`。第 4 個 `rollbackAfterCopyFailure` 把回滾分支拉出來，否則 RestoreSQLiteFile 內部 nested-if depth 仍偏高。Codex 接受。
+
+**Tradeoffs**
+
+- `verify_sync.go` 的 missing-in-json 迴圈改成 early-`continue`，原寫法是 `if !ok { if ... { continue }; append }`。觀察上等價，diff 行數略增換可讀性。
+- `rebuildLinksForVideoAutoCreate` 只抽 1 個 helper（`resolveOrSynthLinkActress`），保留主迴圈 + `seen` 去重邏輯在原處；dup 判斷與 INSERT 流程合在一起讀比較直觀。
+- 不動 `mergeFromRoot`（L611，CC 56）— spec 明示「L596 不在本 phase 範圍」（檔案重新編號後實際在 L611）。
+- gocognit 額外標示 `TestRestoreSQLiteFile_RollsBackOriginalOnCopyFailure`（CC 19，test）— 不是生產 code，不動。
+
+**Open questions**
+
+- `migrateContext` 是否應推廣到 export / verify 流程也用？目前只在 migrate 路徑出現；如果未來 import / export 共享更多狀態可考慮。
