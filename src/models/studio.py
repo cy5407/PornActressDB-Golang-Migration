@@ -130,14 +130,14 @@ class StudioIdentifier:
                 try:
                     with self.rules_file.open("w", encoding="utf-8") as f:
                         json_dump(default_rules, f, ensure_ascii=False, indent=4)
-                except OSError as e:
-                    logger.error(f"無法建立預設片商規則檔案: {e}")
+                except OSError:
+                    logger.exception("無法建立預設片商規則檔案: ")
             return default_rules
         try:
             with self.rules_file.open("r", encoding="utf-8") as f:
                 return json_load(f)
-        except (OSError, ValueError) as e:
-            logger.error(f"讀取片商規則檔案失敗: {e}, 將使用空規則。")
+        except (OSError, ValueError):
+            logger.exception("讀取片商規則檔案失敗: , 將使用空規則。")
             return {}
 
     def _build_code_to_studio_map(self) -> dict[str, str]:
@@ -155,7 +155,7 @@ class StudioIdentifier:
         """
         if self.rules_file.name != _DEFAULT_RULES_FILE:
             if code:
-                prefix = code.upper().split('-')[0]
+                prefix = code.upper().split("-")[0]
                 return self.code_to_studio.get(prefix, "UNKNOWN")
             return "UNKNOWN"
 
@@ -196,4 +196,3 @@ class StudioIdentifier:
             )
         except Exception as e:
             raise RuntimeError(f"Go 片商標準化失敗: {e}") from e
-

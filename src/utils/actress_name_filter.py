@@ -19,7 +19,6 @@ class ActressNameFilter:
         "初体験",
         "デビュー",
         "新人",
-
         # 性愛相關
         "中出し",
         "解禁",
@@ -33,7 +32,6 @@ class ActressNameFilter:
         "犯す",
         "侵され",
         "姦",
-
         # 身體部位
         "おっぱい",
         "巨乳",
@@ -42,7 +40,6 @@ class ActressNameFilter:
         "美脚",
         "美尻",
         "美少女",
-
         # 場景/情境
         "学園",
         "学校",
@@ -58,7 +55,6 @@ class ActressNameFilter:
         "義姉",
         "義妹",
         "兄嫁",
-
         # 動作/狀態
         "勃起",
         "興奮",
@@ -67,7 +63,6 @@ class ActressNameFilter:
         "逝き",
         "喘ぎ",
         "乱れ",
-
         # 衣著相關
         "水着",
         "制服",
@@ -76,7 +71,6 @@ class ActressNameFilter:
         "裸",
         "全裸",
         "半裸",
-
         # 其他常見詞
         "エレガンス",
         "エロ",
@@ -87,17 +81,14 @@ class ActressNameFilter:
         "続編",
         "完全版",
         "総集編",
-
         # 藥物/媚藥相關
         "媚薬",
         "キメセク",
         "洗脳",
-
         # 類型相關
         "ドキュメント",
         "企画",
         "ガチ",
-
         # 情節相關
         "帰省",
         "成長期",
@@ -165,37 +156,39 @@ class ActressNameFilter:
 
     @staticmethod
     def _is_numeric_or_symbol_only(name: str) -> bool:
-        return bool(re.match(r'^[\d\W]+$', name))
+        return bool(re.match(r"^[\d\W]+$", name))
 
     @staticmethod
     def _fails_hiragana_ratio(name: str) -> bool:
-        hiragana_count = len(re.findall(r'[぀-より]', name))
+        hiragana_count = len(re.findall(r"[぀-より]", name))
         return len(name) > 5 and hiragana_count > len(name) * 0.6
 
     @staticmethod
     def _passes_language_shape(name: str, allow_single_latin_name: bool) -> bool:
-        if re.search(r'[぀-より゠-コト一-龯]', name):
+        if re.search(r"[぀-より゠-コト一-龯]", name):
             return True
         if allow_single_latin_name and re.fullmatch(r"[A-Za-z]{2,12}", name):
             logger.debug(f"✅ 允許單一英文藝名: '{name}'")
             return True
-        return bool(re.match(r'^[A-Za-z\s]+$', name) and ' ' in name)
+        return bool(re.match(r"^[A-Za-z\s]+$", name) and " " in name)
 
     @staticmethod
-    def is_valid_actress_name(
-        name: str, allow_single_latin_name: bool = False
-    ) -> bool:
+    def is_valid_actress_name(name: str, allow_single_latin_name: bool = False) -> bool:
         if not name or not isinstance(name, str):
             return False
         name = name.strip()
         if ActressNameFilter._fails_length_check(name):
             logger.debug(f"❌ 長度不符: '{name}' (長度: {len(name)})")
             return False
-        keyword = ActressNameFilter._contains_any_keyword(name, ActressNameFilter.TITLE_KEYWORDS)
+        keyword = ActressNameFilter._contains_any_keyword(
+            name, ActressNameFilter.TITLE_KEYWORDS
+        )
         if keyword:
             logger.debug(f"❌ 包含標題關鍵字: '{name}' (關鍵字: {keyword})")
             return False
-        keyword = ActressNameFilter._contains_any_keyword(name, ActressNameFilter.TITLE_KEYWORDS_ZH)
+        keyword = ActressNameFilter._contains_any_keyword(
+            name, ActressNameFilter.TITLE_KEYWORDS_ZH
+        )
         if keyword:
             logger.debug(f"❌ 包含中文標題關鍵字: '{name}' (關鍵字: {keyword})")
             return False
@@ -244,7 +237,7 @@ class ActressNameFilter:
     @staticmethod
     def _score_actress_name(name: str) -> tuple[int, int]:
         """評分函式：回傳 (是否包含漢字, 負長度)。"""
-        has_kanji = 1 if re.search(r'[\u4E00-\u9FAF]', name) else 0
+        has_kanji = 1 if re.search(r"[\u4E00-\u9FAF]", name) else 0
         return (has_kanji, -len(name))
 
     @staticmethod

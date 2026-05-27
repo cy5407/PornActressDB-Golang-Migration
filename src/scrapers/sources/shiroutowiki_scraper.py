@@ -150,7 +150,9 @@ class ShiroutoWikiScraper:
 
         return rows
 
-    def _parse_detail_page(self, soup: BeautifulSoup, detail_url: str) -> dict[str, Any]:
+    def _parse_detail_page(
+        self, soup: BeautifulSoup, detail_url: str
+    ) -> dict[str, Any]:
         fields = self._normalize_detail_map(soup)
         actress_dd = None
         for dt in soup.find_all("dt"):
@@ -216,9 +218,7 @@ class ShiroutoWikiScraper:
                 continue
 
             rows = self._parse_search_rows(soup)
-            logger.debug(
-                f"🔍 shiroutowiki 搜尋 {candidate}: 取得 {len(rows)} 筆搜尋列"
-            )
+            logger.debug(f"🔍 shiroutowiki 搜尋 {candidate}: 取得 {len(rows)} 筆搜尋列")
 
             matched_result = self._find_matching_result(
                 rows,

@@ -21,7 +21,6 @@ from .rate_limiter import RateLimiter, get_global_rate_limiter
 logger = logging.getLogger(__name__)
 
 
-
 class ErrorType(Enum):
     """錯誤類型枚舉"""
 
@@ -122,9 +121,7 @@ class RetryManager:
 
     async def retry_async(self, func: Callable, *args, **kwargs) -> Any:
         """非同步重試執行"""
-        return await self._retry_loop(
-            lambda: func(*args, **kwargs), asyncio.sleep
-        )
+        return await self._retry_loop(lambda: func(*args, **kwargs), asyncio.sleep)
 
     def retry_sync(self, func: Callable, *args, **kwargs) -> Any:
         """同步重試執行"""
@@ -332,8 +329,8 @@ class HealthChecker:
                         is_healthy = await self.check_domain_health(domain)
                         await self.update_domain_health(domain, is_healthy)
 
-                except Exception as e:
-                    logger.error(f"健康檢查任務失敗: {e}")
+                except Exception:
+                    logger.exception("健康檢查任務失敗: ")
 
         try:
             loop = asyncio.get_running_loop()
@@ -483,4 +480,3 @@ class BaseScraper(ABC):
             )
             self.stats["failed_requests"] += 1
             raise e
-

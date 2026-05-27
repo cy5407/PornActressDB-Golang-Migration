@@ -249,4 +249,3 @@ class SearchProgressInfo:
             "current_source": self.current_source,
             "source_stats": dict(self.source_stats),
         }
-

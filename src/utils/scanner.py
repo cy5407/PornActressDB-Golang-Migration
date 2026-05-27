@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 class UnifiedFileScanner:
-    def __init__(self, use_go: bool = False, go_workers: int = 10, go_exe_path: str | None = None):
+    def __init__(
+        self, use_go: bool = False, go_workers: int = 10, go_exe_path: str | None = None
+    ):
         self.use_go, self.go_workers, self.go_exe_path = use_go, go_workers, go_exe_path
         self._go_available: bool | None = None
 
@@ -57,7 +59,10 @@ class UnifiedFileScanner:
                 cmd.append("-recursive=false")
             results = go_cli.run(cmd, exe_path=self.go_exe_path)
             if isinstance(results, list):
-                return [{"path": item["path"], "code": item.get("code", "")} for item in results]
+                return [
+                    {"path": item["path"], "code": item.get("code", "")}
+                    for item in results
+                ]
             return []
         except Exception as e:
             raise RuntimeError(f"Go 掃描失敗: {e}") from e

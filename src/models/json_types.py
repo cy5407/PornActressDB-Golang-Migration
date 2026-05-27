@@ -37,7 +37,9 @@ class VideoDict(TypedDict, total=False):
     release_date: str  # 發行日期 (ISO 8601: YYYY-MM-DD)
     url: str  # 線上連結
     actresses: list[str]  # 女優名稱清單
-    search_status: str  # "imported" | "searched_found" | "searched_not_found" | "search_error"
+    search_status: (
+        str  # "imported" | "searched_found" | "searched_not_found" | "search_error"
+    )
     search_method: str  # "legacy-import" | "AV-WIKI" | "JAVDB" | "cascade"
     last_search_date: str  # 最後搜尋日期 (ISO 8601)
     avwiki_actress_status: str  # AV-WIKI 女優搜尋狀態

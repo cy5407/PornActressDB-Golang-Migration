@@ -142,7 +142,9 @@ class ConfigManager:
                 if self.config.has_option(section, key):
                     yield section, key, rule
 
-    def _apply_validation_rule(self, section: str, key: str, rule: dict[str, Any]) -> bool:
+    def _apply_validation_rule(
+        self, section: str, key: str, rule: dict[str, Any]
+    ) -> bool:
         try:
             value = self._coerce_config_value(section, key, rule)
         except (ValueError, TypeError) as error:
@@ -161,9 +163,7 @@ class ConfigManager:
             return True
         return False
 
-    def _coerce_config_value(
-        self, section: str, key: str, rule: dict[str, Any]
-    ) -> Any:
+    def _coerce_config_value(self, section: str, key: str, rule: dict[str, Any]) -> Any:
         value_str = self.config.get(section, key)
         return rule["type"](value_str)
 
@@ -179,8 +179,8 @@ class ConfigManager:
         try:
             with self.config_file.open("w", encoding="utf-8") as f:
                 self.config.write(f)
-        except OSError as e:
-            logger.error(f"儲存設定檔失敗: {e}")
+        except OSError:
+            logger.exception("儲存設定檔失敗: ")
 
     def get(self, section: str, key: str, fallback=None):
         return self.config.get(section, key, fallback=fallback)

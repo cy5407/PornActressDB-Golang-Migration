@@ -65,11 +65,15 @@ class AVWikiScraper(BaseScraper):
                 return await self._scrape_url_with_session(url, local_session)
 
         except aiohttp.ClientError as e:
-            raise ScrapingException(f"網路連線錯誤: {e}", ErrorType.NETWORK_ERROR, url) from e
+            raise ScrapingException(
+                f"網路連線錯誤: {e}", ErrorType.NETWORK_ERROR, url
+            ) from e
         except Exception as e:
             if isinstance(e, ScrapingException):
                 raise
-            raise ScrapingException(f"未知錯誤: {e}", ErrorType.UNKNOWN_ERROR, url) from e
+            raise ScrapingException(
+                f"未知錯誤: {e}", ErrorType.UNKNOWN_ERROR, url
+            ) from e
 
     async def _scrape_url_with_session(
         self, url: str, session: aiohttp.ClientSession
@@ -111,8 +115,10 @@ class AVWikiScraper(BaseScraper):
                 return self._parse_detail_page(soup)
 
         except Exception as e:
-            logger.error(f"解析 AV-WIKI 內容失敗: {e}")
-            raise ScrapingException(f"內容解析錯誤: {e}", ErrorType.PARSING_ERROR, url) from e
+            logger.exception("解析 AV-WIKI 內容失敗: ")
+            raise ScrapingException(
+                f"內容解析錯誤: {e}", ErrorType.PARSING_ERROR, url
+            ) from e
 
     def _parse_search_results(self, soup: BeautifulSoup) -> dict[str, Any]:
         """解析搜尋結果頁面"""
@@ -270,7 +276,11 @@ class AVWikiScraper(BaseScraper):
                 break
 
     def _extract_detail_title(self, soup: BeautifulSoup) -> str | None:
-        title_element = soup.find("h1") or soup.find("h2", class_="entry-title") or soup.find("title")
+        title_element = (
+            soup.find("h1")
+            or soup.find("h2", class_="entry-title")
+            or soup.find("title")
+        )
         return title_element.text.strip() if title_element else None
 
     def _extract_detail_actresses(self, soup: BeautifulSoup) -> list[str]:
@@ -434,7 +444,7 @@ class AVWikiScraper(BaseScraper):
             }
 
         except Exception as e:
-            logger.error(f"搜尋 AV-WIKI 影片 {video_code} 失敗: {e}")
+            logger.exception(f"搜尋 AV-WIKI 影片 {video_code} 失敗: ")
             raise ScrapingException(
                 f"搜尋失敗: {e}", ErrorType.UNKNOWN_ERROR, search_url
             ) from e
@@ -761,6 +771,10 @@ class AVWikiScraper(BaseScraper):
                 "error": str(e),
             }
 
-    async def search_batch_concurrent(self, codes: list, *, max_concurrent: int = 5, progress_callback=None) -> dict:
+    async def search_batch_concurrent(
+        self, codes: list, *, max_concurrent: int = 5, progress_callback=None
+    ) -> dict:
         """batch_search_concurrent 的別名，保持向下相容。"""
-        return await self.batch_search_concurrent(codes, max_concurrent=max_concurrent, progress_callback=progress_callback)
+        return await self.batch_search_concurrent(
+            codes, max_concurrent=max_concurrent, progress_callback=progress_callback
+        )

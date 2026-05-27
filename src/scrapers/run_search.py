@@ -100,7 +100,9 @@ def _normalize_source_mode(source_mode: str | None) -> str:
     return normalized
 
 
-def _search_with_mode(searcher, code: str, stop_event: threading.Event, source_mode: str):
+def _search_with_mode(
+    searcher, code: str, stop_event: threading.Event, source_mode: str
+):
     normalized = _normalize_source_mode(source_mode)
     if normalized == "avwiki":
         return searcher.search_avwiki_only(code, stop_event)

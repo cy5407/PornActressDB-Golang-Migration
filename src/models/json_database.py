@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 import src.utils.json_utils as _json_utils
-
 from src.models.json_types import (
     ISO_DATETIME_FORMAT,
     MAX_BACKUP_AGE_DAYS,
@@ -124,7 +123,7 @@ class JSONDBManager:
             logger.info(f"✅ JSONDBManager 初始化成功: {self.data_file}")
 
         except Exception as e:
-            logger.error(f"❌ JSONDBManager 初始化失敗: {e}")
+            logger.exception("❌ JSONDBManager 初始化失敗: ")
             raise JSONDatabaseError(f"初始化失敗: {e}") from e
 
     def _ensure_data_file_exists(self) -> None:
@@ -153,7 +152,7 @@ class JSONDBManager:
         except CorruptedDataError:
             raise
         except Exception as e:
-            logger.error(f"❌ 資料載入失敗: {e}")
+            logger.exception("❌ 資料載入失敗: ")
             raise CorruptedDataError(f"載入失敗: {e}") from e
 
     def _load_data_internal(self) -> None:
@@ -185,7 +184,7 @@ class JSONDBManager:
             try:
                 loaded_data = _json_utils.loads(file_content)
             except Exception as e:
-                logger.error(f"❌ JSON 解析失敗: {e}")
+                logger.exception("❌ JSON 解析失敗: ")
                 raise CorruptedDataError(f"JSON 格式錯誤: {e}") from e
 
             loaded_data = self._normalize_loaded_data(loaded_data)
@@ -204,7 +203,7 @@ class JSONDBManager:
         except CorruptedDataError:
             raise
         except Exception as e:
-            logger.error(f"❌ 內部資料載入失敗: {e}")
+            logger.exception("❌ 內部資料載入失敗: ")
             raise CorruptedDataError(f"內部載入失敗: {e}") from e
 
     def _normalize_loaded_data(self, loaded_data: Any) -> JSONDatabaseDict:
@@ -299,7 +298,7 @@ class JSONDBManager:
                     )
                     time.sleep(retry_delay * (attempt + 1))
                     continue
-                logger.error(f"❌ 資料儲存失敗: {e}")
+                logger.exception("❌ 資料儲存失敗: ")
                 raise DataIntegrityError(f"儲存失敗: {e}") from e
 
         # 如果所有重試都失敗
@@ -898,8 +897,8 @@ class JSONDBManager:
                 classification_type="standard",
                 studio_count=studio_count,
             )
-        except Exception as e:
-            logger.error(f"❌ 分析女優主要片商失敗: {e}")
+        except Exception:
+            logger.exception("❌ 分析女優主要片商失敗: ")
             raise
 
     def _collect_actress_videos(self, actress_name: str) -> list[VideoDict]:

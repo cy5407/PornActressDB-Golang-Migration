@@ -56,10 +56,7 @@ class ExponentialBackoff:
     def next_delay(self) -> float:
         """計算下一次應等待的延遲時間，並遞增內部計數"""
         # 計算延遲：base_delay × (multiplier ^ attempt)，上限 max_delay
-        delay = min(
-            self.base_delay * (self.multiplier ** self.attempt),
-            self.max_delay
-        )
+        delay = min(self.base_delay * (self.multiplier**self.attempt), self.max_delay)
 
         # 加入隨機抖動，避免雷同時機（±20%）
         if self.jitter:
@@ -140,10 +137,7 @@ class AdaptiveConcurrencyController:
         # 檢查是否需要升載
         if self.consecutive_successes >= self.increase_threshold:
             old_concurrency = self.concurrency
-            self.concurrency = min(
-                self.maximum,
-                self.concurrency + self.increase_step
-            )
+            self.concurrency = min(self.maximum, self.concurrency + self.increase_step)
             if self.concurrency > old_concurrency:
                 logger.debug(
                     f"📈 併發升載: {old_concurrency} → {self.concurrency} "
@@ -160,8 +154,7 @@ class AdaptiveConcurrencyController:
         if self.consecutive_failures >= self.decrease_threshold:
             old_concurrency = self.concurrency
             self.concurrency = max(
-                self.minimum,
-                int(self.concurrency * self.decrease_factor)
+                self.minimum, int(self.concurrency * self.decrease_factor)
             )
             if self.concurrency < old_concurrency:
                 logger.debug(

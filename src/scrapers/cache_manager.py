@@ -127,8 +127,8 @@ class CacheManager:
                     else:
                         logger.debug("📊 快取索引已載入")
 
-        except Exception as e:
-            logger.error(f"初始化快取索引失敗: {e}")
+        except Exception:
+            logger.exception("初始化快取索引失敗: ")
             # 建立新索引
             try:
                 initial_index = {
@@ -145,8 +145,8 @@ class CacheManager:
         try:
             with self.index_lock, open(self.index_path, encoding="utf-8") as f:
                 return json_load(f)
-        except Exception as e:
-            logger.error(f"載入索引失敗: {e}")
+        except Exception:
+            logger.exception("載入索引失敗: ")
             return {
                 "_metadata": {"version": "1.0", "created_at": time.time()},
                 "entries": {},
@@ -158,8 +158,8 @@ class CacheManager:
             with self.index_lock, open(self.index_path, "w", encoding="utf-8") as f:
                 json_dump(index_data, f, indent=2, ensure_ascii=False)
             return True
-        except Exception as e:
-            logger.error(f"儲存索引失敗: {e}")
+        except Exception:
+            logger.exception("儲存索引失敗: ")
             return False
 
     def _generate_cache_key(self, key: str) -> str:
@@ -195,8 +195,8 @@ class CacheManager:
 
             return serialized, False
 
-        except Exception as e:
-            logger.error(f"序列化值失敗: {e}")
+        except Exception:
+            logger.exception("序列化值失敗: ")
             return b"", False
 
     def _deserialize_value(self, data: bytes, compressed: bool) -> Any:
@@ -214,8 +214,8 @@ class CacheManager:
         except ValueError as e:
             logger.warning(f"⚠️ 偵測到無效或舊版快取資料，將忽略該條目: {e}")
             return None
-        except Exception as e:
-            logger.error(f"反序列化值失敗: {e}")
+        except Exception:
+            logger.exception("反序列化值失敗: ")
             return None
 
     def _is_expired(self, created_at: float, ttl_seconds: int) -> bool:
@@ -405,8 +405,8 @@ class CacheManager:
 
             self.stats["cleanups"] += 1
 
-        except Exception as e:
-            logger.error(f"清理過期快取失敗: {e}")
+        except Exception:
+            logger.exception("清理過期快取失敗: ")
 
     def _cleanup_expired_memory_entries(self) -> list[str]:
         if not self.config.enable_memory_cache:
@@ -435,8 +435,8 @@ class CacheManager:
                 self._delete_cache_file(file_path)
                 self._remove_index_entry(index_data, cache_key)
                 removed_entries.append((cache_key, file_path))
-            except Exception as e:
-                logger.error(f"刪除快取條目失敗: {e}")
+            except Exception:
+                logger.exception("刪除快取條目失敗: ")
 
         self._save_index(index_data)
         return removed_entries
@@ -460,8 +460,8 @@ class CacheManager:
                 try:
                     time.sleep(self.config.cleanup_interval_hours * 3600)
                     self._cleanup_expired_cache()
-                except Exception as e:
-                    logger.error(f"背景清理任務失敗: {e}")
+                except Exception:
+                    logger.exception("背景清理任務失敗: ")
 
         cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
         cleanup_thread.start()
@@ -493,8 +493,8 @@ class CacheManager:
 
             logger.info("🧹 已清空所有快取")
 
-        except Exception as e:
-            logger.error(f"清空快取失敗: {e}")
+        except Exception:
+            logger.exception("清空快取失敗: ")
 
     def get_stats(self) -> dict[str, Any]:
         """獲取快取統計資訊"""
@@ -539,8 +539,8 @@ class CacheManager:
                 "config": asdict(self.config),
             }
 
-        except Exception as e:
-            logger.error(f"獲取快取統計失敗: {e}")
+        except Exception:
+            logger.exception("獲取快取統計失敗: ")
             return self.stats
 
     # ============================================================

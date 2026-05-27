@@ -1042,3 +1042,15 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 **`ErrMsgStoreNotOpen` const 抽取**：原任務要求新增 `ErrMsgStoreNotOpen`。改為複用既存的 `ErrSQLiteStoreClosed`（`pkg/database/sqlite_read_store.go:15`）。
 - 理由：4 處 `errors.New("sqlite store is not open")` 改為 `return ErrSQLiteStoreClosed`，消除全部字面值（count → 0，比要求的 1 更乾淨），且 callers 可用 `errors.Is(err, ErrSQLiteStoreClosed)`，與 read store 路徑一致。
 - 副作用：驗收 `grep -c '"sqlite store is not open"' sqlite_crud.go → 1` 實際變 0；SonarQube 重複字面值規則仍消解。
+
+### Commit 4 偏離
+
+**機械改不掉、需手動審視的剩餘點**：
+
+- `src/scrapers/base_scraper.py:196` — `logger.error(f"❌ 重試失敗，不再重試: {error}")`。`{error}` 不在 `{e}/{exc}/{err}` 三個白名單內所以 codemod 跳過；該變數是函式參數 `error: Exception`，不是 `except as ...` 綁定值，是否要改 `logger.exception` 需要 caller 端判斷（外層或許不在 except 區塊內，會丟 `Logger.exception outside of exception handler` 警告），故保留。
+
+**Codemod 副作用 (auto-fixed via `ruff check --fix`)**：
+
+- F841（26 件）：移除 `{e}` 後 `except Exception as e:` 的 `e` 變成 unused，ruff 自動改成 `except Exception:`。
+- F541（37 件）：移除 `{e}` 後 f-string 只剩字面字元，ruff 自動移除 `f` 前綴。
+- I001（2 件）：`incremental_json_database.py` / 另一檔 imports 順序，**這 2 件 pre-existing**（migration 之前 baseline 即 2）；驗收 `ruff check src/ 0 警告` 要求清零所以一併修掉。

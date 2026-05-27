@@ -62,9 +62,10 @@ class JAVDBScraper(BaseScraper):
         try:
             timeout = aiohttp.ClientTimeout(total=30)
 
-            async with aiohttp.ClientSession(
-                headers=self.headers, timeout=timeout
-            ) as session, session.get(url) as response:
+            async with (
+                aiohttp.ClientSession(headers=self.headers, timeout=timeout) as session,
+                session.get(url) as response,
+            ):
                 if response.status == 404:
                     raise ScrapingException(
                         "頁面不存在", ErrorType.CLIENT_ERROR, url, 404
@@ -101,11 +102,15 @@ class JAVDBScraper(BaseScraper):
                 return parsed_data
 
         except aiohttp.ClientError as e:
-            raise ScrapingException(f"網路連線錯誤: {e}", ErrorType.NETWORK_ERROR, url) from e
+            raise ScrapingException(
+                f"網路連線錯誤: {e}", ErrorType.NETWORK_ERROR, url
+            ) from e
         except Exception as e:
             if isinstance(e, ScrapingException):
                 raise
-            raise ScrapingException(f"未知錯誤: {e}", ErrorType.UNKNOWN_ERROR, url) from e
+            raise ScrapingException(
+                f"未知錯誤: {e}", ErrorType.UNKNOWN_ERROR, url
+            ) from e
 
     def parse_content(self, content: str, url: str) -> dict[str, Any]:
         """解析 JAVDB 頁面內容"""
@@ -119,8 +124,10 @@ class JAVDBScraper(BaseScraper):
                 return self._parse_detail_page(soup)
 
         except Exception as e:
-            logger.error(f"解析 JAVDB 內容失敗: {e}")
-            raise ScrapingException(f"內容解析錯誤: {e}", ErrorType.PARSING_ERROR, url) from e
+            logger.exception("解析 JAVDB 內容失敗: ")
+            raise ScrapingException(
+                f"內容解析錯誤: {e}", ErrorType.PARSING_ERROR, url
+            ) from e
 
     def _parse_search_result_item(self, item: BeautifulSoup) -> dict[str, Any] | None:
         link_element = item.find("a")
@@ -129,7 +136,11 @@ class JAVDBScraper(BaseScraper):
         detail_url = urljoin(self.base_url, link_element.get("href"))
         title_element = item.find("div", class_="video-title")
         title = title_element.text.strip() if title_element else ""
-        actresses = [a.text.strip() for a in item.find_all("a", href=re.compile(r"/actors/")) if a.text.strip() and self._is_valid_actress_name(a.text.strip())]
+        actresses = [
+            a.text.strip()
+            for a in item.find_all("a", href=re.compile(r"/actors/"))
+            if a.text.strip() and self._is_valid_actress_name(a.text.strip())
+        ]
         studio_element = item.find("a", href=re.compile(r"/makers/"))
         studio = studio_element.text.strip() if studio_element else None
         date_element = item.find("div", class_="meta")
@@ -139,7 +150,13 @@ class JAVDBScraper(BaseScraper):
             if date_match:
                 release_date = date_match.group(1)
         if actresses or title:
-            return {"title": title, "actresses": actresses, "studio": studio, "release_date": release_date, "detail_url": detail_url}
+            return {
+                "title": title,
+                "actresses": actresses,
+                "studio": studio,
+                "release_date": release_date,
+                "detail_url": detail_url,
+            }
         return None
 
     def _parse_search_results(self, soup: BeautifulSoup) -> dict[str, Any]:
@@ -273,9 +290,7 @@ class JAVDBScraper(BaseScraper):
         return f"{duration_match.group(1)}分鐘" if duration_match else None
 
     @staticmethod
-    def _extract_panel_categories(
-        panel: BeautifulSoup, href_pattern: str
-    ) -> list[str]:
+    def _extract_panel_categories(panel: BeautifulSoup, href_pattern: str) -> list[str]:
         return [
             link.text.strip()
             for link in panel.find_all("a", href=re.compile(href_pattern))
@@ -316,7 +331,7 @@ class JAVDBScraper(BaseScraper):
             return self._build_empty_search_video_result(video_code, search_url)
 
         except Exception as e:
-            logger.error(f"搜尋 JAVDB 影片 {video_code} 失敗: {e}")
+            logger.exception(f"搜尋 JAVDB 影片 {video_code} 失敗: ")
             raise ScrapingException(
                 f"搜尋失敗: {e}", ErrorType.UNKNOWN_ERROR, search_url
             ) from e
@@ -340,7 +355,9 @@ class JAVDBScraper(BaseScraper):
         return first_result
 
     @staticmethod
-    def _build_empty_search_video_result(video_code: str, search_url: str) -> dict[str, Any]:
+    def _build_empty_search_video_result(
+        video_code: str, search_url: str
+    ) -> dict[str, Any]:
         return {
             "video_code": video_code,
             "search_url": search_url,
@@ -353,7 +370,9 @@ class JAVDBScraper(BaseScraper):
         try:
             result = await self.safe_scrape(actress_name)
         except Exception as e:
-            raise ScrapingException(str(e), ErrorType.NETWORK_ERROR, actress_name) from e
+            raise ScrapingException(
+                str(e), ErrorType.NETWORK_ERROR, actress_name
+            ) from e
         search_results = result.get("search_results", [])
         studio_distribution: dict[str, int] = {}
         for item in search_results:

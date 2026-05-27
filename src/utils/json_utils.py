@@ -21,7 +21,6 @@ except Exception:  # pragma: no cover
     _ORJSON_AVAILABLE = False
 
 
-
 def is_orjson_available() -> bool:
     """回傳目前環境是否有 orjson 可用。"""
     return _ORJSON_AVAILABLE

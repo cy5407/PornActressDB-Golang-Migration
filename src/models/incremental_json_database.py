@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Any
 
 import src.utils.json_utils as _json_utils
-
 from src.models.json_database import JSONDBManager
 from src.models.json_types import (
     JSONDatabaseError,
@@ -354,7 +353,7 @@ class IncrementalJSONDB:
         except JSONDatabaseError:
             raise
         except Exception as e:
-            logger.error(f"❌ Journal 合併失敗: {e}")
+            logger.exception("❌ Journal 合併失敗: ")
             raise JSONDatabaseError(f"合併失敗: {e}") from e
 
     def get_stats(self) -> dict[str, Any]:

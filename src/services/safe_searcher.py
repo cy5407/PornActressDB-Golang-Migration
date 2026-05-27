@@ -175,9 +175,7 @@ class SafeSearcher:
         )
 
         # 隨機化部分標頭
-        headers["Cache-Control"] = secure_choice(
-            ["no-cache", "max-age=0", "no-store"]
-        )
+        headers["Cache-Control"] = secure_choice(["no-cache", "max-age=0", "no-store"])
 
         return headers
 
@@ -194,9 +192,9 @@ class SafeSearcher:
                 wait_time = min_wait
             else:
                 precision = 1_000_000
-                wait_time = min_wait + (
-                    randbelow(precision) / precision
-                ) * (max_wait - min_wait)
+                wait_time = min_wait + (randbelow(precision) / precision) * (
+                    max_wait - min_wait
+                )
 
             if elapsed < wait_time:
                 sleep_time = wait_time - elapsed
@@ -208,7 +206,9 @@ class SafeSearcher:
     def _generate_cache_key(self, url: str, params: dict = None) -> str:
         """生成快取鍵值"""
         cache_string = f"{url}_{str(params or {})}"
-        return hashlib.md5(cache_string.encode("utf-8"), usedforsecurity=False).hexdigest()  # 僅用於快取鍵值，非安全用途
+        return hashlib.md5(
+            cache_string.encode("utf-8"), usedforsecurity=False
+        ).hexdigest()  # 僅用於快取鍵值，非安全用途
 
     def _is_cache_valid(self, cache_entry: CacheEntry) -> bool:
         """檢查快取是否有效"""
@@ -247,7 +247,9 @@ class SafeSearcher:
         if isinstance(data, BeautifulSoup):
             return True
         if isinstance(data, dict):
-            return any(SafeSearcher._contains_beautifulsoup(value) for value in data.values())
+            return any(
+                SafeSearcher._contains_beautifulsoup(value) for value in data.values()
+            )
         if isinstance(data, (list, tuple, set)):
             return any(SafeSearcher._contains_beautifulsoup(item) for item in data)
         return False

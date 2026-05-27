@@ -245,6 +245,7 @@ def run(
 # 掃描 / 番號提取
 # ---------------------------------------------------------------------------
 
+
 def extract_code(filename: str) -> str | None:
     """從檔案名稱提取番號；找不到番號時回傳 None，CLI 異常則拋出 GoError。"""
     data = run(["scan", "-extract", filename])
@@ -254,6 +255,7 @@ def extract_code(filename: str) -> str | None:
 # ---------------------------------------------------------------------------
 # 片商識別
 # ---------------------------------------------------------------------------
+
 
 def identify_studio(code: str) -> str | None:
     """識別番號所屬片商；UNKNOWN/無結果回傳 None，CLI 異常則拋出 GoError。"""
@@ -286,6 +288,7 @@ def normalize_studio_name(
 # 資料庫操作
 # ---------------------------------------------------------------------------
 
+
 def db_get_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> dict | None:
     """取得影片資訊，找不到回傳 None。"""
     try:
@@ -297,7 +300,7 @@ def db_get_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> dict | None:
     except GoError as e:
         if _is_not_found_error(e):
             return None
-        logger.error(f"db_get_video 失敗: {e}")
+        logger.exception("db_get_video 失敗: ")
         raise
 
 
@@ -315,8 +318,8 @@ def db_update_video(code: str, video: dict, data_dir: str = _DEFAULT_DATA_DIR) -
         cmd.extend([code, _to_windows_cli_path(temp_file)])
         run(cmd)
         return True
-    except GoError as e:
-        logger.error(f"db_update_video 失敗: {e}")
+    except GoError:
+        logger.exception("db_update_video 失敗: ")
         return False
     finally:
         if temp_file and os.path.exists(temp_file):
@@ -336,7 +339,7 @@ def db_delete_video(code: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
         if _is_not_found_error(e):
             logger.warning(f"db_delete_video 找不到目標: {code}")
             return False
-        logger.error(f"db_delete_video 失敗: {e}")
+        logger.exception("db_delete_video 失敗: ")
         raise
 
 
@@ -359,8 +362,8 @@ def db_compact_journal(data_dir: str = _DEFAULT_DATA_DIR) -> bool:
             cmd.extend(["-data-dir", data_dir])
         data = run(cmd)
         return bool(data.get("success", True)) if isinstance(data, dict) else True
-    except GoError as e:
-        logger.error(f"db_compact_journal 失敗: {e}")
+    except GoError:
+        logger.exception("db_compact_journal 失敗: ")
         return False
 
 
@@ -368,9 +371,11 @@ def db_compact_journal(data_dir: str = _DEFAULT_DATA_DIR) -> bool:
 # 快取操作
 # ---------------------------------------------------------------------------
 
+
 def cache_get(key: str, cache_dir: str = "cache") -> bytes | None:
     """從 Go 快取讀取值，找不到或失敗時回傳 None。"""
     import base64
+
     try:
         data = run(["cache", "get", "-cache-dir", cache_dir, key])
         if not data.get("success"):
@@ -384,17 +389,26 @@ def cache_get(key: str, cache_dir: str = "cache") -> bytes | None:
         return None
 
 
-def cache_set(key: str, value: bytes, ttl_hours: int = 24, cache_dir: str = "cache") -> bool:
+def cache_set(
+    key: str, value: bytes, ttl_hours: int = 24, cache_dir: str = "cache"
+) -> bool:
     """將值寫入 Go 快取，成功回傳 True。"""
     import base64
+
     try:
         encoded = base64.b64encode(value).decode("ascii")
-        data = run([
-            "cache", "set",
-            "-cache-dir", cache_dir,
-            "-ttl-hours", str(ttl_hours),
-            key, encoded,
-        ])
+        data = run(
+            [
+                "cache",
+                "set",
+                "-cache-dir",
+                cache_dir,
+                "-ttl-hours",
+                str(ttl_hours),
+                key,
+                encoded,
+            ]
+        )
         return bool(data.get("success"))
     except GoError as e:
         logger.debug(f"cache_set 失敗: {e}")
@@ -431,11 +445,16 @@ def cache_prune(
     """清理過期或超大的快取。"""
     try:
         cmd = [
-            "cache", "prune",
-            "-cache-dir", cache_dir,
-            "-ttl-days", str(ttl_days),
-            "-max-size", str(max_size_mb),
-            "-min-keep", str(min_keep),
+            "cache",
+            "prune",
+            "-cache-dir",
+            cache_dir,
+            "-ttl-days",
+            str(ttl_days),
+            "-max-size",
+            str(max_size_mb),
+            "-min-keep",
+            str(min_keep),
         ]
         if dry_run:
             cmd.append("-dry-run")
@@ -459,7 +478,6 @@ def cache_clear(cache_dir: str = "cache", dry_run: bool = False) -> dict:
     except GoError as e:
         logger.debug(f"cache_clear 失敗: {e}")
         return {}
-
 
 
 def db_backup_create(data_dir: str = _DEFAULT_DATA_DIR) -> dict:
@@ -486,8 +504,8 @@ def db_backup_restore(backup_file: str, data_dir: str = _DEFAULT_DATA_DIR) -> di
         if data_dir != _DEFAULT_DATA_DIR:
             cmd.extend(["-data-dir", data_dir])
         return run(cmd)
-    except GoError as e:
-        logger.error(f"db_backup_restore 失敗: {e}")
+    except GoError:
+        logger.exception("db_backup_restore 失敗: ")
         return {}
 
 
@@ -513,7 +531,7 @@ def db_get_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> dict | None:
     except GoError as e:
         if _is_not_found_error(e):
             return None
-        logger.error(f"db_get_actress 失敗: {e}")
+        logger.exception("db_get_actress 失敗: ")
         raise
 
 
@@ -530,8 +548,8 @@ def db_update_actress(name: str, data: dict, data_dir: str = _DEFAULT_DATA_DIR) 
         cmd.extend([name, _to_windows_cli_path(temp_file)])
         run(cmd)
         return True
-    except GoError as e:
-        logger.error(f"db_update_actress 失敗: {e}")
+    except GoError:
+        logger.exception("db_update_actress 失敗: ")
         return False
     finally:
         if temp_file and os.path.exists(temp_file):
@@ -551,13 +569,14 @@ def db_delete_actress(name: str, data_dir: str = _DEFAULT_DATA_DIR) -> bool:
         if _is_not_found_error(e):
             logger.warning(f"db_delete_actress 找不到目標: {name}")
             return False
-        logger.error(f"db_delete_actress 失敗: {e}")
+        logger.exception("db_delete_actress 失敗: ")
         raise
 
 
 # ---------------------------------------------------------------------------
 # 檔案移動操作
 # ---------------------------------------------------------------------------
+
 
 def move_file(
     source: str,
@@ -573,9 +592,23 @@ def move_file(
         )
         if isinstance(data, dict):
             return data
-        return {"success": True, "source": source, "destination": destination, "error": None, "skipped": False, "renamed": None}
+        return {
+            "success": True,
+            "source": source,
+            "destination": destination,
+            "error": None,
+            "skipped": False,
+            "renamed": None,
+        }
     except GoError as e:
-        return {"success": False, "source": source, "destination": destination, "error": str(e), "skipped": False, "renamed": None}
+        return {
+            "success": False,
+            "source": source,
+            "destination": destination,
+            "error": str(e),
+            "skipped": False,
+            "renamed": None,
+        }
 
 
 def move_dir(
@@ -587,14 +620,35 @@ def move_dir(
     """移動整個目錄，回傳操作結果 dict。"""
     try:
         data = run(
-            ["move", "-src", source, "-dst", destination, "-strategy", strategy, "-dir"],
+            [
+                "move",
+                "-src",
+                source,
+                "-dst",
+                destination,
+                "-strategy",
+                strategy,
+                "-dir",
+            ],
             exe_path=exe_path,
         )
         if isinstance(data, dict):
             return data
-        return {"success": True, "source": source, "destination": destination, "error": None, "skipped": False}
+        return {
+            "success": True,
+            "source": source,
+            "destination": destination,
+            "error": None,
+            "skipped": False,
+        }
     except GoError as e:
-        return {"success": False, "source": source, "destination": destination, "error": str(e), "skipped": False}
+        return {
+            "success": False,
+            "source": source,
+            "destination": destination,
+            "error": str(e),
+            "skipped": False,
+        }
 
 
 def batch_move(
@@ -610,14 +664,35 @@ def batch_move(
             json.dump(items, f, ensure_ascii=False)
             temp_file = f.name
         data = run(
-            ["move", "-batch", _to_windows_cli_path(temp_file), "-strategy", strategy, "-log-dir", log_dir],
+            [
+                "move",
+                "-batch",
+                _to_windows_cli_path(temp_file),
+                "-strategy",
+                strategy,
+                "-log-dir",
+                log_dir,
+            ],
             exe_path=exe_path,
         )
         if isinstance(data, dict):
             return data
-        return {"total": len(items), "success": 0, "failed": len(items), "skipped": 0, "results": []}
+        return {
+            "total": len(items),
+            "success": 0,
+            "failed": len(items),
+            "skipped": 0,
+            "results": [],
+        }
     except GoError as e:
-        return {"total": len(items), "success": 0, "failed": len(items), "skipped": 0, "error": str(e), "results": []}
+        return {
+            "total": len(items),
+            "success": 0,
+            "failed": len(items),
+            "skipped": 0,
+            "error": str(e),
+            "results": [],
+        }
     finally:
         if temp_file and os.path.exists(temp_file):
             os.unlink(temp_file)

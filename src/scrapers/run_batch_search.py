@@ -73,6 +73,7 @@ def _get_searcher():
     if not hasattr(_thread_local, "searcher"):
         from models.config import ConfigManager
         from services.web_searcher import WebSearcher
+
         searcher = WebSearcher(ConfigManager(_resolve_config_path()))
         # 停用 rate limiter：批次模式各 thread 獨立，人工 sleep 只會浪費時間
         searcher.japanese_searcher.config.min_interval = 0.0
@@ -156,9 +157,7 @@ def main() -> None:
     # 串流輸出：每筆完成即立即 print，Go 端逐行讀取並發送 Wails 事件
     # thread-local _get_searcher() 讓各 thread 並行初始化（GIL 在 I/O 段自動讓步）
     with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-        futures = {
-            executor.submit(search_one, c, source_mode): c for c in codes
-        }
+        futures = {executor.submit(search_one, c, source_mode): c for c in codes}
         for future in as_completed(futures):
             result = future.result()
             print(json.dumps(result, ensure_ascii=False), flush=True)

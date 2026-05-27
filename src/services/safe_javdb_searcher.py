@@ -137,8 +137,8 @@ class SafeJAVDBSearcher:
             with open(self.cache_file, "w", encoding="utf-8") as f:
                 json_dump(self.cache, f, ensure_ascii=False, indent=2)
             logger.debug(f"💾 已儲存 {len(self.cache)} 個快取項目")
-        except Exception as e:
-            logger.error(f"儲存快取失敗: {e}")
+        except Exception:
+            logger.exception("儲存快取失敗: ")
 
     def load_stats(self):
         """載入統計資料"""
@@ -165,8 +165,8 @@ class SafeJAVDBSearcher:
         try:
             with open(self.stats_file, "w", encoding="utf-8") as f:
                 json_dump(self.stats, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"儲存統計失敗: {e}")
+        except Exception:
+            logger.exception("儲存統計失敗: ")
 
     def create_session(self):
         """建立模擬真實瀏覽器的 session（優先使用 curl_cffi）"""
@@ -467,8 +467,7 @@ class SafeJAVDBSearcher:
     def _is_circuit_breaker_open(self) -> bool:
         with self._lock:
             return (
-                self.consecutive_suspected_pages
-                >= self.suspected_page_halt_threshold
+                self.consecutive_suspected_pages >= self.suspected_page_halt_threshold
             )
 
     def search_javdb(self, video_id: str) -> dict[str, Any] | None:
@@ -516,7 +515,9 @@ class SafeJAVDBSearcher:
             logger.debug(f"🎬 找到 {len(video_links)} 個影片連結")
             best_match_url = self._find_best_match_url(video_id, video_links)
             if not best_match_url:
-                logger.debug(f"🔍 JAVDB 未找到番號 {video_id} 的精確匹配結果，視為未找到")
+                logger.debug(
+                    f"🔍 JAVDB 未找到番號 {video_id} 的精確匹配結果，視為未找到"
+                )
                 return None
 
             detail_url = urljoin("https://javdb.com", best_match_url)
@@ -533,8 +534,8 @@ class SafeJAVDBSearcher:
 
             return None
 
-        except Exception as e:
-            logger.error(f"❌ 搜尋 {video_id} 時出錯: {e}")
+        except Exception:
+            logger.exception(f"❌ 搜尋 {video_id} 時出錯: ")
             return None
 
     def _find_best_match_url(self, video_id: str, video_links) -> str | None:
@@ -547,7 +548,10 @@ class SafeJAVDBSearcher:
             title_attr = link.get("title", "")
             text_to_check = f"{link_text} {title_attr}".upper()
             normalized_text = self._normalize_code_for_match(text_to_check)
-            if video_id.upper() in text_to_check or normalized_video_id in normalized_text:
+            if (
+                video_id.upper() in text_to_check
+                or normalized_video_id in normalized_text
+            ):
                 logger.debug(f"🎯 找到匹配的影片連結: {href} (文字: {link_text})")
                 return href
         return None
@@ -629,7 +633,7 @@ class SafeJAVDBSearcher:
             return None
 
         except Exception as e:
-            logger.error(f"❌ 解析 JAVDB 詳情頁面時出錯: {e}")
+            logger.exception("❌ 解析 JAVDB 詳情頁面時出錯: ")
             self._mark_suspected_page(video_id, f"詳情頁解析例外: {e}")
             return self._make_search_error_result(
                 video_id,
@@ -704,7 +708,9 @@ class SafeJAVDBSearcher:
         )
 
     @staticmethod
-    def _apply_detail_panel_value(info: dict[str, Any], label: str, value_element) -> None:
+    def _apply_detail_panel_value(
+        info: dict[str, Any], label: str, value_element
+    ) -> None:
         if label in SafeJAVDBSearcher._DETAIL_MAKER_LABELS:
             SafeJAVDBSearcher._apply_detail_maker(info, value_element)
             return

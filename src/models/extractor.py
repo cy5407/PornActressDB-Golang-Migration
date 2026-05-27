@@ -20,12 +20,14 @@ class UnifiedCodeExtractor:
 
         try:
             from services.go_cli import extract_code as go_extract_code
+
             return go_extract_code(filename)
         except Exception as exc:
             errors.append(str(exc))
 
         try:
             from src.services.go_cli import extract_code as go_extract_code
+
             return go_extract_code(filename)
         except Exception as exc:
             errors.append(str(exc))
@@ -34,4 +36,3 @@ class UnifiedCodeExtractor:
             raise RuntimeError(
                 f"Go 番號提取不可用: {detail}" if detail else "Go 番號提取不可用"
             ) from exc
-

@@ -91,8 +91,8 @@ class EncodingDetector:
             logger.warning("⚠️ 使用 UTF-8 錯誤忽略模式解碼")
             return decoded_content, "utf-8-ignore"
 
-        except Exception as e:
-            logger.error(f"❌ 所有解碼方法都失敗: {e}")
+        except Exception:
+            logger.exception("❌ 所有解碼方法都失敗: ")
             self._update_stats("failed", False)
             return str(content_bytes), "failed"
 
@@ -156,8 +156,8 @@ class EncodingDetector:
             logger.debug(f"🍲 已創建 BeautifulSoup 物件，編碼: {encoding}")
             return soup, encoding
 
-        except Exception as e:
-            logger.error(f"❌ 創建 BeautifulSoup 物件失敗: {e}")
+        except Exception:
+            logger.exception("❌ 創建 BeautifulSoup 物件失敗: ")
             # 最後備用方案
             soup = BeautifulSoup(decoded_content, parser)
             return soup, encoding

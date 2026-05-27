@@ -58,9 +58,7 @@ class UnifiedCacheManager:
                     "cache", "max_size_mb", fallback=500
                 )
             except Exception as e:
-                logger.warning(
-                    f"⚠️ 讀取 cache 設定失敗，改用預設值: {e}"
-                )
+                logger.warning(f"⚠️ 讀取 cache 設定失敗，改用預設值: {e}")
 
         logger.info(
             f"🔗 統一快取管理器已初始化 (TTL: {self.default_ttl_days} 天, 大小限制: {self.max_cache_size_mb} MB)"
@@ -187,7 +185,7 @@ class UnifiedCacheManager:
                 results["total_freed_mb"] += source_result.get("freed_mb", 0.0)
                 results["sources_cleaned"] += 1
             except Exception as e:
-                logger.error(f"❌ 清理快取來源 {name} 失敗: {e}")
+                logger.exception(f"❌ 清理快取來源 {name} 失敗: ")
                 results["details"][name] = {"error": str(e)}
 
         if results["total_deleted"] > 0:
@@ -249,8 +247,8 @@ class UnifiedCacheManager:
                 elif hasattr(cache, "clear") or isinstance(cache, dict):
                     cache.clear()
                 logger.info(f"🗑️ 已清除快取: {name}")
-            except Exception as e:
-                logger.error(f"❌ 清除快取 {name} 失敗: {e}")
+            except Exception:
+                logger.exception(f"❌ 清除快取 {name} 失敗: ")
 
         return True
 
@@ -308,9 +306,13 @@ class UnifiedCacheManager:
             if "error" in source_stats:
                 print(f"  [{name}] 錯誤: {source_stats['error']}")
             else:
-                print(f"  [{name}] entries={source_stats.get('entries', 0)}, size_mb={source_stats.get('size_mb', 0.0):.2f}")
+                print(
+                    f"  [{name}] entries={source_stats.get('entries', 0)}, size_mb={source_stats.get('size_mb', 0.0):.2f}"
+                )
         summary = stats.get("summary", {})
-        print(f"  總計: entries={summary.get('total_entries', 0)}, size_mb={summary.get('total_size_mb', 0.0):.2f}")
+        print(
+            f"  總計: entries={summary.get('total_entries', 0)}, size_mb={summary.get('total_size_mb', 0.0):.2f}"
+        )
 
     def _get_source_stats(self, cache: Any) -> dict[str, Any]:
         """取得單一來源統計"""
@@ -342,7 +344,6 @@ class UnifiedCacheManager:
             return {"entries": len(cache), "size_mb": 0.0}
 
         return {"entries": 0, "size_mb": 0.0}
-
 
 
 # ========================================

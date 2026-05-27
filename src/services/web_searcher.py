@@ -204,8 +204,8 @@ class WebSearcher:
 
             logger.warning(f"番號 {code} 未在所有搜尋源中找到女優資訊。")
             return None
-        except Exception as e:
-            logger.error(f"搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
+        except Exception:
+            logger.exception(f"搜尋番號 {code} 時發生錯誤: ")
             return None
 
     def _search_candidates_in_av_wiki(
@@ -384,7 +384,9 @@ class WebSearcher:
             content_bytes = self._force_decompress(content_bytes)
 
         encoding_attempts = ["utf-8", "shift_jis", "euc-jp", "cp932", "iso-2022-jp"]
-        if response.encoding and response.encoding.lower() not in [enc.lower() for enc in encoding_attempts]:
+        if response.encoding and response.encoding.lower() not in [
+            enc.lower() for enc in encoding_attempts
+        ]:
             encoding_attempts.insert(0, response.encoding.lower())
 
         for encoding in encoding_attempts:
@@ -403,7 +405,9 @@ class WebSearcher:
                 encoding = detected["encoding"]
                 decoded_text = content_bytes.decode(encoding)
                 if self._is_valid_decoded_text(decoded_text):
-                    logger.info(f"🔍 通過自動檢測使用編碼 {encoding} (置信度: {detected['confidence']:.2f})")
+                    logger.info(
+                        f"🔍 通過自動檢測使用編碼 {encoding} (置信度: {detected['confidence']:.2f})"
+                    )
                     return decoded_text
         except Exception as e:
             logger.warning(f"自動編碼檢測失敗: {e}")
@@ -420,6 +424,7 @@ class WebSearcher:
 
         try:
             import brotli
+
             brotli_available = True
         except ImportError:
             logger.debug("❌ brotli 庫未安裝，跳過 brotli 解壓縮")
@@ -451,6 +456,7 @@ class WebSearcher:
 
         try:
             import brotli
+
             brotli_available = True
         except ImportError:
             brotli_available = False
@@ -542,7 +548,10 @@ class WebSearcher:
     @staticmethod
     def _is_avwiki_no_results_page(soup: BeautifulSoup) -> bool:
         page_text = soup.get_text()
-        return any(indicator in page_text for indicator in ["該当なし", "見つかりませんでした", "検索結果：0", "0件"])
+        return any(
+            indicator in page_text
+            for indicator in ["該当なし", "見つかりませんでした", "検索結果：0", "0件"]
+        )
 
     def _extract_avwiki_actresses(self, soup: BeautifulSoup) -> list[str]:
         actresses: list[str] = []
@@ -576,8 +585,12 @@ class WebSearcher:
         detail_url = self._extract_avwiki_detail_url(soup, code)
         if not detail_url:
             return studio_info
-        logger.debug(f"🔍 AV-WIKI 詳情頁補抓片商: {code} -> {sanitize_url_for_log(detail_url)}")
-        detail_soup = self.safe_searcher.safe_request(self._fetch_avwiki_search_soup, detail_url)
+        logger.debug(
+            f"🔍 AV-WIKI 詳情頁補抓片商: {code} -> {sanitize_url_for_log(detail_url)}"
+        )
+        detail_soup = self.safe_searcher.safe_request(
+            self._fetch_avwiki_search_soup, detail_url
+        )
         if detail_soup is not None:
             detail_studio = self._extract_studio_info(detail_soup, code)
             for key in ("studio", "studio_code", "release_date"):
@@ -585,7 +598,9 @@ class WebSearcher:
                     studio_info[key] = detail_studio[key]
         return studio_info
 
-    def _scan_avwiki_text_for_actresses(self, soup: BeautifulSoup, code: str) -> list[str]:
+    def _scan_avwiki_text_for_actresses(
+        self, soup: BeautifulSoup, code: str
+    ) -> list[str]:
         page_text = soup.get_text()
         lines = [line.strip() for line in page_text.split("\n") if line.strip()]
         actresses: list[str] = []
@@ -593,21 +608,33 @@ class WebSearcher:
             if code not in line:
                 continue
             for j in range(max(0, i - 3), min(len(lines), i + 1)):
-                for name in re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]{2,8}", lines[j]):
+                for name in re.findall(
+                    r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]{2,8}", lines[j]
+                ):
                     if name not in actresses and self._is_valid_actress_name(name):
                         actresses.append(name)
             if actresses:
                 break
         return actresses
 
-    def _finalize_avwiki_search_result(self, code: str, actresses: list[str], studio_info: dict) -> dict | None:
+    def _finalize_avwiki_search_result(
+        self, code: str, actresses: list[str], studio_info: dict
+    ) -> dict | None:
         if len(actresses) > 10:
             logger.info(f"AV-WIKI 搜尋 {code}: 找到過多女優，視為可能錯誤結果")
             return None
         if not actresses:
             logger.info(f"AV-WIKI 搜尋 {code}: 未找到有效女優資訊")
             return None
-        return {"source": AV_WIKI_SEARCH_METHOD, "actresses": actresses, "studio": self.studio_identifier.normalize_studio_name(studio_info.get("studio"), code), "studio_code": studio_info.get("studio_code"), "release_date": studio_info.get("release_date")}
+        return {
+            "source": AV_WIKI_SEARCH_METHOD,
+            "actresses": actresses,
+            "studio": self.studio_identifier.normalize_studio_name(
+                studio_info.get("studio"), code
+            ),
+            "studio_code": studio_info.get("studio_code"),
+            "release_date": studio_info.get("release_date"),
+        }
 
     def _search_av_wiki(self, code: str, stop_event: threading.Event) -> dict | None:
         """AV-WIKI 搜尋方法"""
@@ -618,7 +645,9 @@ class WebSearcher:
             soup = self._fetch_avwiki_search_soup(search_url)
             if soup is None:
                 logger.warning(f"無法獲取 {code} 的 AV-WIKI 搜尋頁面")
-                return self._build_search_error_result(AV_WIKI_SEARCH_METHOD, "無法獲取搜尋頁面")
+                return self._build_search_error_result(
+                    AV_WIKI_SEARCH_METHOD, "無法獲取搜尋頁面"
+                )
             search_results = soup.find_all("div", class_="column-flex")
             logger.info(f"AV-WIKI 搜尋 {code}: 找到 {len(search_results)} 個搜尋結果")
             if not search_results and self._is_avwiki_no_results_page(soup):
@@ -627,11 +656,13 @@ class WebSearcher:
             actresses = self._extract_avwiki_actresses(soup)
             logger.info(f"AV-WIKI 最終找到 {len(actresses)} 位女優: {actresses}")
             if not actresses:
-                logger.warning(f"AV-WIKI 未找到結構化女優名稱，HTML開頭: {str(soup)[:200]}...")
+                logger.warning(
+                    f"AV-WIKI 未找到結構化女優名稱，HTML開頭: {str(soup)[:200]}..."
+                )
             studio_info = self._fetch_avwiki_detail_studio_info(soup, code)
             return self._finalize_avwiki_search_result(code, actresses, studio_info)
         except Exception as e:
-            logger.error(f"搜尋 AV-WIKI 番號 {code} 時發生錯誤: {e}", exc_info=True)
+            logger.exception(f"搜尋 AV-WIKI 番號 {code} 時發生錯誤: ")
             return self._build_search_error_result(AV_WIKI_SEARCH_METHOD, str(e))
 
     def _split_cached_avwiki_codes(self, codes: list) -> tuple[list, dict[str, dict]]:
@@ -656,11 +687,15 @@ class WebSearcher:
                 if code in displayed_codes:
                     return
                 displayed_codes.add(code)
-                progress_callback(f"[{len(displayed_codes)}/{global_total}] 搜尋 {code}\n")
+                progress_callback(
+                    f"[{len(displayed_codes)}/{global_total}] 搜尋 {code}\n"
+                )
 
         return wrapped_progress_callback
 
-    async def _run_avwiki_batch_search(self, uncached_codes: list, stop_event: threading.Event, progress_callback=None) -> dict[str, dict | None]:
+    async def _run_avwiki_batch_search(
+        self, uncached_codes: list, stop_event: threading.Event, progress_callback=None
+    ) -> dict[str, dict | None]:
         avwiki_scraper = AVWikiScraper()
         chunk_size = max(200, min(500, self.avwiki_max_concurrent * 20))
         batch_results: dict[str, dict | None] = {}
@@ -678,7 +713,9 @@ class WebSearcher:
             batch_results.update(chunk_results)
         return batch_results
 
-    def _cache_avwiki_batch_results(self, batch_results: dict[str, dict | None]) -> None:
+    def _cache_avwiki_batch_results(
+        self, batch_results: dict[str, dict | None]
+    ) -> None:
         for code, result in batch_results.items():
             if result and result.get("actresses"):
                 self.search_cache[code] = result
@@ -704,7 +741,9 @@ class WebSearcher:
                 logger.debug(f"🇯🇵 AV-WIKI 搜尋: {candidate}")
                 result = self._search_av_wiki(candidate, stop_event)
                 if result and result.get("search_status") == "search_error":
-                    last_error_result = self._attach_alias_metadata(result, code, candidate)
+                    last_error_result = self._attach_alias_metadata(
+                        result, code, candidate
+                    )
                     continue
                 if result and result.get("actresses"):
                     result = self._attach_alias_metadata(result, code, candidate)
@@ -717,7 +756,7 @@ class WebSearcher:
             logger.warning(f"番號 {code} 未在 AV-WIKI 中找到女優資訊。")
             return None
         except Exception as e:
-            logger.error(f"AV-WIKI 搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
+            logger.exception(f"AV-WIKI 搜尋番號 {code} 時發生錯誤: ")
             return self._build_search_error_result(AV_WIKI_SEARCH_METHOD, str(e))
 
     def batch_search_avwiki_concurrent(
@@ -768,7 +807,7 @@ class WebSearcher:
                 )
             return all_results
         except Exception as e:
-            logger.error(f"AV-WIKI 批次併發搜尋發生錯誤: {e}", exc_info=True)
+            logger.exception("AV-WIKI 批次併發搜尋發生錯誤: ")
             if progress_callback:
                 progress_callback(f"❌ AV-WIKI 批次搜尋失敗: {e}\n")
             return cached_results
@@ -810,7 +849,9 @@ class WebSearcher:
                 }
         return results, failed_codes
 
-    def _build_cascade_alias_map(self, failed_codes: list[str]) -> tuple[dict[str, str], list[str]]:
+    def _build_cascade_alias_map(
+        self, failed_codes: list[str]
+    ) -> tuple[dict[str, str], list[str]]:
         alias_map: dict[str, str] = {}
         alias_codes: list[str] = []
         for code in failed_codes:
@@ -869,7 +910,9 @@ class WebSearcher:
         progress = SearchProgressInfo(total=total_codes)
         if progress_callback:
             progress_callback(f"\n{'=' * 60}\n")
-            progress_callback(f"📡 第一階段：AV-WIKI 批次併發搜尋 ({total_codes} 個番號)\n")
+            progress_callback(
+                f"📡 第一階段：AV-WIKI 批次併發搜尋 ({total_codes} 個番號)\n"
+            )
             progress_callback(f"{'=' * 60}\n")
         progress.set_phase(1, "AV-WIKI 批次搜尋", 2)
 
@@ -877,7 +920,9 @@ class WebSearcher:
             if progress_callback:
                 progress_callback(msg)
 
-        avwiki_results = self.batch_search_avwiki_concurrent(codes, stop_event, phase1_callback)
+        avwiki_results = self.batch_search_avwiki_concurrent(
+            codes, stop_event, phase1_callback
+        )
         results, failed_codes = self._apply_cascade_avwiki_results(
             codes, avwiki_results, progress, result_callback, stop_event
         )
@@ -890,14 +935,21 @@ class WebSearcher:
         if unique_alias_codes and not stop_event.is_set():
             if progress_callback:
                 progress_callback(f"\n{'=' * 60}\n")
-                progress_callback(f"🧪 第二階段：可疑番號別名 fallback ({len(unique_alias_codes)} 個候選)\n")
+                progress_callback(
+                    f"🧪 第二階段：可疑番號別名 fallback ({len(unique_alias_codes)} 個候選)\n"
+                )
                 progress_callback(f"{'=' * 60}\n")
 
             alias_results = self.batch_search_avwiki_concurrent(
                 unique_alias_codes, stop_event, phase1_callback
             )
             failed_codes = self._apply_cascade_alias_results(
-                failed_codes, alias_map, alias_results, results, progress, result_callback
+                failed_codes,
+                alias_map,
+                alias_results,
+                results,
+                progress,
+                result_callback,
             )
 
         for code in failed_codes:
@@ -932,7 +984,9 @@ class WebSearcher:
                 extracted_code = self._extract_studio_code_from_number(code)
                 if extracted_code:
                     studio_info["studio_code"] = extracted_code
-                    studio_info["studio"] = self._get_studio_name_by_code(extracted_code)
+                    studio_info["studio"] = self._get_studio_name_by_code(
+                        extracted_code
+                    )
 
             studio_info["release_date"] = self._extract_release_date(page_text)
         except Exception as e:
@@ -940,7 +994,9 @@ class WebSearcher:
 
         return studio_info
 
-    def _extract_studio_from_html(self, soup: BeautifulSoup) -> tuple[str | None, str | None]:
+    def _extract_studio_from_html(
+        self, soup: BeautifulSoup
+    ) -> tuple[str | None, str | None]:
         for li in soup.find_all("li"):
             icon = li.find("i", class_="fa-clone")
             if not icon:
@@ -955,7 +1011,9 @@ class WebSearcher:
             return studio_text, None
         return None, None
 
-    def _extract_studio_from_text(self, page_text: str) -> tuple[str | None, str | None]:
+    def _extract_studio_from_text(
+        self, page_text: str
+    ) -> tuple[str | None, str | None]:
         studio_patterns = [
             r"(S1|SOD|MOODYZ|PREMIUM|WANZ|FALENO|ATTACKERS|E-BODY|KAWAII|FITCH|MADONNA|PRESTIGE)",
             r"製作[：:]\s*([^\n\r]+)",
@@ -1096,7 +1154,7 @@ class WebSearcher:
                 self.search_cache[f"shiroutowiki::{code}"] = result
             return result
         except Exception as e:
-            logger.error(f"shiroutowiki 搜尋番號 {code} 時發生錯誤: {e}", exc_info=True)
+            logger.exception(f"shiroutowiki 搜尋番號 {code} 時發生錯誤: ")
             return self._build_search_error_result("shiroutowiki", str(e))
 
     def search_avwiki_only(self, code: str, stop_event: threading.Event) -> dict | None:
@@ -1115,7 +1173,7 @@ class WebSearcher:
             candidates = self._build_code_candidates(code)
             return self._search_candidates_in_javdb(code, candidates, stop_event)
         except Exception as e:
-            logger.error(f"JAVDB 搜尋 {code} 時發生錯誤: {e}", exc_info=True)
+            logger.exception(f"JAVDB 搜尋 {code} 時發生錯誤: ")
             return self._build_search_error_result("JAVDB (安全增強版)", str(e))
 
     def batch_search(
@@ -1193,7 +1251,7 @@ class WebSearcher:
                 progress_callback(self._format_item_progress(item, result))
             return result
         except Exception as e:
-            logger.error(f"批次處理 {item} 時發生錯誤: {e}")
+            logger.exception(f"批次處理 {item} 時發生錯誤: ")
             results[item] = None
             if result_callback:
                 result_callback(item, None, e)
