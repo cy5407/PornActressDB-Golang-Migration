@@ -129,30 +129,41 @@ func loadDBMetaInto(db *sql.DB, root *DatabaseData) error {
 		if err := rows.Scan(&k, &v); err != nil {
 			return fmt.Errorf("scan db_meta: %w", err)
 		}
-		switch k {
-		case "schema_version":
-			if v != "" {
-				root.SchemaVersion = v
-			}
-		case "description":
-			if root.Metadata == nil {
-				root.Metadata = &DatabaseMetadata{}
-			}
-			root.Metadata.Description = v
-		case "encoding":
-			if root.Metadata == nil {
-				root.Metadata = &DatabaseMetadata{}
-			}
-			root.Metadata.Encoding = v
-		case "created_at":
-			if v != "" {
-				root.CreatedAt = v
-			}
-		case "data_hash":
-			// spec § 2.1: always empty in export — already initialised above.
-		}
+		applyDBMetaPair(root, k, v)
 	}
 	return rows.Err()
+}
+
+// applyDBMetaPair writes one (key,value) row from db_meta into the
+// export root. Keeps loadDBMetaInto's loop body flat — the per-key
+// guards (lazy Metadata init, skip-on-empty for schema_version /
+// created_at) live here.
+func applyDBMetaPair(root *DatabaseData, key, value string) {
+	switch key {
+	case "schema_version":
+		if value != "" {
+			root.SchemaVersion = value
+		}
+	case "description":
+		ensureMetadata(root).Description = value
+	case "encoding":
+		ensureMetadata(root).Encoding = value
+	case "created_at":
+		if value != "" {
+			root.CreatedAt = value
+		}
+	case "data_hash":
+		// spec § 2.1: always empty in export — already initialised above.
+	}
+}
+
+// ensureMetadata lazily allocates root.Metadata so callers can write
+// to it unconditionally.
+func ensureMetadata(root *DatabaseData) *DatabaseMetadata {
+	if root.Metadata == nil {
+		root.Metadata = &DatabaseMetadata{}
+	}
+	return root.Metadata
 }
 
 func loadActressesFromSQLite(db *sql.DB) (map[string]*ActressData, map[string]string, error) {
