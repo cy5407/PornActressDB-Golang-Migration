@@ -11,7 +11,7 @@ import (
 // method is invoked against a nil-db handle. Defined here as the single
 // source of truth; ErrSQLiteStoreClosed (sqlite_read_store.go) wraps it
 // so callers across the package can use errors.Is uniformly.
-const ErrMsgStoreNotOpen = "sqlite store is not open"
+const ErrMsgStoreNotOpen string = "sqlite store is not open"
 
 // UpsertVideo writes (insert-or-replace) the given video into the SQLite
 // store. It is the strict, link-preserving primitive — runtime callers
