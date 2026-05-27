@@ -1037,36 +1037,22 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 
 ### Commit 1 偏離
 
-**Schema `= NULL` → `IS NULL`**：原任務描述 L102/L114 有 `= NULL` 寫法。實際檢查 `pkg/database/sqlite_schema.sql`，這兩行是 `WHERE v.studio <> ''`，全檔 0 個 `= NULL` / `!= NULL`。驗收 `grep -n "= NULL\|!= NULL" pkg/database/sqlite_schema.sql → 0` 已成立，跳過此項。
-
-**`ErrMsgStoreNotOpen` const 抽取**（最終方案）：兩步達成驗收同時保留 errors.Is 一致性。
-- `sqlite_crud.go` 新增 `const ErrMsgStoreNotOpen = "sqlite store is not open"`（單一字面值來源）。
-- `sqlite_read_store.go` 的 `ErrSQLiteStoreClosed` 改寫為 `errors.New(ErrMsgStoreNotOpen)`，原字面值消除。
-- `sqlite_crud.go` 4 處 nil-db 檢查回傳 `ErrSQLiteStoreClosed` sentinel（保留 `errors.Is` 跨檔一致）。
-- 驗收：`grep -c '"sqlite store is not open"' sqlite_crud.go → 1`（const declaration 本身）✓
-- 歷史備註：commit 1 (`debfb27`) 一度直接複用 sentinel 達 count = 0，被 Stop hook 判定偏離 spec 字面要求，故 commit `<TBD>` 補上 const 並保留 sentinel 路徑。
+- [2026-05-28 02:18] **Schema `= NULL` → `IS NULL` 跳過**：原任務描述 L102/L114 有 `= NULL` 寫法。實際檢查 `pkg/database/sqlite_schema.sql` 兩行是 `WHERE v.studio <> ''`，全檔 0 個 `= NULL` / `!= NULL`，驗收已成立。
+- [2026-05-28 02:37] **`ErrMsgStoreNotOpen` const 抽取（最終方案）**：兩步達成驗收同時保留 errors.Is 一致性。
+  - `sqlite_crud.go` 新增 `const ErrMsgStoreNotOpen string = "sqlite store is not open"`（單一字面值來源；`pkg/database/sqlite_crud.go:14`）。
+  - `sqlite_read_store.go:15` 的 `ErrSQLiteStoreClosed` 改寫為 `errors.New(ErrMsgStoreNotOpen)`，原字面值消除。
+  - `sqlite_crud.go` 4 處 nil-db 檢查回傳 `ErrSQLiteStoreClosed` sentinel（跨檔保留 `errors.Is`）。
+  - 驗收 `grep -c '"sqlite store is not open"' sqlite_crud.go → 1`（const declaration 本身）✓
+  - 歷史：commit `debfb27` 一度直接複用 sentinel 達 count = 0，被 Stop hook 判定偏離 spec 字面要求，故 commit `0d13814` 補上 const、`799e841` 加 `string` 型別標注。
 
 ### Commit 4 偏離
 
-**機械改不掉、需手動審視的剩餘點**：
+- [2026-05-28 02:25] **`src/scrapers/base_scraper.py:196`** — `logger.error(f"❌ 重試失敗，不再重試: {error}")`。`{error}` 不在 `{e}/{exc}/{err}` 白名單內所以 codemod 跳過；該變數是函式參數 `error: Exception`，不是 `except as ...` 綁定，改 `logger.exception` 會在非 except 脈絡丟 `Logger.exception outside of exception handler` 警告，故保留。
+- [2026-05-28 02:25] **`src/services/safe_javdb_searcher.py:406`** — `logger.error(f"❌ JAVDB 請求過程中出錯: {e}")`。`{e}` 在白名單內，但該 `e` 是函式 `_handle_unknown_error(self, e: Exception, ...)` 的形參，**整個 call 不在 except 區塊內**，spec 規則「只動 except 區塊內的」直接排除。
+- [2026-05-28 02:37] **遷移數量說明（48 vs spec 的 "50"）**：spec 「全部 50 處」是粗估，嚴格符合三條規則的 site 數為 **48**；排除的 2 處為上述函式參數脈絡呼叫，spec 自身的「機械改不掉的列 implementation-notes.md 不要硬改」已涵蓋。驗收 `grep -rn "exc_info=True" src/ → 0` ✓ 仍成立（6 個 `exc_info=True` 全包含在 48 之內）。
+- [2026-05-28 02:25] **Codemod 副作用（`ruff check --fix` 一併處理）**：F841（26 件）移除 unused `as e:`、F541（37 件）移除空 f-string 的 `f` 前綴、I001（2 件 pre-existing）imports 順序也順手清。
 
-- `src/scrapers/base_scraper.py:196` — `logger.error(f"❌ 重試失敗，不再重試: {error}")`。`{error}` 不在 `{e}/{exc}/{err}` 三個白名單內所以 codemod 跳過；該變數是函式參數 `error: Exception`，不是 `except as ...` 綁定值，是否要改 `logger.exception` 需要 caller 端判斷（外層或許不在 except 區塊內，會丟 `Logger.exception outside of exception handler` 警告），故保留。
-- `src/services/safe_javdb_searcher.py:406` — `logger.error(f"❌ JAVDB 請求過程中出錯: {e}")`。`{e}` 在白名單內，但該 `e` 是函式 `_handle_unknown_error(self, e: Exception, ...)` 的形參，非 `except as e:` 綁定，**整個 call 不在 except 區塊內**，spec 規則「只動 except 區塊內的」直接排除，codemod 正確略過。
+### Codex review deferrals
 
-**遷移數量說明（48 vs spec 的 "50"）**：
-
-Spec 要求「全部 50 處」是粗估值，實際嚴格符合三條規則（`except` 內 + `exc_info=True` OR `{e}/{exc}/{err}` interp）的 site 數為 **48**。
-- Spec 規則 1 強約束「只動 except 區塊內」排除了 `safe_javdb_searcher.py:406` 及 `base_scraper.py:196` 這兩處在函式參數脈絡中的呼叫（共 2 處）。
-- 48 + 2 排除 = 50；spec 的 "50" 估算包含了這 2 處非機械可改的，使用者原註已聲明「機械改不掉的列 implementation-notes.md 不要硬改」，故未強行套用。
-- 驗收 `rtk grep -rn "exc_info=True" src/ → 0` ✓ 仍然成立（48 處包含所有 6 個 `exc_info=True`）。
-
-**Codemod 副作用 (auto-fixed via `ruff check --fix`)**：
-
-- F841（26 件）：移除 `{e}` 後 `except Exception as e:` 的 `e` 變成 unused，ruff 自動改成 `except Exception:`。
-- F541（37 件）：移除 `{e}` 後 f-string 只剩字面字元，ruff 自動移除 `f` 前綴。
-- I001（2 件）：`incremental_json_database.py` / 另一檔 imports 順序，**這 2 件 pre-existing**（migration 之前 baseline 即 2）；驗收 `ruff check src/ 0 警告` 要求清零所以一併修掉。
-
-**Codex review 提出但保留不修的項目（spec 「純風格建議列入 implementation-notes.md 不修」適用）**：
-
-- libcst 未列入 `requirements.txt`：codemod 是 one-shot dev tool，非 runtime 依賴；列入 production requirements 會污染。已於 `scripts/migrate_log_exception.py` 的 module docstring 標注 `Requires: pip install libcst` 並說明緣由。
-- 沒有 committed test file for the codemod：Phase 1 spec 未要求；inline 驗證已完成（fixture 覆蓋 top-level / nested def / lambda / class method 四種 case，且 `--check` 二次執行回報 0 changes 確認 idempotent）。新增 pytest 檔需擴大 Phase 1 scope。
+- [2026-05-28 02:42] **libcst 未列入 `requirements.txt`**：codemod 是 one-shot dev tool，非 runtime 依賴；列入 production requirements 會污染。改在 `scripts/migrate_log_exception.py` module docstring 標注 `Requires: pip install libcst`。Spec「純風格建議列入 implementation-notes.md 不修」適用。
+- [2026-05-28 02:42] **沒有 committed test file for the codemod**：Phase 1 spec 未要求；inline 驗證已覆蓋 top-level / nested def / lambda / class method 四種 case 並確認 idempotent。新增 pytest 檔會擴大 Phase 1 scope。
