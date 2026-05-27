@@ -24,7 +24,7 @@ import (
 // the strict migrate path reports the unresolved name separately.
 func (s *SQLiteStore) UpsertVideo(code string, v *VideoData) error {
 	if s == nil || s.db == nil {
-		return errors.New("sqlite store is not open")
+		return ErrSQLiteStoreClosed
 	}
 	if v == nil {
 		return errors.New("UpsertVideo: video is nil")
@@ -57,7 +57,7 @@ func (s *SQLiteStore) UpsertVideo(code string, v *VideoData) error {
 // Idempotent — deleting an absent code is not an error.
 func (s *SQLiteStore) DeleteVideo(code string) error {
 	if s == nil || s.db == nil {
-		return errors.New("sqlite store is not open")
+		return ErrSQLiteStoreClosed
 	}
 	if _, err := s.db.Exec(`DELETE FROM videos WHERE code = ?`, code); err != nil {
 		return fmt.Errorf("DeleteVideo %q: %w", code, err)
@@ -71,7 +71,7 @@ func (s *SQLiteStore) DeleteVideo(code string) error {
 // JSON callers reach this data only through export / backup snapshots.
 func (s *SQLiteStore) UpsertActress(a *ActressData) error {
 	if s == nil || s.db == nil {
-		return errors.New("sqlite store is not open")
+		return ErrSQLiteStoreClosed
 	}
 	if a == nil || a.ID == "" {
 		return errors.New("UpsertActress: actress or id is empty")
@@ -119,7 +119,7 @@ func (s *SQLiteStore) UpsertActress(a *ActressData) error {
 // aliases and links. Idempotent.
 func (s *SQLiteStore) DeleteActress(id string) error {
 	if s == nil || s.db == nil {
-		return errors.New("sqlite store is not open")
+		return ErrSQLiteStoreClosed
 	}
 	if _, err := s.db.Exec(`DELETE FROM actresses WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("DeleteActress %q: %w", id, err)

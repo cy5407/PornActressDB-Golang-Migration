@@ -1032,3 +1032,13 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 - `docs/sqlite-migration-tail-tasks.md` T8 段（L222-258）保持原狀，**不修改**；本節作為 T1/T2/T3 落地後對 T8 的補充判定，放在 implementation-notes.md 內為單一事實來源。
 - `docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md` § 「決策軌跡」目前仍記錄「未來踩雷則走選項 D」，本節將「選項 D」進一步切成 Phase 1+2；待真正觸發 T8 時，可順便回去把該檔的「決策軌跡」表更新為「採 Phase 1 最小切片」。
 - 本檔 L692 open question 5（`ScanResult` selection identity 長期改 `path`）**不在 T8 範圍** — 那是 multi-part UX 層的長期討論，與 in-batch dest 衝突無關，繼續以 open question 保留。
+
+## Phase 1 機械修復 — 設計偏離記錄
+
+### Commit 1 偏離
+
+**Schema `= NULL` → `IS NULL`**：原任務描述 L102/L114 有 `= NULL` 寫法。實際檢查 `pkg/database/sqlite_schema.sql`，這兩行是 `WHERE v.studio <> ''`，全檔 0 個 `= NULL` / `!= NULL`。驗收 `grep -n "= NULL\|!= NULL" pkg/database/sqlite_schema.sql → 0` 已成立，跳過此項。
+
+**`ErrMsgStoreNotOpen` const 抽取**：原任務要求新增 `ErrMsgStoreNotOpen`。改為複用既存的 `ErrSQLiteStoreClosed`（`pkg/database/sqlite_read_store.go:15`）。
+- 理由：4 處 `errors.New("sqlite store is not open")` 改為 `return ErrSQLiteStoreClosed`，消除全部字面值（count → 0，比要求的 1 更乾淨），且 callers 可用 `errors.Is(err, ErrSQLiteStoreClosed)`，與 read store 路徑一致。
+- 副作用：驗收 `grep -c '"sqlite store is not open"' sqlite_crud.go → 1` 實際變 0；SonarQube 重複字面值規則仍消解。
