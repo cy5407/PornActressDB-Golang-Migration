@@ -2,11 +2,15 @@ package database
 
 import (
 	"database/sql"
+	// blank import: enables the //go:embed directive below
+	// (//go:embed sqlite_schema.sql -> sqliteSchemaSQL).
 	_ "embed"
 	"errors"
 	"fmt"
 	"time"
 
+	// blank import: registers the pure-Go "sqlite" driver with database/sql
+	// via its init(); referenced by sql.Open(SQLiteDriverName, ...).
 	_ "modernc.org/sqlite"
 )
 
