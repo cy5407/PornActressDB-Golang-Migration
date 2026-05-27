@@ -12,7 +12,7 @@ import (
 // so there is no JSON-side fallback to flip onto; callers (and tests)
 // just need a distinct sentinel that means "handle unavailable" so
 // they can tell it apart from a real query error.
-var ErrSQLiteStoreClosed = errors.New("sqlite store is not open")
+var ErrSQLiteStoreClosed = errors.New(ErrMsgStoreNotOpen)
 
 // videoColumns lists the videos table columns in the order GetVideo and
 // GetAllVideos scan. Kept in one place so the SELECT/Scan halves stay in

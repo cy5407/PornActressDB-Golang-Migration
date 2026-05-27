@@ -1039,15 +1039,26 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 
 **Schema `= NULL` → `IS NULL`**：原任務描述 L102/L114 有 `= NULL` 寫法。實際檢查 `pkg/database/sqlite_schema.sql`，這兩行是 `WHERE v.studio <> ''`，全檔 0 個 `= NULL` / `!= NULL`。驗收 `grep -n "= NULL\|!= NULL" pkg/database/sqlite_schema.sql → 0` 已成立，跳過此項。
 
-**`ErrMsgStoreNotOpen` const 抽取**：原任務要求新增 `ErrMsgStoreNotOpen`。改為複用既存的 `ErrSQLiteStoreClosed`（`pkg/database/sqlite_read_store.go:15`）。
-- 理由：4 處 `errors.New("sqlite store is not open")` 改為 `return ErrSQLiteStoreClosed`，消除全部字面值（count → 0，比要求的 1 更乾淨），且 callers 可用 `errors.Is(err, ErrSQLiteStoreClosed)`，與 read store 路徑一致。
-- 副作用：驗收 `grep -c '"sqlite store is not open"' sqlite_crud.go → 1` 實際變 0；SonarQube 重複字面值規則仍消解。
+**`ErrMsgStoreNotOpen` const 抽取**（最終方案）：兩步達成驗收同時保留 errors.Is 一致性。
+- `sqlite_crud.go` 新增 `const ErrMsgStoreNotOpen = "sqlite store is not open"`（單一字面值來源）。
+- `sqlite_read_store.go` 的 `ErrSQLiteStoreClosed` 改寫為 `errors.New(ErrMsgStoreNotOpen)`，原字面值消除。
+- `sqlite_crud.go` 4 處 nil-db 檢查回傳 `ErrSQLiteStoreClosed` sentinel（保留 `errors.Is` 跨檔一致）。
+- 驗收：`grep -c '"sqlite store is not open"' sqlite_crud.go → 1`（const declaration 本身）✓
+- 歷史備註：commit 1 (`debfb27`) 一度直接複用 sentinel 達 count = 0，被 Stop hook 判定偏離 spec 字面要求，故 commit `<TBD>` 補上 const 並保留 sentinel 路徑。
 
 ### Commit 4 偏離
 
 **機械改不掉、需手動審視的剩餘點**：
 
 - `src/scrapers/base_scraper.py:196` — `logger.error(f"❌ 重試失敗，不再重試: {error}")`。`{error}` 不在 `{e}/{exc}/{err}` 三個白名單內所以 codemod 跳過；該變數是函式參數 `error: Exception`，不是 `except as ...` 綁定值，是否要改 `logger.exception` 需要 caller 端判斷（外層或許不在 except 區塊內，會丟 `Logger.exception outside of exception handler` 警告），故保留。
+- `src/services/safe_javdb_searcher.py:406` — `logger.error(f"❌ JAVDB 請求過程中出錯: {e}")`。`{e}` 在白名單內，但該 `e` 是函式 `_handle_unknown_error(self, e: Exception, ...)` 的形參，非 `except as e:` 綁定，**整個 call 不在 except 區塊內**，spec 規則「只動 except 區塊內的」直接排除，codemod 正確略過。
+
+**遷移數量說明（48 vs spec 的 "50"）**：
+
+Spec 要求「全部 50 處」是粗估值，實際嚴格符合三條規則（`except` 內 + `exc_info=True` OR `{e}/{exc}/{err}` interp）的 site 數為 **48**。
+- Spec 規則 1 強約束「只動 except 區塊內」排除了 `safe_javdb_searcher.py:406` 及 `base_scraper.py:196` 這兩處在函式參數脈絡中的呼叫（共 2 處）。
+- 48 + 2 排除 = 50；spec 的 "50" 估算包含了這 2 處非機械可改的，使用者原註已聲明「機械改不掉的列 implementation-notes.md 不要硬改」，故未強行套用。
+- 驗收 `rtk grep -rn "exc_info=True" src/ → 0` ✓ 仍然成立（48 處包含所有 6 個 `exc_info=True`）。
 
 **Codemod 副作用 (auto-fixed via `ruff check --fix`)**：
 
