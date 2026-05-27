@@ -172,43 +172,16 @@ func diffVideoFields(code string, jv *VideoData, sv *VideoData, report *VerifyRe
 }
 
 func verifyActresses(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
-	rows, err := db.Query(`SELECT id, name, created_at, updated_at FROM actresses`)
+	sqliteSide, err := loadSQLiteActressRows(db)
 	if err != nil {
-		return fmt.Errorf("select actresses: %w", err)
+		return err
 	}
-	type actressRow struct {
-		ID        string
-		Name      string
-		CreatedAt string
-		UpdatedAt string
-	}
-	sqliteSide := map[string]actressRow{}
-	for rows.Next() {
-		var a actressRow
-		if err := rows.Scan(&a.ID, &a.Name, &a.CreatedAt, &a.UpdatedAt); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan actress row: %w", err)
-		}
-		sqliteSide[a.ID] = a
-	}
-	rows.Close()
 	report.ActressCount = len(sqliteSide)
 
-	// aliases
-	aliasRows, err := db.Query(`SELECT actress_id, alias FROM actress_aliases`)
+	aliasesByID, err := loadActressAliasesByID(db)
 	if err != nil {
-		return fmt.Errorf("select aliases: %w", err)
+		return err
 	}
-	aliasesByID := map[string][]string{}
-	for aliasRows.Next() {
-		var id, alias string
-		if err := aliasRows.Scan(&id, &alias); err != nil {
-			aliasRows.Close()
-			return fmt.Errorf("scan alias row: %w", err)
-		}
-		aliasesByID[id] = append(aliasesByID[id], alias)
-	}
-	aliasRows.Close()
 
 	for id, ja := range root.Actresses {
 		if ja == nil {
@@ -221,25 +194,18 @@ func verifyActresses(db *sql.DB, root *DatabaseData, report *VerifyReport) error
 			})
 			continue
 		}
-		if ja.Name != sa.Name {
-			report.Diffs = append(report.Diffs, VerifyDiff{
-				Kind: "actress", Key: id, Field: "name", Reason: "field_diff",
-				JSONValue: ja.Name, SQLiteValue: sa.Name,
-			})
-		}
-		diffTimestampSecondTolerance(id, "actress", "created_at", ja.CreatedAt, sa.CreatedAt, report)
-		diffTimestampSecondTolerance(id, "actress", "updated_at", ja.UpdatedAt, sa.UpdatedAt, report)
-		diffAliasSet(id, ja.Aliases, aliasesByID[id], report)
+		diffActressEntity(id, ja, sa, aliasesByID[id], report)
 	}
-	for id := range sqliteSide {
-		if _, ok := root.Actresses[id]; !ok {
-			if jsonHasDerivedAutoActress(root, id, sqliteSide[id].Name) {
-				continue
-			}
-			report.Diffs = append(report.Diffs, VerifyDiff{
-				Kind: "actress", Key: id, Reason: "missing_in_json",
-			})
+	for id, sa := range sqliteSide {
+		if _, ok := root.Actresses[id]; ok {
+			continue
 		}
+		if jsonHasDerivedAutoActress(root, id, sa.Name) {
+			continue
+		}
+		report.Diffs = append(report.Diffs, VerifyDiff{
+			Kind: "actress", Key: id, Reason: "missing_in_json",
+		})
 	}
 	return nil
 }
@@ -289,34 +255,9 @@ func diffAliasSet(actressID string, jsonAliases, sqliteAliases []string, report 
 }
 
 func verifyLinks(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
-	rows, err := db.Query(`
-		SELECT video_code, actress_id, role_type, ordinal, display_name, timestamp
-		  FROM video_actress_links
-	`)
+	sqliteSide, err := loadSQLiteVideoActressLinks(db)
 	if err != nil {
-		return fmt.Errorf("select links: %w", err)
-	}
-	defer rows.Close()
-
-	type linkRow struct {
-		VideoCode string
-		ActressID string
-		RoleType  string
-		Ordinal   int
-		Display   string
-		Timestamp string
-	}
-	sqliteSide := map[string]linkRow{}
-	for rows.Next() {
-		var l linkRow
-		if err := rows.Scan(&l.VideoCode, &l.ActressID, &l.RoleType, &l.Ordinal, &l.Display, &l.Timestamp); err != nil {
-			return fmt.Errorf("scan link row: %w", err)
-		}
-		key := l.VideoCode + "|" + l.ActressID
-		sqliteSide[key] = l
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate links: %w", err)
+		return err
 	}
 	report.LinkCount = len(sqliteSide)
 
@@ -340,17 +281,7 @@ func verifyLinks(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
 			})
 			continue
 		}
-		role := l.RoleType
-		if role == "" {
-			role = RoleMain
-		}
-		if sv.RoleType != role {
-			report.Diffs = append(report.Diffs, VerifyDiff{
-				Kind: "link", Key: key, Field: "role_type", Reason: "field_diff",
-				JSONValue: role, SQLiteValue: sv.RoleType,
-			})
-		}
-		diffTimestampSecondTolerance(key, "link", "timestamp", l.Timestamp, sv.Timestamp, report)
+		diffJSONLinkAgainstSQLite(key, l, sv, report)
 	}
 	// videos[].actresses derived links: the verify side treats these as
 	// implicit JSON-side links, indexed via the SQLite rows themselves.
@@ -463,27 +394,13 @@ func jsonHasVideoActress(root *DatabaseData, videoCode, actressID string) bool {
 	if !ok || v == nil {
 		return false
 	}
-	a, ok := root.Actresses[actressID]
-	if ok && a != nil {
-		for _, display := range v.Actresses {
-			if display == a.Name {
-				return true
-			}
-			for _, alias := range a.Aliases {
-				if display == alias {
-					return true
-				}
-			}
-		}
+	if a, ok := root.Actresses[actressID]; ok && a != nil && videoReferencesActress(v, a) {
+		return true
 	}
 	// Auto-created actress: id == "auto_<sha1>"; match by id derived from
 	// the displayed name.
 	if strings.HasPrefix(actressID, AutoActressIDPrefix) {
-		for _, display := range v.Actresses {
-			if StableActressID(display) == actressID {
-				return true
-			}
-		}
+		return videoReferencesAutoActressID(v, actressID)
 	}
 	return false
 }
@@ -503,23 +420,7 @@ func verifyDBMeta(db *sql.DB, root *DatabaseData, report *VerifyReport) error {
 		sqliteSide[k] = v
 	}
 
-	expected := map[string]string{}
-	if root.SchemaVersion != "" {
-		expected["schema_version"] = root.SchemaVersion
-	}
-	if root.Metadata != nil {
-		if root.Metadata.Description != "" {
-			expected["description"] = root.Metadata.Description
-		}
-		if root.Metadata.Encoding != "" {
-			expected["encoding"] = root.Metadata.Encoding
-		}
-	}
-	if root.CreatedAt != "" {
-		expected["created_at"] = root.CreatedAt
-	}
-
-	for key, want := range expected {
+	for key, want := range buildExpectedDBMeta(root) {
 		got, ok := sqliteSide[key]
 		if !ok {
 			report.Diffs = append(report.Diffs, VerifyDiff{
@@ -573,6 +474,176 @@ func parseAnyTimestamp(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("unparseable timestamp %q", s)
+}
+
+// verifyLinkRow is the file-local projection of a video_actress_links
+// row used by verifyLinks + diffJSONLinkAgainstSQLite.
+type verifyLinkRow struct {
+	VideoCode string
+	ActressID string
+	RoleType  string
+	Ordinal   int
+	Display   string
+	Timestamp string
+}
+
+func loadSQLiteVideoActressLinks(db *sql.DB) (map[string]verifyLinkRow, error) {
+	rows, err := db.Query(`
+		SELECT video_code, actress_id, role_type, ordinal, display_name, timestamp
+		  FROM video_actress_links
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("select links: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]verifyLinkRow{}
+	for rows.Next() {
+		var l verifyLinkRow
+		if err := rows.Scan(&l.VideoCode, &l.ActressID, &l.RoleType, &l.Ordinal, &l.Display, &l.Timestamp); err != nil {
+			return nil, fmt.Errorf("scan link row: %w", err)
+		}
+		key := l.VideoCode + "|" + l.ActressID
+		out[key] = l
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate links: %w", err)
+	}
+	return out, nil
+}
+
+// diffJSONLinkAgainstSQLite emits the per-link role_type + timestamp
+// comparison. Empty JSON role_type defaults to RoleMain to match what
+// MigrateFromJSON wrote (applyLinkOverrides has the same fallback).
+func diffJSONLinkAgainstSQLite(key string, jl VideoActressLink, sv verifyLinkRow, report *VerifyReport) {
+	role := jl.RoleType
+	if role == "" {
+		role = RoleMain
+	}
+	if sv.RoleType != role {
+		report.Diffs = append(report.Diffs, VerifyDiff{
+			Kind: "link", Key: key, Field: "role_type", Reason: "field_diff",
+			JSONValue: role, SQLiteValue: sv.RoleType,
+		})
+	}
+	diffTimestampSecondTolerance(key, "link", "timestamp", jl.Timestamp, sv.Timestamp, report)
+}
+
+// verifyActressRow is the file-local projection of an actresses row
+// used by verifyActresses + diffActressEntity. Kept narrow (no
+// aliases) so the loader stays single-query.
+type verifyActressRow struct {
+	ID        string
+	Name      string
+	CreatedAt string
+	UpdatedAt string
+}
+
+func loadSQLiteActressRows(db *sql.DB) (map[string]verifyActressRow, error) {
+	rows, err := db.Query(`SELECT id, name, created_at, updated_at FROM actresses`)
+	if err != nil {
+		return nil, fmt.Errorf("select actresses: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]verifyActressRow{}
+	for rows.Next() {
+		var a verifyActressRow
+		if err := rows.Scan(&a.ID, &a.Name, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan actress row: %w", err)
+		}
+		out[a.ID] = a
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate actresses: %w", err)
+	}
+	return out, nil
+}
+
+func loadActressAliasesByID(db *sql.DB) (map[string][]string, error) {
+	rows, err := db.Query(`SELECT actress_id, alias FROM actress_aliases`)
+	if err != nil {
+		return nil, fmt.Errorf("select aliases: %w", err)
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var id, alias string
+		if err := rows.Scan(&id, &alias); err != nil {
+			return nil, fmt.Errorf("scan alias row: %w", err)
+		}
+		out[id] = append(out[id], alias)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate aliases: %w", err)
+	}
+	return out, nil
+}
+
+// diffActressEntity emits VerifyDiffs for the per-entity comparison
+// (name + created_at + updated_at + alias set). Called only when both
+// sides have the actress id; missing-in-{sqlite,json} are handled by
+// the caller.
+func diffActressEntity(id string, ja *ActressData, sa verifyActressRow, sqliteAliases []string, report *VerifyReport) {
+	if ja.Name != sa.Name {
+		report.Diffs = append(report.Diffs, VerifyDiff{
+			Kind: "actress", Key: id, Field: "name", Reason: "field_diff",
+			JSONValue: ja.Name, SQLiteValue: sa.Name,
+		})
+	}
+	diffTimestampSecondTolerance(id, "actress", "created_at", ja.CreatedAt, sa.CreatedAt, report)
+	diffTimestampSecondTolerance(id, "actress", "updated_at", ja.UpdatedAt, sa.UpdatedAt, report)
+	diffAliasSet(id, ja.Aliases, sqliteAliases, report)
+}
+
+// videoReferencesActress reports whether any of v.Actresses[] matches
+// the canonical actress name or one of its registered aliases.
+func videoReferencesActress(v *VideoData, a *ActressData) bool {
+	for _, display := range v.Actresses {
+		if display == a.Name {
+			return true
+		}
+		for _, alias := range a.Aliases {
+			if display == alias {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// videoReferencesAutoActressID reports whether any of v.Actresses[]
+// hashes (via StableActressID) to actressID. Used to confirm a SQLite
+// row tagged "auto_<sha1>" still has a JSON-side display string that
+// would have produced the same synth id under MigrateFromJSON's
+// auto-create path.
+func videoReferencesAutoActressID(v *VideoData, actressID string) bool {
+	for _, display := range v.Actresses {
+		if StableActressID(display) == actressID {
+			return true
+		}
+	}
+	return false
+}
+
+// buildExpectedDBMeta collects the db_meta keys that should round-trip
+// between JSON and SQLite, omitting empty values so VerifySync does not
+// flag rows the import path itself never wrote.
+func buildExpectedDBMeta(root *DatabaseData) map[string]string {
+	expected := map[string]string{}
+	if root.SchemaVersion != "" {
+		expected["schema_version"] = root.SchemaVersion
+	}
+	if root.Metadata != nil {
+		if root.Metadata.Description != "" {
+			expected["description"] = root.Metadata.Description
+		}
+		if root.Metadata.Encoding != "" {
+			expected["encoding"] = root.Metadata.Encoding
+		}
+	}
+	if root.CreatedAt != "" {
+		expected["created_at"] = root.CreatedAt
+	}
+	return expected
 }
 
 func sortDiffs(d []VerifyDiff) {
