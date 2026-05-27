@@ -1033,26 +1033,24 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 - `docs/茶包射手/scan-multi-part-and-same-name-cross-dir.md` § 「決策軌跡」目前仍記錄「未來踩雷則走選項 D」，本節將「選項 D」進一步切成 Phase 1+2；待真正觸發 T8 時，可順便回去把該檔的「決策軌跡」表更新為「採 Phase 1 最小切片」。
 - 本檔 L692 open question 5（`ScanResult` selection identity 長期改 `path`）**不在 T8 範圍** — 那是 multi-part UX 層的長期討論，與 in-batch dest 衝突無關，繼續以 open question 保留。
 
-## Phase 1 機械修復 — 設計偏離記錄
+## [2026-05-28 02:18] Phase 1 — 機械修復批次（SQL/const/blank import/logging codemod）
 
-### Commit 1 偏離
+**Design decisions**
 
-- [2026-05-28 02:18] **Schema `= NULL` → `IS NULL` 跳過**：原任務描述 L102/L114 有 `= NULL` 寫法。實際檢查 `pkg/database/sqlite_schema.sql` 兩行是 `WHERE v.studio <> ''`，全檔 0 個 `= NULL` / `!= NULL`，驗收已成立。
-- [2026-05-28 02:37] **`ErrMsgStoreNotOpen` const 抽取（最終方案）**：兩步達成驗收同時保留 errors.Is 一致性。
-  - `sqlite_crud.go` 新增 `const ErrMsgStoreNotOpen string = "sqlite store is not open"`（單一字面值來源；`pkg/database/sqlite_crud.go:14`）。
-  - `sqlite_read_store.go:15` 的 `ErrSQLiteStoreClosed` 改寫為 `errors.New(ErrMsgStoreNotOpen)`，原字面值消除。
-  - `sqlite_crud.go` 4 處 nil-db 檢查回傳 `ErrSQLiteStoreClosed` sentinel（跨檔保留 `errors.Is`）。
-  - 驗收 `grep -c '"sqlite store is not open"' sqlite_crud.go → 1`（const declaration 本身）✓
-  - 歷史：commit `debfb27` 一度直接複用 sentinel 達 count = 0，被 Stop hook 判定偏離 spec 字面要求，故 commit `0d13814` 補上 const、`799e841` 加 `string` 型別標注。
+- 使用既存 `ErrSQLiteStoreClosed` sentinel 作為 4 處 nil-db 檢查回傳值，避免 sqlite_crud.go 與 sqlite_read_store.go 兩邊各自 `errors.New(...)` 失去 `errors.Is` 一致性。
+- Codemod 採 libcst 而非 ast-grep — 需要保留原 formatting 並精細處理 `FormattedString` 內的特定 `FormattedStringExpression`，CST 改寫比模式匹配安全。
 
-### Commit 4 偏離
+**Deviations**
 
-- [2026-05-28 02:25] **`src/scrapers/base_scraper.py:196`** — `logger.error(f"❌ 重試失敗，不再重試: {error}")`。`{error}` 不在 `{e}/{exc}/{err}` 白名單內所以 codemod 跳過；該變數是函式參數 `error: Exception`，不是 `except as ...` 綁定，改 `logger.exception` 會在非 except 脈絡丟 `Logger.exception outside of exception handler` 警告，故保留。
-- [2026-05-28 02:25] **`src/services/safe_javdb_searcher.py:406`** — `logger.error(f"❌ JAVDB 請求過程中出錯: {e}")`。`{e}` 在白名單內，但該 `e` 是函式 `_handle_unknown_error(self, e: Exception, ...)` 的形參，**整個 call 不在 except 區塊內**，spec 規則「只動 except 區塊內的」直接排除。
-- [2026-05-28 02:37] **遷移數量說明（48 vs spec 的 "50"）**：spec 「全部 50 處」是粗估，嚴格符合三條規則的 site 數為 **48**；排除的 2 處為上述函式參數脈絡呼叫，spec 自身的「機械改不掉的列 implementation-notes.md 不要硬改」已涵蓋。驗收 `grep -rn "exc_info=True" src/ → 0` ✓ 仍成立（6 個 `exc_info=True` 全包含在 48 之內）。
-- [2026-05-28 02:25] **Codemod 副作用（`ruff check --fix` 一併處理）**：F841（26 件）移除 unused `as e:`、F541（37 件）移除空 f-string 的 `f` 前綴、I001（2 件 pre-existing）imports 順序也順手清。
+- **Schema `= NULL` → `IS NULL` 跳過**：spec 描述 L102/L114 有 `= NULL`，實際是 `WHERE v.studio <> ''`，全檔 0 個 `= NULL`，驗收已成立故無動作。
+- **`ErrMsgStoreNotOpen` const 形態與 spec 字面要求往返兩次**：commit `debfb27` 直接複用 sentinel 達 count = 0，被 Stop hook 判定偏離 spec 字面 → commit `0d13814` 新增 `const ErrMsgStoreNotOpen` 並讓 sentinel 包裝它（`pkg/database/sqlite_crud.go:14` 為單一字面值來源）→ commit `799e841` 補 `string` 型別標注。最終 grep count = 1 ✓。
+- **`src/scrapers/base_scraper.py:196`** — `{error}` 不在 `{e}/{exc}/{err}` 白名單，且 `error` 是函式參數非 `except as` 綁定，改 `.exception` 會丟 `outside of exception handler` 警告，保留。
+- **`src/services/safe_javdb_searcher.py:406`** — `{e}` 在白名單內但 `e` 是 `_handle_unknown_error(self, e: Exception, ...)` 形參，整個 call 不在 except 區塊內，spec 規則 1 「只動 except 區塊內的」排除。
+- **遷移數量 48 vs spec 的 "50"**：嚴格符合三條規則的 site 為 **48**，排除上述 2 處函式參數脈絡呼叫即達 50；spec 自身「機械改不掉的列 implementation-notes.md 不要硬改」已涵蓋。
 
-### Codex review deferrals
+**Tradeoffs**
 
-- [2026-05-28 02:42] **libcst 未列入 `requirements.txt`**：codemod 是 one-shot dev tool，非 runtime 依賴；列入 production requirements 會污染。改在 `scripts/migrate_log_exception.py` module docstring 標注 `Requires: pip install libcst`。Spec「純風格建議列入 implementation-notes.md 不修」適用。
-- [2026-05-28 02:42] **沒有 committed test file for the codemod**：Phase 1 spec 未要求；inline 驗證已覆蓋 top-level / nested def / lambda / class method 四種 case 並確認 idempotent。新增 pytest 檔會擴大 Phase 1 scope。
+- I001（imports 順序，2 件 pre-existing）一併修掉而非保留：spec 驗收 `ruff check src/ 0 警告` 強約束要求清零，無法跳過。代價是違反「Surgical Changes」原則但範圍小。
+- F841 / F541（codemod 副作用，共 63 件）走 `ruff check --fix` 而非手改：自動修正風險低且 spec 明確要求 `ruff format` 收尾。
+- **libcst 不列入 `requirements.txt`**：codemod 是 one-shot dev tool，列入會污染 production deps；改在 `scripts/migrate_log_exception.py` module docstring 標注 `Requires: pip install libcst`。Codex review 提出但 spec「純風格建議列入 implementation-notes.md 不修」適用。
+- **不為 codemod 新增 committed test file**：Phase 1 spec 未要求；inline 驗證已覆蓋 top-level / nested def / lambda / class method 四種 case 並確認 idempotent。新增 pytest 檔會擴大 Phase 1 scope。
