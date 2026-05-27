@@ -77,6 +77,20 @@ type MigrationReport struct {
 	ElapsedMs         int64                      `json:"elapsed_ms"`
 }
 
+// migrateContext bundles the per-import state shared across
+// migrateVideosAndLinks / migrateVideoActresses and their helpers.
+// Built once after migrateActresses populates the lookup maps and
+// passed by pointer; the maps are mutated in-place by the auto-create
+// path.
+type migrateContext struct {
+	tx        *sql.Tx
+	opts      MigrationOptions
+	report    *MigrationReport
+	idByName  map[string]string
+	idByAlias map[string]string
+	idToName  map[string]string
+}
+
 // ErrMigrationUnresolved is returned by MigrateFromJSON in strict mode
 // when any video.actresses[] name cannot be matched against an actress
 // entity or alias. The accompanying report.Unresolved lists every entry.
@@ -157,22 +171,28 @@ func (s *SQLiteStore) runImport(sourcePath string, opts MigrationOptions, wipeFi
 		}
 	}()
 
-	if wipeFirst {
-		if err := wipeImportTables(tx); err != nil {
-			return report, err
-		}
+	if err := maybeWipeImportTables(tx, wipeFirst); err != nil {
+		return report, err
 	}
 
 	if err := migrateDBMeta(tx, root); err != nil {
 		return report, err
 	}
 
-	idByName, idByAlias, actressNames, err := migrateActresses(tx, root, report)
+	idByName, idByAlias, idToName, err := migrateActresses(tx, root, report)
 	if err != nil {
 		return report, err
 	}
 
-	if err := migrateVideosAndLinks(tx, root, opts, report, idByName, idByAlias, actressNames); err != nil {
+	ctx := &migrateContext{
+		tx:        tx,
+		opts:      opts,
+		report:    report,
+		idByName:  idByName,
+		idByAlias: idByAlias,
+		idToName:  idToName,
+	}
+	if err := migrateVideosAndLinks(ctx, root); err != nil {
 		return report, err
 	}
 
@@ -199,6 +219,15 @@ func (s *SQLiteStore) runImport(sourcePath string, opts MigrationOptions, wipeFi
 	committed = true
 	report.Success = true
 	return report, nil
+}
+
+// maybeWipeImportTables is a thin guard so runImport's resync branch
+// doesn't have to nest `if wipeFirst { if err := wipeImportTables(...) }`.
+func maybeWipeImportTables(tx *sql.Tx, wipeFirst bool) error {
+	if !wipeFirst {
+		return nil
+	}
+	return wipeImportTables(tx)
 }
 
 // wipeImportTables removes every row from the data tables in
@@ -306,13 +335,7 @@ func migrateActresses(
 	return idByName, idByAlias, idToName, nil
 }
 
-func migrateVideosAndLinks(
-	tx *sql.Tx,
-	root *DatabaseData,
-	opts MigrationOptions,
-	report *MigrationReport,
-	idByName, idByAlias, idToName map[string]string,
-) error {
+func migrateVideosAndLinks(ctx *migrateContext, root *DatabaseData) error {
 	if root == nil {
 		return nil
 	}
@@ -321,45 +344,29 @@ func migrateVideosAndLinks(
 		if v == nil {
 			continue
 		}
-		if err := insertVideoRow(tx, code, v); err != nil {
+		if err := insertVideoRow(ctx.tx, code, v); err != nil {
 			return err
 		}
-		report.VideosImported++
+		ctx.report.VideosImported++
 
-		if err := migrateVideoActresses(
-			tx, code, v, opts, report, idByName, idByAlias, idToName,
-		); err != nil {
+		if err := migrateVideoActresses(ctx, code, v); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func migrateVideoActresses(
-	tx *sql.Tx,
-	code string,
-	v *VideoData,
-	opts MigrationOptions,
-	report *MigrationReport,
-	idByName, idByAlias, idToName map[string]string,
-) error {
+func migrateVideoActresses(ctx *migrateContext, code string, v *VideoData) error {
 	ordinalsByActress := map[string][]int{}
 
 	for ordinal, display := range v.Actresses {
-		actressID, found := resolveActressID(display, idByName, idByAlias)
-		if !found {
-			if !opts.AutoCreateMissingActresses {
-				report.Unresolved = append(report.Unresolved, MigrationUnresolvedEntry{
-					VideoCode: code,
-					Display:   display,
-				})
-				continue
-			}
-			synthID, err := autoCreateActress(tx, display, v.UpdatedAt, report, idByName, idToName, code)
-			if err != nil {
-				return err
-			}
-			actressID = synthID
+		actressID, resolved, err := resolveOrAutoCreateActress(ctx, code, display, v.UpdatedAt)
+		if err != nil {
+			return err
+		}
+		if !resolved {
+			// Strict-mode unresolved already appended; skip link emission.
+			continue
 		}
 
 		ordinalsByActress[actressID] = append(ordinalsByActress[actressID], ordinal)
@@ -370,30 +377,69 @@ func migrateVideoActresses(
 			continue
 		}
 
-		displayName := ""
-		if name, ok := idToName[actressID]; ok && name != display {
-			displayName = display
-		}
-
-		if err := insertLinkRow(tx, code, actressID, RoleMain, ordinal, displayName, v.UpdatedAt); err != nil {
+		if err := insertActressLink(ctx, code, actressID, ordinal, display, v.UpdatedAt); err != nil {
 			return err
 		}
-		report.LinksImported++
 	}
 
+	recordDuplicates(ctx, code, ordinalsByActress)
+	return nil
+}
+
+// resolveOrAutoCreateActress resolves a video.actresses[] display name
+// to an actress_id. In strict mode it appends to report.Unresolved and
+// returns (_, false, nil) so the caller skips link emission. In auto
+// mode it synthesises the entity, updates the lookup maps, and returns
+// the new id with resolved=true.
+func resolveOrAutoCreateActress(ctx *migrateContext, code, display, ts string) (string, bool, error) {
+	actressID, found := resolveActressID(display, ctx.idByName, ctx.idByAlias)
+	if found {
+		return actressID, true, nil
+	}
+	if !ctx.opts.AutoCreateMissingActresses {
+		ctx.report.Unresolved = append(ctx.report.Unresolved, MigrationUnresolvedEntry{
+			VideoCode: code,
+			Display:   display,
+		})
+		return "", false, nil
+	}
+	synthID, err := autoCreateActress(ctx.tx, display, ts, ctx.report, ctx.idByName, ctx.idToName, code)
+	if err != nil {
+		return "", false, err
+	}
+	return synthID, true, nil
+}
+
+// insertActressLink writes the link row for the first occurrence of an
+// actress in a video and increments report.LinksImported. display_name
+// is left empty when the JSON display matches actresses.name verbatim
+// so loadVideoActresses' COALESCE round-trips correctly.
+func insertActressLink(ctx *migrateContext, code, actressID string, ordinal int, display, ts string) error {
+	displayName := ""
+	if name, ok := ctx.idToName[actressID]; ok && name != display {
+		displayName = display
+	}
+	if err := insertLinkRow(ctx.tx, code, actressID, RoleMain, ordinal, displayName, ts); err != nil {
+		return err
+	}
+	ctx.report.LinksImported++
+	return nil
+}
+
+// recordDuplicates appends one MigrationDuplicateEntry per actress that
+// appeared at more than one ordinal inside the same video.actresses[].
+func recordDuplicates(ctx *migrateContext, code string, ordinalsByActress map[string][]int) {
 	for actressID, ordinals := range ordinalsByActress {
 		if len(ordinals) <= 1 {
 			continue
 		}
-		name := idToName[actressID]
-		report.Duplicates = append(report.Duplicates, MigrationDuplicateEntry{
+		ctx.report.Duplicates = append(ctx.report.Duplicates, MigrationDuplicateEntry{
 			VideoCode:   code,
-			ActressName: name,
+			ActressName: ctx.idToName[actressID],
 			ActressID:   actressID,
 			Ordinals:    append([]int(nil), ordinals...),
 		})
 	}
-	return nil
 }
 
 func autoCreateActress(
