@@ -182,66 +182,24 @@ var restoreCopyFile = copyFile
 // targetPath (e.g. SQLiteStore.Close) before calling this — on Windows
 // the rename will otherwise fail with "Access is denied".
 func RestoreSQLiteFile(targetPath, srcPath string) error {
-	if strings.TrimSpace(targetPath) == "" {
-		return errors.New("restore: target path is empty")
+	if err := validateRestoreInputs(targetPath, srcPath); err != nil {
+		return err
 	}
-	if strings.TrimSpace(srcPath) == "" {
-		return errors.New("restore: source path is empty")
-	}
-	if _, err := os.Stat(srcPath); err != nil {
-		return fmt.Errorf("restore: backup %q not accessible: %w", srcPath, err)
-	}
-
-	// Open-and-close to validate the backup is a usable SQLite DB
-	// before we touch the live target. A bad backup must NEVER trigger
-	// the rename-aside step below.
-	probe, err := OpenSQLiteStore(srcPath)
-	if err != nil {
-		return fmt.Errorf("restore: backup %q is not a SQLite database: %w", srcPath, err)
-	}
-	if _, err := probe.SchemaVersion(); err != nil {
-		_ = probe.Close()
-		return fmt.Errorf("restore: backup %q schema_version unreadable: %w", srcPath, err)
-	}
-	if err := probe.Close(); err != nil {
-		return fmt.Errorf("restore: close probe handle: %w", err)
+	if err := probeBackupSource(srcPath); err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
 		return fmt.Errorf("restore: mkdir target dir: %w", err)
 	}
 
-	// Stage the existing target so we can roll back if the copy or any
-	// later step fails. Using a sibling ".pre_restore_<ts>" file keeps
-	// the rename on the same filesystem (atomic on POSIX, supported on
-	// NTFS). Nanosecond suffix avoids collisions when restore retries
-	// run back-to-back inside the same second.
-	stagedOld := ""
-	if _, statErr := os.Stat(targetPath); statErr == nil {
-		ts := time.Now().UTC().Format("20060102T150405.000000000")
-		stagedOld = targetPath + ".pre_restore_" + ts
-		if err := os.Remove(stagedOld); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("restore: clear stale staged backup %q: %w", stagedOld, err)
-		}
-		if err := os.Rename(targetPath, stagedOld); err != nil {
-			return fmt.Errorf("restore: stage existing target %q: %w", targetPath, err)
-		}
-	} else if !os.IsNotExist(statErr) {
-		return fmt.Errorf("restore: stat target %q: %w", targetPath, statErr)
+	stagedOld, err := stageExistingTarget(targetPath)
+	if err != nil {
+		return err
 	}
 
 	if err := restoreCopyFile(srcPath, targetPath); err != nil {
-		// copyFile removes a partially written destination on copy
-		// errors but leaves it on sync errors. Remove unconditionally
-		// so we never roll back over a half-written file.
-		_ = os.Remove(targetPath)
-		if stagedOld != "" {
-			if rbErr := os.Rename(stagedOld, targetPath); rbErr != nil {
-				return fmt.Errorf("restore: copy backup into target: %w; rollback also failed (staged copy left at %q): %v",
-					err, stagedOld, rbErr)
-			}
-		}
-		return fmt.Errorf("restore: copy backup into target: %w", err)
+		return rollbackAfterCopyFailure(err, targetPath, stagedOld)
 	}
 
 	// WAL/SHM sidecars from the prior (now overwritten) database would
@@ -255,6 +213,83 @@ func RestoreSQLiteFile(targetPath, srcPath string) error {
 		}
 	}
 	return nil
+}
+
+// validateRestoreInputs rejects empty paths and confirms srcPath is
+// stat-able. Runs before any side-effect-producing step so a bad input
+// never reaches the rename-aside code path.
+func validateRestoreInputs(targetPath, srcPath string) error {
+	if strings.TrimSpace(targetPath) == "" {
+		return errors.New("restore: target path is empty")
+	}
+	if strings.TrimSpace(srcPath) == "" {
+		return errors.New("restore: source path is empty")
+	}
+	if _, err := os.Stat(srcPath); err != nil {
+		return fmt.Errorf("restore: backup %q not accessible: %w", srcPath, err)
+	}
+	return nil
+}
+
+// probeBackupSource opens srcPath as a SQLite database and confirms
+// schema_version is readable, then closes the probe handle. A failure
+// here must NEVER allow the caller to touch the live target.
+func probeBackupSource(srcPath string) error {
+	probe, err := OpenSQLiteStore(srcPath)
+	if err != nil {
+		return fmt.Errorf("restore: backup %q is not a SQLite database: %w", srcPath, err)
+	}
+	if _, err := probe.SchemaVersion(); err != nil {
+		_ = probe.Close()
+		return fmt.Errorf("restore: backup %q schema_version unreadable: %w", srcPath, err)
+	}
+	if err := probe.Close(); err != nil {
+		return fmt.Errorf("restore: close probe handle: %w", err)
+	}
+	return nil
+}
+
+// stageExistingTarget renames a pre-existing target file aside so the
+// caller can roll back on failure. Returns "" when targetPath does not
+// exist yet. Uses a sibling ".pre_restore_<ts>" suffix so the rename
+// stays on the same filesystem (atomic on POSIX, supported on NTFS);
+// nanosecond timestamp avoids collisions for restores retried inside
+// the same second.
+func stageExistingTarget(targetPath string) (string, error) {
+	_, statErr := os.Stat(targetPath)
+	if statErr != nil {
+		if os.IsNotExist(statErr) {
+			return "", nil
+		}
+		return "", fmt.Errorf("restore: stat target %q: %w", targetPath, statErr)
+	}
+	ts := time.Now().UTC().Format("20060102T150405.000000000")
+	stagedOld := targetPath + ".pre_restore_" + ts
+	if err := os.Remove(stagedOld); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("restore: clear stale staged backup %q: %w", stagedOld, err)
+	}
+	if err := os.Rename(targetPath, stagedOld); err != nil {
+		return "", fmt.Errorf("restore: stage existing target %q: %w", targetPath, err)
+	}
+	return stagedOld, nil
+}
+
+// rollbackAfterCopyFailure restores the staged-old target after
+// restoreCopyFile reported copyErr. copyFile removes a partially
+// written destination on copy errors but leaves it on sync errors; we
+// Remove unconditionally so the Rename never lands on a half-written
+// file. When there was no staged-old (target did not pre-exist) the
+// copyErr is returned verbatim.
+func rollbackAfterCopyFailure(copyErr error, targetPath, stagedOld string) error {
+	_ = os.Remove(targetPath)
+	if stagedOld == "" {
+		return fmt.Errorf("restore: copy backup into target: %w", copyErr)
+	}
+	if rbErr := os.Rename(stagedOld, targetPath); rbErr != nil {
+		return fmt.Errorf("restore: copy backup into target: %w; rollback also failed (staged copy left at %q): %v",
+			copyErr, stagedOld, rbErr)
+	}
+	return fmt.Errorf("restore: copy backup into target: %w", copyErr)
 }
 
 func copyFile(src, dst string) error {
