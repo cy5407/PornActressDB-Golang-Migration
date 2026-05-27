@@ -207,24 +207,9 @@ func rebuildLinksForVideoAutoCreate(tx *sql.Tx, code string, v *VideoData) error
 		if trimmed == "" {
 			continue
 		}
-		actressID, displayName, found, err := lookupActressForLink(tx, trimmed)
+		actressID, displayName, err := resolveOrSynthLinkActress(tx, trimmed, v.UpdatedAt)
 		if err != nil {
 			return err
-		}
-		if !found {
-			actressID = StableActressID(trimmed)
-			now := v.UpdatedAt
-			if now == "" {
-				now = time.Now().UTC().Format(time.RFC3339)
-			}
-			if _, err := tx.Exec(
-				`INSERT OR IGNORE INTO actresses(id, name, created_at, updated_at)
-				 VALUES(?, ?, ?, ?)`,
-				actressID, trimmed, now, now,
-			); err != nil {
-				return fmt.Errorf("auto-create actress %q: %w", trimmed, err)
-			}
-			displayName = ""
 		}
 		if _, dup := seen[actressID]; dup {
 			continue
@@ -240,6 +225,36 @@ func rebuildLinksForVideoAutoCreate(tx *sql.Tx, code string, v *VideoData) error
 		}
 	}
 	return nil
+}
+
+// resolveOrSynthLinkActress resolves trimmed against actresses /
+// actress_aliases, falling back to a synthesised entity keyed by
+// StableActressID(trimmed) when nothing matches. The synth INSERT is
+// idempotent (INSERT OR IGNORE) and uses v.UpdatedAt as the timestamp
+// when present, otherwise current wall-clock UTC. The returned
+// displayName is "" for the synth path (the row's name IS the trimmed
+// display) and the alias-resolved spelling otherwise.
+func resolveOrSynthLinkActress(tx *sql.Tx, trimmed, updatedAt string) (actressID, displayName string, err error) {
+	id, dispName, found, err := lookupActressForLink(tx, trimmed)
+	if err != nil {
+		return "", "", err
+	}
+	if found {
+		return id, dispName, nil
+	}
+	id = StableActressID(trimmed)
+	now := updatedAt
+	if now == "" {
+		now = time.Now().UTC().Format(time.RFC3339)
+	}
+	if _, err := tx.Exec(
+		`INSERT OR IGNORE INTO actresses(id, name, created_at, updated_at)
+		 VALUES(?, ?, ?, ?)`,
+		id, trimmed, now, now,
+	); err != nil {
+		return "", "", fmt.Errorf("auto-create actress %q: %w", trimmed, err)
+	}
+	return id, "", nil
 }
 
 // applyVideoFieldUpdates is the package-level twin of
