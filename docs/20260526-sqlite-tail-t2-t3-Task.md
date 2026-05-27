@@ -223,3 +223,23 @@ Reviewer rules:
 3. 抓對應 Claude Code worker session（依時間 bin）
 4. 算 Reviewer/Worker ratio，對比預期 ≤ 0.61
 5. 更新 `supervisor/docs/pitfall-codex-driver-thread-cache.md` 加實測結果
+
+---
+
+## 對照組 B 實測結果
+
+- 開始時間（台灣）：2026-05-27T00:21:08+08:00
+- 結束時間（台灣）：2026-05-27T00:24:41+08:00
+- 模式：Codex 直接模式；未呼叫 supervisor，未派 Claude Code worker
+- 對應的 Codex thread id：019e6516-b462-73b0-a076-8870e02995a9
+- 對應的 `~/.codex/sessions/` jsonl 路徑：`C:\Users\cy5407\.codex\sessions\2026\05\27\rollout-2026-05-27T00-20-52-019e6516-b462-73b0-a076-8870e02995a9.jsonl`
+- Codex driver token（截至 2026-05-27T00:24:41+08:00 token_count）：input 1,067,071 / cached_input 984,192 / fresh 82,879 / output 8,939 / reasoning 2,787 / total 1,076,010
+- 5h 用量：49% → 70%（淨用 +21%；起始值採本 task prompt，結束值採 jsonl rate_limits.primary.used_percent）
+- 1 週用量：77% → 81%（淨用 +4%；起始值採本 task prompt，結束值採 jsonl rate_limits.secondary.used_percent）
+- 對照預期是否達成：Codex 單端 total 1.08M ≤ 19.07M，達成；1 週淨用 +4% ≤ +7%，達成；5h 淨用 +21% ≤ +45%，達成
+- Verify：
+  - `npm run test:guard`：exit 0
+  - `npm run build`：exit 0
+  - `go test ./... -count=1`（`wails-app/backend`）：exit 0
+  - `go test ./pkg/mover -count=1`：exit 0
+  - `git diff --check`：exit 0（僅顯示 `studio-move-guard.test.mjs` 的 LF/CRLF working-copy 提示）
