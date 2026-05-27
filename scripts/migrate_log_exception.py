@@ -43,6 +43,7 @@ TARGET_RECEIVERS = {"logger", "logging"}
 class LogExceptionTransformer(cst.CSTTransformer):
     def __init__(self) -> None:
         self._except_depth = 0
+        self._depth_stack: list[int] = []
         self.changes = 0
 
     def visit_ExceptHandler(self, node: cst.ExceptHandler) -> None:
@@ -52,6 +53,40 @@ class LogExceptionTransformer(cst.CSTTransformer):
         self, original_node: cst.ExceptHandler, updated_node: cst.ExceptHandler
     ) -> cst.ExceptHandler:
         self._except_depth -= 1
+        return updated_node
+
+    # Nested def / class / lambda bodies execute *outside* the textually
+    # enclosing except handler, so calls inside them must not be treated
+    # as "in an except block." Save and reset the counter on entry, restore
+    # on exit.
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
+        self._depth_stack.append(self._except_depth)
+        self._except_depth = 0
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        self._except_depth = self._depth_stack.pop()
+        return updated_node
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> None:
+        self._depth_stack.append(self._except_depth)
+        self._except_depth = 0
+
+    def leave_ClassDef(
+        self, original_node: cst.ClassDef, updated_node: cst.ClassDef
+    ) -> cst.ClassDef:
+        self._except_depth = self._depth_stack.pop()
+        return updated_node
+
+    def visit_Lambda(self, node: cst.Lambda) -> None:
+        self._depth_stack.append(self._except_depth)
+        self._except_depth = 0
+
+    def leave_Lambda(
+        self, original_node: cst.Lambda, updated_node: cst.Lambda
+    ) -> cst.BaseExpression:
+        self._except_depth = self._depth_stack.pop()
         return updated_node
 
     def leave_Call(
