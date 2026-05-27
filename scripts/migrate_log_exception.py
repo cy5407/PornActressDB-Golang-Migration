@@ -23,6 +23,10 @@ Patterns that this script intentionally does NOT touch:
 Anything left over should be migrated by hand; we list it in
 `implementation-notes.md` rather than guessing.
 
+Requires:
+    pip install libcst  # dev-only; not added to requirements.txt because
+                        # this is a one-shot codemod, not a runtime dep.
+
 Usage:
     python scripts/migrate_log_exception.py src/
     python scripts/migrate_log_exception.py --check src/

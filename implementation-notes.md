@@ -1065,3 +1065,8 @@ Spec 要求「全部 50 處」是粗估值，實際嚴格符合三條規則（`e
 - F841（26 件）：移除 `{e}` 後 `except Exception as e:` 的 `e` 變成 unused，ruff 自動改成 `except Exception:`。
 - F541（37 件）：移除 `{e}` 後 f-string 只剩字面字元，ruff 自動移除 `f` 前綴。
 - I001（2 件）：`incremental_json_database.py` / 另一檔 imports 順序，**這 2 件 pre-existing**（migration 之前 baseline 即 2）；驗收 `ruff check src/ 0 警告` 要求清零所以一併修掉。
+
+**Codex review 提出但保留不修的項目（spec 「純風格建議列入 implementation-notes.md 不修」適用）**：
+
+- libcst 未列入 `requirements.txt`：codemod 是 one-shot dev tool，非 runtime 依賴；列入 production requirements 會污染。已於 `scripts/migrate_log_exception.py` 的 module docstring 標注 `Requires: pip install libcst` 並說明緣由。
+- 沒有 committed test file for the codemod：Phase 1 spec 未要求；inline 驗證已完成（fixture 覆蓋 top-level / nested def / lambda / class method 四種 case，且 `--check` 二次執行回報 0 changes 確認 idempotent）。新增 pytest 檔需擴大 Phase 1 scope。
