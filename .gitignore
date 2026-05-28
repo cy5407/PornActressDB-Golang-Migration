@@ -203,3 +203,6 @@ _db_backup/
 
 # Copilot session 紀錄
 copilot-session-*.md
+
+# Wails frontend dependency hash cache（每次 build 都會 regen）
+wails-app/frontend/package.json.md5
