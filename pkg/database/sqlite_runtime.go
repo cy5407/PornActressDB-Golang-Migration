@@ -617,36 +617,8 @@ func (s *SQLiteStore) mergeFromRoot(root *DatabaseData, overwrite bool) (*MergeS
 		return nil, err
 	}
 
-	for mapCode, video := range root.Videos {
-		code, videoCopy, ok := prepareVideoForMerge(mapCode, video, now)
-		if !ok {
-			continue
-		}
-		existing, err := s.GetVideo(code)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return nil, err
-		}
-		if existing != nil {
-			if !overwrite {
-				stats.VideosSkipped++
-				continue
-			}
-			if videoCopy.CreatedAt == "" {
-				videoCopy.CreatedAt = existing.CreatedAt
-			}
-			if err := s.UpsertVideo(code, videoCopy); err != nil {
-				return nil, err
-			}
-			stats.VideosUpdated++
-		} else {
-			if videoCopy.CreatedAt == "" {
-				videoCopy.CreatedAt = now
-			}
-			if err := s.UpsertVideo(code, videoCopy); err != nil {
-				return nil, err
-			}
-			stats.VideosAdded++
-		}
+	if err := s.mergeVideosFromRoot(root, overwrite, now, stats); err != nil {
+		return nil, err
 	}
 
 	// Links: SQLite already enforces UNIQUE(video_code, actress_id, role_type).
@@ -672,6 +644,60 @@ func (s *SQLiteStore) mergeFromRoot(root *DatabaseData, overwrite bool) (*MergeS
 		stats.LinksAdded = len(root.Links)
 	}
 	return stats, nil
+}
+
+// mergeVideosFromRoot iterates root.Videos{} and applies each entry
+// through mergeOneVideo, propagating the first error. The actresses
+// path must have completed before this runs because video links rely
+// on actress identifiers being present (see mergeFromRoot ordering).
+func (s *SQLiteStore) mergeVideosFromRoot(root *DatabaseData, overwrite bool, now string, stats *MergeStats) error {
+	for mapCode, video := range root.Videos {
+		if err := s.mergeOneVideo(mapCode, video, overwrite, now, stats); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mergeOneVideo applies a single videos{} entry to the SQLite store.
+// prepareVideoForMerge handles the legacy-id and mapCode-fallback
+// translation; an `!ok` result means the entry has no usable code and
+// is silently skipped. On existing rows in non-overwrite mode the call
+// counts VideosSkipped (the actresses path returns silently — that
+// asymmetry is intentional and matches the pre-refactor behaviour).
+// Each UpsertVideo opens its own SQLite tx; this layer adds no
+// transaction boundary.
+func (s *SQLiteStore) mergeOneVideo(mapCode string, video *VideoData, overwrite bool, now string, stats *MergeStats) error {
+	code, videoCopy, ok := prepareVideoForMerge(mapCode, video, now)
+	if !ok {
+		return nil
+	}
+	existing, err := s.GetVideo(code)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if existing != nil {
+		if !overwrite {
+			stats.VideosSkipped++
+			return nil
+		}
+		if videoCopy.CreatedAt == "" {
+			videoCopy.CreatedAt = existing.CreatedAt
+		}
+		if err := s.UpsertVideo(code, videoCopy); err != nil {
+			return err
+		}
+		stats.VideosUpdated++
+		return nil
+	}
+	if videoCopy.CreatedAt == "" {
+		videoCopy.CreatedAt = now
+	}
+	if err := s.UpsertVideo(code, videoCopy); err != nil {
+		return err
+	}
+	stats.VideosAdded++
+	return nil
 }
 
 // mergeActressesFromRoot iterates root.Actresses{} and applies each
