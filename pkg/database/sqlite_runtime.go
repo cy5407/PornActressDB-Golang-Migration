@@ -613,41 +613,8 @@ func (s *SQLiteStore) mergeFromRoot(root *DatabaseData, overwrite bool) (*MergeS
 	now := time.Now().UTC().Format(ISODateTimeFormat)
 
 	// Actresses first so videos can resolve their actresses[] names.
-	for id, a := range root.Actresses {
-		if a == nil {
-			continue
-		}
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		existing, err := s.GetActress(id)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return nil, err
-		}
-		actressCopy := *a
-		actressCopy.ID = id
-		actressCopy.UpdatedAt = now
-		if existing != nil {
-			if !overwrite {
-				continue
-			}
-			if actressCopy.CreatedAt == "" {
-				actressCopy.CreatedAt = existing.CreatedAt
-			}
-			if err := s.UpsertActress(&actressCopy); err != nil {
-				return nil, err
-			}
-			stats.ActressesUpdated++
-		} else {
-			if actressCopy.CreatedAt == "" {
-				actressCopy.CreatedAt = now
-			}
-			if err := s.UpsertActress(&actressCopy); err != nil {
-				return nil, err
-			}
-			stats.ActressesAdded++
-		}
+	if err := s.mergeActressesFromRoot(root, overwrite, now, stats); err != nil {
+		return nil, err
 	}
 
 	for mapCode, video := range root.Videos {
@@ -705,6 +672,64 @@ func (s *SQLiteStore) mergeFromRoot(root *DatabaseData, overwrite bool) (*MergeS
 		stats.LinksAdded = len(root.Links)
 	}
 	return stats, nil
+}
+
+// mergeActressesFromRoot iterates root.Actresses{} and applies each
+// non-nil entry through mergeOneActress, propagating the first error.
+// Ordering is map-iteration order; merge semantics do not depend on a
+// stable order across runs.
+func (s *SQLiteStore) mergeActressesFromRoot(root *DatabaseData, overwrite bool, now string, stats *MergeStats) error {
+	for id, a := range root.Actresses {
+		if a == nil {
+			continue
+		}
+		if err := s.mergeOneActress(id, a, overwrite, now, stats); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mergeOneActress applies a single actresses{} entry to the SQLite
+// store. Skips when id (after TrimSpace) is empty or when the row
+// already exists and overwrite=false. On existing rows it preserves
+// the stored CreatedAt unless the JSON side has its own; on new rows
+// it falls back to now. Each call upserts through UpsertActress which
+// opens its own SQLite transaction — there is no caller-visible tx
+// boundary at this layer.
+func (s *SQLiteStore) mergeOneActress(id string, a *ActressData, overwrite bool, now string, stats *MergeStats) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	existing, err := s.GetActress(id)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	actressCopy := *a
+	actressCopy.ID = id
+	actressCopy.UpdatedAt = now
+	if existing != nil {
+		if !overwrite {
+			return nil
+		}
+		if actressCopy.CreatedAt == "" {
+			actressCopy.CreatedAt = existing.CreatedAt
+		}
+		if err := s.UpsertActress(&actressCopy); err != nil {
+			return err
+		}
+		stats.ActressesUpdated++
+		return nil
+	}
+	if actressCopy.CreatedAt == "" {
+		actressCopy.CreatedAt = now
+	}
+	if err := s.UpsertActress(&actressCopy); err != nil {
+		return err
+	}
+	stats.ActressesAdded++
+	return nil
 }
 
 // --- Backup family ------------------------------------------------------
