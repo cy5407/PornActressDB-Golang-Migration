@@ -592,8 +592,11 @@ func (s *SQLiteStore) CompactIfNeeded() (bool, error) { return false, nil }
 //   - Links are deduplicated by (video_code, actress_id, role_type,
 //     timestamp).
 //
-// The whole import runs inside one SQLite transaction so a mid-run
-// failure leaves the store unchanged.
+// Transaction boundary: actresses and videos are upserted as separate
+// per-row transactions (via UpsertActress / UpsertVideo); the link
+// override step runs inside a single explicit transaction. A mid-run
+// failure during actresses or videos can therefore leave the store
+// partially merged — only the link rebuild is atomic.
 func (s *SQLiteStore) MergeFromFile(sourceFile string, overwrite bool) (*MergeStats, error) {
 	if s == nil || s.db == nil {
 		return nil, ErrSQLiteStoreClosed
@@ -621,29 +624,43 @@ func (s *SQLiteStore) mergeFromRoot(root *DatabaseData, overwrite bool) (*MergeS
 		return nil, err
 	}
 
-	// Links: SQLite already enforces UNIQUE(video_code, actress_id, role_type).
-	// Re-apply JSON-side overrides via the same path migrate-from-json uses.
-	if len(root.Links) > 0 {
-		tx, err := s.db.Begin()
-		if err != nil {
-			return nil, fmt.Errorf("merge links begin tx: %w", err)
-		}
-		committed := false
-		defer func() {
-			if !committed {
-				_ = tx.Rollback()
-			}
-		}()
-		if err := applyLinkOverrides(tx, root.Links); err != nil {
-			return nil, err
-		}
-		if err := tx.Commit(); err != nil {
-			return nil, fmt.Errorf("merge links commit: %w", err)
-		}
-		committed = true
-		stats.LinksAdded = len(root.Links)
+	if err := s.mergeLinksFromRoot(root, stats); err != nil {
+		return nil, err
 	}
 	return stats, nil
+}
+
+// mergeLinksFromRoot replays root.Links[] as JSON-side overrides on
+// video_actress_links. It is the ONLY transaction-bounded step of
+// mergeFromRoot — actresses and videos run as per-row implicit
+// transactions via UpsertActress / UpsertVideo. The whole link
+// rebuild commits atomically; a failure rolls everything back through
+// the deferred Rollback. SQLite's UNIQUE(video_code, actress_id,
+// role_type) handles dedup, so applyLinkOverrides only needs to drive
+// role_type / timestamp updates.
+func (s *SQLiteStore) mergeLinksFromRoot(root *DatabaseData, stats *MergeStats) error {
+	if len(root.Links) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("merge links begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if err := applyLinkOverrides(tx, root.Links); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("merge links commit: %w", err)
+	}
+	committed = true
+	stats.LinksAdded = len(root.Links)
+	return nil
 }
 
 // mergeVideosFromRoot iterates root.Videos{} and applies each entry
