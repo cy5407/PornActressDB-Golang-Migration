@@ -16,6 +16,13 @@ import (
 // 超過上限後改用時間戳確保唯一性
 const generateUniqueNameMaxAttempts = 10000
 
+// renameFile is the rename primitive MoveFile attempts before falling
+// back to copy+delete. Indirected through a package var (mirroring
+// sqlite_backup.go's restoreCopyFile seam) so tests can force the
+// cross-device / rename-failure path and exercise the real copyFile
+// fallback on a single volume.
+var renameFile = os.Rename
+
 // MoveFile 移動單一檔案
 func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult {
 	result := MoveResult{Source: src, Destination: dst, Success: false}
@@ -43,7 +50,7 @@ func (m *Mover) MoveFile(src, dst string, strategy ConflictStrategy) MoveResult 
 		result.Success, result.Destination = true, dst
 		return result
 	}
-	if err := os.Rename(src, dst); err == nil {
+	if err := renameFile(src, dst); err == nil {
 		result.Success, result.Destination = true, dst
 		return result
 	}

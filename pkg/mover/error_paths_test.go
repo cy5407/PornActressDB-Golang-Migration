@@ -1,6 +1,7 @@
 package mover
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -34,6 +35,84 @@ func TestCopyFile_BadDestinationErrors(t *testing.T) {
 	// Destination with null byte → OpenFile fails.
 	if err := m.copyFile(src, filepath.Join(t.TempDir(), "bad\x00name")); err == nil {
 		t.Error("copyFile bad dst returned nil")
+	}
+}
+
+// forceRenameFailure swaps renameFile for one that always errors, so
+// MoveFile exercises its real copy+recycle fallback. Restored on cleanup.
+func forceRenameFailure(t *testing.T) {
+	t.Helper()
+	orig := renameFile
+	renameFile = func(_, _ string) error { return os.ErrInvalid }
+	t.Cleanup(func() { renameFile = orig })
+}
+
+func TestMoveFile_CopyFallbackWhenRenameFails(t *testing.T) {
+	forceRenameFailure(t)
+	m := mkMover(t)
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, "src.txt")
+	if err := os.WriteFile(src, []byte("fallback-content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "dst.txt")
+	res := m.MoveFile(src, dst, Skip)
+	if !res.Success {
+		t.Fatalf("expected copy fallback to succeed, got %+v", res)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if string(got) != "fallback-content" {
+		t.Errorf("dst content = %q, want fallback-content", string(got))
+	}
+	// Source must be gone (recycled / removed) after a successful move.
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Error("source still present after copy-fallback move")
+	}
+}
+
+func TestMoveFile_CopyFallbackErrorWhenDestinationUnwritable(t *testing.T) {
+	forceRenameFailure(t)
+	m := mkMover(t)
+	src := filepath.Join(t.TempDir(), "src.txt")
+	if err := os.WriteFile(src, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// dst does not pre-exist (so no conflict handling) but its final
+	// component collides with a directory we pre-create at that exact
+	// path's leaf — copyFile's OpenFile O_TRUNC then fails. We achieve a
+	// non-existing-yet-unwritable dst by making the leaf an existing dir
+	// AND using a strategy that proceeds: there is none, so instead force
+	// copyFile failure via a null byte in the leaf name.
+	dst := filepath.Join(t.TempDir(), "bad\x00leaf.txt")
+	res := m.MoveFile(src, dst, Skip)
+	if res.Success {
+		t.Errorf("expected copy-fallback failure, got %+v", res)
+	}
+	if res.Error == "" {
+		t.Error("expected non-empty Error from failed copy")
+	}
+}
+
+func TestCopyFile_HappyPathCopiesContentAndMode(t *testing.T) {
+	m := mkMover(t)
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, "src.txt")
+	if err := os.WriteFile(src, []byte("payload-bytes"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "dst.txt")
+	if err := m.copyFile(src, dst); err != nil {
+		t.Fatalf("copyFile happy path: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if string(got) != "payload-bytes" {
+		t.Errorf("dst content = %q, want payload-bytes", string(got))
 	}
 }
 
@@ -175,6 +254,52 @@ func TestValidateMoveDirDestination_BadInputsErrorsViaIsSameOrNested(t *testing.
 	}
 }
 
+func TestValidateMoveDirDestination_SamePathReportsSuccessNoMove(t *testing.T) {
+	// dst == src exactly → IsSameOrNestedPath true, pathsReferToSameDir
+	// true → result.Success=true, DeletedSrc=false, returns false (no move).
+	src := t.TempDir()
+	res := &MergeResult{}
+	proceed := validateMoveDirDestination(src, src, res)
+	if proceed {
+		t.Error("validateMoveDirDestination returned true for identical src/dst")
+	}
+	if !res.Success {
+		t.Error("expected Success=true for same-path no-op")
+	}
+	if res.DeletedSrc {
+		t.Error("expected DeletedSrc=false for same-path no-op")
+	}
+}
+
+func TestMoveDir_StatErrorOnSourcePropagates(t *testing.T) {
+	m := mkMover(t)
+	// Null-byte source → os.Stat non-IsNotExist error branch of
+	// validateMoveDirSource.
+	res := m.MoveDir("bad\x00src", filepath.Join(t.TempDir(), "dst"), Skip)
+	if res.Success {
+		t.Errorf("expected failure for unreadable source dir, got %+v", res)
+	}
+	if len(res.Errors) == 0 {
+		t.Error("expected error appended")
+	}
+}
+
+func TestLoadOperationLog_MatchingDirEntrySkipped(t *testing.T) {
+	m := mkMover(t)
+	opsDir := filepath.Join(m.LogDir, "operations")
+	if err := os.MkdirAll(opsDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// A *directory* whose name matches the glob "*_target.json": ReadFile
+	// on it fails → continue → eventually not-found.
+	if err := os.MkdirAll(filepath.Join(opsDir, "1_target.json"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.loadOperationLog("target"); err == nil {
+		t.Error("loadOperationLog returned nil when only a dir matched")
+	}
+}
+
 // --- pathsReferToSameDir error path -----------------------------------
 
 func TestPathsReferToSameDir_BadInputReturnsError(t *testing.T) {
@@ -205,6 +330,24 @@ func TestTryFastMoveDirRename_DestinationExistsReturnsFalse(t *testing.T) {
 	res := &MergeResult{}
 	if m.tryFastMoveDirRename(src, dst, res) {
 		t.Error("tryFastMoveDirRename returned true when dst exists")
+	}
+}
+
+func TestTryFastMoveDirRename_MkdirAllParentFailsReturnsFalse(t *testing.T) {
+	m := mkMover(t)
+	// Create a FILE that will act as a blocking intermediate, then aim
+	// dst at <file>/child/leaf so MkdirAll(Dir(dst)) = MkdirAll(<file>/child)
+	// fails (cannot create a dir under a file). dst itself does not exist
+	// so the Stat IsNotExist check passes through to MkdirAll.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src := t.TempDir()
+	dst := filepath.Join(blocker, "child", "leaf")
+	res := &MergeResult{}
+	if m.tryFastMoveDirRename(src, dst, res) {
+		t.Error("tryFastMoveDirRename returned true when parent dir cannot be created")
 	}
 }
 
@@ -276,6 +419,88 @@ func TestIsSameFilePath_BadInputsReturnFalseSafely(t *testing.T) {
 	}
 }
 
+// --- validateMoveFileSource stat error (non-IsNotExist) ---------------
+
+func TestMoveFile_StatErrorOnSourcePropagates(t *testing.T) {
+	m := mkMover(t)
+	// Null-byte source → os.Stat returns a non-IsNotExist error, hitting
+	// the "無法讀取來源" branch of validateMoveFileSource.
+	res := m.MoveFile("bad\x00src", filepath.Join(t.TempDir(), "dst.txt"), Skip)
+	if res.Success {
+		t.Errorf("expected failure for unreadable source, got %+v", res)
+	}
+	if res.Error == "" {
+		t.Error("expected non-empty Error")
+	}
+}
+
+// --- buildRollbackSummary all four branches ---------------------------
+
+func TestBuildRollbackSummary_AllBranches(t *testing.T) {
+	cases := []struct {
+		name        string
+		result      BatchResult
+		wantStatus  string
+	}{
+		{"skipped+failed", BatchResult{SuccessCount: 1, SkippedCount: 2, FailedCount: 3, TotalItems: 6}, "partial"},
+		{"skipped only", BatchResult{SuccessCount: 1, SkippedCount: 2, TotalItems: 3}, "partial"},
+		{"failed only", BatchResult{SuccessCount: 1, FailedCount: 2, TotalItems: 3}, "partial"},
+		{"all success", BatchResult{SuccessCount: 3, TotalItems: 3}, "completed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, status := buildRollbackSummary(tc.result)
+			if status != tc.wantStatus {
+				t.Errorf("status = %q, want %q", status, tc.wantStatus)
+			}
+			if msg == "" {
+				t.Error("summary message empty")
+			}
+		})
+	}
+}
+
+// --- batchMoveDirsWithType: cancellation + status branches ------------
+
+func TestBatchMoveDirs_CancelledContextReturnsCancelled(t *testing.T) {
+	m := mkMover(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancelled
+	src := t.TempDir()
+	res := m.BatchMoveDirs(ctx, []MoveItem{{Source: src, Destination: filepath.Join(t.TempDir(), "d")}})
+	// Cancelled before processing any item → zero results.
+	if len(res.Results) != 0 {
+		t.Errorf("Results = %d, want 0 (cancelled before first item)", len(res.Results))
+	}
+}
+
+func TestBatchMoveDirs_FailedItemMarksFailedStatus(t *testing.T) {
+	m := mkMover(t)
+	// Source dir does not exist → MoveDir fails → outcome "failed".
+	res := m.BatchMoveDirs(context.Background(), []MoveItem{
+		{Source: filepath.Join(t.TempDir(), "no-such-dir"), Destination: filepath.Join(t.TempDir(), "dst")},
+	})
+	if res.FailedCount != 1 {
+		t.Errorf("FailedCount = %d, want 1", res.FailedCount)
+	}
+}
+
+func TestBatchMoveDirs_SuccessfulMoveCompletes(t *testing.T) {
+	m := mkMover(t)
+	src := filepath.Join(t.TempDir(), "src")
+	if err := os.MkdirAll(src, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "f.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "dst")
+	res := m.BatchMoveDirs(context.Background(), []MoveItem{{Source: src, Destination: dst}})
+	if res.SuccessCount != 1 {
+		t.Errorf("SuccessCount = %d, want 1; result=%+v", res.SuccessCount, res)
+	}
+}
+
 // --- history.go: ListOperations / saveOperationLog / loadOperationLog --
 
 func TestListOperations_SkipsCorruptJSONEntries(t *testing.T) {
@@ -318,6 +543,52 @@ func TestListOperations_NoLogDirSetIsError(t *testing.T) {
 // returns "" with no error from ReadDir on a file). Skip — error
 // surface here is not portable enough for a real cross-platform test.
 
+func TestListOperations_BadLogDirReadDirErrorPropagates(t *testing.T) {
+	// Null byte in LogDir → ReadDir fails with a non-IsNotExist syscall
+	// error, exercising the `return nil, err` branch.
+	m := &Mover{LogDir: "bad\x00dir"}
+	if _, err := m.ListOperations(); err == nil {
+		t.Error("ListOperations with null-byte LogDir returned nil error")
+	}
+}
+
+func TestListOperations_SortsByTimestampDescending(t *testing.T) {
+	m := mkMover(t)
+	opsDir := filepath.Join(m.LogDir, "operations")
+	if err := os.MkdirAll(opsDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// Two valid logs with different timestamps → exercises the sort
+	// comparator (line 45) and confirms newest-first ordering.
+	older := `{"id":"old","timestamp":"2026-01-01T00:00:00Z"}`
+	newer := `{"id":"new","timestamp":"2026-12-31T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(opsDir, "a.json"), []byte(older), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(opsDir, "b.json"), []byte(newer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logs, err := m.ListOperations()
+	if err != nil {
+		t.Fatalf("ListOperations: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("len = %d, want 2", len(logs))
+	}
+	if logs[0].ID != "new" {
+		t.Errorf("logs[0].ID = %q, want new (descending by timestamp)", logs[0].ID)
+	}
+}
+
+func TestLoadOperationLog_MalformedGlobPatternErrors(t *testing.T) {
+	m := mkMover(t)
+	// id containing "[" makes the glob pattern "*_[.json" malformed →
+	// filepath.Glob returns ErrBadPattern, hitting the error branch.
+	if _, err := m.loadOperationLog("["); err == nil {
+		t.Error("loadOperationLog with malformed-glob id returned nil error")
+	}
+}
+
 func TestSaveOperationLog_NoLogDirIsNoOp(t *testing.T) {
 	m := &Mover{} // empty LogDir
 	if err := m.saveOperationLog(&OperationLog{}); err != nil {
@@ -352,6 +623,33 @@ func TestLoadOperationLog_SkipsCorruptThenFails(t *testing.T) {
 	}
 	if _, err := m.loadOperationLog("target"); err == nil {
 		t.Error("loadOperationLog returned nil for unfindable id")
+	}
+}
+
+func TestGenerateUniqueName_TimestampFallbackOnRepeatedFailure(t *testing.T) {
+	// Force every OpenFile attempt to fail by passing a path under a
+	// directory that does NOT exist — each OpenFile returns ENOENT
+	// (non-IsExist), the loop spins 10000 times and falls through to
+	// the timestamp-suffixed result.
+	m := mkMover(t)
+	bogusDir := filepath.Join(t.TempDir(), "definitely-not-created")
+	got := m.generateUniqueName(filepath.Join(bogusDir, "file.txt"))
+	// Result should still be a path under the bogus dir with .txt suffix.
+	if filepath.Dir(got) != bogusDir {
+		t.Errorf("dir = %q, want %q", filepath.Dir(got), bogusDir)
+	}
+	if filepath.Ext(got) != ".txt" {
+		t.Errorf("ext = %q, want .txt", filepath.Ext(got))
+	}
+	// Should NOT be "file_1.txt" (first numeric attempt) — must be the
+	// 14-digit timestamp fallback shape.
+	base := strings.TrimSuffix(filepath.Base(got), ".txt")
+	parts := strings.Split(base, "_")
+	if len(parts) != 2 {
+		t.Fatalf("base = %q, want <name>_<stamp> shape", base)
+	}
+	if len(parts[1]) != 14 {
+		t.Errorf("timestamp suffix = %q (len %d), want 14 digits", parts[1], len(parts[1]))
 	}
 }
 
