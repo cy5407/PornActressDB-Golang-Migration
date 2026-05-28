@@ -137,8 +137,8 @@ class CacheManager:
                 }
                 with open(self.index_path, "w", encoding="utf-8") as f:
                     json_dump(initial_index, f, indent=2, ensure_ascii=False)
-            except Exception as fallback_error:
-                logger.error(f"建立備援索引失敗: {fallback_error}")
+            except Exception:
+                logger.exception("建立備援索引失敗")
 
     def _load_index(self) -> dict:
         """載入 JSON 索引"""

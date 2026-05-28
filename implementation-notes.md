@@ -1078,3 +1078,16 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 **Open questions**
 
 - `migrateContext` 是否應推廣到 export / verify 流程也用？目前只在 migrate 路徑出現；如果未來 import / export 共享更多狀態可考慮。
+
+## [2026-05-29 00:16] Phase 1.1 — logger.exception 補漏
+
+**Deviations**
+
+- 手改 2 處而非擴 `scripts/migrate_log_exception.py` 白名單：codemod 凍結為 Phase 1 spec、白名單 `{e}/{exc}/{err}` 是明文約束；只 2 site 手改 5 分鐘，擴白名單再跑要額外評估有沒有意外吸到 `{ex}`、`{exception}` 等非預期 case 的 side effect。
+- `src/scrapers/cache_manager.py:141` 改完 `as fallback_error` 變 unused，我直接同步移除（沒呼叫 `ruff --fix`）— ruff 走完也是同結果，省一輪。
+- `src/models/json_database.py:292` 的 `as pe` 保留 — `pe` 在 L288 (logger.warning) 與 L293 (`raise DataIntegrityError(...) from pe`) 還在用，動了會炸。
+
+**Tradeoffs**
+
+- `logger.exception("...")` 訊息字串移除 `: {pe}` / `: {fallback_error}` 結尾；traceback 由 `.exception` 自動附上、不需再 inline exception repr。對比保留 `{pe}` 但只改 method 名的方案，這版較貼近 Python logging idiom。
+- 不處理 SonarQube 的 schema NULL false positive（L102/L114 是 `<> ''`，不是 NULL 比較）與 5 個 dynamic SQL hotspot（hardcoded table list / int 常數 / escaped path，逐個都安全）— 留給 SonarQube UI 端 mark Won't Fix / Safe。

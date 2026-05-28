@@ -289,7 +289,7 @@ class JSONDBManager:
                     )
                     time.sleep(retry_delay * (attempt + 1))
                     continue
-                logger.error(f"❌ 資料儲存失敗（所有重試已用盡）: {pe}")
+                logger.exception("❌ 資料儲存失敗（所有重試已用盡）")
                 raise DataIntegrityError(f"儲存失敗: {pe}") from pe
             except Exception as e:
                 if attempt < max_retries - 1:
