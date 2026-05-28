@@ -96,3 +96,57 @@ func TestNormalizeCode(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractCode_BracketPath(t *testing.T) {
+	e := NewCodeExtractor()
+	cases := map[string]string{
+		"(STARS-707).mp4":  "STARS-707",
+		"[IPX-123].mp4":    "IPX-123",
+		"（MIDV-456）.mp4": "MIDV-456",
+	}
+	for in, want := range cases {
+		if got := e.ExtractCode(in); got != want {
+			t.Errorf("ExtractCode(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestValidateCode_RejectsBadLengths(t *testing.T) {
+	e := NewCodeExtractor()
+	for _, bad := range []string{"AB1", "X", "TOOLONGLONGCODE-99999"} {
+		if e.validateCode(bad) {
+			t.Errorf("validateCode(%q) = true, want false (length)", bad)
+		}
+	}
+}
+
+func TestValidateCode_RejectsLettersOnlyOrDigitsOnly(t *testing.T) {
+	e := NewCodeExtractor()
+	for _, bad := range []string{"ABCDEFG", "1234567"} {
+		if e.validateCode(bad) {
+			t.Errorf("validateCode(%q) = true, want false (no letter or no digit)", bad)
+		}
+	}
+}
+
+func TestValidateCode_RejectsUnknownShape(t *testing.T) {
+	e := NewCodeExtractor()
+	// Length OK, has letters+digits, but no validPattern matches.
+	if e.validateCode("A1B2C3") {
+		t.Error(`validateCode("A1B2C3") = true, want false (no shape match)`)
+	}
+}
+
+func TestShouldSkip_FC2MarkerInsideName(t *testing.T) {
+	e := NewCodeExtractor()
+	// Does not start with FC2/PPV so skipPatterns miss; markers loop fires.
+	if !e.shouldSkip("prefix_FC2_PPV_x") {
+		t.Error(`shouldSkip("prefix_FC2_PPV_x") = false, want true (marker)`)
+	}
+	if !e.shouldSkip("foo-FC2PPV-bar") {
+		t.Error(`shouldSkip("foo-FC2PPV-bar") = false, want true (marker)`)
+	}
+	if !e.shouldSkip("baz_FC2-PPV_qux") {
+		t.Error(`shouldSkip("baz_FC2-PPV_qux") = false, want true (marker)`)
+	}
+}

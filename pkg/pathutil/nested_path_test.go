@@ -73,3 +73,33 @@ func TestIsSameOrNestedPath_SiblingPath(t *testing.T) {
 		t.Fatal("expected sibling path to not be treated as nested")
 	}
 }
+
+func TestIsSameOrNestedPath_BadBaseReturnsError(t *testing.T) {
+	// null byte makes filepath.Abs fail (syscall rejects it).
+	_, err := IsSameOrNestedPath("bad\x00base", t.TempDir())
+	if err == nil {
+		t.Fatal("expected error from bad base path, got nil")
+	}
+}
+
+func TestIsSameOrNestedPath_BadTargetReturnsError(t *testing.T) {
+	_, err := IsSameOrNestedPath(t.TempDir(), "bad\x00target")
+	if err == nil {
+		t.Fatal("expected error from bad target path, got nil")
+	}
+}
+
+func TestIsSameOrNestedPath_CrossVolumeIsNotNested(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("cross-volume comparison is a Windows-specific path")
+	}
+	// C:\ vs D:\ — different drive letters, must short-circuit to false
+	// without reaching filepath.Rel.
+	sameOrNested, err := IsSameOrNestedPath(`C:\Windows`, `D:\nope`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sameOrNested {
+		t.Fatal("expected cross-volume paths to report not-nested")
+	}
+}
