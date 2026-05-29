@@ -1091,3 +1091,18 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 
 - `logger.exception("...")` 訊息字串移除 `: {pe}` / `: {fallback_error}` 結尾；traceback 由 `.exception` 自動附上、不需再 inline exception repr。對比保留 `{pe}` 但只改 method 名的方案，這版較貼近 Python logging idiom。
 - 不處理 SonarQube 的 schema NULL false positive（L102/L114 是 `<> ''`，不是 NULL 比較）與 5 個 dynamic SQL hotspot（hardcoded table list / int 常數 / escaped path，逐個都安全）— 留給 SonarQube UI 端 mark Won't Fix / Safe。
+
+## [2026-05-29 14:40] Phase — pkg/mover file_move/dir_move coverage
+
+**Deviations**
+- 任務描述的基線（file_move 67.2% / dir_move 74.5%）已過時：前一個「pkg 覆蓋率 → 90%」session 已把兩檔拉到 88.5% / 88.1%（透過 `pkg/mover/error_paths_test.go` 與 `renameFile` seam）。本 phase 起步即已 ≥85%，本次再補可達邊界的 branch 拉到 91.0% / 91.1%。
+- 只在 `file_move_test.go` / `dir_move_test.go` 加 test，未動 production code（遵守紀律）。
+
+**Tradeoffs / mock 邊界決定**
+- `copyFile`（file_move.go）剩餘未覆蓋分支為 `dstFile.Sync()` 失敗、`dstFile.Close()` 失敗、`applyFileMode` 在 close 後失敗 —— 這些要 OS 層級故障注入或在 production 加 seam（如 prior session 的 `renameFile`）。本 phase 紀律禁止改 production，故不補；以「directory source 觸發 io.Copy 失敗」覆蓋了主要錯誤分支（56.5%→69.6%）。
+- `walkMoveDirEntries` / `tryFastMoveDirRename` 的 `filepath.Walk` 中途失敗、`os.Rename` cross-device 失敗、`finalizeMoveDir` 的 `os.RemoveAll` 失敗分支同屬故障注入類，Windows 單一 volume 測不到，未補。
+- `isSameFilePath` 的非-Windows 比較行（line 80）在 Windows build 下不可達（平台分支），未補。
+- 以上皆未超過 3 個 mock dependency；無新增 mock，全部用真實檔案系統 + 直接呼叫 package-private helper（in-package test）。
+
+**Open questions**
+- 工作樹中有非本任務白名單的既存未提交檔案：`pkg/database/final9_coverage_test.go`（前一個 DB-coverage task 遺漏 commit，導致已 push 的 78b9a5e 實際少這檔、aggregate 略低於我當時回報的 90.1%）、`docs/task-prompt-*.md`（modified）、`docs/20260526-...Task copy.md`（untracked）。這些不在本 phase 白名單，未一併提交，待 user 指示如何處理。

@@ -103,3 +103,85 @@ func TestCountMovedDirFiles_ReturnsWalkError(t *testing.T) {
 		t.Fatalf("expected not-exist error, got %v", err)
 	}
 }
+
+// TestMoveDirTargetPath_RelErrorOnMismatchedRoots covers the
+// filepath.Rel error branch: an absolute srcRoot with a relative path
+// (or vice versa) cannot be made relative.
+func TestMoveDirTargetPath_RelErrorOnMismatchedRoots(t *testing.T) {
+	absRoot := t.TempDir() // absolute
+	if _, err := moveDirTargetPath(absRoot, "dstRoot", "relative/path"); err == nil {
+		t.Fatal("moveDirTargetPath with relative path under absolute root returned nil error")
+	}
+}
+
+// TestMoveDirTargetPath_DotReturnsDstRoot covers the relPath=="." branch
+// (path equals srcRoot → target is dstRoot itself).
+func TestMoveDirTargetPath_DotReturnsDstRoot(t *testing.T) {
+	root := t.TempDir()
+	got, err := moveDirTargetPath(root, "DST", root)
+	if err != nil {
+		t.Fatalf("moveDirTargetPath: %v", err)
+	}
+	if got != "DST" {
+		t.Errorf("got %q, want DST (relPath==\".\")", got)
+	}
+}
+
+// TestHandleMoveDirEntry_WalkErrorPropagates covers the walkErr!=nil
+// early-return branch of handleMoveDirEntry.
+func TestHandleMoveDirEntry_WalkErrorPropagates(t *testing.T) {
+	m := NewMover(t.TempDir())
+	result := &MergeResult{}
+	sentinel := os.ErrPermission
+	err := m.handleMoveDirEntry("src", "dst", "src/x", nil, sentinel, Skip, result)
+	if err != sentinel {
+		t.Fatalf("handleMoveDirEntry returned %v, want the walk error %v", err, sentinel)
+	}
+}
+
+// TestHandleMoveDirEntry_TargetPathErrorPropagates covers the
+// moveDirTargetPath-error branch: an absolute srcRoot with a relative
+// path makes Rel fail inside handleMoveDirEntry.
+func TestHandleMoveDirEntry_TargetPathErrorPropagates(t *testing.T) {
+	m := NewMover(t.TempDir())
+	// Need a real FileInfo for the path argument; stat any existing file.
+	f := filepath.Join(t.TempDir(), "f.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := &MergeResult{}
+	absRoot := t.TempDir()
+	// path is relative while srcRoot is absolute → Rel error.
+	err = m.handleMoveDirEntry(absRoot, "dst", "relative/path", info, nil, Skip, result)
+	if err == nil {
+		t.Fatal("handleMoveDirEntry with un-relativisable path returned nil error")
+	}
+}
+
+// TestHandleMoveDirEntry_DirEntryEnsuresTargetDir covers the info.IsDir()
+// branch (creates the mirrored target directory).
+func TestHandleMoveDirEntry_DirEntryEnsuresTargetDir(t *testing.T) {
+	m := NewMover(t.TempDir())
+	srcRoot := t.TempDir()
+	sub := filepath.Join(srcRoot, "subdir")
+	if err := os.Mkdir(sub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dstRoot := filepath.Join(t.TempDir(), "dst")
+	result := &MergeResult{}
+	if err := m.handleMoveDirEntry(srcRoot, dstRoot, sub, info, nil, Skip, result); err != nil {
+		t.Fatalf("handleMoveDirEntry dir entry: %v", err)
+	}
+	// The mirrored subdir should now exist under dstRoot.
+	if st, err := os.Stat(filepath.Join(dstRoot, "subdir")); err != nil || !st.IsDir() {
+		t.Errorf("expected mirrored subdir created, err=%v", err)
+	}
+}
