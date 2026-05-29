@@ -1135,3 +1135,32 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 - 根因：null byte 在 **Windows** 會讓 `filepath.Abs` 報錯，但在 **Linux 不會**（只在 syscall 階段才錯）。我先前「全綠」是 Windows-only，從未跑 Linux CI 驗證 → 這些 assert-error 測試在 Linux 全 fail。
 - CI 各套件 coverage（Linux，含失敗）：app 95.2% / cache 90.7% / database 89.3% / extractor 100% / safefile 90.1% / studio 91.4%（mover/pathutil 因 FAIL 未正常計）。
 - 結論：(a) final9 已 commit+push（981ed9c），版控衛生達成；(b) 但「CI coverage ≥90%」**無法確認**——CI 是 RED，非僅略低於 90；(c) 修這 5 個平台脆弱測試需動 pathutil/mover/database 共 3 個 test 檔，**超出本任務白名單**（只允許 final9 + 本檔），故停下回報，不擅自修。
+
+## [2026-05-29 15:25] Phase — final9 fixup + CI verify
+
+**前提驗證（先驗再動）**
+- (a) `git ls-files pkg/database/final9_coverage_test.go` → **已 tracked**（上一輪 commit 981ed9c）。
+- (b) 本機 `go test ./pkg/... -coverprofile` aggregate = **90.3%** ≥90%（注意：是 `./pkg/...` 聚合，非 `./pkg/database/` 單檔 89.2%）。
+- (c) CI quality gate = **RED**（push 981ed9c 的 run）：SonarCloud Scan / Go Lint & Test / Integration Test 三者 failure；SQLite Verify-Sync + Python Test success。
+- 結論：前 2 前提成立，但第 3（gate PASS）不成立 → 進入異常處理分支（驗 root cause、不硬套 DoD）。
+
+**CI red root cause（權威來源：gh run logs）— 非 final9**
+- final9 自身 4 個測試在 CI 全 **PASS**（TestSQLiteBackupCopyFile_DirectorySourceIoCopyError、TestMigrateFromJSON_ClosedStoreGuard/MissingSourceFile/CorruptSourceJSON）。
+- 紅燈來自 5 個既存跨平台脆弱測試（assert `filepath.Abs("bad\x00...")` 回傳 error；此行為僅 Windows 成立，Linux 不報錯 → CI fail）：
+  | 測試 | 檔案（皆在本任務白名單外） |
+  |---|---|
+  | TestIsSameOrNestedPath_BadBaseReturnsError | pkg/pathutil/nested_path_test.go |
+  | TestIsSameOrNestedPath_BadTargetReturnsError | pkg/pathutil/nested_path_test.go |
+  | TestPathsReferToSameDir_BadInputReturnsError | pkg/mover/error_paths_test.go |
+  | TestValidateMoveDirDestination_BadInputsErrorsViaIsSameOrNested | pkg/mover/error_paths_test.go |
+  | TestResolveMergeSourcePath_BadPathErrors | pkg/database/final11_coverage_test.go |
+- SonarCloud failure 同因：其 `go test ./pkg/...` 步驟因上述 fail 而 exit≠0，scan 無法完成。
+
+**本機 vs CI 數字差異**
+- 本機（Windows）這 5 個測試 PASS、aggregate 90.3%；CI（Linux）這 5 個 fail，且 mover/pathutil 套件因 fail 未正常計 coverage。先前「90.1% 全綠」是 Windows-only 量測，未驗 Linux CI。
+
+**獨立 follow-up（不在本任務修；需另開 /goal）**
+- 修 5 個 null-byte 跨平台測試：改用 `runtime.GOOS=="windows"` 條件、或可攜的不可達路徑技巧（非 t.Skip 規避），讓 pathutil/mover/database 在 Linux CI 轉綠。涉及 3 個測試檔，超出本任務白名單。
+
+**本任務結論**
+- 交付物「final9 進版控」**已達成**（tracked + CI 自身測試綠）。aggregate ≥90% 本機成立。CI gate red 之 root cause 與 final9 無關，依紀律不擴範圍修，記為獨立議題。
