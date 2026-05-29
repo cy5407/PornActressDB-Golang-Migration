@@ -140,9 +140,9 @@ func TestVerifySync_DetectsDBMetaDiff(t *testing.T) {
 	store := verifyStoreFromMinimal(t)
 
 	divergent := minimalRoot()
-	divergent.SchemaVersion = "9.9.9"                    // field_diff vs stored
-	divergent.Metadata.Description = "changed-desc"      // field_diff
-	divergent.CreatedAt = "1990-01-01T00:00:00Z"         // field_diff
+	divergent.SchemaVersion = "9.9.9"               // field_diff vs stored
+	divergent.Metadata.Description = "changed-desc" // field_diff
+	divergent.CreatedAt = "1990-01-01T00:00:00Z"    // field_diff
 
 	src := writeJSONDB(t, divergent)
 	report, err := store.VerifySync(src)
@@ -166,8 +166,8 @@ func TestVerifySync_DetectsLegacyLinkDiffs(t *testing.T) {
 	// minimalRoot has 4 links; drop one + change another so the legacy
 	// link snapshot comparison emits missing/field diffs.
 	divergent := minimalRoot()
-	divergent.Links = divergent.Links[:2]            // fewer than SQLite has (missing_in_json side)
-	divergent.Links[0].RoleType = "協演"             // field_diff on ordinal 0
+	divergent.Links = divergent.Links[:2] // fewer than SQLite has (missing_in_json side)
+	divergent.Links[0].RoleType = "協演"    // field_diff on ordinal 0
 
 	src := writeJSONDB(t, divergent)
 	report, err := store.VerifySync(src)

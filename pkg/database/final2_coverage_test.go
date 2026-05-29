@@ -42,7 +42,7 @@ func TestApplyToDatabase_WriteUpdateErrorPropagates(t *testing.T) {
 		Links: []VideoActressLink{
 			{VideoCode: "CLEAN-1", ActressID: "n1", RoleType: "主演"},
 		},
-	}, )
+	})
 	if _, err := store.MigrateFromJSON(src, MigrationOptions{AutoCreateMissingActresses: true}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -63,9 +63,9 @@ func TestCleanActresses_ReplacementBlockedNameDropped(t *testing.T) {
 	// shouldRemove branch, plus an empty replacement (skipped).
 	cleaned, removed := c.CleanActresses([]string{
 		"石川澪とラブラブでハメまくる", // → replacement 石川澪
-		"デビュー",               // blocked → removed via shouldRemove
-		"   ",                  // blank → skipped
-		"石川澪",                // dup of replacement → appendIfClean seen branch
+		"デビュー", // blocked → removed via shouldRemove
+		"   ",  // blank → skipped
+		"石川澪",  // dup of replacement → appendIfClean seen branch
 	})
 	has := false
 	for _, n := range cleaned {

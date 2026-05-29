@@ -326,8 +326,8 @@ func TestBackupList_FiltersAndSortsJSONNames(t *testing.T) {
 	writeBackupJSONFixtures(t, store.DataDir(),
 		"backup_2026-05-01.json",
 		"backup_2026-04-01.json",
-		"not-a-backup.json",                     // wrong prefix
-		"backup_unmatched.txt",                  // wrong suffix
+		"not-a-backup.json",    // wrong prefix
+		"backup_unmatched.txt", // wrong suffix
 		"backup_2026-06-01.json",
 	)
 

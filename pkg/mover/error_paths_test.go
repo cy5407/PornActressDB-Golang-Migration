@@ -449,9 +449,9 @@ func TestMoveFile_StatErrorOnSourcePropagates(t *testing.T) {
 
 func TestBuildRollbackSummary_AllBranches(t *testing.T) {
 	cases := []struct {
-		name        string
-		result      BatchResult
-		wantStatus  string
+		name       string
+		result     BatchResult
+		wantStatus string
 	}{
 		{"skipped+failed", BatchResult{SuccessCount: 1, SkippedCount: 2, FailedCount: 3, TotalItems: 6}, "partial"},
 		{"skipped only", BatchResult{SuccessCount: 1, SkippedCount: 2, TotalItems: 3}, "partial"},

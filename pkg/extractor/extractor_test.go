@@ -100,9 +100,9 @@ func TestNormalizeCode(t *testing.T) {
 func TestExtractCode_BracketPath(t *testing.T) {
 	e := NewCodeExtractor()
 	cases := map[string]string{
-		"(STARS-707).mp4":  "STARS-707",
-		"[IPX-123].mp4":    "IPX-123",
-		"（MIDV-456）.mp4": "MIDV-456",
+		"(STARS-707).mp4": "STARS-707",
+		"[IPX-123].mp4":   "IPX-123",
+		"（MIDV-456）.mp4":  "MIDV-456",
 	}
 	for in, want := range cases {
 		if got := e.ExtractCode(in); got != want {

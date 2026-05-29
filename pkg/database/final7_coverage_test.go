@@ -79,4 +79,3 @@ func TestJSONBatchUpdate_MultipleRecordsTracked(t *testing.T) {
 		}
 	}
 }
-
