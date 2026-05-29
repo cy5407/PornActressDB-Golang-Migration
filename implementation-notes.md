@@ -1106,3 +1106,32 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 
 **Open questions**
 - 工作樹中有非本任務白名單的既存未提交檔案：`pkg/database/final9_coverage_test.go`（前一個 DB-coverage task 遺漏 commit，導致已 push 的 78b9a5e 實際少這檔、aggregate 略低於我當時回報的 90.1%）、`docs/task-prompt-*.md`（modified）、`docs/20260526-...Task copy.md`（untracked）。這些不在本 phase 白名單，未一併提交，待 user 指示如何處理。
+
+## [2026-05-29 15:05] Phase — final9_coverage_test.go fixup
+
+**驗證 78b9a5e 不含此檔**
+- `git show 78b9a5e --stat -- pkg/database/final9_coverage_test.go` 輸出為空 → 該 commit 確實未含此檔；先前為 untracked。
+
+**本地 vs CI / 前提修正（自承）**
+- 先前回報的「90.1% 已達成/已 push」是 **aggregate `./pkg/...`**、且基於本地含此「未 commit」檔的狀態，**不是 pkg/database 單檔**。
+- 實測：pkg/database 單檔 **89.2%**（含 final9）/ **89.0%**（不含）；aggregate **90.3%**（含）/ **90.2%**（不含）。
+- 結論修正：final9 貢獻僅 **+0.2pp（db）/ +0.1pp（aggregate）**；**不含 final9 時 aggregate 仍 ≥90%（90.2%）**。原任務前提「78b9a5e 因漏 final9 使 CI 掉到 ~89.9%」**不成立**——CI gate 的 aggregate metric 本來就 ≥90%。
+- 補 commit 的真正理由是版控衛生（讓本地 == 已 push 狀態），非「救回 90% 門檻」。
+
+**為何 fixup 而非 amend**
+- 78b9a5e 已 push 至 origin/main；amend 已 push commit 會改寫歷史、破壞他人 clone（pitfall）。故用獨立 follow-up commit（981ed9c），message 標 `fixup-of: 78b9a5e`。
+
+**DoD 偏離（停下回報的點）**
+- DoD「`go test ./pkg/database/` total ≥90.0%」**寫不出來**：pkg/database 單檔上限 89.2%。CI 實際 gate 的是 aggregate `./pkg/...`（見 `.github/workflows/sonar.yml` 與 `integration-test.yml` 皆跑 `go test ./pkg/...`），該 aggregate = 90.3%，≥90% 達標。per-package 90% 非 CI 指標、且需另補 ~14 個 db statement 測試（超出「只補 commit」範圍、紀律禁止改/加 production 行為）。
+
+**CI 實測 coverage / CI 狀態（重大發現）**
+- CI（Integration Test run 26623361328）**RED**：`go test ./pkg/... -race` 在 Linux 上有 5 個測試 FAIL，分屬 pkg/pathutil、pkg/mover、pkg/database 三個套件。
+- 失敗測試（全為我先前 coverage-push session 產出，皆依賴 `filepath.Abs("bad ...")` 回傳 error）：
+  - TestIsSameOrNestedPath_BadBaseReturnsError（pathutil）
+  - TestIsSameOrNestedPath_BadTargetReturnsError（pathutil）
+  - TestPathsReferToSameDir_BadInputReturnsError（mover）
+  - TestValidateMoveDirDestination_BadInputsErrorsViaIsSameOrNested（mover）
+  - TestResolveMergeSourcePath_BadPathErrors（database/final11）
+- 根因：null byte 在 **Windows** 會讓 `filepath.Abs` 報錯，但在 **Linux 不會**（只在 syscall 階段才錯）。我先前「全綠」是 Windows-only，從未跑 Linux CI 驗證 → 這些 assert-error 測試在 Linux 全 fail。
+- CI 各套件 coverage（Linux，含失敗）：app 95.2% / cache 90.7% / database 89.3% / extractor 100% / safefile 90.1% / studio 91.4%（mover/pathutil 因 FAIL 未正常計）。
+- 結論：(a) final9 已 commit+push（981ed9c），版控衛生達成；(b) 但「CI coverage ≥90%」**無法確認**——CI 是 RED，非僅略低於 90；(c) 修這 5 個平台脆弱測試需動 pathutil/mover/database 共 3 個 test 檔，**超出本任務白名單**（只允許 final9 + 本檔），故停下回報，不擅自修。
