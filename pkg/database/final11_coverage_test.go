@@ -2,6 +2,7 @@ package database
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -31,6 +32,11 @@ func TestJSONBackupCreate_MissingDataFileErrors(t *testing.T) {
 // round-trip (defensive branch) — exercised via a path with a null byte
 // which makes filepath.Abs fail.
 func TestResolveMergeSourcePath_BadPathErrors(t *testing.T) {
+	// resolveMergeSourcePath errors only when filepath.Abs fails; a
+	// null-byte path triggers that on Windows only (Linux/macOS accept it).
+	if runtime.GOOS != "windows" {
+		t.Skip("filepath.Abs rejects null-byte paths only on Windows")
+	}
 	if _, err := resolveMergeSourcePath("bad\x00path.json"); err == nil {
 		t.Error("resolveMergeSourcePath with null-byte path returned nil error")
 	}

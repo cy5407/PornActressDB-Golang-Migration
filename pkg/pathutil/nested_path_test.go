@@ -75,7 +75,12 @@ func TestIsSameOrNestedPath_SiblingPath(t *testing.T) {
 }
 
 func TestIsSameOrNestedPath_BadBaseReturnsError(t *testing.T) {
-	// null byte makes filepath.Abs fail (syscall rejects it).
+	// A null byte makes filepath.Abs fail only on Windows; on Linux/macOS
+	// filepath.Abs never rejects it (the error would surface later at a
+	// syscall), so this error branch is reachable on Windows only.
+	if runtime.GOOS != "windows" {
+		t.Skip("filepath.Abs rejects null-byte paths only on Windows")
+	}
 	_, err := IsSameOrNestedPath("bad\x00base", t.TempDir())
 	if err == nil {
 		t.Fatal("expected error from bad base path, got nil")
@@ -83,6 +88,9 @@ func TestIsSameOrNestedPath_BadBaseReturnsError(t *testing.T) {
 }
 
 func TestIsSameOrNestedPath_BadTargetReturnsError(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("filepath.Abs rejects null-byte paths only on Windows")
+	}
 	_, err := IsSameOrNestedPath(t.TempDir(), "bad\x00target")
 	if err == nil {
 		t.Fatal("expected error from bad target path, got nil")

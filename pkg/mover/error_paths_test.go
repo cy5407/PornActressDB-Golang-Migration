@@ -248,6 +248,12 @@ func TestValidateMoveDirDestination_NestedInSourceErrors(t *testing.T) {
 }
 
 func TestValidateMoveDirDestination_BadInputsErrorsViaIsSameOrNested(t *testing.T) {
+	// Relies on a null-byte path making filepath.Abs (inside
+	// IsSameOrNestedPath) fail — Windows-only behaviour. On Linux/macOS
+	// Abs accepts it, so this validation-error branch is unreachable there.
+	if runtime.GOOS != "windows" {
+		t.Skip("null-byte path triggers the Abs error branch only on Windows")
+	}
 	res := &MergeResult{}
 	if validateMoveDirDestination("bad\x00src", t.TempDir(), res) {
 		t.Error("validateMoveDirDestination accepted bad source")
@@ -303,6 +309,11 @@ func TestLoadOperationLog_MatchingDirEntrySkipped(t *testing.T) {
 // --- pathsReferToSameDir error path -----------------------------------
 
 func TestPathsReferToSameDir_BadInputReturnsError(t *testing.T) {
+	// pathsReferToSameDir errors only when filepath.Abs fails, which for a
+	// null-byte path happens on Windows only.
+	if runtime.GOOS != "windows" {
+		t.Skip("filepath.Abs rejects null-byte paths only on Windows")
+	}
 	if _, err := pathsReferToSameDir("bad\x00src", t.TempDir()); err == nil {
 		t.Error("pathsReferToSameDir bad src returned nil error")
 	}
