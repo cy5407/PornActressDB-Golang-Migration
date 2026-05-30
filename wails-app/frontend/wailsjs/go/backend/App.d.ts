@@ -25,10 +25,6 @@ export function CheckDirConflicts(arg1:Array<backend.DirMoveItem>):Promise<Array
 
 export function DbGetVideo(arg1:string):Promise<database.VideoData>;
 
-export function DbListVideos():Promise<Array<database.VideoData>>;
-
-export function DbUpdateVideo(arg1:string,arg2:string):Promise<void>;
-
 export function GetActressPrimaryStudios(arg1:Array<string>):Promise<Record<string, string>>;
 
 export function GetOperation(arg1:string):Promise<mover.OperationLog>;

@@ -42,14 +42,6 @@ export function DbGetVideo(arg1) {
   return window['go']['backend']['App']['DbGetVideo'](arg1);
 }
 
-export function DbListVideos() {
-  return window['go']['backend']['App']['DbListVideos']();
-}
-
-export function DbUpdateVideo(arg1, arg2) {
-  return window['go']['backend']['App']['DbUpdateVideo'](arg1, arg2);
-}
-
 export function GetActressPrimaryStudios(arg1) {
   return window['go']['backend']['App']['GetActressPrimaryStudios'](arg1);
 }
