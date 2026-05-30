@@ -230,9 +230,16 @@ backup / restore CLI 名稱**固定**為 `classifier.exe db backup-create` / `db
 `.github/workflows/sqlite-verify-sync.yml` 是 Phase A 釋出閘 — `pkg/database/**`、`cmd/scanner/**`、`tests/fixtures/json_db_minimal/**` 的改動會觸發 build → `db migrate-from-json` → `db verify-sync`。任何非零 exit 都會擋 PR。本機重現：
 
 ```powershell
+# WARNING: 不要直接對 tests\fixtures\json_db_minimal 跑 migrate-from-json，
+# spec § 7.1 sibling lookup 會在 fixture 旁邊生出 db.sqlite，污染 git 工作樹
+# 並讓整合測試 (tests/integration/test_db_cli_contract.py) 在連跑時行為不穩。
+# 一律先 copy fixture 到 temp dir 再對 temp dir 跑。
 go build -o classifier.exe .\cmd\scanner
-.\classifier.exe db migrate-from-json -data-dir tests\fixtures\json_db_minimal
-.\classifier.exe db verify-sync -data-dir tests\fixtures\json_db_minimal
+$tmp = Join-Path $env:TEMP "json_db_minimal_$([guid]::NewGuid())"
+Copy-Item -Recurse tests\fixtures\json_db_minimal $tmp
+.\classifier.exe db migrate-from-json -data-dir $tmp
+.\classifier.exe db verify-sync -data-dir $tmp
+Remove-Item -Recurse -Force $tmp
 ```
 
 ## 備註
