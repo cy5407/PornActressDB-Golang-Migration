@@ -204,7 +204,7 @@ func TestUpdateVideoFields_RejectsBadInput(t *testing.T) {
 
 func TestApplyVideoFieldUpdates_StampsUpdatedAtWhenAbsent(t *testing.T) {
 	v := &VideoData{Code: "X"}
-	applyVideoFieldUpdates(v, map[string]any{"id": "abc"})
+	ApplyVideoFieldUpdates(v, map[string]any{"id": "abc"})
 	if v.ID != "abc" {
 		t.Errorf("ID not applied: %q", v.ID)
 	}

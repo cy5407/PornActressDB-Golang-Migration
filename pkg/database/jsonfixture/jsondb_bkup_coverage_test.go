@@ -1,10 +1,12 @@
-package database
+package jsonfixture
 
 import (
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	. "actress-classifier/pkg/database"
 )
 
 // seededJSONDB returns a loaded JSONDatabase with a couple of videos and

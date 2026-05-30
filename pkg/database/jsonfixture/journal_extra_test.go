@@ -1,4 +1,4 @@
-package database
+package jsonfixture
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	. "actress-classifier/pkg/database"
 )
 
 // ============================================================
