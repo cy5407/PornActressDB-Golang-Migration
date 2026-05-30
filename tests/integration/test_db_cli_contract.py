@@ -77,10 +77,20 @@ def _seed_fixture_data_dir(tmp_path: Path, name: str = "json_db_minimal") -> Pat
 
     The same fixture is used by `.github/workflows/sqlite-verify-sync.yml`,
     so this keeps local tests aligned with what CI sees.
+
+    Strips any `db.sqlite*` files that may have leaked into the fixture
+    from a previous `classifier.exe db migrate-from-json` run pointed at
+    the real fixture (spec § 7.1 sibling-lookup would place
+    `db.sqlite` right next to `data.json` for any non-default
+    `-data-dir`). Without this guard, copytree carries the polluted
+    SQLite into tmp and migrate-from-json sees a non-empty DB on the
+    second test run, making behaviour order-dependent.
     """
     src = ROOT_DIR / "tests" / "fixtures" / name
     dst = tmp_path / name
     shutil.copytree(src, dst)
+    for leaked in dst.glob("db.sqlite*"):
+        leaked.unlink()
     return dst
 
 
@@ -408,14 +418,18 @@ def test_db_resync_from_json_wipes_then_repopulates(tmp_path):
     )
     assert deleted.returncode == 0, deleted.stderr
 
-    # Sanity: the deleted video really is gone (db get returns exit 1).
+    # Sanity: the deleted video really is gone. Slice B2 reserves exit
+    # code 3 for "lookup miss" — keep the assertion strict so any future
+    # regression that quietly conflates not-found with other errors
+    # (exit 1) lights up here.
     missing = subprocess.run(
         [str(CLASSIFIER_EXE), "db", "get", "-data-dir", "data/json_db", target_code],
         **common,
     )
-    assert missing.returncode != 0, (
-        f"pre-resync setup broken; expected db get {target_code} to fail, "
-        f"got stdout={missing.stdout}"
+    assert missing.returncode == 3, (
+        f"pre-resync setup broken; expected db get {target_code} to exit 3 "
+        f"(Slice B2 not-found contract), got returncode={missing.returncode} "
+        f"stdout={missing.stdout} stderr={missing.stderr}"
     )
 
     # Resync — wipe + rebuild in a single transaction. Report struct
