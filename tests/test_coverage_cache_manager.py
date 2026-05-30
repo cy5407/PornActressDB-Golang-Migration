@@ -518,7 +518,7 @@ def test_cleanup_expired_normalizes_go_result_and_passes_parameters(tmp_path, mo
                 "min_keep": min_keep,
             }
         )
-        return {"deleted_count": 5, "freed_bytes": "1024", "remaining_count": 10}
+        return {"deleted_files": 5, "freed_bytes": "1024", "remaining_files": 10}
 
     with patch("src.services.go_cli.cache_prune", side_effect=fake_cache_prune):
         result = mgr.cleanup_expired(ttl_days=7)
@@ -559,10 +559,9 @@ def test_cleanup_by_size_normalizes_go_result_and_passes_parameters(tmp_path, mo
             }
         )
         return {
-            "deleted_count": 2,
+            "deleted_files": 2,
             "freed_bytes": 512,
-            "remaining_count": 8,
-            "current_size_mb": 0.5,
+            "remaining_files": 8,
         }
 
     with patch("src.services.go_cli.cache_prune", side_effect=fake_cache_prune):
@@ -574,7 +573,7 @@ def test_cleanup_by_size_normalizes_go_result_and_passes_parameters(tmp_path, mo
         "min_keep": 100,
     }
     assert result["deleted_files"] == 2
-    assert result["current_size_mb"] == 0.5
+    assert result["remaining_files"] == 8
 
 
 def test_cleanup_by_size_raises_on_none(tmp_path, monkeypatch):
@@ -645,7 +644,7 @@ def test_auto_cleanup_normalizes_go_result(tmp_path, monkeypatch):
                 "min_keep": min_keep,
             }
         )
-        return {"deleted_count": 3, "freed_bytes": 1048576}
+        return {"deleted_files": 3, "freed_bytes": 1048576}
 
     with patch("src.services.go_cli.cache_prune", side_effect=fake_cache_prune):
         result = mgr.auto_cleanup(ttl_days=9, max_size_mb=123, min_keep_entries=7)

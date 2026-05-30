@@ -1,3 +1,12 @@
+//! 已退役：v2 shadow 流程的 JSON DB 解析模組。
+//!
+//! 此模組的 `VideoRow` / 解析輔助函式僅供 legacy v2 shadow 子命令消費：
+//! `db-init` / `db-stats` / `db-compare-json` / `db-benchmark` / `query`，以及
+//! deprecated 的 `db-import-json`（搭配 `sqlite_db`，`SCHEMA_VERSION = 2`）。
+//!
+//! runtime 為 v3 SQLite（`data/db.sqlite`），v3 匯入請走 `runtime_import` /
+//! `v3_schema` 與 `db-import-json-v3` 子命令。
+
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::Value;

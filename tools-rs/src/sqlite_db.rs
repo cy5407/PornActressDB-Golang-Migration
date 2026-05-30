@@ -1,3 +1,12 @@
+//! 已退役：v2 shadow SQLite 模組（`SCHEMA_VERSION = 2`）。
+//!
+//! 此模組僅供 legacy 子命令消費：`db-init` / `db-stats` / `db-compare-json` /
+//! `db-benchmark` / `query`，以及 deprecated 的 `db-import-json`。它寫入的是
+//! v2 shadow DB（例如 `data/shadow.sqlite`），不是 runtime source of truth。
+//!
+//! runtime 為 v3 SQLite（`data/db.sqlite`），請改用 `v3_schema` / `runtime_import` /
+//! `verify` 模組與 `db-import-json-v3` / `db-verify` / `db-migrate` 子命令。
+
 use crate::json_db::{now_utc_rfc3339, system_time_rfc3339, VideoRow};
 use anyhow::{bail, Context, Result};
 use rusqlite::{params, Connection, TransactionBehavior};

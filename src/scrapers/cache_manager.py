@@ -576,9 +576,9 @@ class CacheManager:
             if go_result:
                 logger.info(f"🧹 Go 快取清理完成: {go_result}")
                 return {
-                    "deleted_files": go_result.get("deleted_count", 0),
+                    "deleted_files": go_result.get("deleted_files", 0),
                     "freed_bytes": int(go_result.get("freed_bytes", 0)),
-                    "remaining_files": go_result.get("remaining_count", 0),
+                    "remaining_files": go_result.get("remaining_files", 0),
                 }
             raise RuntimeError(ERR_EMPTY_CACHE_PRUNE_RESULT)
         except Exception as e:
@@ -612,10 +612,9 @@ class CacheManager:
             if go_result:
                 logger.info(f"🧹 Go 大小清理完成: {go_result}")
                 return {
-                    "deleted_files": go_result.get("deleted_count", 0),
+                    "deleted_files": go_result.get("deleted_files", 0),
                     "freed_bytes": int(go_result.get("freed_bytes", 0)),
-                    "remaining_files": go_result.get("remaining_count", 0),
-                    "current_size_mb": go_result.get("current_size_mb", 0.0),
+                    "remaining_files": go_result.get("remaining_files", 0),
                 }
             raise RuntimeError(ERR_EMPTY_CACHE_PRUNE_RESULT)
         except Exception as e:
@@ -710,7 +709,7 @@ class CacheManager:
                 result = {
                     "expired_cleanup": go_result,
                     "size_cleanup": {},
-                    "total_deleted": go_result.get("deleted_count", 0),
+                    "total_deleted": go_result.get("deleted_files", 0),
                     "total_freed_mb": go_result.get("freed_bytes", 0) / (1024 * 1024),
                 }
                 if result["total_deleted"] > 0:

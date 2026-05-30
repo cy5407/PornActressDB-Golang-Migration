@@ -56,13 +56,6 @@ func (cm *CacheManager) safeRemoveCacheFile(filePath string) error {
 	return os.Remove(filePath)
 }
 
-// New 建立快取管理器（向後相容別名，建議改用 NewCacheManager）
-//
-// Deprecated: 請改用 NewCacheManager
-func New(cacheDir string) *CacheManager {
-	return NewCacheManager(cacheDir)
-}
-
 // loadIndex 載入索引檔案
 func (cm *CacheManager) loadIndex() (*CacheIndex, error) {
 	data, err := safefile.ReadFile(cm.indexPath)
@@ -166,85 +159,6 @@ func (cm *CacheManager) GetStats() (*CacheStats, error) {
 	}
 
 	return stats, nil
-}
-
-// CleanupExpired 清理過期快取
-func (cm *CacheManager) CleanupExpired(config PruneConfig) (*CleanupResult, error) {
-	index, err := cm.loadIndex()
-	if err != nil {
-		return nil, err
-	}
-
-	result := &CleanupResult{
-		RemainingFiles: len(index.Entries),
-	}
-
-	// 檢查最小保留數
-	if len(index.Entries) <= config.MinKeepEntries {
-		return result, nil
-	}
-
-	now := float64(time.Now().Unix())
-	ttlSeconds := float64(config.TTLDays * 24 * 3600)
-	expired := limitCleanupCandidates(collectExpiredCandidates(index.Entries, now, ttlSeconds), len(index.Entries), config.MinKeepEntries)
-	cm.applyCleanupCandidates(index, expired, config.DryRun, result)
-
-	result.FreedMB = float64(result.FreedBytes) / (1024 * 1024)
-	// 計算剩餘檔案數（考慮 dry run）
-	if config.DryRun {
-		result.RemainingFiles = len(index.Entries) - result.DeletedFiles
-	} else {
-		result.RemainingFiles = len(index.Entries)
-	}
-
-	// 儲存更新的索引
-	if !config.DryRun && result.DeletedFiles > 0 {
-		if err := cm.saveIndex(index); err != nil {
-			return result, fmt.Errorf("儲存索引失敗: %w", err)
-		}
-	}
-
-	return result, nil
-}
-
-// CleanupBySize 根據大小清理快取 (LRU 策略)
-func (cm *CacheManager) CleanupBySize(config PruneConfig) (*CleanupResult, error) {
-	index, err := cm.loadIndex()
-	if err != nil {
-		return nil, err
-	}
-
-	result := &CleanupResult{
-		RemainingFiles: len(index.Entries),
-	}
-
-	// 計算當前總大小
-	var totalSize int64
-	for _, entry := range index.Entries {
-		totalSize += int64(entry.SizeBytes)
-	}
-
-	maxSizeBytes := int64(config.MaxSizeMB) * 1024 * 1024
-
-	// 不需要清理
-	if totalSize <= maxSizeBytes {
-		return result, nil
-	}
-
-	bytesToFree := totalSize - maxSizeBytes
-	candidates := selectSizeCleanupCandidates(collectLRUCandidates(index.Entries), bytesToFree, len(index.Entries), config.MinKeepEntries)
-	cm.applyCleanupCandidates(index, candidates, config.DryRun, result)
-	result.FreedMB = float64(result.FreedBytes) / (1024 * 1024)
-	result.RemainingFiles = len(index.Entries)
-
-	// 儲存更新的索引
-	if !config.DryRun && result.DeletedFiles > 0 {
-		if err := cm.saveIndex(index); err != nil {
-			return result, fmt.Errorf("儲存索引失敗: %w", err)
-		}
-	}
-
-	return result, nil
 }
 
 // ClearAll 清空所有快取
@@ -534,10 +448,4 @@ func (cm *CacheManager) Delete(key string) error {
 		return cm.saveIndex(index)
 	}
 	return nil
-}
-
-// Exists 檢查快取 key 是否存在且未過期。
-func (cm *CacheManager) Exists(key string) bool {
-	_, found, _ := cm.Get(key) //nolint:errcheck
-	return found
 }

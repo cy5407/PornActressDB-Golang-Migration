@@ -56,16 +56,6 @@ type PruneConfig struct {
 	DryRun         bool `json:"dry_run"`
 }
 
-// DefaultPruneConfig 預設清理配置
-func DefaultPruneConfig() PruneConfig {
-	return PruneConfig{
-		TTLDays:        7,
-		MaxSizeMB:      500,
-		MinKeepEntries: 100,
-		DryRun:         false,
-	}
-}
-
 // CachePayload 快取讀寫載荷格式（與 Python cache_manager.py 磁碟格式相容）
 type CachePayload struct {
 	Version    int     `json:"version"`

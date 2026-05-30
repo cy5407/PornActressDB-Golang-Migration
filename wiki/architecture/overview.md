@@ -114,7 +114,7 @@
 | `pkg/studio/` | 片商識別 |
 | `pkg/pathutil/` | 統一巢狀路徑判定 |
 | `pkg/safefile/` | temp + rename 原子寫入，由 `pkg/database` 與 `pkg/mover` 使用 |
-| `pkg/contracts/` | 介面契約（`Scanner` / `Mover` / `HistoryService`），方便測試替換實作 |
+| `pkg/contracts/` | CLI JSON 契約 DTO 結構（`ScanResult` / `MoveItem` / `MoveResult` / `BatchResult` / `MergeResult` / `OperationLog` 等），鎖定 CLI ↔ Python/Wails 呼叫端的 JSON 介面 |
 
 > **雙 Go module**：`go.mod`（module `actress-classifier`）涵蓋 `cmd/` 與 `pkg/`；`wails-app/go.mod`（module `wails-app`）為桌面端，透過 `replace actress-classifier => ../` 直接 import 上層 pkg/。Wails 相依（`github.com/wailsapp/wails/v2`）只存在 `wails-app` module，避免汙染 CLI 模組樹。
 

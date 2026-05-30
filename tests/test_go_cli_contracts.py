@@ -1391,3 +1391,211 @@ def test_db_backup_create_dual_snapshot_legacy_path_alias(monkeypatch):
     assert result["path"].endswith(".json")
     assert result["backup_path"].endswith(".sqlite")
     assert captured["args"] == ["db", "backup-create", "-data-dir", "custom_db"]
+
+
+# ---------------------------------------------------------------------------
+# T15 — argv locks for cache_* / history / move wrappers.
+#
+# These wrappers translate Python kwargs into classifier.exe argv. Pin the
+# exact argv list each one builds so any flag rename / reorder / drop on the
+# Go side surfaces here. cache_* wrappers call go_cli.run WITHOUT exe_path
+# (fake signature: def fake_run(args, *, timeout=30)); move_*/history wrappers
+# pass exe_path through (fake signature: def fake_run(args, **kwargs)).
+# ---------------------------------------------------------------------------
+
+
+def test_cache_get_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        # aGVsbG8= == base64("hello"); cache_get base64-decodes value.
+        return {"success": True, "value": "aGVsbG8="}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.cache_get("demo-key", cache_dir="mycache") == b"hello"
+    assert captured["args"] == ["cache", "get", "-cache-dir", "mycache", "demo-key"]
+
+
+def test_cache_set_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.cache_set("demo-key", b"hello", ttl_hours=48, cache_dir="mycache") is True
+    # value is base64("hello") == "aGVsbG8=" and rides last in argv.
+    assert captured["args"] == [
+        "cache",
+        "set",
+        "-cache-dir",
+        "mycache",
+        "-ttl-hours",
+        "48",
+        "demo-key",
+        "aGVsbG8=",
+    ]
+
+
+def test_cache_delete_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    assert go_cli.cache_delete("demo-key", cache_dir="mycache") is True
+    assert captured["args"] == ["cache", "delete", "-cache-dir", "mycache", "demo-key"]
+
+
+def test_cache_get_stats_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"total_files": 0}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.cache_get_stats(cache_dir="mycache")
+    assert captured["args"] == ["cache", "stats", "-cache-dir", "mycache"]
+
+
+def test_cache_prune_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"deleted_files": 0}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.cache_prune(
+        cache_dir="mycache",
+        ttl_days=14,
+        max_size_mb=250,
+        min_keep=50,
+        dry_run=True,
+    )
+    assert captured["args"] == [
+        "cache",
+        "prune",
+        "-cache-dir",
+        "mycache",
+        "-ttl-days",
+        "14",
+        "-max-size",
+        "250",
+        "-min-keep",
+        "50",
+        "-dry-run",
+    ]
+
+
+def test_cache_clear_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, *, timeout=30):
+        captured["args"] = args
+        return {"success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    # Non-dry-run appends -confirm.
+    go_cli.cache_clear(cache_dir="mycache", dry_run=False)
+    assert captured["args"] == ["cache", "clear", "-cache-dir", "mycache", "-confirm"]
+
+    # dry-run appends -dry-run instead of -confirm.
+    go_cli.cache_clear(cache_dir="mycache", dry_run=True)
+    assert captured["args"] == ["cache", "clear", "-cache-dir", "mycache", "-dry-run"]
+
+
+def test_rollback_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return {"success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.rollback("op-123", log_dir="mylogs")
+    assert captured["args"] == ["history", "rollback", "op-123", "-log-dir", "mylogs"]
+
+
+def test_rollback_last_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return {"success": True}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.rollback_last(log_dir="mylogs")
+    assert captured["args"] == ["history", "rollback", "--last", "-log-dir", "mylogs"]
+
+
+def test_list_operations_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return []
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.list_operations(limit=25, log_dir="mylogs")
+    assert captured["args"] == ["history", "list", "-log-dir", "mylogs", "-limit", "25"]
+
+
+def test_move_file_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return {"success": True, "source": "a.mp4", "destination": "b.mp4"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    go_cli.move_file("a.mp4", "b.mp4", "overwrite")
+    assert captured["args"] == [
+        "move",
+        "-src",
+        "a.mp4",
+        "-dst",
+        "b.mp4",
+        "-strategy",
+        "overwrite",
+    ]
+
+
+def test_batch_move_argv(monkeypatch):
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return {"total": 1, "success": 1, "failed": 0, "skipped": 0, "results": []}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+    # Don't depend on WSL path conversion for the temp file path assertion.
+    monkeypatch.setattr(go_cli, "_to_windows_cli_path", lambda path: path)
+
+    go_cli.batch_move(
+        [{"source": "a.mp4", "destination": "b.mp4"}],
+        strategy="rename",
+        log_dir="mylogs",
+    )
+    args = captured["args"]
+    # batch_move writes a temp JSON whose path rides at index 2; assert the
+    # subcommand + flags around it rather than the volatile temp path.
+    assert args[0] == "move"
+    assert args[1] == "-batch"
+    assert args[2].endswith(".json")
+    assert args[3:] == ["-strategy", "rename", "-log-dir", "mylogs"]

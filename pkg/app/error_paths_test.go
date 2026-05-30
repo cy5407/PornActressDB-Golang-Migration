@@ -99,3 +99,47 @@ func TestMergeResultToContract_PropagatesNonEmptyErrors(t *testing.T) {
 		t.Errorf("Errors[0].Error = %q, want boom", got.Errors[0].Error)
 	}
 }
+
+// TestMergeResultToContract_CopiesEveryField pins that every mover.MergeResult
+// field maps onto the matching contracts.MergeResult field. FilesSkipped in
+// particular must be carried through (a prior bug zeroed it), so all scalar
+// fields are filled with distinct non-zero values and checked individually.
+func TestMergeResultToContract_CopiesEveryField(t *testing.T) {
+	res := mover.MergeResult{
+		SourceDir:    "src-dir",
+		DestDir:      "dst-dir",
+		FilesMoved:   7,
+		FilesSkipped: 4,
+		FilesTotal:   11,
+		Errors: []mover.MoveResult{
+			{Source: "x", Destination: "y", Success: false, Error: "boom"},
+		},
+		Success:    true,
+		DeletedSrc: true,
+	}
+	got := mergeResultToContract(res)
+	if got.SourceDir != "src-dir" {
+		t.Errorf("SourceDir = %q, want src-dir", got.SourceDir)
+	}
+	if got.DestDir != "dst-dir" {
+		t.Errorf("DestDir = %q, want dst-dir", got.DestDir)
+	}
+	if got.FilesMoved != 7 {
+		t.Errorf("FilesMoved = %d, want 7", got.FilesMoved)
+	}
+	if got.FilesSkipped != 4 {
+		t.Errorf("FilesSkipped = %d, want 4 (must not be zeroed)", got.FilesSkipped)
+	}
+	if got.FilesTotal != 11 {
+		t.Errorf("FilesTotal = %d, want 11", got.FilesTotal)
+	}
+	if len(got.Errors) != 1 || got.Errors[0].Error != "boom" {
+		t.Errorf("Errors = %+v, want one entry with Error=boom", got.Errors)
+	}
+	if !got.Success {
+		t.Error("Success = false, want true")
+	}
+	if !got.DeletedSrc {
+		t.Error("DeletedSrc = false, want true")
+	}
+}

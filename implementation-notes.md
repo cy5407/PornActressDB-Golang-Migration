@@ -1186,3 +1186,13 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 **Open questions（pre-decide，end-of-turn 再回報）**
 - T3 DTO 收斂採「保留 contracts + 加對齊守門」最小版，不做移除轉換層的大重構（風險/範圍過大）。
 - T5 cache prune：採「移除死鏈」需動 Python+Go 多處且涉 live Get/Set 邊界，將以保守方式處理（優先修 D4-2 鍵名，死鏈移除謹慎評估）。
+
+**Wave 2 完成（T9/T10/T13/T14/T15/T3/T5，並行 workflow 5 agent 執行互斥檔案集）**
+- 用唯讀 workflow（6 planner）先產精確編輯計畫（含測試檔「純死碼可刪 vs 混測 live 須拆」分類），再用實作 workflow（5 agent 並行編輯互斥檔案集、各自 self-verify、紅了 revert）。
+- T10 pkg/cache：刪 New/CleanupExpired/CleanupBySize/Exists/DefaultPruneConfig + 對應測試；live AutoCleanup/Get/Set/Delete/Stats/Clear 與共用 helper 保留。
+- T9 wails：刪 DbListVideos/DbUpdateVideo（連帶解 D5-6）、ConfigService.CfgPath、ini 三層 shim（app.go defaultPreferences/buildIni/parseIni + services exported ParseIni/BuildIni）；app_test.go 改走 ConfigService.Save/Load round-trip。wailsjs bindings 仍含死 JS（需 regenerate，無害）。
+- T13/T14：scripts/db-sync.* + tools-rs v2 shadow 加退役註解；main.rs about 標 db-import-json deprecated；wiki overview.md 校正 pkg/contracts 為 DTO；重產 wiki-data.js。
+- T11(low)/T12：刪 UnifiedFileScanner(scanner.py 整檔)、WebSearcher 4 孤兒方法 + 私有 helper、tools/studio_updates/ 四腳本；拆分 test_code_review_regressions/test_coverage_web_searcher（只刪對應 test）。**保留** shiroutowiki_scraper 屬性/import（觸 __init__ side-effect 風險，標 skipped）。
+- T15/T3/T5：test_go_cli_contracts.py 補 11 條 argv 鎖；pkg/app 加 TestMergeResultToContract_CopiesEveryField；cache_manager.py 修 prune 鍵名（deleted_count→deleted_files 等、移除 current_size_mb）+ 連帶修 normalizer 測試。
+- **連帶**：刪孤兒測試 tests/test_pornactressdb_audit.py（其目標 docs/pornactressdb_audit.py 已被使用者 housekeeping commit 6fe8157 刪除，擋住 pytest 收集）。
+- 全樹驗證：Root Go `build+vet+test ./...` 全綠、Wails 綠、Rust 58 passed（含 schema-drift 鎖）、Python 1058 passed/2 skipped、CI 釋出閘（migrate-from-json+verify-sync）exit 0。

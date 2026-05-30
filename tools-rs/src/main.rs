@@ -14,7 +14,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "db-tool")]
 #[command(
-    about = "SQLite tooling for the actress classifier: legacy shadow-DB subcommands (db-init / db-import-json / db-stats / db-compare-json / db-benchmark / query) plus v3 runtime helpers (db-import-json-v3 / db-verify / db-migrate)."
+    about = "SQLite tooling for the actress classifier: legacy v2 shadow-DB subcommands (db-init / db-stats / db-compare-json / db-benchmark / query), the deprecated db-import-json (v2 shadow; prints a deprecation warning), plus v3 runtime helpers (db-import-json-v3 / db-verify / db-migrate)."
 )]
 struct Cli {
     #[command(subcommand)]

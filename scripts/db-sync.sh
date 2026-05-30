@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 # db-sync.sh — Shadow SQLite 同步腳本
+#
+# ⚠ 已退役：此腳本串接的是 v2 shadow 流程（db-init / db-import-json / db-compare-json，
+# 寫入 data/shadow.sqlite），已非 runtime source of truth。runtime 為 v3 SQLite
+# （data/db.sqlite）。請改用：
+#   - classifier db verify-sync / export-json / resync-from-json（v3 runtime）
+#   - db-tool db-import-json-v3 / db-verify（v3 runtime）
+# 本腳本僅供 legacy v2 shadow 診斷保留，不應再進入正式同步流程。
+#
 # 用法: bash scripts/db-sync.sh [--benchmark] [--skip-compact]
 #
 # 執行順序: compact → db-init → db-import-json → db-compare-json

@@ -5,6 +5,20 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-05-30] docs | 更正 pkg/contracts 描述 + 標示 v2 shadow 退役流程（純註解/文字）
+
+**涉及檔案**：
+- `wiki/architecture/overview.md` — `pkg/contracts/` 由錯誤的「介面契約（Scanner / Mover / HistoryService）」更正為實際內容：CLI JSON 契約 DTO 結構（`ScanResult` / `MoveItem` / `MoveResult` / `BatchResult` / `MergeResult` / `OperationLog` 等）
+- `scripts/db-sync.ps1`、`scripts/db-sync.sh` — 檔首加退役註解：此腳本串接的是 v2 shadow 流程（寫 `data/shadow.sqlite`），請改用 `classifier db verify-sync / export-json / resync-from-json`（v3）或 `db-tool db-import-json-v3 / db-verify`
+- `tools-rs/src/sqlite_db.rs`、`tools-rs/src/json_db.rs` — 加 `//!` module-level 退役註解，標明為 v2 shadow（`SCHEMA_VERSION = 2`）僅供 legacy 子命令消費
+- `tools-rs/src/main.rs` — `about` 字串把 `db-import-json` 從 legacy 群組改標為 deprecated，與實際 deprecation 分層一致
+- `wiki/wiki-data.js` — 由 `python wiki/gen_data.py` 重新產生
+
+**摘要**：
+- 純註解 / 文字更正，零行為改動。
+- `pkg/contracts/` 實際是 CLI JSON DTO（已 Read 三個檔確認），原 wiki 描述為過時的介面契約說法。
+- v2 shadow（`db-init` / `db-import-json` / `db-compare-json` → `data/shadow.sqlite`）已非 runtime source of truth；runtime 為 v3 SQLite（`data/db.sqlite`）。相關 script 與 Rust 模組補上退役指引。
+
 ## [2026-05-25] fix + pitfall | Scan 階段移除 code dedupe 修 multi-part 切割檔 + 記錄同名跨目錄 latent edge case
 
 **涉及檔案**：

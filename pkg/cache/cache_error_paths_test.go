@@ -53,24 +53,6 @@ func TestGetStats_CorruptIndexPropagates(t *testing.T) {
 	}
 }
 
-func TestCleanupExpired_CorruptIndexPropagates(t *testing.T) {
-	dir := t.TempDir()
-	writeCorruptIndex(t, dir)
-	cm := NewCacheManager(dir)
-	if _, err := cm.CleanupExpired(DefaultPruneConfig()); err == nil {
-		t.Error("CleanupExpired on corrupt index returned nil, want error")
-	}
-}
-
-func TestCleanupBySize_CorruptIndexPropagates(t *testing.T) {
-	dir := t.TempDir()
-	writeCorruptIndex(t, dir)
-	cm := NewCacheManager(dir)
-	if _, err := cm.CleanupBySize(DefaultPruneConfig()); err == nil {
-		t.Error("CleanupBySize on corrupt index returned nil, want error")
-	}
-}
-
 func TestClearAll_CorruptIndexPropagates(t *testing.T) {
 	dir := t.TempDir()
 	writeCorruptIndex(t, dir)
@@ -84,43 +66,8 @@ func TestAutoCleanup_CorruptIndexPropagates(t *testing.T) {
 	dir := t.TempDir()
 	writeCorruptIndex(t, dir)
 	cm := NewCacheManager(dir)
-	if _, err := cm.AutoCleanup(context.Background(), DefaultPruneConfig()); err == nil {
+	if _, err := cm.AutoCleanup(context.Background(), PruneConfig{TTLDays: 7, MaxSizeMB: 500, MinKeepEntries: 100, DryRun: false}); err == nil {
 		t.Error("AutoCleanup on corrupt index returned nil, want error")
-	}
-}
-
-func TestCleanupExpired_BelowMinKeepIsNoOp(t *testing.T) {
-	dir := t.TempDir()
-	// Single entry, MinKeepEntries set higher → loop short-circuits.
-	createTestIndex(t, dir, map[string]IndexEntry{
-		"k1": {FilePath: filepath.Join(dir, "k1.json"), CreatedAt: 1, TTLSeconds: 1, SizeBytes: 10},
-	})
-	cm := NewCacheManager(dir)
-	cfg := DefaultPruneConfig()
-	cfg.MinKeepEntries = 10
-	res, err := cm.CleanupExpired(cfg)
-	if err != nil {
-		t.Fatalf("CleanupExpired: %v", err)
-	}
-	if res.DeletedFiles != 0 {
-		t.Errorf("DeletedFiles = %d, want 0 (below MinKeep)", res.DeletedFiles)
-	}
-}
-
-func TestCleanupBySize_UnderLimitIsNoOp(t *testing.T) {
-	dir := t.TempDir()
-	createTestIndex(t, dir, map[string]IndexEntry{
-		"k1": {FilePath: filepath.Join(dir, "k1.json"), CreatedAt: 1, SizeBytes: 100},
-	})
-	cm := NewCacheManager(dir)
-	cfg := DefaultPruneConfig()
-	cfg.MaxSizeMB = 100 // 100 MB cap, single 100-byte entry → no cleanup
-	res, err := cm.CleanupBySize(cfg)
-	if err != nil {
-		t.Fatalf("CleanupBySize: %v", err)
-	}
-	if res.DeletedFiles != 0 {
-		t.Errorf("DeletedFiles = %d, want 0 (under MaxSize)", res.DeletedFiles)
 	}
 }
 

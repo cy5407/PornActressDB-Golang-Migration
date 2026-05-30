@@ -11,6 +11,7 @@ import (
 
 	"actress-classifier/pkg/database"
 	"actress-classifier/pkg/pathutil"
+	"wails-app/backend/services"
 )
 
 // newTestApp builds an App ready for unit testing.
@@ -922,7 +923,7 @@ func TestResetPreferences(t *testing.T) {
 	app := newTestApp(t)
 
 	// Write non-default prefs
-	p := defaultPreferences()
+	p := services.DefaultPreferences()
 	p.BatchSize = 99
 	_ = app.UpdatePreferences(p)
 
@@ -940,15 +941,21 @@ func TestResetPreferences(t *testing.T) {
 // ============================================================================
 
 func TestBuildIni_RoundTrip(t *testing.T) {
-	original := defaultPreferences()
+	original := services.DefaultPreferences()
 	original.BatchSize = 7
 	original.Mode = "auto"
 	original.PythonExePath = `venv\Scripts\python.exe`
 
-	iniContent := buildIni(original)
+	cfgPath := filepath.Join(t.TempDir(), "config.ini")
+	svc := services.NewConfigService(cfgPath)
+	if err := svc.Save(original); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
 
-	parsed := defaultPreferences()
-	parseIni(iniContent, &parsed)
+	parsed, err := svc.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
 
 	if parsed.BatchSize != 7 {
 		t.Errorf("BatchSize round-trip failed: got %d", parsed.BatchSize)
@@ -1199,9 +1206,9 @@ func TestResolvePythonExe_PrefersConfiguredRelativePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prefs := defaultPreferences()
+	prefs := services.DefaultPreferences()
 	prefs.PythonExePath = configValue
-	if err := os.WriteFile(configPath, []byte(buildIni(prefs)), 0o644); err != nil {
+	if err := services.NewConfigService(configPath).Save(prefs); err != nil {
 		t.Fatal(err)
 	}
 

@@ -68,26 +68,6 @@ func NewApp() *App {
 	return app
 }
 
-// ============================================================================
-// backend-package helpers (re-exported for test access)
-// ============================================================================
-
-func defaultPreferences() services.Preferences {
-	return services.DefaultPreferences()
-}
-
-func buildIni(p services.Preferences) string {
-	svc := services.NewConfigService("")
-	_ = svc
-	// Use ConfigService.Save logic via a temp path approach is complex;
-	// delegate directly to the exported package-level helper.
-	return services.BuildIni(p)
-}
-
-func parseIni(content string, p *services.Preferences) {
-	services.ParseIni(content, p)
-}
-
 // Startup is called when the app starts.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
@@ -412,25 +392,6 @@ func (a *App) DbGetVideo(code string) (*VideoData, error) {
 		return nil, err
 	}
 	return a.db.GetVideo(code)
-}
-
-// DbUpdateVideo updates specific fields of a video record.
-// fields is a JSON-encoded map of field updates.
-func (a *App) DbUpdateVideo(code string, fieldsJSON string) error {
-	a.ensureDB()
-	var updates map[string]any
-	if err := json.Unmarshal([]byte(fieldsJSON), &updates); err != nil {
-		return fmt.Errorf("JSON 解析失敗: %w", err)
-	}
-	return a.db.UpdateVideoFields(code, updates)
-}
-
-// DbListVideos returns all video records in the database.
-func (a *App) DbListVideos() ([]*VideoData, error) {
-	if err := a.ensureDB(); err != nil {
-		return nil, err
-	}
-	return a.db.GetAllVideos()
 }
 
 // ============================================================================

@@ -15,7 +15,6 @@ from src.scrapers.async_scraper import AsyncWebScraper, ScrapingConfig
 from src.scrapers.base_scraper import BaseScraper, ErrorType, ScrapingException
 from src.scrapers.cache_manager import get_global_cache_manager
 from src.scrapers.rate_limiter import RateLimiter
-from src.scrapers.sources.shiroutowiki_scraper import ShiroutoWikiScraper
 from src.services.safe_javdb_searcher import SafeJAVDBSearcher
 from src.services.web_searcher import WebSearcher
 from src.utils.actress_name_filter import ActressNameFilter
@@ -24,23 +23,6 @@ from src.utils.actress_name_filter import ActressNameFilter
 class _TextResponse:
     def __init__(self, text: str):
         self.text = text
-
-
-def test_search_japanese_sites_only_delegates_to_unified_method():
-    searcher = WebSearcher.__new__(WebSearcher)
-    captured = {}
-
-    def fake_search(code, stop_event):
-        captured["args"] = (code, stop_event)
-        return {"actresses": ["Aoi"]}
-
-    searcher.search_japanese_sites = fake_search
-    stop_event = object()
-
-    result = searcher.search_japanese_sites_only("ABCD-123", stop_event)
-
-    assert result == {"actresses": ["Aoi"]}
-    assert captured["args"] == ("ABCD-123", stop_event)
 
 
 def test_web_searcher_builds_zero_prefixed_alias_candidates():
@@ -52,70 +34,6 @@ def test_web_searcher_builds_zero_prefixed_alias_candidates():
     ]
     assert searcher._build_code_candidates("MBDD-2094") == ["MBDD-2094"]
     assert searcher._build_code_candidates("MIDV-0567") == ["MIDV-0567"]
-
-
-def test_batch_cascade_search_retries_zero_prefixed_alias():
-    searcher = WebSearcher.__new__(WebSearcher)
-    searcher.search_cache = {}
-    batch_calls = []
-
-    def fake_batch_search(codes, _stop_event, _progress_callback=None):
-        batch_calls.append(list(codes))
-        results = {}
-        for code in codes:
-            if code == "MIDV-567":
-                results[code] = {
-                    "source": "AV-WIKI",
-                    "actresses": ["範例女優"],
-                }
-            else:
-                results[code] = None
-        return results
-
-    searcher.batch_search_avwiki_concurrent = fake_batch_search
-    stop_event = threading.Event()
-
-    results = searcher.batch_cascade_search(["MIDV-00567"], stop_event)
-
-    assert batch_calls == [["MIDV-00567"], ["MIDV-567"]]
-    assert results["MIDV-00567"]["actresses"] == ["範例女優"]
-    assert results["MIDV-00567"]["matched_code"] == "MIDV-567"
-    assert results["MIDV-00567"]["search_alias_used"] is True
-    assert results["MIDV-00567"]["final_source"] == "AV-WIKI"
-
-
-def test_search_shiroutowiki_only_expands_candidates_and_preserves_alias_metadata():
-    class _FakeShiroutoWikiScraper:
-        def __init__(self):
-            self.captured = None
-
-        def build_search_candidates(self, code: str) -> list[str]:
-            return ShiroutoWikiScraper.build_search_candidates(code)
-
-        def search_video(self, code: str, candidates: list[str]):
-            self.captured = (code, candidates)
-            return {
-                "source": "shiroutowiki",
-                "actresses": ["三崎なな"],
-                "matched_code": "MIDV-567",
-                "delivery_code": "midv00567",
-                "product_code": "MIDV-567",
-            }
-
-    searcher = WebSearcher.__new__(WebSearcher)
-    searcher.search_cache = {}
-    searcher.shiroutowiki_scraper = _FakeShiroutoWikiScraper()
-
-    result = searcher.search_shiroutowiki_only("MIDV-00567", threading.Event())
-
-    assert searcher.shiroutowiki_scraper.captured == (
-        "MIDV-00567",
-        ["MIDV-00567", "MIDV00567", "midv00567", "MIDV-567", "MIDV567"],
-    )
-    assert result["matched_code"] == "MIDV-567"
-    assert result["search_alias_used"] is True
-    assert result["searched_code"] == "MIDV-00567"
-    assert searcher.search_cache["shiroutowiki::MIDV-00567"]["source"] == "shiroutowiki"
 
 
 def test_actress_name_filter_allows_single_latin_name_when_requested():

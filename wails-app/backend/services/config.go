@@ -74,11 +74,6 @@ func NewConfigService(cfgPath string) *ConfigService {
 	return &ConfigService{cfgPath: cfgPath}
 }
 
-// CfgPath returns the resolved path to config.ini.
-func (c *ConfigService) CfgPath() string {
-	return c.cfgPath
-}
-
 // Load reads preferences from config.ini; returns defaults on file-not-found.
 func (c *ConfigService) Load() (Preferences, error) {
 	prefs := DefaultPreferences()
@@ -104,16 +99,6 @@ func (c *ConfigService) Reset() error {
 // ============================================================================
 // INI parser / writer
 // ============================================================================
-
-// ParseIni parses ini content into the Preferences struct pointed to by p.
-func ParseIni(content string, p *Preferences) {
-	parseIni(content, p)
-}
-
-// BuildIni serialises a Preferences struct into an ini-formatted string.
-func BuildIni(p Preferences) string {
-	return buildIni(p)
-}
 
 func parseIni(content string, p *Preferences) {
 	var section string

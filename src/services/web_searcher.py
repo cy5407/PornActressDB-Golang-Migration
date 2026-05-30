@@ -167,20 +167,6 @@ class WebSearcher:
             enriched["search_alias_used"] = True
         return enriched
 
-    def _build_shiroutowiki_candidates(self, code: str) -> list[str]:
-        """建立 shiroutowiki 查詢候選。
-
-        先保留既有 00xxx alias fallback，再展開網站專用候選格式。
-        """
-        candidates: list[str] = []
-        for base_candidate in self._build_code_candidates(code):
-            for candidate in self.shiroutowiki_scraper.build_search_candidates(
-                base_candidate
-            ):
-                if candidate not in candidates:
-                    candidates.append(candidate)
-        return candidates
-
     def search_info(self, code: str, stop_event: threading.Event) -> dict | None:
         """多層級搜尋策略 - AV-WIKI -> JAVDB"""
         if stop_event.is_set():
@@ -720,12 +706,6 @@ class WebSearcher:
             if result and result.get("actresses"):
                 self.search_cache[code] = result
 
-    def search_japanese_sites_only(
-        self, code: str, stop_event: threading.Event
-    ) -> dict | None:
-        """search_japanese_sites 的別名，保持向下相容。"""
-        return self.search_japanese_sites(code, stop_event)
-
     def search_japanese_sites(
         self, code: str, stop_event: threading.Event
     ) -> dict | None:
@@ -811,156 +791,6 @@ class WebSearcher:
             if progress_callback:
                 progress_callback(f"❌ AV-WIKI 批次搜尋失敗: {e}\n")
             return cached_results
-
-    # ============================================================
-    # 級聯搜尋功能（新增）
-    # ============================================================
-
-    def _apply_cascade_avwiki_results(
-        self,
-        codes: list[str],
-        avwiki_results: dict[str, dict | None],
-        progress,
-        result_callback=None,
-        stop_event: threading.Event | None = None,
-    ) -> tuple[dict[str, dict], list[str]]:
-        results: dict[str, dict] = {}
-        failed_codes: list[str] = []
-        for code in codes:
-            if stop_event and stop_event.is_set():
-                break
-            result = avwiki_results.get(code)
-            if result and result.get("actresses"):
-                results[code] = {
-                    **result,
-                    "tried_sources": ["AV-WIKI"],
-                    "final_source": "AV-WIKI",
-                }
-                if result_callback:
-                    result_callback(code, results[code], None)
-                progress.update(code, is_success=True, source="AV-WIKI")
-            else:
-                failed_codes.append(code)
-                results[code] = {
-                    "actresses": [],
-                    "source": None,
-                    "tried_sources": ["AV-WIKI"],
-                    "final_source": None,
-                }
-        return results, failed_codes
-
-    def _build_cascade_alias_map(
-        self, failed_codes: list[str]
-    ) -> tuple[dict[str, str], list[str]]:
-        alias_map: dict[str, str] = {}
-        alias_codes: list[str] = []
-        for code in failed_codes:
-            candidates = self._build_code_candidates(code)
-            if len(candidates) > 1:
-                alias_code = candidates[1]
-                alias_map[code] = alias_code
-                alias_codes.append(alias_code)
-        return alias_map, list(dict.fromkeys(alias_codes))
-
-    def _apply_cascade_alias_results(
-        self,
-        failed_codes: list[str],
-        alias_map: dict[str, str],
-        alias_results: dict[str, dict | None],
-        results: dict[str, dict],
-        progress,
-        result_callback=None,
-    ) -> list[str]:
-        remaining_failed_codes: list[str] = []
-        for code in failed_codes:
-            alias_code = alias_map.get(code)
-            alias_result = alias_results.get(alias_code) if alias_code else None
-            if alias_result and alias_result.get("actresses"):
-                results[code] = {
-                    **self._attach_alias_metadata(alias_result, code, alias_code),
-                    "tried_sources": ["AV-WIKI", f"AV-WIKI alias:{alias_code}"],
-                    "final_source": "AV-WIKI",
-                }
-                if result_callback:
-                    result_callback(code, results[code], None)
-                progress.update(
-                    code,
-                    is_success=True,
-                    source="AV-WIKI alias",
-                    increment=False,
-                )
-            else:
-                remaining_failed_codes.append(code)
-        return remaining_failed_codes
-
-    def batch_cascade_search(
-        self,
-        codes: list[str],
-        stop_event: threading.Event,
-        progress_callback=None,
-        result_callback=None,
-    ) -> dict[str, dict]:
-        """批次智慧搜尋：AV-WIKI 主流程 + alias fallback。"""
-        from utils.progress_tracker import SearchProgressInfo
-
-        if not codes:
-            return {}
-
-        total_codes = len(codes)
-        progress = SearchProgressInfo(total=total_codes)
-        if progress_callback:
-            progress_callback(f"\n{'=' * 60}\n")
-            progress_callback(
-                f"📡 第一階段：AV-WIKI 批次併發搜尋 ({total_codes} 個番號)\n"
-            )
-            progress_callback(f"{'=' * 60}\n")
-        progress.set_phase(1, "AV-WIKI 批次搜尋", 2)
-
-        def phase1_callback(msg):
-            if progress_callback:
-                progress_callback(msg)
-
-        avwiki_results = self.batch_search_avwiki_concurrent(
-            codes, stop_event, phase1_callback
-        )
-        results, failed_codes = self._apply_cascade_avwiki_results(
-            codes, avwiki_results, progress, result_callback, stop_event
-        )
-
-        if stop_event.is_set():
-            return results
-
-        progress.set_phase(2, "整理 AV-WIKI 搜尋結果")
-        alias_map, unique_alias_codes = self._build_cascade_alias_map(failed_codes)
-        if unique_alias_codes and not stop_event.is_set():
-            if progress_callback:
-                progress_callback(f"\n{'=' * 60}\n")
-                progress_callback(
-                    f"🧪 第二階段：可疑番號別名 fallback ({len(unique_alias_codes)} 個候選)\n"
-                )
-                progress_callback(f"{'=' * 60}\n")
-
-            alias_results = self.batch_search_avwiki_concurrent(
-                unique_alias_codes, stop_event, phase1_callback
-            )
-            failed_codes = self._apply_cascade_alias_results(
-                failed_codes,
-                alias_map,
-                alias_results,
-                results,
-                progress,
-                result_callback,
-            )
-
-        for code in failed_codes:
-            if result_callback:
-                result_callback(code, results[code], None)
-            progress.update(code, is_success=False, increment=False)
-
-        if progress_callback:
-            progress_callback(f"\n{progress.format_summary()}\n")
-
-        return results
 
     def _extract_studio_info(self, soup: BeautifulSoup, code: str) -> dict:
         """從網頁中提取片商資訊。"""
@@ -1134,29 +964,6 @@ class WebSearcher:
         self.javdb_searcher.clear_cache()
         logger.info("🧹 已清空所有搜尋快取 (包含 JAVDB)")
 
-    def search_shiroutowiki_only(
-        self, code: str, stop_event: threading.Event
-    ) -> dict | None:
-        """僅搜尋 shiroutowiki。保留舊 API，內部委派到網站專用實作。"""
-        if stop_event.is_set():
-            return None
-        if code in self.search_cache:
-            return self.search_cache[code]
-
-        try:
-            candidates = self._build_shiroutowiki_candidates(code)
-            result = self.shiroutowiki_scraper.search_video(code, candidates)
-            if result and result.get("actresses"):
-                result = self._attach_alias_metadata(
-                    result, code, result.get("matched_code", code)
-                )
-                self.search_cache[code] = result
-                self.search_cache[f"shiroutowiki::{code}"] = result
-            return result
-        except Exception as e:
-            logger.exception(f"shiroutowiki 搜尋番號 {code} 時發生錯誤: ")
-            return self._build_search_error_result("shiroutowiki", str(e))
-
     def search_avwiki_only(self, code: str, stop_event: threading.Event) -> dict | None:
         """僅搜尋 AV-WIKI。"""
         return self.search_japanese_sites(code, stop_event)
@@ -1266,59 +1073,3 @@ class WebSearcher:
         if result and result.get("search_status") == "search_error":
             return f"⚠️ {item}: 搜尋頁面異常 - {result.get('search_error_reason', '未知原因')}\n"
         return f"❌ {item}: 未找到結果\n"
-
-    def cascade_search_single(
-        self, code: str, stop_event: threading.Event, sources: list[str] = None
-    ) -> dict:
-        """
-        對單一番號執行 AV-WIKI 搜尋
-
-        Args:
-            code: 影片番號
-            stop_event: 停止事件
-            sources: 搜尋來源順序，預設 ['avwiki']
-
-        Returns:
-            搜尋結果（含 tried_sources 欄位）
-        """
-        sources = sources or ["avwiki"]
-        tried = []
-
-        # 檢查快取
-        if code in self.search_cache:
-            return {
-                **self.search_cache[code],
-                "tried_sources": ["cache"],
-                "final_source": "cache",
-            }
-
-        for source in sources:
-            if stop_event.is_set():
-                break
-
-            tried.append(source)
-            result = None
-
-            try:
-                if source == "avwiki":
-                    result = self._search_av_wiki(code, stop_event)
-
-                if result and result.get("actresses"):
-                    result["tried_sources"] = tried
-                    result["final_source"] = source
-                    self.search_cache[code] = result
-                    return result
-
-            except Exception as e:
-                logger.warning(f"[級聯搜尋] {code} 在 {source} 失敗: {e}")
-                continue
-
-        # 全部失敗
-        return {
-            "code": code,
-            "actresses": [],
-            "source": None,
-            "tried_sources": tried,
-            "final_source": None,
-            "status": "not_found",
-        }

@@ -9,42 +9,6 @@ import (
 )
 
 // ============================================================
-// New (deprecated alias)
-// ============================================================
-
-func TestNew_AliasForNewCacheManager(t *testing.T) {
-	dir := t.TempDir()
-	cm := New(dir)
-	if cm == nil {
-		t.Fatal("New returned nil")
-		return
-	}
-	if cm.cacheDir != dir {
-		t.Errorf("cacheDir = %q, want %q", cm.cacheDir, dir)
-	}
-}
-
-// ============================================================
-// DefaultPruneConfig
-// ============================================================
-
-func TestDefaultPruneConfig(t *testing.T) {
-	cfg := DefaultPruneConfig()
-	if cfg.TTLDays <= 0 {
-		t.Errorf("TTLDays should be positive, got %d", cfg.TTLDays)
-	}
-	if cfg.MaxSizeMB <= 0 {
-		t.Errorf("MaxSizeMB should be positive, got %d", cfg.MaxSizeMB)
-	}
-	if cfg.MinKeepEntries < 0 {
-		t.Errorf("MinKeepEntries should be non-negative, got %d", cfg.MinKeepEntries)
-	}
-	if cfg.DryRun {
-		t.Error("default DryRun should be false")
-	}
-}
-
-// ============================================================
 // validateCachePath
 // ============================================================
 
@@ -236,38 +200,11 @@ func TestAutoCleanup_Empty(t *testing.T) {
 	dir := t.TempDir()
 	cm := NewCacheManager(dir)
 
-	result, err := cm.AutoCleanup(context.Background(), DefaultPruneConfig())
+	result, err := cm.AutoCleanup(context.Background(), PruneConfig{TTLDays: 7, MaxSizeMB: 500, MinKeepEntries: 100, DryRun: false})
 	if err != nil {
 		t.Fatalf("AutoCleanup on empty cache error: %v", err)
 	}
 	if result.DeletedFiles != 0 {
 		t.Errorf("expected 0 deletions on empty cache, got %d", result.DeletedFiles)
-	}
-}
-
-// ============================================================
-// CleanupBySize — 非 dry-run 實際刪除
-// ============================================================
-
-func TestCleanupBySize_NonDryRun(t *testing.T) {
-	dir := t.TempDir()
-	cm := NewCacheManager(dir)
-
-	// 寫入兩筆真實快取
-	if err := cm.Set("big-key-1", make([]byte, 512), 24); err != nil {
-		t.Fatalf("Set error: %v", err)
-	}
-	if err := cm.Set("big-key-2", make([]byte, 512), 24); err != nil {
-		t.Fatalf("Set error: %v", err)
-	}
-
-	// MaxSizeMB=0 強制刪除所有
-	cfg := PruneConfig{MaxSizeMB: 0, MinKeepEntries: 0, DryRun: false}
-	result, err := cm.CleanupBySize(cfg)
-	if err != nil {
-		t.Fatalf("CleanupBySize error: %v", err)
-	}
-	if result.DeletedFiles == 0 {
-		t.Errorf("expected deletions with MaxSizeMB=0, got 0")
 	}
 }

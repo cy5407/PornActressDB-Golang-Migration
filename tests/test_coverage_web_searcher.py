@@ -949,34 +949,6 @@ def test_batch_search_progress_for_not_found_and_batch_delay(monkeypatch):
     assert sleeps == [0.25]
 
 
-def test_search_shiroutowiki_only_stop_event():
-    s = _make_searcher()
-    stop = threading.Event()
-    stop.set()
-
-    assert s.search_shiroutowiki_only("SSIS-123", stop) is None
-
-
-def test_search_shiroutowiki_only_cache_hit():
-    s = _make_searcher()
-    cached = {"actresses": ["A"]}
-    s.search_cache["SSIS-123"] = cached
-
-    assert s.search_shiroutowiki_only("SSIS-123", threading.Event()) is cached
-
-
-def test_search_shiroutowiki_only_returns_error_on_exception():
-    s = _make_searcher()
-    s._build_shiroutowiki_candidates = lambda _code: (_ for _ in ()).throw(
-        RuntimeError("shirouto down")
-    )
-
-    result = s.search_shiroutowiki_only("SSIS-123", threading.Event())
-
-    assert result["source"] == "shiroutowiki"
-    assert result["search_status"] == "search_error"
-
-
 # ============================================================
 # _search_av_wiki
 # ============================================================
@@ -1283,48 +1255,3 @@ def test_get_studio_name_by_code_falls_back_to_code():
 
     assert s._get_studio_name_by_code("ssis") == "S1"
     assert s._get_studio_name_by_code("ABCD") == "ABCD"
-
-
-def test_cascade_search_single_cache_hit():
-    s = _make_searcher()
-    s.search_cache["SSIS-123"] = {"actresses": ["A"], "source": "AV-WIKI"}
-
-    result = s.cascade_search_single("SSIS-123", threading.Event())
-
-    assert result["tried_sources"] == ["cache"]
-    assert result["final_source"] == "cache"
-
-
-def test_cascade_search_single_success_caches_result():
-    s = _make_searcher()
-    s._search_av_wiki = lambda _code, _stop: {
-        "actresses": ["A"],
-        "source": "AV-WIKI",
-    }
-
-    result = s.cascade_search_single("SSIS-123", threading.Event())
-
-    assert result["tried_sources"] == ["avwiki"]
-    assert result["final_source"] == "avwiki"
-    assert s.search_cache["SSIS-123"]["actresses"] == ["A"]
-
-
-def test_cascade_search_single_returns_not_found_after_exception():
-    s = _make_searcher()
-    s._search_av_wiki = lambda *_args: (_ for _ in ()).throw(RuntimeError("boom"))
-
-    result = s.cascade_search_single("SSIS-123", threading.Event())
-
-    assert result["status"] == "not_found"
-    assert result["tried_sources"] == ["avwiki"]
-
-
-def test_cascade_search_single_stops_before_source():
-    s = _make_searcher()
-    stop = threading.Event()
-    stop.set()
-
-    result = s.cascade_search_single("SSIS-123", stop)
-
-    assert result["status"] == "not_found"
-    assert result["tried_sources"] == []
