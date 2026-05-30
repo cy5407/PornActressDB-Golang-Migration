@@ -154,7 +154,7 @@ func (s *SQLiteStore) UpdateVideoFields(code string, updates map[string]any) err
 	if err != nil {
 		return err
 	}
-	applyVideoFieldUpdates(existing, updates)
+	ApplyVideoFieldUpdates(existing, updates)
 	return s.upsertVideoRuntime(code, existing)
 }
 
@@ -257,11 +257,11 @@ func resolveOrSynthLinkActress(tx *sql.Tx, trimmed, updatedAt string) (actressID
 	return id, "", nil
 }
 
-// applyVideoFieldUpdates is the package-level twin of
-// (*JSONDatabase).applyVideoFieldUpdates so the SQLite runtime can
-// reuse the field handler table without standing up a JSONDatabase
-// instance.
-func applyVideoFieldUpdates(video *VideoData, updates map[string]any) {
+// ApplyVideoFieldUpdates is the package-level video-update applier. It
+// reuses the field handler table without standing up a JSONDatabase
+// instance and is exported so the jsonfixture package can reuse the
+// exact same key surface (handler map stays unexported in this package).
+func ApplyVideoFieldUpdates(video *VideoData, updates map[string]any) {
 	hasUpdatedAt := false
 	for key, value := range updates {
 		if key == "updated_at" {
@@ -559,7 +559,7 @@ func (s *SQLiteStore) GetActressPrimaryStudio(actressName string) string {
 	if err := rows.Err(); err != nil {
 		return ""
 	}
-	return selectPrimaryStudio(counts)
+	return SelectPrimaryStudio(counts)
 }
 
 // --- Lifecycle / journal-shaped no-ops ----------------------------------
@@ -597,7 +597,7 @@ func (s *SQLiteStore) MergeFromFile(sourceFile string, overwrite bool) (*MergeSt
 	if strings.TrimSpace(sourceFile) == "" {
 		return nil, errors.New("source file path cannot be empty")
 	}
-	sourceRoot, err := loadMergeSourceData(sourceFile)
+	sourceRoot, err := LoadMergeSourceData(sourceFile)
 	if err != nil {
 		return nil, err
 	}
@@ -678,7 +678,7 @@ func (s *SQLiteStore) mergeVideosFromRoot(root *DatabaseData, overwrite bool, no
 // Each UpsertVideo opens its own SQLite tx; this layer adds no
 // transaction boundary.
 func (s *SQLiteStore) mergeOneVideo(mapCode string, video *VideoData, overwrite bool, now string, stats *MergeStats) error {
-	code, videoCopy, ok := prepareVideoForMerge(mapCode, video, now)
+	code, videoCopy, ok := PrepareVideoForMerge(mapCode, video, now)
 	if !ok {
 		return nil
 	}
@@ -839,7 +839,7 @@ func (s *SQLiteStore) BackupList() ([]string, error) {
 	}
 	var paths []string
 	for _, e := range entries {
-		if !e.IsDir() && isBackupJSONFileName(e.Name()) {
+		if !e.IsDir() && IsBackupJSONFileName(e.Name()) {
 			paths = append(paths, filepath.Join(backupDir, e.Name()))
 		}
 	}
@@ -863,18 +863,20 @@ func (s *SQLiteStore) BackupCleanup(days, maxCount int) (int, error) {
 		return 0, fmt.Errorf("無法讀取備份目錄: %w", err)
 	}
 	cutoff := time.Now().AddDate(0, 0, -days)
-	deleted := deleteExpiredBackups(backupDir, entries, cutoff)
+	deleted := DeleteExpiredBackups(backupDir, entries, cutoff)
 	remaining, err := s.BackupList()
 	if err != nil {
 		return deleted, nil //nolint:nilerr // mirror JSONDatabase.BackupCleanup: best-effort tail trim
 	}
-	deleted += removeOldestBackups(remaining, maxCount)
+	deleted += RemoveOldestBackups(remaining, maxCount)
 	return deleted, nil
 }
 
 // --- helpers shared with the JSON-side merge path ----------------------
 
-// loadMergeSourceData / prepareVideoForMerge / deleteExpiredBackups /
-// removeOldestBackups / isBackupJSONFileName are defined in
-// pkg/database/jsondb.go and reused here so the merge + backup code
-// paths stay byte-for-byte aligned with the legacy JSON helpers.
+// LoadMergeSourceData / PrepareVideoForMerge / DeleteExpiredBackups /
+// RemoveOldestBackups / IsBackupJSONFileName / SelectPrimaryStudio are
+// defined in pkg/database/jsondb.go (exported so jsonfixture can reuse
+// the exact same code paths). The merge + backup code paths stay
+// byte-for-byte aligned across the SQLite runtime and the jsonfixture
+// JSONDatabase mirror.

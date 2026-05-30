@@ -113,29 +113,29 @@ func TestMergeFromFile_VideoUpsertFailsWhenVideosTableMissing(t *testing.T) {
 	}
 }
 
-// --- prepareVideoForMerge legacy-id / empty-code branches --------------
+// --- PrepareVideoForMerge legacy-id / empty-code branches --------------
 
 func TestPrepareVideoForMerge_Branches(t *testing.T) {
 	now := "2026-01-01T00:00:00Z"
 
 	// nil video → not ok.
-	if _, _, ok := prepareVideoForMerge("MAP", nil, now); ok {
+	if _, _, ok := PrepareVideoForMerge("MAP", nil, now); ok {
 		t.Error("nil video should return ok=false")
 	}
 
 	// Empty code everywhere → not ok.
-	if _, _, ok := prepareVideoForMerge("   ", &VideoData{}, now); ok {
+	if _, _, ok := PrepareVideoForMerge("   ", &VideoData{}, now); ok {
 		t.Error("empty code should return ok=false")
 	}
 
 	// Code from video.GetCode() takes precedence over mapCode.
-	code, prepared, ok := prepareVideoForMerge("MAP-IGNORED", &VideoData{Code: "REAL-1"}, now)
+	code, prepared, ok := PrepareVideoForMerge("MAP-IGNORED", &VideoData{Code: "REAL-1"}, now)
 	if !ok || code != "REAL-1" || prepared.Code != "REAL-1" {
 		t.Errorf("expected REAL-1, got code=%q ok=%v", code, ok)
 	}
 
 	// Empty Code but mapCode present → mapCode used.
-	code2, _, ok2 := prepareVideoForMerge("FROM-MAP", &VideoData{}, now)
+	code2, _, ok2 := PrepareVideoForMerge("FROM-MAP", &VideoData{}, now)
 	if !ok2 || code2 != "FROM-MAP" {
 		t.Errorf("expected FROM-MAP from mapCode, got %q ok=%v", code2, ok2)
 	}

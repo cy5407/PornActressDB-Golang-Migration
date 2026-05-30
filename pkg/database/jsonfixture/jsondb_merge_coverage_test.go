@@ -1,10 +1,12 @@
-package database
+package jsonfixture
 
 import (
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	. "actress-classifier/pkg/database"
 )
 
 // --- MergeFromFile JSON-side error guards ------------------------------

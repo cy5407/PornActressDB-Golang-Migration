@@ -1,4 +1,4 @@
-package database
+package jsonfixture
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	. "actress-classifier/pkg/database"
 )
 
 func setupTestDB(t *testing.T) (*JSONDatabase, string) {
@@ -503,7 +505,7 @@ func TestPrepareVideoForMerge_UsesLegacyIDAndClearsID(t *testing.T) {
 		CreatedAt: "2024-01-01T00:00:00Z",
 	}
 
-	code, prepared, ok := prepareVideoForMerge(" MAP-IGNORED ", original, "2025-01-01T00:00:00Z")
+	code, prepared, ok := PrepareVideoForMerge(" MAP-IGNORED ", original, "2025-01-01T00:00:00Z")
 	if !ok {
 		t.Fatal("Expected video to be prepared")
 	}
@@ -546,7 +548,7 @@ func TestDeleteExpiredBackups_RemovesOnlyExpiredBackupFiles(t *testing.T) {
 		t.Fatalf("ReadDir failed: %v", err)
 	}
 
-	deleted := deleteExpiredBackups(backupDir, entries, time.Now().AddDate(0, 0, -3))
+	deleted := DeleteExpiredBackups(backupDir, entries, time.Now().AddDate(0, 0, -3))
 	if deleted != 1 {
 		t.Fatalf("Expected 1 deleted backup, got %d", deleted)
 	}
@@ -820,7 +822,7 @@ func TestGetActressPrimaryStudio_EmptyName(t *testing.T) {
 }
 
 func TestSelectPrimaryStudio_TieBreaksLexicographically(t *testing.T) {
-	got := selectPrimaryStudio(map[string]int{
+	got := SelectPrimaryStudio(map[string]int{
 		"S1":     2,
 		"MOODYZ": 2,
 	})

@@ -1,4 +1,4 @@
-package database
+package jsonfixture
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	. "actress-classifier/pkg/database"
 )
 
 // --- Load: nil-map initialisation from a minimal data.json -------------

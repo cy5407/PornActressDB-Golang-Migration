@@ -1,4 +1,4 @@
-package database
+package jsonfixture
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	. "actress-classifier/pkg/database"
 )
 
 // loadedJSONDB returns a freshly-loaded JSONDatabase in a temp dir.

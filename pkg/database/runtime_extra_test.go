@@ -132,82 +132,8 @@ func TestBuildExpectedDBMeta_OmitsEmptyValues(t *testing.T) {
 	}
 }
 
-// --- restoreBackupDataFile / rollbackRestoredDataFile round trip -------
-
-func TestRestoreBackupDataFile_HappyPathReplacesContent(t *testing.T) {
-	dir := t.TempDir()
-	dataFile := filepath.Join(dir, "data.json")
-	if err := os.WriteFile(dataFile, []byte("old"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := restoreBackupDataFile(dataFile, []byte("new")); err != nil {
-		t.Fatalf("restoreBackupDataFile: %v", err)
-	}
-	got, _ := os.ReadFile(dataFile)
-	if string(got) != "new" {
-		t.Errorf("file content = %q, want new", got)
-	}
-	// Backup .restore.bak should be removed on happy path
-	if _, err := os.Stat(dataFile + ".restore.bak"); !os.IsNotExist(err) {
-		t.Error(".restore.bak should be removed on success")
-	}
-}
-
-func TestRestoreBackupDataFile_ClearsSidecars(t *testing.T) {
-	dir := t.TempDir()
-	dataFile := filepath.Join(dir, "data.json")
-	sidecar := filepath.Join(dir, "data.journal")
-	if err := os.WriteFile(dataFile, []byte("old"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(sidecar, []byte("sidecar"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := restoreBackupDataFile(dataFile, []byte("new"), sidecar); err != nil {
-		t.Fatalf("restoreBackupDataFile: %v", err)
-	}
-	if _, err := os.Stat(sidecar); !os.IsNotExist(err) {
-		t.Error("sidecar should be cleared")
-	}
-}
-
-func TestRollbackRestoredDataFile_MovesBackupBack(t *testing.T) {
-	dir := t.TempDir()
-	dataFile := filepath.Join(dir, "data.json")
-	backupFile := filepath.Join(dir, "data.json.restore.bak")
-	if err := os.WriteFile(dataFile, []byte("damaged"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(backupFile, []byte("original"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := rollbackRestoredDataFile(dataFile, backupFile); err != nil {
-		t.Fatalf("rollbackRestoredDataFile: %v", err)
-	}
-	got, _ := os.ReadFile(dataFile)
-	if string(got) != "original" {
-		t.Errorf("content = %q, want original", got)
-	}
-}
-
-func TestRollbackRestoredDataFile_HandlesMissingDataFile(t *testing.T) {
-	dir := t.TempDir()
-	dataFile := filepath.Join(dir, "absent.json") // does not exist
-	backupFile := filepath.Join(dir, "absent.json.bak")
-	if err := os.WriteFile(backupFile, []byte("only-backup"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := rollbackRestoredDataFile(dataFile, backupFile); err != nil {
-		t.Errorf("rollbackRestoredDataFile with missing data: %v", err)
-	}
-}
-
-func TestClearBackupRestoreSidecars_ToleratesMissing(t *testing.T) {
-	dir := t.TempDir()
-	if err := clearBackupRestoreSidecars(filepath.Join(dir, "ghost.txt")); err != nil {
-		t.Errorf("clearBackupRestoreSidecars on missing path: %v", err)
-	}
-}
+// restoreBackupDataFile / rollbackRestoredDataFile / clearBackupRestoreSidecars
+// tests moved to pkg/database/jsonfixture/restore_backup_test.go.
 
 // --- mergeOneActress overwrite / new-row paths -------------------------
 
