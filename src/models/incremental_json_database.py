@@ -54,6 +54,11 @@ class IncrementalJSONDB:
     """
     增量 JSON 資料庫管理器
 
+    ⚠️ 非 runtime store：runtime 為 SQLite-only。本類別在 src/ 生產路徑零
+    呼叫，僅作為增量 DB / compact 委派契約與測試 fixture 助手保留；**請勿在
+    runtime 實例化**——其 __init__ 會 touch journal / 寫 index，違反
+    SQLite-only 邊界（審查 D3-5）。
+
     提供增量儲存機制，讀/寫/compact 均委派 Go CLI。
 
     工作原理：

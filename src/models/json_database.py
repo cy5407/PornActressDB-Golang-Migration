@@ -77,6 +77,12 @@ logger = logging.getLogger(__name__)
 class JSONDBManager:
     """JSON 資料庫管理器類別
 
+    ⚠️ 非 runtime store：runtime 已切換為 SQLite-only（source of truth =
+    data/db.sqlite）。本類別在 src/ 生產路徑零呼叫，僅作為匯入/匯出與測試
+    fixture 助手保留；**請勿在 runtime 實例化**——其 __init__ 會建立/寫入
+    data.json，違反「Python 不再寫 JSON」邊界（審查 D3-5）。對應 Go 端
+    pkg/database/jsondb.go 同定位（CLAUDE.md 保留為測試 fixture 助手）。
+
     提供 JSON 檔案型資料庫的管理功能。
 
     Attributes:
