@@ -73,7 +73,7 @@ Phase 1 跑的 `scripts/migrate_log_exception.py` codemod 白名單只認 except
 - [ ] **手動冒煙**：構造觸發兩條 except 的小情境跑一次，目測 log 帶 traceback；無法重現則明寫「未冒煙，原因：X」，不要假跑
 - [ ] **diff 乾淨**：`git diff --stat` 只動到 §2.3 白名單；意外檔案單獨列
 - [ ] **implementation-notes.md 追加區段**已成立、含 timestamp heading 與 Deviations/Tradeoffs ≥ 1 項
-- [ ] **git commit**：完成的改動已 commit，`git status` 顯示 `nothing to commit, working tree clean`
+- [ ] **scope 內改動已 commit**：本 task 涉及的檔案皆已進 commit；`git status` 中剩下的 untracked/dirty 必須全部是「scope 外、預先存在」，在回報內逐項列出（無則寫「無」）。不要要求全域 working tree clean，避免被 scope 外檔卡住
 
 ### 5. 反「提早宣告完成」規則
 
@@ -164,7 +164,7 @@ DoD（命令必須實際跑過且輸出符合，不可主觀宣告）：
   則明寫「未冒煙，原因：X」不假跑
 - [ ] git diff --stat 只動到白名單；意外檔案單獨列
 - [ ] implementation-notes.md 追加區段含 timestamp heading
-- [ ] 全部改動 git commit 後 git status 顯示 nothing to commit, working tree clean
+- [ ] 本 task 涉及的檔案已 commit；git status 中剩下的 untracked/dirty 必須是 scope 外、預先存在的，回報內列出（無則寫「無」）。不要要求全域 working tree clean
 
 不算完成：「ruff fix 應該會處理」但沒實跑 ruff 確認；pytest 寫了沒跑或跑了沒貼；
 改白名單外檔案沒列；留 TODO/FIXME；DoD 任一 ❌ 卻宣稱完成。
@@ -184,6 +184,7 @@ DoD 標 ✅/❌ + git diff --stat + git status 結果 + Open questions。
 | §5 反提早宣告完成 | 濃縮成「不算完成」一行 | 規則不變，敘述精簡 |
 | §6 中途 checkpoint | 併入「回報格式」最後一段 | 兩段都在講何時回報，合併 |
 | §7 回報格式 | 留 1 行歸納 | 結構由 checkpoint 規則隱含 |
+| §4 DoD「scope 內改動已 commit」 | 同義改寫 | 不可寫「working tree clean」這種全域要求，會被 scope 外的 untracked 檔卡住 hook |
 
 刪減原則：**規則本身不刪，只刪重複敘述與動機鋪陳**。Agent 收到壓縮版仍能完整執行所有 DoD。
 

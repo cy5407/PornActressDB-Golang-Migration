@@ -14,6 +14,17 @@
 4. 把 §2.3 受影響檔案白名單寫到「具體 file path」級別，不要寫「database 相關檔案」。
 5. 範本不要刪減段落 — 若某段不適用，寫「N/A，原因：...」，保留結構讓 agent 知道是「故意不做」而非「漏掉」。
 
+### 若 prompt 要套到 `/goal` autonomous 模式
+
+`/goal` 是讓 agent 自動朝目標推進、沒有 human-in-the-loop turn-by-turn。撰寫時額外遵守：
+
+- **不要設計需要 user 中途判斷的分歧點**。所有可預期歧義都要 pre-decide 寫進 prompt：
+  - scope 外的 untracked 檔 → 「不動、在回報列出」
+  - dirty cache / build artefact → 「加 .gitignore，獨立 commit」
+  - hook 卡住 → DoD 不要寫會踩 hook 的全域要求
+- **DoD 不要要求全域 repo 狀態**（如 `git status` 必須 clean）。範圍鎖在「本 task 改動是否 committed」+「scope 外項目逐一列出」即可。
+- **不可預期歧義**：runtime 撞到時，agent 把它寫成 §7 Open question，**剩下 DoD 能跑就跑完**，最後 end turn 讓使用者重新下指令 — **不要連續暫停請使用者選 1/2/3/4**。
+
 ---
 
 ## 範本本體（複製這段）
@@ -76,6 +87,7 @@
 - [ ] **手動冒煙**：`<具體一條 CLI 或 GUI 操作>` + 預期觀察到的結果
   - 例：`.\classifier.exe db verify-sync -data-dir tests\fixtures\json_db_minimal` → exit 0、stdout 含 `verify-sync OK`
 - [ ] **diff 範圍乾淨**：`git diff --stat` 只動到 §2.3 白名單檔案
+- [ ] **scope 內改動已 commit**：本 task 涉及的檔案已進 commit；`git status` 中剩下的 untracked/dirty 必須全部是「scope 外、預先存在」，在回報逐項列出。**不要要求全域 `working tree clean`**——會被 scope 外的快取檔 / 別 session 留下的工作卡住 hook
 - [ ] **`implementation-notes.md` 已追加本任務區段**
   - 含 Design decisions / Deviations / Tradeoffs / Open questions（依 global CLAUDE.md 規範）
   - 區段標題帶起訖時間：`## [YYYY-MM-DD HH:MM → HH:MM, Xh Ym] <任務名>`
