@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"actress-classifier/pkg/app"
-	"actress-classifier/pkg/contracts"
 	"actress-classifier/pkg/extractor"
+	"actress-classifier/pkg/mover"
 	"actress-classifier/pkg/safefile"
 )
 
@@ -197,7 +197,7 @@ func runBatchMoveFile(opts moveCommandOptions) {
 		os.Exit(1)
 	}
 
-	var items []contracts.MoveItem
+	var items []mover.MoveItem
 	unmarshalErr := json.Unmarshal(data, &items)
 	if unmarshalErr != nil {
 		printError(fmt.Sprintf("JSON 解析錯誤: %v", unmarshalErr), "批次檔案必須是有效的 JSON 陣列格式")
@@ -352,7 +352,7 @@ func runHistoryList(opts historyCommandOptions, _ []string) {
 
 	if len(logs) == 0 {
 		if opts.jsonOutput {
-			outputJSON([]contracts.OperationLog{})
+			outputJSON([]mover.OperationLog{})
 		} else {
 			fmt.Println("沒有操作記錄")
 		}

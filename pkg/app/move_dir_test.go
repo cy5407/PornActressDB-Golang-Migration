@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"actress-classifier/pkg/contracts"
+	"actress-classifier/pkg/mover"
 )
 
 // ============================================================
@@ -133,7 +133,7 @@ func TestBatchMoveStdin_ValidJSON(t *testing.T) {
 	dst := filepath.Join(dir, "out", "SSIS-001.mp4")
 	os.WriteFile(src, []byte("video"), 0600)
 
-	items := []contracts.MoveItem{{Source: src, Destination: dst}}
+	items := []mover.MoveItem{{Source: src, Destination: dst}}
 	data, _ := json.Marshal(items)
 
 	// 替換 os.Stdin
@@ -181,7 +181,7 @@ func TestShowOperation_Found(t *testing.T) {
 	dst := filepath.Join(dir, "out", "X-001.mp4")
 	os.WriteFile(src, []byte("x"), 0600)
 
-	items := []contracts.MoveItem{{Source: src, Destination: dst}}
+	items := []mover.MoveItem{{Source: src, Destination: dst}}
 	batch, err := BatchMove(context.Background(), items, "skip", false, logDir)
 	if err != nil {
 		t.Fatalf("batch move error: %v", err)
