@@ -72,9 +72,21 @@ try {
     # -------------------------------------------------------------------------
     # Step 1/5 : root Go
     # -------------------------------------------------------------------------
-    Invoke-Step -StepNumber 1 -Description "root Go: build + vet$(if (-not $Quick) { ' + test' })" -Action {
+    Invoke-Step -StepNumber 1 -Description "root Go: build + vet + gofmt$(if (-not $Quick) { ' + test' })" -Action {
         Invoke-Cmd -Label "go build ./..." -Cmd { go build ./... }
         Invoke-Cmd -Label "go vet ./..."   -Cmd { go vet ./... }
+        # gofmt 檢查 — golangci-lint 在 CI 跑 gofmt,本機若漏掉 CI 一定紅。
+        # 列任何非 standard 格式的 .go 檔,輸出非空就 fail。
+        Invoke-Cmd -Label "gofmt -l . (no diff = ok)" -Cmd {
+            $unformatted = gofmt -l . 2>&1
+            if ($unformatted) {
+                Write-Host "gofmt violations:" -ForegroundColor Red
+                $unformatted | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+                $global:LASTEXITCODE = 1
+            } else {
+                $global:LASTEXITCODE = 0
+            }
+        }
         if (-not $Quick) {
             Invoke-Cmd -Label "go test ./... -count=1" -Cmd { go test ./... -count=1 }
         } else {

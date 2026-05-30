@@ -82,4 +82,3 @@ func TestNewStore_BootstrapsFromPresentJSON(t *testing.T) {
 		t.Errorf("bootstrapped video count = %d, want 3", n)
 	}
 }
-
