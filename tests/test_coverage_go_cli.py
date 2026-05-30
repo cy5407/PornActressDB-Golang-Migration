@@ -213,9 +213,27 @@ class TestDbGetVideo:
             with pytest.raises(GoError):
                 db_get_video("STARS-001")
 
-    def test_not_found_error_returns_none(self):
-        """'not found' GoError 應回傳 None"""
+    def test_not_found_error_returns_none_via_legacy_stderr(self):
+        """Fallback: 舊版 Go 仍以 stderr 子字串為唯一信號（一版過渡相容）"""
         with _mock_run_raise(GoError("item not found")):
+            result = db_get_video("MISSING-001")
+        assert result is None
+
+    def test_not_found_error_returns_none_via_exit_3(self):
+        """Slice B2 主信號：exit 3 GoError 應回傳 None,與 stderr 字串脫鉤"""
+        err = GoError("classifier 回傳錯誤 (exit 3): 任何字串都不影響", returncode=3)
+        with _mock_run_raise(err):
+            result = db_get_video("MISSING-001")
+        assert result is None
+
+    def test_not_found_error_returns_none_via_stdout_error_kind(self):
+        """Slice B2 輔助信號:exit 非 3 但 stdout JSON 帶 error_kind=not_found"""
+        err = GoError(
+            "classifier 回傳錯誤 (exit 1): 中文 stderr",
+            returncode=1,
+            stdout='{"success": false, "error_kind": "not_found"}',
+        )
+        with _mock_run_raise(err):
             result = db_get_video("MISSING-001")
         assert result is None
 
@@ -225,8 +243,15 @@ class TestDbGetVideo:
 # ---------------------------------------------------------------------------
 
 class TestDbBulkOps:
-    def test_db_delete_video_not_found_returns_false(self):
+    def test_db_delete_video_not_found_returns_false_via_legacy_stderr(self):
+        """Legacy fallback: 舊 Go 走 stderr substring"""
         with _mock_run_raise(GoError("video not found")):
+            assert db_delete_video("X-001") is False
+
+    def test_db_delete_video_not_found_returns_false_via_exit_3(self):
+        """Slice B2 主信號:exit 3 應回 False"""
+        err = GoError("中文錯誤訊息也 OK", returncode=3)
+        with _mock_run_raise(err):
             assert db_delete_video("X-001") is False
 
     def test_db_delete_video_other_error_raises(self):
@@ -342,8 +367,15 @@ class TestActressCRUD:
             result = db_get_actress("actress-1")
         assert result["name"] == "Test"
 
-    def test_db_get_actress_not_found_returns_none(self):
+    def test_db_get_actress_not_found_returns_none_via_legacy_stderr(self):
         with _mock_run_raise(GoError("not found")):
+            result = db_get_actress("missing")
+        assert result is None
+
+    def test_db_get_actress_not_found_returns_none_via_exit_3(self):
+        """Slice B2 主信號:即使 stderr 是中文/日文/亂碼,exit 3 一樣回 None"""
+        err = GoError("取得女優失敗: 找不到資料", returncode=3)
+        with _mock_run_raise(err):
             result = db_get_actress("missing")
         assert result is None
 
@@ -367,8 +399,15 @@ class TestActressCRUD:
             result = db_delete_actress("actress-1")
         assert result is True
 
-    def test_db_delete_actress_not_found_returns_false(self):
+    def test_db_delete_actress_not_found_returns_false_via_legacy_stderr(self):
         with _mock_run_raise(GoError("actress not found")):
+            result = db_delete_actress("actress-1")
+        assert result is False
+
+    def test_db_delete_actress_not_found_returns_false_via_exit_3(self):
+        """Slice B2 主信號:exit 3 應回 False"""
+        err = GoError("刪除女優失敗: 不存在", returncode=3)
+        with _mock_run_raise(err):
             result = db_delete_actress("actress-1")
         assert result is False
 

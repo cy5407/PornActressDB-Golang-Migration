@@ -258,6 +258,86 @@ func assertActressesEqual(t *testing.T, got, want []string) {
 // Slice C1 — compact -json no-op + backup-restore mutual exclusion
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Slice B2 — structured not-found signal (exit 3 + stdout JSON envelope)
+//
+// Lock the contract that the Python helper (_is_not_found_error in
+// src/services/go_cli.py) depends on: exit code 3 is reserved for the
+// "lookup miss" case and the stdout payload carries a stable shape so
+// future callers (GUI, log surfacing) can decode it without scraping
+// stderr.
+// ---------------------------------------------------------------------------
+
+func TestNotFoundExitCode_IsThree(t *testing.T) {
+	// Reordering this constant breaks Python's _is_not_found_error. If you
+	// genuinely want a different code, update the Python side and the
+	// docs (docs/boundary-cleanup-tasks.md, docs/ARCHITECTURE.md) in the
+	// same change.
+	if notFoundExitCode != 3 {
+		t.Fatalf("notFoundExitCode = %d, want 3 (Python wrapper contract)", notFoundExitCode)
+	}
+}
+
+func TestBuildNotFoundPayload_VideoShape(t *testing.T) {
+	payload := buildNotFoundPayload("video", "code", "MISSING-001")
+
+	if payload["success"] != false {
+		t.Errorf("success = %v, want false", payload["success"])
+	}
+	if payload["error_kind"] != "not_found" {
+		t.Errorf("error_kind = %v, want not_found", payload["error_kind"])
+	}
+	if payload["kind"] != "video" {
+		t.Errorf("kind = %v, want video", payload["kind"])
+	}
+	if payload["code"] != "MISSING-001" {
+		t.Errorf("code = %v, want MISSING-001", payload["code"])
+	}
+	if msg, _ := payload["message"].(string); !strings.Contains(msg, "video") {
+		t.Errorf("message = %q, expected to mention 'video'", msg)
+	}
+	// Videos use `code`; `id` must NOT leak into the payload (otherwise
+	// downstream consumers might mis-route a video miss as an actress one).
+	if _, leaked := payload["id"]; leaked {
+		t.Errorf("payload should not carry `id` for a video lookup miss: %#v", payload)
+	}
+}
+
+func TestBuildNotFoundPayload_ActressShape(t *testing.T) {
+	payload := buildNotFoundPayload("actress", "id", "ghost-actress")
+
+	if payload["kind"] != "actress" {
+		t.Errorf("kind = %v, want actress", payload["kind"])
+	}
+	if payload["id"] != "ghost-actress" {
+		t.Errorf("id = %v, want ghost-actress", payload["id"])
+	}
+	if msg, _ := payload["message"].(string); !strings.Contains(msg, "actress") {
+		t.Errorf("message = %q, expected to mention 'actress'", msg)
+	}
+	// Actresses use `id`; `code` must NOT leak into the payload.
+	if _, leaked := payload["code"]; leaked {
+		t.Errorf("payload should not carry `code` for an actress lookup miss: %#v", payload)
+	}
+}
+
+func TestBuildNotFoundPayload_SerialisesAsValidJSON(t *testing.T) {
+	// _is_not_found_error in src/services/go_cli.py json.loads() this
+	// stdout, so any encoding regression must light up here first.
+	payload := buildNotFoundPayload("video", "code", "MISSING-001")
+	buf, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var round map[string]any
+	if err := json.Unmarshal(buf, &round); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if round["error_kind"] != "not_found" {
+		t.Errorf("round-trip error_kind = %v, want not_found", round["error_kind"])
+	}
+}
+
 func TestCompactNoopPayload_HasAllPhaseCFields(t *testing.T) {
 	payload := compactNoopPayload("custom-db")
 

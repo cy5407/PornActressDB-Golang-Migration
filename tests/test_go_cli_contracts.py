@@ -578,6 +578,216 @@ def test_db_get_video_returns_none_when_not_found(monkeypatch):
     assert go_cli.db_get_video("MISSING-001", "custom_db") is None
 
 
+# ---------------------------------------------------------------------------
+# Slice B2 — structured not-found signal (exit 3 + stdout JSON envelope)
+#
+# Lock both the primary signal (exit 3 carried on GoError.returncode) and
+# the auxiliary signal (stdout JSON with error_kind=not_found), plus the
+# legacy stderr-substring fallback that lets Python wrappers stay
+# backward-compatible during a one-version rollout where classifier.exe
+# might still exit 1 with the old "video not found" stderr string.
+# ---------------------------------------------------------------------------
+
+
+def test_db_get_video_missing_returns_exit_3_and_structured_json(monkeypatch):
+    """Slice B2 primary signal: exit 3 + stdout JSON envelope makes the
+    wrapper return None without depending on stderr wording."""
+    captured = {}
+
+    def fake_subprocess_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd,
+            3,
+            stdout=json.dumps(
+                {
+                    "success": False,
+                    "error_kind": "not_found",
+                    "kind": "video",
+                    "code": "MISSING-001",
+                    "message": "video not found",
+                }
+            ),
+            stderr="",  # stderr empty — signal lives in exit code + stdout
+        )
+
+    _patch_exe(monkeypatch)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    assert go_cli.db_get_video("MISSING-001", "custom_db") is None
+    assert "db" in captured["cmd"] and "get" in captured["cmd"]
+
+
+def test_db_delete_video_missing_returns_exit_3(monkeypatch):
+    """Slice B2: db_delete_video must return False on exit 3 — the
+    structured not-found signal, no stderr inspection."""
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            3,
+            stdout=json.dumps(
+                {
+                    "success": False,
+                    "error_kind": "not_found",
+                    "kind": "video",
+                    "code": "MISSING-001",
+                    "message": "video not found",
+                }
+            ),
+            stderr="",
+        )
+
+    _patch_exe(monkeypatch)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    assert go_cli.db_delete_video("MISSING-001", "custom_db") is False
+
+
+def test_db_actress_get_missing_returns_exit_3(monkeypatch):
+    """Slice B2: db_get_actress must return None on exit 3 with
+    kind=actress payload."""
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            3,
+            stdout=json.dumps(
+                {
+                    "success": False,
+                    "error_kind": "not_found",
+                    "kind": "actress",
+                    "id": "ghost-actress",
+                    "message": "actress not found",
+                }
+            ),
+            stderr="",
+        )
+
+    _patch_exe(monkeypatch)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    assert go_cli.db_get_actress("ghost-actress", "custom_db") is None
+
+
+def test_db_actress_delete_missing_returns_exit_3(monkeypatch):
+    """Slice B2: db_delete_actress must return False on exit 3."""
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            3,
+            stdout=json.dumps(
+                {
+                    "success": False,
+                    "error_kind": "not_found",
+                    "kind": "actress",
+                    "id": "ghost-actress",
+                    "message": "actress not found",
+                }
+            ),
+            stderr="",
+        )
+
+    _patch_exe(monkeypatch)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    assert go_cli.db_delete_actress("ghost-actress", "custom_db") is False
+
+
+def test_is_not_found_error_works_when_stderr_is_chinese(monkeypatch):
+    """Slice B2 core DoD: change the Go stderr wording (English → Chinese,
+    or any other rewording / emoji / translation) and the wrapper MUST
+    still return None. The structured signal (exit 3 + stdout JSON) is
+    what carries the meaning — stderr is purely human-readable."""
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            3,
+            stdout=json.dumps(
+                {
+                    "success": False,
+                    "error_kind": "not_found",
+                    "kind": "video",
+                    "code": "MISSING-001",
+                }
+            ),
+            # Chinese stderr — would defeat any "not found" substring match
+            # but the wrapper now reads exit code + stdout JSON instead.
+            stderr="取得影片失敗: 找不到資料",
+        )
+
+    _patch_exe(monkeypatch)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    assert go_cli.db_get_video("MISSING-001", "custom_db") is None
+
+
+def test_is_not_found_error_fallback_to_legacy_stderr_string(monkeypatch):
+    """Slice B2 one-version rollout: if Python ships before the new Go CLI
+    is deployed, the wrapper must still recognise the legacy `exit 1 +
+    stderr "video not found"` shape and return None — otherwise a
+    half-rolled-out deploy starts raising GoError everywhere."""
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            1,  # legacy exit code
+            stdout="",
+            stderr="video not found",  # legacy English stderr
+        )
+
+    _patch_exe(monkeypatch)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    assert go_cli.db_get_video("MISSING-001", "custom_db") is None
+
+
+def test_is_not_found_error_does_not_swallow_real_errors(monkeypatch):
+    """Negative case: exit 1 with a non-"not found" stderr must still
+    raise GoError, even with the new dual-signal logic. Otherwise
+    SQLite connection failures would silently look like missing rows."""
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            stdout="",
+            stderr="無法載入資料庫: SQLite is locked",
+        )
+
+    _patch_exe(monkeypatch)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    with pytest.raises(go_cli.GoError, match="SQLite is locked"):
+        go_cli.db_get_video("STARS-707", "custom_db")
+
+
+def test_go_error_carries_returncode_and_stdout(monkeypatch):
+    """Slice B2 wiring sanity: go_cli.run must surface returncode and
+    stdout on GoError so _is_not_found_error can dispatch on them."""
+
+    not_found_stdout = json.dumps(
+        {"success": False, "error_kind": "not_found", "kind": "video"}
+    )
+
+    def fake_subprocess_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 3, stdout=not_found_stdout, stderr=""
+        )
+
+    _patch_exe(monkeypatch)
+    monkeypatch.setattr(go_cli.subprocess, "run", fake_subprocess_run)
+
+    with pytest.raises(go_cli.GoError) as ei:
+        go_cli.run(["db", "get", "MISSING-001"])
+    assert ei.value.returncode == 3
+    assert ei.value.stdout == not_found_stdout
+    # And the legacy str(exc) view still works for callers that grep it.
+    assert "exit 3" in str(ei.value)
+
+
 def test_db_delete_video_happy_path(monkeypatch):
     captured = {}
 
