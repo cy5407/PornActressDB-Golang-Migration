@@ -431,7 +431,11 @@ fn migrate_video_actresses(
         ordinals.sort_unstable();
         report.duplicates.push(DuplicateEntry {
             video_code: code.to_string(),
-            actress_name: maps.id_to_name.get(&actress_id).cloned().unwrap_or_default(),
+            actress_name: maps
+                .id_to_name
+                .get(&actress_id)
+                .cloned()
+                .unwrap_or_default(),
             actress_id,
             ordinals,
         });
@@ -831,11 +835,16 @@ mod tests {
 
         let conn = Connection::open(&sqlite_path).expect("open sqlite");
         let legacy_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM legacy_video_actress_links", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM legacy_video_actress_links",
+                [],
+                |row| row.get(0),
+            )
             .expect("count legacy");
-        assert_eq!(legacy_count, 2, "expected 2 legacy rows (1 normal + 1 orphan)");
+        assert_eq!(
+            legacy_count, 2,
+            "expected 2 legacy rows (1 normal + 1 orphan)"
+        );
 
         let orphan_count: i64 = conn
             .query_row(
@@ -853,7 +862,10 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("count runtime orphan");
-        assert_eq!(runtime_orphans, 0, "orphan leaked into FK-constrained table");
+        assert_eq!(
+            runtime_orphans, 0,
+            "orphan leaked into FK-constrained table"
+        );
     }
 
     #[test]
