@@ -272,7 +272,7 @@ def main() -> None:
         "release_date": raw.get("release_date") or raw.get("releaseDate") or "",
         "url": raw.get("url") or "",
         "actresses": actresses,
-        "search_method": raw.get("search_method") or raw.get("method") or "",
+        "search_method": raw.get("search_method") or raw.get("method") or raw.get("source") or "",
         "error": "",
     }
     print(json.dumps(result, ensure_ascii=False))

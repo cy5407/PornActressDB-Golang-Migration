@@ -403,6 +403,48 @@ def test_db_get_all_videos_handles_list_and_missing_videos_key(monkeypatch):
     assert go_cli.db_get_all_videos() == []
 
 
+def test_move_dir_uses_kind_dir_flag(monkeypatch):
+    """move_dir 必須送 -kind dir（Go move 沒有 -dir flag）。"""
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return {"success": True, "source_dir": "A", "dest_dir": "B"}
+
+    monkeypatch.setattr(go_cli, "run", fake_run)
+
+    result = go_cli.move_dir("A", "B", "skip")
+
+    assert result["success"] is True
+    assert captured["args"] == [
+        "move",
+        "-src",
+        "A",
+        "-dst",
+        "B",
+        "-strategy",
+        "skip",
+        "-kind",
+        "dir",
+    ]
+
+
+def test_move_dir_failure_shape_matches_success_keys(monkeypatch):
+    """成功與失敗回傳的 key 集合一致（與 contracts.MergeResult 對齊）。"""
+
+    def fake_run_raise(args, **kwargs):
+        raise go_cli.GoError("dir move failed")
+
+    monkeypatch.setattr(go_cli, "run", fake_run_raise)
+
+    result = go_cli.move_dir("A", "B", "skip")
+
+    assert result["success"] is False
+    assert "dir move failed" in result["error"]
+    for key in ("source_dir", "dest_dir", "files_moved", "files_skipped", "files_total"):
+        assert key in result
+
+
 def test_move_file_returns_default_result_when_cli_returns_non_dict(monkeypatch):
     _patch_exe(monkeypatch)
 

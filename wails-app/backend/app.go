@@ -541,6 +541,23 @@ type SearchResult struct {
 	Total     int      `json:"total,omitempty"`
 }
 
+// UnmarshalJSON 接受 Python 搜尋入口鎖定的 "search_method" 鍵，以及 "method"，
+// 取非空者填入 Method。MarshalJSON 仍以 struct tag 輸出 "method"，前端契約不變。
+func (s *SearchResult) UnmarshalJSON(data []byte) error {
+	type alias SearchResult
+	aux := struct {
+		SearchMethod string `json:"search_method"`
+		*alias
+	}{alias: (*alias)(s)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if s.Method == "" {
+		s.Method = aux.SearchMethod
+	}
+	return nil
+}
+
 type batchSearchRequest struct {
 	Codes   []string `json:"codes"`
 	Workers int      `json:"workers"`

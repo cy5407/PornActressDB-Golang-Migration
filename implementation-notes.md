@@ -1164,3 +1164,25 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 
 **本任務結論**
 - 交付物「final9 進版控」**已達成**（tracked + CI 自身測試綠）。aggregate ≥90% 本機成立。CI gate red 之 root cause 與 final9 無關，依紀律不擴範圍修，記為獨立議題。
+
+## [2026-05-30 13:48] 契約/死碼審查 remediation（執行 docs/contract-deadcode-audit-2026-05-30-tasks.md）
+
+來源：`docs/contract-deadcode-audit-2026-05-30.md`（55 confirmed findings）→ `…-tasks.md`（T1–T15）。依相依順序分波執行，每波過驗證閘。
+
+**Design decisions**
+- **執行策略不用 worktree 並行編輯**：刪除類改動需落在主工作樹才能 commit；worktree 隔離的 agent 改動不會自動回併，且多任務跨 package 但共用測試基礎建設，平行非隔離編輯會 race。故 **edits 由我序列套用**，workflow 僅用於 (a) 唯讀並行調查產出精確編輯計畫、(b) 最終並行驗證。此即「適當使用 workflow」。
+- **T2（D4-1 search method）改為最小爆炸半徑**：`search_method` 鍵被 Python 入口 smoke/split 測試與 DB 欄位鎖定，前端 `SearchResultDialog.tsx` 又讀 `result.method`。故不改 Python 輸出鍵、不改前端；改為 Go `SearchResult` 加 `UnmarshalJSON` 同時接受 `search_method`∥`method`（marshal 仍出 `method`），並修 Python 值來源加 `raw.get("source")`（web_searcher 以 `source` 存方法名）。報告原建議「改 Go tag + 改 web_searcher」會連帶改前端 binding，捨棄。
+- **T1 回傳 shape 統一**：fallback/except 對齊 `contracts.MergeResult`（`source_dir/dest_dir/files_moved/files_skipped/files_total/errors/deleted_src`），保留 `success`+`error`（既有測試只驗這兩鍵，未驗舊 `source/destination/skipped`，安全）。
+
+**Tradeoffs**
+- T2 用 custom `UnmarshalJSON` 而非改 tag：多 ~12 行 Go，但零前端/binding 風險、既有測試全綠。
+
+**Wave 1 完成（T1/T2/T4）**
+- T1 `move_dir` `-dir`→`-kind dir` + shape 統一 + 契約 argv lock（`src/services/go_cli.py`、`tests/test_go_cli_contracts.py`）。
+- T2 Go `UnmarshalJSON` + Python `source` fallback（`wails-app/backend/app.go`、`run_search.py`、`run_batch_search.py`、新 `search_result_test.go`）。
+- T4 `contracts.MergeResult` 補 `FilesSkipped` + 轉換拷貝（`pkg/contracts/move.go`、`pkg/app/move_service.go`）。
+- 驗證：root `pkg/app`+`cmd/scanner` 綠、wails backend 綠、Python 156 passed/2 skipped。
+
+**Open questions（pre-decide，end-of-turn 再回報）**
+- T3 DTO 收斂採「保留 contracts + 加對齊守門」最小版，不做移除轉換層的大重構（風險/範圍過大）。
+- T5 cache prune：採「移除死鏈」需動 Python+Go 多處且涉 live Get/Set 邊界，將以保守方式處理（優先修 D4-2 鍵名，死鏈移除謹慎評估）。

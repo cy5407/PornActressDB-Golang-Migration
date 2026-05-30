@@ -628,26 +628,36 @@ def move_dir(
                 destination,
                 "-strategy",
                 strategy,
-                "-dir",
+                "-kind",
+                "dir",
             ],
             exe_path=exe_path,
         )
         if isinstance(data, dict):
             return data
+        # 非 dict（理論上不會發生）時，回傳與 Go contracts.MergeResult 同形狀的預設值
         return {
             "success": True,
-            "source": source,
-            "destination": destination,
+            "source_dir": source,
+            "dest_dir": destination,
+            "files_moved": 0,
+            "files_skipped": 0,
+            "files_total": 0,
+            "errors": [],
+            "deleted_src": False,
             "error": None,
-            "skipped": False,
         }
     except GoError as e:
         return {
             "success": False,
-            "source": source,
-            "destination": destination,
+            "source_dir": source,
+            "dest_dir": destination,
+            "files_moved": 0,
+            "files_skipped": 0,
+            "files_total": 0,
+            "errors": [],
+            "deleted_src": False,
             "error": str(e),
-            "skipped": False,
         }
 
 

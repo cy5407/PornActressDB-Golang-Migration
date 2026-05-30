@@ -95,7 +95,7 @@ def _normalize(raw: dict, code: str) -> dict:
         "release_date": raw.get("release_date") or raw.get("releaseDate") or "",
         "url": raw.get("url") or "",
         "actresses": actresses,
-        "search_method": raw.get("search_method") or raw.get("method") or "",
+        "search_method": raw.get("search_method") or raw.get("method") or raw.get("source") or "",
         "error": "",
         "error_kind": raw.get("error_kind") or "",
     }

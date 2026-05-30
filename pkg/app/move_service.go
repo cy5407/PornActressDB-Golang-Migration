@@ -46,13 +46,14 @@ func mergeResultToContract(result mover.MergeResult) contracts.MergeResult {
 		errors = append(errors, moveResultToContract(item))
 	}
 	return contracts.MergeResult{
-		SourceDir:  result.SourceDir,
-		DestDir:    result.DestDir,
-		FilesMoved: result.FilesMoved,
-		FilesTotal: result.FilesTotal,
-		Errors:     errors,
-		Success:    result.Success,
-		DeletedSrc: result.DeletedSrc,
+		SourceDir:    result.SourceDir,
+		DestDir:      result.DestDir,
+		FilesMoved:   result.FilesMoved,
+		FilesSkipped: result.FilesSkipped,
+		FilesTotal:   result.FilesTotal,
+		Errors:       errors,
+		Success:      result.Success,
+		DeletedSrc:   result.DeletedSrc,
 	}
 }
 
