@@ -1165,7 +1165,7 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 **本任務結論**
 - 交付物「final9 進版控」**已達成**（tracked + CI 自身測試綠）。aggregate ≥90% 本機成立。CI gate red 之 root cause 與 final9 無關，依紀律不擴範圍修，記為獨立議題。
 
-## [2026-05-30 13:48] 契約/死碼審查 remediation（執行 docs/contract-deadcode-audit-2026-05-30-tasks.md）
+## [2026-05-30 13:48 → 15:40, 1h 52m] 契約/死碼審查 remediation（執行 docs/contract-deadcode-audit-2026-05-30-tasks.md）
 
 來源：`docs/contract-deadcode-audit-2026-05-30.md`（55 confirmed findings）→ `…-tasks.md`（T1–T15）。依相依順序分波執行，每波過驗證閘。
 
@@ -1208,3 +1208,10 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 **Open questions / 已 defer（需使用者確認，不在本輪自動執行）**
 - **T7/T8 完整刪 JSONDatabase 型別**：被 CLAUDE.md 保留指令擋下 + 需重寫測試 fixture（setupTestDB/loadedJSONDB/seededJSONDB 連鎖）。若要執行，須先決定「JSONDatabase 改不改為測試專用 build tag / 或測試改走 SQLiteStore 種子」，屬獨立大 slice。
 - **T11 完整刪 JSONBDManager/IncrementalJSONDB（Python）**：同性質——src/ 生產零呼叫，但 conftest.py 的 db_manager/seeded_db_manager fixture + ~92 個測試依賴；plan 標高風險，task.md 亦註「建議與使用者確認」。本輪只做 T11 低風險子集（UnifiedFileScanner/WebSearcher 孤兒/tools）。
+
+**最終定案（2026-05-30 15:40）**
+- 使用者決定：Python `JSONBDManager`/`IncrementalJSONDB` **保留為測試 fixture，不刪**（與 Go jsondb.go 同處置）。
+- T6 緩解已做（`fd03b52`）：兩類別 docstring 標「非 runtime store、勿在 runtime 實例化」；92 個 DB-class 測試仍綠。
+- **結論**：15 項任務中 13 項完整完成；T8/T11 的 3 個生產死型別（Go JSONDatabase、Python JSONBDManager/IncrementalJSONDB）依 CLAUDE.md 與使用者決定保留為測試 fixture，已加 docstring/註解 guard；其安全子集（Save/CompactJournal、UnifiedFileScanner/WebSearcher/tools、Python prune 鍵名）皆已執行。
+- 交付 commit：Wave 1 `1b636b0`、Wave 2 `3d64cf2`、Wave 3 `d51415c`、狀態 `be0f057`、T6 `fd03b52`（+本文件定案）。四工具鏈全綠：Root Go / Wails / Rust 58 / Python 1058 passed,2 skipped / 整合(CI 閘) 8 passed。
+- `/tool-scan`（task.md 全域最終閘第 8 步）保留給此批 fix 全數落地後執行——程式碼已落地，可由使用者觸發；本助手不在未經要求下執行（見 memory [[feedback-verification-step-in-plan]]）。
