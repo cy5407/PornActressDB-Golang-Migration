@@ -1196,3 +1196,15 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 - T15/T3/T5：test_go_cli_contracts.py 補 11 條 argv 鎖；pkg/app 加 TestMergeResultToContract_CopiesEveryField；cache_manager.py 修 prune 鍵名（deleted_count→deleted_files 等、移除 current_size_mb）+ 連帶修 normalizer 測試。
 - **連帶**：刪孤兒測試 tests/test_pornactressdb_audit.py（其目標 docs/pornactressdb_audit.py 已被使用者 housekeeping commit 6fe8157 刪除，擋住 pytest 收集）。
 - 全樹驗證：Root Go `build+vet+test ./...` 全綠、Wails 綠、Rust 58 passed（含 schema-drift 鎖）、Python 1058 passed/2 skipped、CI 釋出閘（migrate-from-json+verify-sync）exit 0。
+
+**Wave 3 + 關鍵決策：T7/T8 JSONDatabase 移除 → 撤回，改 CLAUDE.md-compliant 子集**
+
+**Deviations（重要，違反 task.md T8 原意，但遵 CLAUDE.md）**
+- task.md T8 要求刪除 `JSONDatabase` 型別。實作中已先搬 9 個 live helper 到 db_helpers.go、刪 jsondb.go/journal.go、`go build ./...` 通過（live 碼全相容）。但處理測試時發現：共享 fixture helper `setupTestDB`/`loadedJSONDB`/`seededJSONDB`（建構 JSONDatabase）被**包含保留測試在內**的眾多測試依賴（如 actress_cleaner_test.go），乾淨移除需重寫大量測試 fixture（高風險大重構）。
+- **更決定性：CLAUDE.md 明文「`pkg/database/jsondb.go` — 保留為匯入/匯出/測試 fixture 助手」，且 CLAUDE.md 指令 OVERRIDE。** 審查報告 §D 本身也寫「刪 JSONDatabase 是清理非修 bug，建議刪前先與你確認」。
+- **故撤回 JSONDatabase 刪除**（還原 jsondb.go/journal.go/6 測試檔、刪 db_helpers.go），只保留 T8 中真正無人呼叫、不衝突的 **`SQLiteStore.Save()`/`CompactJournal()` no-op 移除**（D6-3/D6-4，零生產+零其他呼叫者；JSONDatabase 自己的同名方法不受影響）+ 修 sqlite_runtime_test.go 兩段斷言。
+- 驗證：root build/test 綠、wails 綠、deadcode 確認 SQLiteStore.Save/CompactJournal 消失。
+
+**Open questions / 已 defer（需使用者確認，不在本輪自動執行）**
+- **T7/T8 完整刪 JSONDatabase 型別**：被 CLAUDE.md 保留指令擋下 + 需重寫測試 fixture（setupTestDB/loadedJSONDB/seededJSONDB 連鎖）。若要執行，須先決定「JSONDatabase 改不改為測試專用 build tag / 或測試改走 SQLiteStore 種子」，屬獨立大 slice。
+- **T11 完整刪 JSONBDManager/IncrementalJSONDB（Python）**：同性質——src/ 生產零呼叫，但 conftest.py 的 db_manager/seeded_db_manager fixture + ~92 個測試依賴；plan 標高風險，task.md 亦註「建議與使用者確認」。本輪只做 T11 低風險子集（UnifiedFileScanner/WebSearcher 孤兒/tools）。

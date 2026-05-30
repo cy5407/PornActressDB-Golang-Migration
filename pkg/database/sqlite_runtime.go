@@ -565,19 +565,12 @@ func (s *SQLiteStore) GetActressPrimaryStudio(actressName string) string {
 // --- Lifecycle / journal-shaped no-ops ----------------------------------
 //
 // SQLite has no JSON-style journal so the compact family collapses to
-// no-ops. They stay defined so cmd/scanner and wails-app code that used
-// to call db.Save() / db.Compact() keeps compiling, and so Python /
-// Wails callers can keep dispatching the same method names without
-// branching on backend.
-
-// Save is a no-op for SQLite (WAL handles durability per-write).
-func (s *SQLiteStore) Save() error { return nil }
+// no-ops. They stay defined so wails-app code that calls db.Compact() /
+// db.CompactIfNeeded() keeps compiling, and so Python / Wails callers can
+// keep dispatching the same method names without branching on backend.
 
 // Compact is a no-op alias kept for JSONDatabase API parity.
 func (s *SQLiteStore) Compact() error { return nil }
-
-// CompactJournal is a no-op alias kept for JSONDatabase API parity.
-func (s *SQLiteStore) CompactJournal() error { return nil }
 
 // CompactIfNeeded always reports "no compaction performed" on SQLite.
 func (s *SQLiteStore) CompactIfNeeded() (bool, error) { return false, nil }

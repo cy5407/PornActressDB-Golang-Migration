@@ -419,14 +419,8 @@ func TestMergeFromFile_EmptyLinksSkipsTransaction(t *testing.T) {
 
 func TestJournalShapedNoOpsAreNotErrors(t *testing.T) {
 	store := runtimeTestStore(t)
-	if err := store.Save(); err != nil {
-		t.Errorf("Save: %v", err)
-	}
 	if err := store.Compact(); err != nil {
 		t.Errorf("Compact: %v", err)
-	}
-	if err := store.CompactJournal(); err != nil {
-		t.Errorf("CompactJournal: %v", err)
 	}
 	done, err := store.CompactIfNeeded()
 	if err != nil {
