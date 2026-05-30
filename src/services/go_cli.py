@@ -185,15 +185,65 @@ def is_available(exe_path: str | None = None) -> bool:
 
 
 class GoError(Exception):
-    """Go CLI 執行錯誤。"""
+    """Go CLI 執行錯誤。
+
+    Slice B2: 帶上 ``returncode`` 與 ``stdout`` 兩個結構化欄位,讓
+    ``_is_not_found_error`` 能直接判主信號 (exit 3) 與輔助信號
+    (stdout JSON 的 ``error_kind``),不再被迫 grep stderr 字串。
+    舊呼叫端只看 ``str(exc)`` 仍可運作。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        returncode: int | None = None,
+        stdout: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.returncode = returncode
+        self.stdout = stdout
 
 
 class GoNotFoundError(GoError):
     """classifier 執行檔不存在。"""
 
 
+# Slice B2: classifier.exe 對「資料不存在」固定回 exit 3 + 結構化 stdout
+# JSON,讓 Python 端與 stderr 中文化/英文化解耦。修改前先讀
+# docs/boundary-cleanup-tasks.md 與 cmd/scanner/db_cmd.go::notFoundExitCode。
+_NOT_FOUND_EXIT_CODE = 3
+
+
+def _stdout_marks_not_found(stdout: str | None) -> bool:
+    """讀 stdout JSON,若 ``error_kind == "not_found"`` 視為命中。
+
+    解析失敗或欄位缺漏一律回 False,避免把無關 JSON 誤判成 not-found。
+    """
+    if not stdout:
+        return False
+    try:
+        payload = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    return payload.get("error_kind") == "not_found"
+
+
 def _is_not_found_error(error: GoError) -> bool:
-    """判斷 Go CLI 錯誤是否表示資料不存在。"""
+    """判斷 Go CLI 錯誤是否表示資料不存在。
+
+    優先級 (Slice B2):
+    1. exit code == 3 (主信號,語意明確)
+    2. stdout JSON 的 ``error_kind == "not_found"`` (輔助信號)
+    3. fallback: stderr/error message 含 "not found" 子字串 (一版過渡相容,
+       讓 Python 不必與 Go 同步部署也能跑舊版 classifier.exe)
+    """
+    if error.returncode == _NOT_FOUND_EXIT_CODE:
+        return True
+    if _stdout_marks_not_found(error.stdout):
+        return True
     return "not found" in str(error).lower()
 
 
@@ -230,7 +280,11 @@ def run(
 
     if result.returncode != 0:
         msg = stderr or stdout or f"exit code {result.returncode}"
-        raise GoError(f"classifier 回傳錯誤 (exit {result.returncode}): {msg}")
+        raise GoError(
+            f"classifier 回傳錯誤 (exit {result.returncode}): {msg}",
+            returncode=result.returncode,
+            stdout=stdout,
+        )
 
     if not stdout:
         return {}

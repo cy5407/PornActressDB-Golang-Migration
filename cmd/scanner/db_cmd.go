@@ -178,13 +178,52 @@ var dbHandlers = map[string]func(dbCommandContext, []string){
 	"backup-cleanup":  runDBBackupCleanup,
 }
 
+// notFoundExitCode is the dedicated exit code for "lookup miss" — a legal
+// empty result, not a runtime error. Slice B2 (see docs/boundary-cleanup-tasks.md)
+// introduces this so callers (Python helper, future GUIs) can tell apart
+// "row absent" from "DB unavailable / SQL error" without scraping stderr
+// strings. exit 0 = success, exit 1 = runtime/IO error, exit 2 = bad CLI
+// input, exit 3 = not-found. Reordering or reusing 3 will break
+// _is_not_found_error in src/services/go_cli.py.
+const notFoundExitCode = 3
+
+// buildNotFoundPayload assembles the structured stdout envelope a
+// not-found lookup emits before exiting. Split out from
+// emitNotFoundAndExit so unit tests can verify the JSON shape without
+// the test process having to trap an os.Exit.
+func buildNotFoundPayload(kind, keyField, key string) map[string]any {
+	return map[string]any{
+		"success":    false,
+		"error_kind": "not_found",
+		"kind":       kind,
+		keyField:     key,
+		"message":    kind + " not found",
+	}
+}
+
+// emitNotFoundAndExit writes a structured stdout JSON envelope for a
+// not-found lookup and exits 3. kind is "video" or "actress"; keyField
+// distinguishes "code" (videos) from "id" (actresses); key is the value
+// the caller asked for. Both the exit code (primary signal) and the
+// stdout payload (auxiliary detail, e.g. for future GUI surfacing) are
+// load-bearing — _is_not_found_error in src/services/go_cli.py reads
+// the exit code first and the stdout payload second.
+func emitNotFoundAndExit(kind, keyField, key string) {
+	outputJSON(buildNotFoundPayload(kind, keyField, key))
+	os.Exit(notFoundExitCode)
+}
+
 func runDBGet(ctx dbCommandContext, remaining []string) {
 	if len(remaining) < 1 {
 		fmt.Fprintln(os.Stderr, "用法: classifier.exe db get <番號>")
 		os.Exit(1)
 	}
-	video, err := ctx.db.GetVideo(remaining[0])
+	code := remaining[0]
+	video, err := ctx.db.GetVideo(code)
 	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			emitNotFoundAndExit("video", "code", code)
+		}
 		fmt.Fprintf(os.Stderr, "取得影片失敗: %v\n", err)
 		os.Exit(1)
 	}
@@ -216,14 +255,22 @@ func runDBDelete(ctx dbCommandContext, remaining []string) {
 		os.Exit(1)
 	}
 	code := remaining[0]
-	// SQLiteStore.DeleteVideo is idempotent. The Python helper relies
-	// on a non-zero exit ("video not found") to return False from
-	// db_delete_video, so check existence first to preserve that.
+	// SQLiteStore.DeleteVideo is idempotent. Slice B2: the Python helper
+	// relies on exit 3 + structured stdout JSON (or, transitionally, the
+	// "not found" stderr string) to return False from db_delete_video,
+	// so check existence first and emit the structured not-found envelope
+	// when the row is absent.
 	if _, err := ctx.db.GetVideo(code); err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			emitNotFoundAndExit("video", "code", code)
+		}
 		fmt.Fprintf(os.Stderr, "刪除影片失敗: %v\n", err)
 		os.Exit(1)
 	}
 	if err := ctx.db.DeleteVideo(code); err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			emitNotFoundAndExit("video", "code", code)
+		}
 		fmt.Fprintf(os.Stderr, "刪除影片失敗: %v\n", err)
 		os.Exit(1)
 	}
@@ -319,8 +366,12 @@ func runDBActressGet(ctx dbCommandContext, remaining []string) {
 		fmt.Fprintln(os.Stderr, "用法: classifier.exe db actress-get <女優ID>")
 		os.Exit(1)
 	}
-	actress, err := ctx.db.GetActress(remaining[0])
+	actressID := remaining[0]
+	actress, err := ctx.db.GetActress(actressID)
 	if err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			emitNotFoundAndExit("actress", "id", actressID)
+		}
 		fmt.Fprintf(os.Stderr, "取得女優失敗: %v\n", err)
 		os.Exit(1)
 	}
@@ -355,12 +406,19 @@ func runDBActressDelete(ctx dbCommandContext, remaining []string) {
 	actressID := remaining[0]
 	// SQLiteStore.DeleteActress is idempotent; mirror runDBDelete's
 	// existence check so callers (including the Python helper) keep
-	// observing a non-zero exit when the actress doesn't exist.
+	// observing the Slice B2 structured not-found signal (exit 3 +
+	// stdout error_kind=not_found) when the actress doesn't exist.
 	if _, err := ctx.db.GetActress(actressID); err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			emitNotFoundAndExit("actress", "id", actressID)
+		}
 		fmt.Fprintf(os.Stderr, "刪除女優失敗: %v\n", err)
 		os.Exit(1)
 	}
 	if err := ctx.db.DeleteActress(actressID); err != nil {
+		if errors.Is(err, database.ErrNotFound) {
+			emitNotFoundAndExit("actress", "id", actressID)
+		}
 		fmt.Fprintf(os.Stderr, "刪除女優失敗: %v\n", err)
 		os.Exit(1)
 	}
