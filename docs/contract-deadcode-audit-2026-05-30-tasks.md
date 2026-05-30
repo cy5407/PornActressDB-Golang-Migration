@@ -1,8 +1,30 @@
 # 修復任務清單 — Python→Go 契約 / 死碼審查
 
 > 來源報告：[`docs/contract-deadcode-audit-2026-05-30.md`](./contract-deadcode-audit-2026-05-30.md)
-> 產出：2026-05-30 ｜ 狀態：待執行
+> 產出：2026-05-30 ｜ 狀態：**已執行（Wave 1–3，2026-05-30）；2 項型別移除 deferred**
 > 每項任務格式：**問題 → 修復方法 → 修復完成條件(DoD) → 驗證程序**。所有任務完成後跑全域驗證 + `/tool-scan`。
+
+## 執行狀態總表（2026-05-30）
+
+| 任務 | 狀態 | commit / 備註 |
+|------|------|------|
+| T1 move_dir -kind dir + shape | ✅ DONE | Wave 1 `1b636b0`（+argv lock 測試） |
+| T2 search method UnmarshalJSON | ✅ DONE | Wave 1 `1b636b0`（最小爆炸半徑：Go UnmarshalJSON + Python source fallback，前端不動） |
+| T3 DTO 對齊守門 | ✅ DONE | Wave 2 `3d64cf2`（TestMergeResultToContract_CopiesEveryField；採最小版，不做轉換層大重構） |
+| T4 files_skipped | ✅ DONE | Wave 1 `1b636b0` |
+| T5 cache prune 鍵名 | ✅ DONE（保守修補） | Wave 2 `3d64cf2`（修鍵名 deleted_files/remaining_files、移除 current_size_mb；死鏈未移除，見 D4-4/D4-5 連動風險） |
+| T6 dormant 邊界 | ⏸️ 隨 T11 deferred | JSONDBManager/IncrementalJSONDB 去留未定，見下 |
+| T7 切割 live helper | ➖ 不需要 | T8 撤回後 jsondb.go 保留原狀，無需搬移 |
+| T8 刪 JSONDatabase | ⚠️ **部分 + DEFERRED** | Wave 3 `d51415c` 只刪 Save()/CompactJournal() no-op；**JSONDatabase 型別依 CLAUDE.md「保留為測試 fixture 助手」不刪**（且需重寫測試 fixture，需確認） |
+| T9 wails 死碼 | ✅ DONE | Wave 2 `3d64cf2`（連帶解 D5-6） |
+| T10 pkg/cache 死函數 | ✅ DONE | Wave 2 `3d64cf2` |
+| T11 Python 死碼 | ✅ 低風險子集 DONE / ⏸️ DB 類別 DEFERRED | Wave 2 `3d64cf2`（UnifiedFileScanner/WebSearcher 孤兒/tools）；**JSONDBManager/IncrementalJSONDB deferred**（conftest + ~92 測試 fixture，需確認） |
+| T12 tools/studio_updates | ✅ DONE | Wave 2 `3d64cf2` |
+| T13 Rust legacy 註解 | ✅ DONE | Wave 2 `3d64cf2` |
+| T14 文件更正 | ✅ DONE | Wave 2 `3d64cf2`（wiki overview + 重產 wiki-data.js） |
+| T15 契約鎖 argv | ✅ DONE | Wave 2 `3d64cf2`（11 條） |
+
+**Deferred 2 項（需使用者決策，非本輪自動執行）**：T8 的 `JSONDatabase` 型別移除（CLAUDE.md 明文保留為測試 fixture 助手 + 共享 fixture 連鎖須重寫）、T11 的 `JSONDBManager`/`IncrementalJSONDB` 移除（conftest + ~92 測試 fixture 連鎖；task.md 與審查報告本就註明「建議與使用者確認後再動」）。兩者皆為「測試 fixture 重寫」型獨立大 slice，非修 bug。
 
 ## 通用驗證指令庫（各任務「驗證程序」引用）
 
