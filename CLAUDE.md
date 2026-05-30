@@ -237,6 +237,7 @@ go build -o classifier.exe .\cmd\scanner
 
 ## 備註
 
+- `docs/ARCHITECTURE.md` 是**跨子系統的契約/介面/入口架構總圖**（給 AI 參考）；要理解「誰呼叫誰、資料怎麼跨語言流動、哪些契約不可破壞」先讀它。本檔規則衝突時仍以 CLAUDE.md 為準。
 - `README.md` 是對外使用說明；架構或測試命令改變時請同步更新。
 - `implementation-notes.md` 是 SQLite 遷移各 slice 的設計決策紀錄（C1 / C2 / C3）；改 SQLite 相關行為前先讀。
 - `wiki/architecture/database.md` 是目前最權威的 DB 架構參考；`wiki/architecture/sqlite-shadow-db.md` 已標為 historical / 退役。
