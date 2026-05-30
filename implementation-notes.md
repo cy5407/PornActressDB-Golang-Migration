@@ -1215,3 +1215,141 @@ T8 原本要處理的同名跨目錄場景（`A\KUSE-042-1.mp4` + `B\KUSE-042-1.
 - **結論**：15 項任務中 13 項完整完成；T8/T11 的 3 個生產死型別（Go JSONDatabase、Python JSONBDManager/IncrementalJSONDB）依 CLAUDE.md 與使用者決定保留為測試 fixture，已加 docstring/註解 guard；其安全子集（Save/CompactJournal、UnifiedFileScanner/WebSearcher/tools、Python prune 鍵名）皆已執行。
 - 交付 commit：Wave 1 `1b636b0`、Wave 2 `3d64cf2`、Wave 3 `d51415c`、狀態 `be0f057`、T6 `fd03b52`（+本文件定案）。四工具鏈全綠：Root Go / Wails / Rust 58 / Python 1058 passed,2 skipped / 整合(CI 閘) 8 passed。
 - `/tool-scan`（task.md 全域最終閘第 8 步）保留給此批 fix 全數落地後執行——程式碼已落地，可由使用者觸發；本助手不在未經要求下執行（見 memory [[feedback-verification-step-in-plan]]）。
+
+---
+
+## [2026-05-30 22:24 → 22:38, 14m] Boundary cleanup — A 區並行 (A1+A2+A3)
+
+> 來源：`docs/boundary-cleanup-tasks.md` A 區三任務，檔案集互斥可一批並行。透過 workflow (id: wia9tt1bu, run: wf_e5e87278-c9b) 三 agent 並行執行；workflow ~9m40s + 主流程整合驗證 ~3m。
+
+**Design decisions**
+- 採 workflow 並行 (而非單 agent 序列)：三任務檔案集互斥 (`scripts/deadcode-all.*` / `scripts/verify.ps1` / `tests/integration/*` + docs)，無寫入衝突；wall-clock 從序列約 ~30 min 壓成並行約 ~14 min。
+- Agent 在 own scope self-verify (A1 跑 deadcode、A2 跑 verify.ps1 -Quick、A3 跑兩次 pytest)；完整 verify.ps1 + 反向 fmt-壞測試留給整合驗證階段。
+- 不開 worktree isolation：互斥檔案、Go build cache 不互衝。
+
+**Deviations** (A 區 agent 偏離 spec 之處)
+- **A2 wails-app build**：原 spec 寫 `go build ./...`，agent 改為 `go build ./backend`。原因：`wails-app/main.go` 用 `//go:embed all:frontend/dist`，而 `frontend/dist` 是 gitignored 的前端建置產物，fresh worktree 沒有它會編譯失敗，違反「當前樹綠 → exit 0」DoD。改 build `./backend` 與 CLAUDE.md「wails-app 測試 = `go test .\backend -v`」對齊。**已接受此偏離**。
+- **A3 fixture 清理**：選 (b) 作法 — 保留 `shutil.copytree` 但 copy 後用 `dst.glob("db.sqlite*")` unlink 殘留 (含 `db.sqlite-shm`/`-wal`)。理由：forward-compatible (未來 fixture 多檔)、防禦 WAL 副產物。
+
+**Tradeoffs**
+- A1 必須 `-filter=` (空 regex) 才能跨 module 看可達性 — 不加 filter，wails-app (module name `wails-app`) 預設不會分析 `actress-classifier/pkg/*` 的可達性，導致交集近乎空集 → 大量假陽性。
+- A2 verify.ps1 採序列步驟而非並行子步驟：spec 明寫「依序執行任一步紅就退出」，並行會混淆「哪一步先失敗」的 UX。
+
+**Integration verification (主流程)**
+- `pwsh scripts/deadcode-all.ps1` → 三個 wails-live 函數 (`database.NewVideo` / `mover.Mover.BatchMoveDirs` / `mover.Mover.GetOperation`) 正確列在 "Single-binary-only (DO NOT DELETE)"，未列在 REAL_DEAD intersection。
+- `python -m pytest tests/integration/test_db_cli_contract.py -q` → 8 passed (與 A3 自驗一致)。
+- 反向 DoD (A2 缺的)：故意把 `tools-rs/src/runtime_import.rs` 的 `pub replace: bool,` 縮排改成 7 空格 → `cargo fmt --check` exit 1 → `verify.ps1 -Quick` 在 step 3 FAIL 並 exit 1；還原後 worktree 乾淨。證明 fmt --check 確實鎖在 verify chain 內。
+
+**Side observation (B 階段參考)**
+- deadcode-all 顯示 intersection 4126 大多是 stdlib internals (bufio/bytes/crypto/...)；first-party 真死碼以 `JSONDatabase.*` 為主 — 即 B3 任務刻意保留為測試 fixture 的型別，刪除前要先做 B3 搬 package。
+
+---
+
+## [2026-05-30 22:50 → 23:12, 22m] Boundary cleanup — B1 DTO 收斂
+
+> 來源：`docs/boundary-cleanup-tasks.md` B1。Workflow (id: wjob3q37u, run: wf_9b1c7c68-8dd) 內部 scout → execute 兩階段；workflow ~10m + 主流程整合驗證 ~3m。
+
+**Design decisions**
+- 採作法 (A) 收斂到 `mover.*`：刪 `pkg/contracts/{move,scan,history}.go` 三檔，pkg/contracts 整 package 消失。`cmd/scanner` 序列化點直接吐 `mover.MoveResult`/`mover.MergeResult`/`mover.BatchResult`/`mover.OperationLog`，不再走 `pkg/app/*ToContract` 轉換層。
+- **ScanResult 落點**：放在 `pkg/app/scan_service.go` 內 (`type ScanResult struct{Path, Code string}`)，JSON tag `path/code` 完全沿用。理由：兩欄 DTO、放 mover 語意不對 (scan ≠ move)、新建 `pkg/scanner` 是 over-engineering。wails 各自宣告自己的 ScanResult (不共用) 不受影響。
+- **toMoverItems 改名 applyDefaultConflictStrategy**：兩邊都 `mover.MoveItem` 後不再做 type 轉換，只保留 per-item `OnConflict` fallback 邏輯。
+
+**Deviations** (vs scout plan)
+- 無重大偏離。scout plan 完全可執行。
+
+**Tradeoffs**
+- 刪除 `TestMergeResultToContract_PropagatesNonEmptyErrors` / `TestMergeResultToContract_CopiesEveryField` (它們是為 `mergeResultToContract` 函式量身寫的，函式刪除後測試 obsolete)。**新增** `pkg/mover/types_test.go::TestMergeResult_JSONShapeIncludesFilesSkipped` 作 regression guard — `json.Marshal mover.MergeResult` 後斷言 7 個 key 都存在 (含 `files_skipped` 不漏)，對齊原 D2-1 守門意圖。
+- 暫不解決 D2-3 (wails 端 ScanResult 與 cmd/scanner 端重複) — 不在 B1 scope。
+
+**Integration verification (主流程)**
+- `pwsh scripts/verify.ps1` (full)：root Go (build/vet/test) + wails (build/test ./backend) + Rust (fmt/clippy/test) + Python pytest 全綠。Python：1058 passed, 2 skipped。
+- `pwsh scripts/deadcode-all.ps1`：B1 動的 pkg/contracts/pkg/app/pkg/mover 在 REAL_DEAD intersection 為空；wails-live 函數 (Mover.BatchMoveDirs/GetOperation) 仍正確列在 only-root。**B1 沒新增不可達**。
+- 手動 CLI JSON 比對 (agent 已做)：scan/move single/move batch/move -kind dir/history list 五種輸出形狀與舊版逐欄一致；`files_skipped` 仍在。
+
+**Wails 影響面**
+- 0 影響。`wails-app/` 內無 import `pkg/contracts`，refactor 完全透明。wails build + test 全綠 (verify.ps1 step 2)。
+
+---
+
+## [2026-05-30 23:12 → 23:33, 21m] Boundary cleanup — B2 結構化 not-found 訊號
+
+> 來源：`docs/boundary-cleanup-tasks.md` B2。Workflow (id: wirmo5dwt, run: wf_341732eb-a29) 內部 scout → execute 兩階段；workflow ~17m + 主流程整合驗證 ~3m。
+
+**Design decisions**
+- **採 both 設計**：主信號 = `exit code 3`、輔助信號 = stdout JSON `{success:false, error_kind:"not_found", kind:"video"|"actress", code|id:<key>, message:"video not found"}`。理由：(1) stdout 成功時是 video JSON，error 時若也吐 JSON 會混淆 — exit code 是區分器；(2) 沿用既有 exit code convention (1=runtime error / 2=bad CLI input / **3=not-found 業務狀態**)，3 是空缺位；(3) exit code 是 Python 最便宜的判斷 (一個 int 比較)，JSON 是給未來 GUI surface「為什麼找不到」。
+- **保留 stderr substring fallback 作一版過渡**：Python `_is_not_found_error` 三段優先級 — (1) `returncode == 3` (2) stdout JSON `error_kind == "not_found"` (3) legacy substring。理由：Python 與 Go 不必同步部署也能跑舊版 classifier.exe，平滑升級。
+- **Go 側拆 helper**：新增 `notFoundExitCode=3` 常數 + `buildNotFoundPayload` / `emitNotFoundAndExit` 純函式 helper，讓 Go 單元測試能驗 payload shape 不必處理 `os.Exit`。
+
+**Deviations** (vs scout plan)
+- 未處理 `pkg/database/jsondb.go:20` 的 `ErrNotFound = errors.New("video not found")` 訊息中性化 (scout.risks 提到 actress 找不到時 stderr 會吐「取得女優失敗: video not found」)。理由：結構化訊號 (kind: "actress") 已和 stderr 字串脫鉤，字串中性化會擴散到 ~92 個既有 fixture 測試 (與 B3 同性質)，屬獨立 slice。
+
+**Tradeoffs**
+- 強化 `tests/integration/test_db_cli_contract.py:421-429` 從寬鬆 `returncode != 0` 改成嚴格 `returncode == 3`，鎖定新契約。其他 `returncode != 0/1` 出現處與 db get/delete 無關，未動。
+- `docs/ARCHITECTURE.md:84` 的「非零 exit 推回 False」描述用詞寬鬆未失準，未動 (避免無關文件改動)。
+
+**Integration verification (主流程)**
+- `pwsh scripts/verify.ps1` (full)：5 工具鏈全綠。Python：**1071 passed** (vs B1 後 1058，+13 為 B2 新增鎖定測試含 chinese-stderr / legacy-fallback / 4 個 wrapper missing 鎖定 / 真錯誤不吞 negative test)。
+- 手動驗證 (主流程):
+  - `db get NONEXISTENT` → exit 3 + stdout JSON `{error_kind:"not_found",kind:"video",code:"NONEXISTENT",message:"video not found",success:false}` ✓
+  - `db delete NONEXISTENT` → 同上 ✓
+  - `db get ""` (invalid input) → **exit 1 + stderr「取得影片失敗: invalid video code」** — 真錯誤路徑**未被破壞** ✓
+
+**Wails 影響面**
+- 0 影響。wails-app/backend 透過 `*SQLiteStore` 直接呼叫 Go API，不走 classifier.exe subprocess，所以對 stderr/exit code 零依賴。grep 確認 wails 沒消費 classifier.exe 的 exit code。
+
+---
+
+## [2026-05-30 23:34 → 2026-05-31 00:27, 53m] Boundary cleanup — B3 JSONDatabase 搬獨立 package
+
+> 來源：`docs/boundary-cleanup-tasks.md` B3。Workflow (id: wb1p0gwcv, run: wf_a23df4c0-dc8) 內部 scout → execute；scout ~10m + execute ~39m + 主流程整合驗證 ~3m。最複雜的一個 — 動 ~63 個符號搬 package、~19 個 *_test.go 改 import、jsondb.go/journal.go/sqlite_runtime.go 連動。
+
+**Design decisions**
+- **dot-import 解 import cycle**：jsonfixture 必須 import `actress-classifier/pkg/database` 拿共享型別 (VideoData / ActressData / OpAdd / TypeVideo / DataFileName...)，但反向 (test 要碰 unexported fields) 會循環。解法：所有需要 JSONDatabase 的測試 **物理搬到** `pkg/database/jsonfixture/`，宣告 `package jsonfixture` + dot-import database — 同 package 取得 unexported 欄位、dot-import 取得共享型別、零反向依賴。
+- **保留 JSONDatabase 大多 unexported field** (mu/dataDir/dataFile/journalFile/.../dirtyVideos/dirtyActresses/deletedVideos)：測試直接戳這些欄位驅動 error tail，搬到同 jsonfixture package 後自然可存取，避免為了測試強制 export 污染契約。
+- **混合測試檔逐檔 split**：11 個 _test.go 混了 JSON 端 + SQLite runtime 測試。原則：JSON 相關 → jsonfixture/、SQLite runtime → 留 pkg/database/。例如 `runtime_extra_test.go` 內 5 個 `TestRestoreBackupDataFile_*` 系列搬走、26 個 runtime 內部測試留下。
+
+**Deviations** (vs scout plan)
+- 無重大偏離。scout plan 精確盤點正確。
+- 小調整：8 個原本 unexported 的 live free function (jsondb.go 內被 sqlite_runtime.go 用) 需要升為 exported 才能跨 package 呼叫：`LoadMergeSourceData`、`PrepareVideoForMerge`、`IsBackupJSONFileName`、`DeleteExpiredBackups`、`RemoveOldestBackups`、`SelectPrimaryStudio`。`resolveMergeSourcePath` / `normalizeMergeSourceData` / `parseBackupDate` 維持 unexported (只在 pkg/database 內用)。
+- `videoFieldUpdateHandlers` map 抽到 `pkg/database/journal.go` (極小、純 handler map)；`sqlite_runtime.go` 透過 `ApplyVideoFieldUpdates` wrapper 呼叫、jsonfixture 也透過 `database.ApplyVideoFieldUpdates` 呼叫 — handler map 維持 unexported 跨 package 不需直接看到。
+
+**Tradeoffs**
+- `helpers_test.go` 內 `writeJSONDB` / `minimalRoot` / `writeBackupWithMtime` 在 jsonfixture 重新實作一份 (byte-level duplicate 自 pkg/database 內同名 test helper)。理由：跨 package 拉 unexported test helper 需要強制 export，duplicate 量極小且純值 (~30 行)，沒有持續維護成本，比污染 export surface 划算。
+- `ActressCleanupTarget` 是結構型介面 (`GetAllVideos` / `UpdateVideo` 等)，`*jsonfixture.JSONDatabase` 自動滿足 (Go 結構介面)，不需 adapter。`actress_cleaner_test.go` 只搬 2 個 `ApplyToDatabase` 測試 (需 `*JSONDatabase` 當 target)、9 個 `CleanActresses` 純測試留 pkg/database (戳 SQLiteStore)。
+
+**Integration verification (主流程)**
+- 6 個 boolean DoD 全綠 (agent 自驗):
+  - `runtime_has_no_jsondatabase_type`: True (grep `type JSONDatabase` 在 pkg/database/ 排除 jsonfixture/ 無結果)
+  - `pkg_database_test_pass`: True
+  - `root_build_pass`: True
+  - `wails_build_pass`: True
+  - `schema_drift_locks_pass`: True (Go + 3 個 Rust drift 鎖綠)
+  - `deadcode_no_new_unreachable`: True
+- `pwsh scripts/verify.ps1` (full)：5 工具鏈全綠。Python：**1071 passed** (與 B2 後一致 — B3 純 Go 重構不動 Python)。
+- `pwsh scripts/deadcode-all.ps1`：protected three (`database.NewVideo` / `mover.Mover.BatchMoveDirs` / `mover.Mover.GetOperation`) 仍正確列在 "Single-binary-only" → wails 路徑未被破壞。intersection (REAL DEAD) 無 jsonfixture 符號 (預期 — jsonfixture 只給 _test.go import，deadcode 看不到 _test.go 路徑，視為「不存在於 main binary」)。
+- deadcode 對 pkg/database/ 的影響：actress-classifier/pkg/database.* 死碼從 baseline 81 降到 18 (減 63 — 即搬走的符號)，intersect 從 4126 降到 4063；only-root / only-wails 完全不變 (1503 / 1970)。0 NEW intersection，63 REMOVED。
+
+**Wails 影響面**
+- 0 影響。wails 不 import pkg/database/jsonfixture。runtime SQLiteStore 透過 pkg/database 的 exported helpers (升為 `LoadMergeSourceData` 等) 取代之前直接呼叫 unexported 版本，functional 等價。
+
+---
+
+## Boundary cleanup 整體總結 (A 區並行 + B 區序列，2026-05-30 22:24 → 2026-05-31 00:27, ~2h)
+
+| 區 | 任務 | 工具 | 結果 |
+|---|---|---|---|
+| A1 | deadcode 交集腳本 | workflow 3 agent 並行 | ✅ DoD 綠 |
+| A2 | verify.ps1 統一腳本 | (同上) | ✅ DoD 綠 + 反向 fmt-壞測試 |
+| A3 | fixture 污染修復 | (同上) | ✅ DoD 綠 (整合測試連跑兩次都綠) |
+| B1 | DTO 收斂到 mover.* | workflow scout→exec | ✅ pkg/contracts 整 package 刪、verify.ps1 1058 passed |
+| B2 | 結構化 not-found 訊號 | workflow scout→exec | ✅ exit 3 + JSON + legacy fallback、verify.ps1 1071 passed |
+| B3 | JSONDatabase 搬獨立 package | workflow scout→exec | ✅ 19 檔新建、63 符號搬遷、verify.ps1 1071 passed |
+
+**C 區 (C1 §7.1 sibling、C2 wails 獨立 module) 維持文件化即解** — A2 的 verify.ps1 已順手補了 C2 的痛點 (一行統一測試腳本)，文件已說明 C1 是 v4 佈局重整時順手做。
+
+**最終 worktree 狀態** (45 個 file changes)：
+- 新建：scripts/deadcode-all.{ps1,sh}、scripts/verify.ps1、pkg/mover/types_test.go、pkg/database/jsonfixture/ (19 檔)
+- 刪除：pkg/contracts/{move,scan,history}.go、pkg/database/jsondb*_test.go (6 檔)、pkg/database/journal_extra_test.go
+- 修改：cmd/scanner/{main,db_cmd,main_test}.go、pkg/app/* (含 3 個測試)、pkg/database/{jsondb,journal,sqlite_runtime,...}.go (含多個 _test.go)、src/services/go_cli.py、tests/test_*.py + integration、CLAUDE.md、docs/contract-deadcode-audit-2026-05-30-tasks.md
+
+**未跑的最終閘**：`/tool-scan` (boundary-cleanup-tasks.md 全域驗證第 8 步) — 留給使用者觸發 (見 memory `feedback_verification_step_in_plan`)。
