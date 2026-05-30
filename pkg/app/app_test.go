@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"actress-classifier/pkg/contracts"
+	"actress-classifier/pkg/mover"
 )
 
 // ============================================================
@@ -181,12 +181,12 @@ func TestMoveFile_DryRun(t *testing.T) {
 
 func TestBatchMove_MultipleFiles(t *testing.T) {
 	dir := t.TempDir()
-	items := []contracts.MoveItem{}
+	items := []mover.MoveItem{}
 	for _, code := range []string{"STARS-001", "ABW-002", "IPX-003"} {
 		src := filepath.Join(dir, code+".mp4")
 		dst := filepath.Join(dir, "out", code+".mp4")
 		os.WriteFile(src, []byte(code), 0600)
-		items = append(items, contracts.MoveItem{Source: src, Destination: dst})
+		items = append(items, mover.MoveItem{Source: src, Destination: dst})
 	}
 
 	logDir := filepath.Join(dir, "logs")
@@ -233,7 +233,7 @@ func TestBatchAndRollback_RoundTrip(t *testing.T) {
 	os.WriteFile(src, []byte("content"), 0600)
 
 	logDir := filepath.Join(dir, "logs")
-	items := []contracts.MoveItem{{Source: src, Destination: dst}}
+	items := []mover.MoveItem{{Source: src, Destination: dst}}
 
 	// 搬移
 	batchResult, err := BatchMove(context.Background(), items, "skip", false, logDir)

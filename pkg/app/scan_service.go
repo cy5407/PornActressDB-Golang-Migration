@@ -7,9 +7,16 @@ import (
 	"strings"
 	"sync"
 
-	"actress-classifier/pkg/contracts"
 	"actress-classifier/pkg/extractor"
 )
+
+// ScanResult 是 scan CLI 的 JSON 輸出 DTO。
+// 兩欄資料 (path/code) 與 mover/extractor 語意無關,故在 app 套件內就地宣告,
+// 避免為了兩個欄位開新 package。JSON tag 須與舊 contracts.ScanResult 完全一致。
+type ScanResult struct {
+	Path string `json:"path"`
+	Code string `json:"code"`
+}
 
 type ScanRequest struct {
 	Dir       string
@@ -42,7 +49,7 @@ func isSupportedScanFile(path string, supportedFormats map[string]bool) bool {
 	return supportedFormats[strings.ToLower(filepath.Ext(path))]
 }
 
-func startScanWorkers(workers int, jobs <-chan string, ext *extractor.CodeExtractor, results *[]contracts.ScanResult, mu *sync.Mutex, wg *sync.WaitGroup) {
+func startScanWorkers(workers int, jobs <-chan string, ext *extractor.CodeExtractor, results *[]ScanResult, mu *sync.Mutex, wg *sync.WaitGroup) {
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
@@ -50,7 +57,7 @@ func startScanWorkers(workers int, jobs <-chan string, ext *extractor.CodeExtrac
 			for path := range jobs {
 				if code := ext.ExtractCode(path); code != "" {
 					mu.Lock()
-					*results = append(*results, contracts.ScanResult{Path: path, Code: code})
+					*results = append(*results, ScanResult{Path: path, Code: code})
 					mu.Unlock()
 				}
 			}
@@ -84,13 +91,13 @@ func walkScanFiles(root string, recursive bool, absDir string, supportedFormats 
 	})
 }
 
-func ScanFiles(req ScanRequest) ([]contracts.ScanResult, error) {
+func ScanFiles(req ScanRequest) ([]ScanResult, error) {
 	if _, err := os.Stat(req.Dir); os.IsNotExist(err) {
 		return nil, fmt.Errorf("目錄不存在: %s", req.Dir)
 	}
 
 	ext := extractor.NewCodeExtractor()
-	results := make([]contracts.ScanResult, 0)
+	results := make([]ScanResult, 0)
 	jobs := make(chan string, 100)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
