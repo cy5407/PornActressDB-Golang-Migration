@@ -22,7 +22,7 @@ SQLite v3                ← Runtime source of truth（`data\db.sqlite`）；JSO
 | 功能 | 說明 |
 |------|------|
 | 掃描 | 從資料夾批次提取番號，使用 Go 並發掃描 |
-| 搜尋 | 預設主流程為級聯搜尋（主線仍是 AV-WIKI → JAVDB）；Wails 也提供 AV-WIKI-only / JAVDB-only 來源限定搜尋，方便針對性重跑或補查，結果寫入 JSON 資料庫 |
+| 搜尋 | 預設主流程為級聯搜尋（主線仍是 AV-WIKI → JAVDB）；Wails 也提供 AV-WIKI-only / JAVDB-only 來源限定搜尋，方便針對性重跑或補查，結果寫入 SQLite 資料庫 |
 | 移動 | 依女優分類：`outputDir\女優名\番號.ext` |
 | 🏢 片商分類 | 依片商分層：`outputDir\片商名\女優名\番號.ext` |
 | 回滾 | 查看操作歷史，一鍵還原移動結果 |
@@ -327,7 +327,7 @@ Run entry points:
 
 1. Set input folder (scan source) and output folder (move target)
 2. **Scan** — extract video codes from filenames
-3. **Search** — the default/mainline flow is cascade search (AV-WIKI → JAVDB); Wails also exposes AV-WIKI-only and JAVDB-only batch search for targeted reruns or supplementary checks, with results written to the JSON database
+3. **Search** — the default/mainline flow is cascade search (AV-WIKI → JAVDB); Wails also exposes AV-WIKI-only and JAVDB-only batch search for targeted reruns or supplementary checks, with results written to the SQLite database
 4. **Move** → `outputDir\actress\code.ext`
    **Studio Classify** → `outputDir\studio\actress\code.ext`
 5. Use **Operation History** to rollback if needed

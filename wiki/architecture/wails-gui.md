@@ -67,8 +67,6 @@ wails-app/
 | `ListOperations()` | pkg/mover (`mover.ListOperations`) | 列出操作歷史，最新優先 |
 | `GetOperation(id)` | pkg/mover (`mover.GetOperation`) | 取得單筆操作詳細 |
 | `DbGetVideo(code)` | pkg/database | 查詢影片資料 |
-| `DbUpdateVideo(code, data)` | pkg/database | 更新影片資料 |
-| `DbListVideos()` | pkg/database | 列出所有影片 |
 | `IdentifyStudio(code)` | pkg/studio | 識別片商 |
 | `ListStudios()` | pkg/studio | 列出所有片商 |
 | `GetStudiosByCodes(codes)` | studios.json | 批次依番號前綴查片商 |

@@ -22,7 +22,7 @@ classifier.exe <命令> [選項]
 ├── scan       掃描目錄中的影片檔案，提取番號
 ├── move       移動檔案（單檔或批次）
 ├── history    查看操作歷史或回滾
-├── db         資料庫操作（get/update/delete/list/stats/merge/fix-studios）
+├── db         資料庫操作（get / update / delete / list / stats / compact / merge / fix-studios / actress-get / actress-update / actress-delete / actress-list / clean-actresses / backup-create / backup-restore / backup-list / backup-cleanup / migrate-from-json / verify-sync / resync-from-json / export-json）
 ├── identify   識別番號所屬片商
 ├── cache      快取管理（stats/prune/clear/get/set/delete）
 └── help       顯示說明
@@ -133,7 +133,7 @@ classifier.exe db <子命令> [選項]
 | `actress-delete <id>` | 刪除女優 |
 | `actress-list` | 列出所有女優 ID |
 | `clean-actresses [-write]` | 清洗影片 `actresses` 欄位中的高信心污染名稱；預設 dry-run，加 `-write` 才寫回 DB |
-| `backup-create` | 建立時間戳備份（data.json → backup/backup_YYYY-MM-DD_HH-MM-SS.json） |
+| `backup-create` | 建立時間戳雙重備份（SQLite 備份 `backup_<ts>.sqlite` + 從 SQLite 匯出的 JSON 快照 `backup_<ts>.json`） |
 | `backup-restore -backup-path <path>` | 從備份還原 |
 | `backup-list` | 列出所有備份檔 |
 | `backup-cleanup [-days N] [-max-count N]` | 清理過期/超量備份（預設 30 天、50 個） |
@@ -146,7 +146,7 @@ classifier.exe db <子命令> [選項]
 - 加 `-write` 後才會：
   1. 先建立 backup
   2. 套用清洗規則到所有影片
-  3. 若有變更，再執行 `CompactJournal()` 寫回主 DB
+  3. 若有變更，逐筆透過 `UpdateVideo` 寫回 SQLite 資料庫
 
 輸出 JSON 欄位：
 - `success`
