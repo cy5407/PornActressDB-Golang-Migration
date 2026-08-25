@@ -92,14 +92,19 @@ func writeJSONDatabaseRoot(path string, root *DatabaseData) error {
 | `pkg/database/sqlite_backup.go:308` | **直接 `os.OpenFile(..., O_TRUNC, 0o600)`**（`copyFile` 備份/還原路徑） |
 | `pkg/mover/file_move.go:163` | **直接 `os.OpenFile(..., O_CREATE\|O_EXCL, 0600)`**（`generateUniqueName` 的 0-byte 佔位檔；對比同檔 `copyFile:186` 走的是 `safefile.OpenFile`） |
 
-以上四處為全庫（排除 `_test.go`）繞過 `safefile` 的直寫點全集，查證指令：
-`grep -rn --include=*.go -E "\bos\.(WriteFile|Create|CreateTemp|OpenFile)\(" . | grep -v _test.go`
+以上四處為全庫繞過 `safefile` 的直寫點全集，查證指令（`.claude/` 底下是未追蹤的
+worktree 副本，不排除的話會多出四筆重複命中）：
+
+```
+grep -rn --include=*.go -E "\bos\.(WriteFile|Create|CreateTemp|OpenFile)\(" . \
+  | grep -v _test.go | grep -v '/\.claude/'
+```
 
 ---
 
 ## P2（遺留面）— JSON 儲存層寫入失敗卻回報成功
 
-**位置：** `JSONDatabase` 已搬到 `pkg/database/jsonfixture/jsondb.go`；對應方法約在 `UpdateVideo`（301 行一帶）、`SaveActress`（747 行一帶）、`DeleteActress`（776 行一帶）
+**位置：** `JSONDatabase` 已搬到 `pkg/database/jsonfixture/jsondb.go`；對應方法約在 `UpdateVideo`（270-322，寫入在 301 行一帶）、`UpsertActress`（731 起，寫入在 747 行一帶）、`DeleteActress`（764 起，刪除在 776 行一帶）。原掃描器寫的 `SaveActress` 不存在，實際方法名是 `UpsertActress`
 
 三個方法都先修改記憶體狀態，接著在 journal / index 寫入失敗時吞掉錯誤並 `return nil`：
 
@@ -119,7 +124,7 @@ if err != nil {
 }
 return nil                                          // 一律回報成功
 
-// SaveActress — jsonfixture/jsondb.go:747 一帶 / DeleteActress — jsonfixture/jsondb.go:776 一帶
+// UpsertActress — jsonfixture/jsondb.go:747 一帶 / DeleteActress — jsonfixture/jsondb.go:776 一帶
 entry, err := NewJournalEntry(op, TypeActress, actress.ID, actress)
 if err == nil {                                     // 錯誤連 warning 都沒有
 	if db.appendJournalEntry(entry) == nil {        // 同上
