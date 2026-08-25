@@ -89,7 +89,11 @@ func writeJSONDatabaseRoot(path string, root *DatabaseData) error {
 | `pkg/database/jsonfixture/jsondb.go:1032` | `safefile.WriteFile(tempPath, …)` + rename |
 | `pkg/database/export_json.go:115` | **直接 `os.WriteFile`** |
 | `wails-app/backend/services/config.go:91` | **直接 `os.WriteFile`**（另一個既有直接寫入點） |
-| `pkg/database/sqlite_backup.go:308` | **直接 `os.OpenFile(..., O_TRUNC, 0o600)`**（`copyFile` 備份/還原路徑，第三個繞過 safefile 的直寫點） |
+| `pkg/database/sqlite_backup.go:308` | **直接 `os.OpenFile(..., O_TRUNC, 0o600)`**（`copyFile` 備份/還原路徑） |
+| `pkg/mover/file_move.go:163` | **直接 `os.OpenFile(..., O_CREATE\|O_EXCL, 0600)`**（`generateUniqueName` 的 0-byte 佔位檔；對比同檔 `copyFile:186` 走的是 `safefile.OpenFile`） |
+
+以上四處為全庫（排除 `_test.go`）繞過 `safefile` 的直寫點全集，查證指令：
+`grep -rn --include=*.go -E "\bos\.(WriteFile|Create|CreateTemp|OpenFile)\(" . | grep -v _test.go`
 
 ---
 
@@ -160,10 +164,10 @@ closeErr := file.Close()          // 無 file.Sync()
 
 | 宣稱 | 否決理由 |
 |---|---|
-| `jsondb.go:557` 呼叫不存在的 `appendJournal("update", code, video)`，會編譯失敗 | `appendJournal(operation, code string, video *Video)` 確實定義於 `pkg/database/jsonfixture/journal.go:49`。且 `go vet` 通過即證明套件可編譯 |
+| `jsondb.go:557` 呼叫不存在的 `appendJournal("update", code, video)`，會編譯失敗 | 呼叫點實際在 `pkg/database/jsonfixture/jsondb.go:549`（557 為空行）。`appendJournal(operation, code string, video *database.VideoData)` 定義於 `pkg/database/jsonfixture/journal.go:49`，`Video` 是 `pkg/database/jsondb.go:29` 對 `VideoData` 的別名故等價。且 `go vet` 通過即證明套件可編譯 |
 | `safefile.OpenRead`／`OpenFile`／`ReadFile` 的 `defer root.Close()` 會使回傳的 `*os.File` 失效 | Go `os.Root.Open`／`Root.OpenFile` 回傳的 `*os.File` 持有自己的檔案 handle；關閉 Root 只影響 Root 本身的後續方法呼叫，不影響已開啟的檔案。這是 `os.Root` 的既定語意 |
-| `journal.go:98-100`、`297`、`323`、`350` 靜默跳過損毀的 journal 行 | `98-100` 有印出 warning 並繼續，屬刻意的 best-effort 重放策略；`297/323/350` 為同一策略的下游 |
-| `actress_cleaner.go:173` 迴圈更新無交易保護 | 屬 JSON 遺留面（同上 store_factory 註解）；SQLite runtime 路徑另有交易處理 |
+| `journal.go:98-100`、`297`、`323`、`350` 靜默跳過損毀的 journal 行 | `pkg/database/jsonfixture/journal.go:98-100` 有印出 warning 並繼續，未靜默。**原掃描器引用的另外三行不存在或無關**：該檔共 297 行，`297` 是 `newJournalScanner` 的閉括號，`323`／`350` 超出檔尾（`pkg/database/journal.go` 更只有 129 行）。「屬同一策略的下游」是先前的推定，程式碼中沒有任何註解表達此意圖 |
+| `actress_cleaner.go:173` 迴圈更新無交易保護 | **部分成立，先前的否決理由有誤。**這條路徑就是 SQLite runtime：`cmd/scanner/db_cmd.go:450` 的 `cleanActressesAction(db *database.SQLiteStore, …)` 於 `:470` 呼叫 `ApplyToDatabase`，迴圈層確實沒有交易，每筆 `UpdateVideo`（`pkg/database/sqlite_runtime.go:117`）各自成交，中途失敗會留下部分套用狀態。實際緩解是 `db_cmd.go:458-464` 在寫入前先 `BackupCreate()`，而非交易 |
 
 **掃描乾淨的範圍：** `pkg/app`、`pkg/cache`、`pkg/contracts`、`cmd/scanner`、`wails-app` —— 併發（WaitGroup／Mutex／context 取消）、快取原子性、資源生命週期、路徑穿越防護皆複查無缺陷。
 
@@ -172,7 +176,7 @@ closeErr := file.Close()          // 無 file.Sync()
 ## 建議處理順序
 
 1. **P2 `generateUniqueName`** —— 將 `if !os.IsExist(err) { continue }` 改為在非 `ErrExist` 時終止並回報錯誤；同步調整 `error_paths_test.go:640`。
-2. **P2 `export_json`** —— 改用 `safefile.WriteFile` 寫 temp 後 rename，與 `jsondb.go:237` 一致。
+2. **P2 `export_json`** —— 改用 `safefile.WriteFile` 寫 temp 後 rename，與 `pkg/database/jsonfixture/jsondb.go:233-238` 一致。
 3. **P3 `safefile.WriteFile`** —— 補 `Sync()`。
 4. **P2 JSON 儲存層** —— 先確認是否仍有 runtime 呼叫者，再決定修正或標記為 deprecated。
 
