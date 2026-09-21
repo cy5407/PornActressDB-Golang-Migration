@@ -61,10 +61,10 @@ go test .\cmd\scanner -v
 # Wails backend
 Set-Location wails-app
 go test .\backend -v
+Set-Location ..
 
 # Rust db-tool
-Set-Location tools-rs
-cargo test
+cargo test --manifest-path tools-rs\Cargo.toml
 
 # Python（整體 / 整合 / 單檔）
 python -m pytest tests\ -q -p no:cacheprovider
