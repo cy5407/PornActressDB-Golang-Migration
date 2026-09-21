@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mutation Check"
+  short_description: "故意改壞程式，確認測試真的會叫"
+  default_prompt: "使用 $mutation-check 驗證剛才的修法與測試：把被保護的程式改壞，確認測試會失敗。"

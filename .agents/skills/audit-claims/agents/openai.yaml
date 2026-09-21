@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Claims"
+  short_description: "交付調查報告前，機械檢查引用行號、符號定義位置與無依據的斷言"
+  default_prompt: "使用 $audit-claims 檢查我剛寫好的報告檔。"

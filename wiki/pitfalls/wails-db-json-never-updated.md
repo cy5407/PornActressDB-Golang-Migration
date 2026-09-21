@@ -5,6 +5,7 @@ date: 2026-04-08
 # Wails DB data.json 從未更新
 
 > 歸檔日期：2026-04-07
+> ⚠️ **歷史紀錄標註**：此 pitfall 記錄的是 JSON DB 時代的問題；C2 之後 runtime 已切換為 SQLite-only，`CompactJournal()` 已移除，`Compact()`/`CompactIfNeeded()` 現為 no-op。
 
 ---
 
@@ -117,4 +118,4 @@ Select-String "a\.db\.Compact\(\)|a\.db\.CompactIfNeeded\(\)|db\.CompactIfNeeded
 ## 涉及檔案
 
 - `wails-app/backend/app.go`：`BatchSearch()` 末尾 + 早期返回 + `ensureDB()`
-- `pkg/database/jsondb.go`：`CompactIfNeeded()` / `Compact()` / `CompactJournal()` 實作
+- `pkg/database/jsonfixture/`：`CompactIfNeeded()` / `Compact()` / `CompactJournal()` 實作（現為測試 fixture）

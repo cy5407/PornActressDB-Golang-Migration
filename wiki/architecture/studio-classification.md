@@ -191,7 +191,7 @@ func loadCodeStudioMap(path string) map[string]string
 | `major_studios.json` | **真實來源**：大片商名單 |
 | `dist\portable\studios.json` | portable bundle 副本（由 `setup.ps1` 產生） |
 | `dist\portable\major_studios.json` | portable bundle 副本（由 `setup.ps1` 產生） |
-| `pkg/database/jsondb.go` | `GetActressPrimaryStudio` DB 查詢層 |
+| `pkg/database/sqlite_runtime.go` | `GetActressPrimaryStudio` DB 查詢層 |
 | `wails-app/backend/app.go` | `GetStudiosByCodes`、`GetActressPrimaryStudios`、`BatchMoveDirs` Wails binding |
 | `wails-app/frontend/src/App.tsx` | `handleStudioMove` 雙層查詢 + 整資料夾移動流程 |
 

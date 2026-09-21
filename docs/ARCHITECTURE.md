@@ -2,7 +2,7 @@
 
 > **這份文件是什麼**：女優分類系統 (Actress Classifier) 從 Python 遷移到 Golang 後的**契約 / 介面 / 入口架構地圖**，聚焦「誰呼叫誰、資料怎麼跨語言流動、哪些契約不可破壞、哪裡有陷阱」。
 > **與其他文件的關係**：`CLAUDE.md` 是**規則**（你必須遵守的指令），`wiki/architecture/database.md` 是 DB 細節，本檔是**跨子系統的結構總圖**。三者衝突時以 `CLAUDE.md` 為準。
-> **產出**：2026-05-30，由 8 路唯讀子系統測繪彙整。**反映 2026-05-30 契約/死碼 remediation 後的當前狀態**。檔案以路徑標示、不含行號（行號會漂移；用符號名 grep）。
+> **產出**：2026-05-30（已對齊 B1/B2/B3 邊界清理後狀態），由 8 路唯讀子系統測繪彙整。**反映 2026-05-30 契約/死碼 remediation 後的當前狀態**。檔案以路徑標示、不含行號（行號會漂移；用符號名 grep）。
 
 ---
 
@@ -66,9 +66,9 @@
 | 邊界 | 生產端 | 消費端 | 契約載體 | 鎖 |
 |---|---|---|---|---|
 | **Python → Go CLI** | `src/services/go_cli.py`（組 argv） | `cmd/scanner/*.go`（解析） | argv 子命令+flag、stdout JSON 形狀 | `tests/test_go_cli_contracts.py`（argv 鎖） |
-| **Go contracts ↔ mover** | `pkg/mover/types.go` | `pkg/app/*ToContract` → `cmd/scanner` 序列化 | `pkg/contracts/*.go` DTO（json tag） | 同上 + `pkg/app` 對齊測試 |
+| **Go move/history DTO** | `pkg/mover/types.go`（move/history 唯一來源） | `cmd/scanner` 直接序列化 `mover.*` | `pkg/mover/types.go` DTO（json tag，無 `*ToContract` 轉換層）；**scan DTO 例外**：`ScanResult` 就地宣告於 `pkg/app/scan_service.go` | 同上 + 契約鎖測試 |
 | **Python 搜尋 → Go (Wails)** | `run_search.py`/`run_batch_search.py`（stdout JSON / JSON Lines） | `app.go` `SearchResult`（`json.Unmarshal`） | `search_method`∥`method` 鍵 | `wails-app/backend/search_result_test.go` |
-| **Wails Go ↔ React** | `app.go` `*App` bound methods | `frontend/src/**` + `wailsjs/go/backend/App.d.ts` | Wails 自動產生 bindings（28 個方法） | 改 bound method 要 `wails build` 重生 bindings |
+| **Wails Go ↔ React** | `app.go` `*App` bound methods | `frontend/src/**` + `wailsjs/go/backend/App.d.ts` | Wails 自動產生 bindings（`App.d.ts` 28 個方法） | 改 bound method 要 `wails build` 重生 bindings |
 | **Go ↔ Rust schema** | `pkg/database/sqlite_schema.sql`（canonical） | Go `//go:embed` + Rust `include_str!` | `user_version=3`、`V3_SCHEMA_VERSION`==`SQLiteSchemaVersion`==3 | 四道 drift 測試（見 §7） |
 | **JSON ↔ SQLite** | `data/json_db/data.json` | `*SQLiteStore` migrate/export/verify + `db-tool` | `DatabaseData` 自由函式（非 `JSONDatabase` 型別） | `verify-sync` + CI 釋出閘 |
 
@@ -80,27 +80,26 @@
 **角色**：把 argv 路由到 6 個頂層子命令，每個 handler 解析 flag → 呼叫 `pkg/*` → stdout JSON 回傳。是 Python 與 GUI 都依賴的穩定對外契約。
 - **子命令**：`scan` / `move` / `history` / `db <sub>` / `identify` / `cache <sub>` / `help`。
 - **`db` 子路由**（`db_cmd.go`）：特殊子命令（`fix-studios`/`merge`/`migrate-from-json`/`verify-sync`/`resync-from-json`/`export-json`）各有獨立 FlagSet；其餘走 `dbHandlers` map（`get`/`update`/`delete`/`list`/`stats`/`compact`/`actress-get`/`actress-update`/`actress-delete`/`actress-list`/`clean-actresses`/`backup-create`/`backup-restore`/`backup-list`/`backup-cleanup`）。
-- **輸出契約**：成功一律 stdout `json.MarshalIndent`（兩空格）；所有錯誤/狀態提示走 stderr。exit code：一般錯誤 `1`、FlagSet 解析失敗 `2`、`verify-sync` 不一致 `1`。
+- **輸出契約**：成功一律 stdout `json.MarshalIndent`（兩空格）；所有錯誤/狀態提示走 stderr。exit code：一般錯誤 `1`、FlagSet 解析失敗 `2`、資料不存在（not_found）`3`（見 `cmd/scanner/db_cmd.go::notFoundExitCode` 與 `"error_kind": "not_found"`）、`verify-sync` 不一致 `1`。
 - **不可違反**：`backup-*` 四個名稱固定（禁止 `db backup`/`db restore`/`db sync` 別名）；`db stats` 保留 `journal_size`/`needs_compact`/`dirty_videos`/`sync_degraded_total`/`sqlite_read_fallback_total` 等 zero/false 鍵；`db delete`/`actress-delete` 先做存在性檢查讓非零 exit 推回 `False`。
 
 ### S2 — Python→Go 橋（`src/services/go_cli.py`）
 **角色**：Python 非爬蟲層呼叫 `classifier.exe` 的**唯一薄包裝層**。
 - **入口**：`run()`（唯一跑 subprocess 的點）、`is_available()`、`_resolve_exe()`，加上 `scan`/`identify`/`db_*`/`cache_*`/`move_*`/`history` 各系列 wrapper（約 30 個）。
-- **錯誤語意**：`GoError`（非零退出/JSON 解析失敗/timeout）、`GoNotFoundError`（exe 不存在）；`_is_not_found_error()` 靠 Go stderr 英文子字串 `"not found"` 把「資料不存在」轉成 `None`/`False`。
+- **錯誤語意**：`GoError`（非零退出/JSON 解析失敗/timeout）、`GoNotFoundError`（exe 不存在）；`_is_not_found_error()` 三級優先序為 (1) exit code 3 主信號 (2) stdout JSON `error_kind == "not_found"` 輔助信號 (3) stderr `"not found"` 字串只是過渡 fallback（見 `src/services/go_cli.py:215-248`）。
 - **不可違反**：argv 必與 S1 一致；`data_dir==data/json_db` 時省略 `-data-dir`（交給 §7.1 sibling 規則）；傳 dict/list 一律先寫 `NamedTemporaryFile(.json)` 再傳路徑（WSL+.exe 走 `wslpath -w`）。
 - **委派層定位**：`json_database.py`(`JSONDBManager`) / `incremental_json_database.py`(`IncrementalJSONDB`) 是**生產死碼、刻意保留為測試 fixture**（docstring 已標「非 runtime store」），CRUD 全委派 `go_cli.db_*`。
-- **陷阱**：`list_operations` 的 `-limit` 在 Go 端不存在（Go 硬寫 `0`）；`run()` type hint 標 dict 但可能回 list（消費端靠 `isinstance` 分流）；`_resolve_exe` 用模組級快取，測試切 exe 要 reset。
+- **陷阱**：`list_operations` 實測 `classifier history list -limit 10` 會因未知 flag 印 `flag provided but not defined: -limit` 並以 exit 2 失敗（`cmd/scanner/main.go` 的 `parseHistoryCommandOptions` 只宣告 `-log-dir` 與 `-json`）；`src/services/go_cli.py:797` 每次呼叫都送 `-limit`，例外被 `except GoError: return []` 吞掉，導致 Python 的 `list_operations` 永遠回空清單（已知缺陷）；`run()` type hint 標 dict 但可能回 list（消費端靠 `isinstance` 分流）；`_resolve_exe` 用模組級快取，測試切 exe 要 reset。
 
-### S3 — Go contracts + app 服務（`pkg/contracts/`, `pkg/app/`）
-**角色**：`pkg/contracts` 定義對外 JSON DTO；`pkg/app` 包住 `pkg/mover`/`pkg/extractor` 內部型別並**手寫**轉成 `contracts.*` 交給 `cmd/scanner` 序列化。
+### S3 — Go app 服務層（`pkg/app/`）
+**角色**：`pkg/app` 作為服務層，包住 `pkg/mover`/`pkg/extractor` 內部型別，直接回傳 `mover.*` / `extractor.*` 型別交給 `cmd/scanner` 序列化（`pkg/contracts` 平行 DTO 已由 B1 消除）。
 - **入口**：`app.ScanFiles` / `MoveFile` / `MoveDir` / `BatchMove` / `BatchMoveStdin` / `ListOperations` / `ShowOperation` / `Rollback`。
-- **DTO**：`ScanResult` / `MoveItem` / `MoveResult` / `MergeResult`（含 `files_skipped`）/ `BatchResult` / `OperationLog`。
-- **已知 interface 風險**：`contracts.*` 與 `pkg/mover/types.go` 是**兩套 byte-identical 的平行 DTO**，靠 `pkg/app` 手寫 `*ToContract` 橋接。**改 DTO 欄位要動四處**：`pkg/contracts/*.go` + `pkg/mover/types.go` + `pkg/app` 轉換函式 + `tests/test_go_cli_contracts.py`——漏任一處不會編譯失敗。
-- **陷阱**：`parseStrategy` 只收 `skip/overwrite/rename`（`merge` 常數存在但 app 層不接受）；`OnConflict` 在 contracts 是 string、mover 是 enum，`toMoverItems` 直接 cast 不驗證。
+- **DTO**：move/history 直接使用 `pkg/mover/types.go` 定義之 `MoveItem` / `MoveResult` / `MergeResult`（含 `files_skipped`）/ `BatchResult` / `OperationLog`；**`ScanResult` 是例外**，就地宣告於 `pkg/app/scan_service.go`（只有 `path`/`code` 兩欄，與 mover/extractor 語意無關）。
+- **陷阱**：`parseStrategy` 只收 `skip/overwrite/rename`（`merge` 常數存在但 app 層不接受）；`OnConflict` 在 per-item override 時直接 cast 為 `mover.ConflictStrategy`。
 
 ### S4 — Wails backend（`wails-app/backend/`）→ `actress-classifier.exe`
 **角色**：把掃描/搬移/Python 搜尋/SQLite 查詢/設定/片商以 `*App` bound methods 暴露給 React。**獨立 go module**（`replace actress-classifier => ../`）。
-- **入口**：28 個 bound methods（`ScanDirectory`/`BatchMoveDirs`/`CheckDirConflicts`/`MoveFile`/`BatchMove`/`RollbackOperation`/`ListOperations`/`GetOperation`/`DbGetVideo`/`IdentifyStudio`/`GetPreferences`/`PythonSearch`/`BatchSearch`/`BatchSearchAVWiki`/`BatchSearchJAVDB`/`GetActressPrimaryStudios`/...）；`ConfigService.Load/Save/Reset`。
+- **入口**：29 個 exported `*App` 方法，其中 28 個成為前端 bindings。少的那個是 `Startup`——它在 `wails-app/main.go` 被指派為 `OnStartup`，而 Wails 把 `OnStartup`/`OnShutdown`/`OnDomReady`/`OnBeforeClose` 四個生命週期回呼列入 binding exemption（`internal/app/app_bindings.go` 的 `bindingExemptions`，`internal/binding/reflect.go` 唯一的排除判斷）。**與參數型別無關**：一般方法即使帶 `context.Context` 仍會被 bind。（`ScanDirectory`/`BatchMoveDirs`/`CheckDirConflicts`/`MoveFile`/`BatchMove`/`RollbackOperation`/`ListOperations`/`GetOperation`/`DbGetVideo`/`IdentifyStudio`/`GetPreferences`/`PythonSearch`/`BatchSearch`/`BatchSearchAVWiki`/`BatchSearchJAVDB`/`GetActressPrimaryStudios`/...）；`ConfigService.Load/Save/Reset`。
 - **runtime DB**：一律 `database.NewStore(StoreConfig{DataDir})` → `*SQLiteStore`；`ensureDB` 用 `dbMu` 保護，偵測 `data.json` mtime 變動會 `Close` 舊 store 重開（Windows SQLite 獨佔 handle）。
 - **搜尋**：`SearchResult.UnmarshalJSON` 接受 `search_method`∥`method`（marshal 仍出 `method`，前端不變）；Python 子程序一律 `python -X utf8` + `PYTHONUTF8=1` + `hideWindow`。
 - **陷阱**：`DbListVideos`/`DbUpdateVideo` 已於 2026-05-30 刪除（只剩 `DbGetVideo`）——**勿照舊文件加回**；`proc_windows.go` 無 `//go:build` 標頭、靠 `_windows.go` 檔名約束 GOOS（搬檔會破壞 Linux CI）；`wails-app` 要在 `wails-app/` 下 `go test ./backend`（root `go test ./pkg/...` 不涵蓋）。
@@ -110,7 +109,7 @@
 - **入口**：`NewStore(StoreConfig)`（**唯一開店入口** + fail-loud bootstrap）、`OpenSQLiteStore`、`ResolveDataDirPaths`、`MigrateFromJSON`/`ResyncFromJSON`/`VerifySync`/`ExportToJSON`、CRUD（`AddVideo`/`UpdateVideo`/`UpdateVideoFields`/`GetStats`/`Merge*`/`Backup*`）。
 - **型別**：`VideoData`(alias `Video`) / `ActressData` / `DatabaseData`(alias `JSONDatabaseRoot`) / `VideoActressLink` / `MigrationReport` / `VerifyReport` / `BackupResult`。
 - **不可違反**：bootstrap fail-loud（空 SQLite + 有 `data.json` 時匯入失敗一律 close+error，不退化成空 store）；**§7.1 sibling 規則**（預設 `-data-dir data/json_db` → SQLite 落 sibling `data/db.sqlite`，自訂 path → `<path>/db.sqlite`）；`legacy_video_actress_links` 是 `root.links[]` 的 ordinal 快照（含 orphan，無 FK）；`StableActressID` = `auto_` + SHA-1[:16]（僅 TrimSpace，改演算法會使既有 id 失效）。
-- **陷阱**：`JSONDatabase`(`jsondb.go`/`journal.go`) 是**刻意保留的測試 fixture，非 runtime**（docstring 已標）；`SQLiteStore.Save()`/`CompactJournal()` 已刪（只剩 `Compact()`/`CompactIfNeeded()` no-op）——但 `JSONDatabase` 仍有 `Save/CompactJournal`，那是 fixture，勿照抄到 `SQLiteStore`；`RestoreSQLiteFile` 前必須先 `Close()`（Windows rename）。
+- **陷阱**：`JSONDatabase`(`pkg/database/jsonfixture/`) 是**刻意保留的測試 fixture，非 runtime**（docstring 已標）；`pkg/database/jsondb.go` 僅保留 SQLite runtime 依賴的 JSON 形狀 helper，`journal.go` 僅留 `videoFieldUpdateHandlers`；`SQLiteStore.Save()`/`CompactJournal()` 已刪（只剩 `Compact()`/`CompactIfNeeded()` no-op）——但 `jsonfixture.JSONDatabase` 仍有 `Save/CompactJournal`，那是 fixture，勿照抄到 `SQLiteStore`；`RestoreSQLiteFile` 前必須先 `Close()`（Windows rename）。
 
 ### S6 — Python 搜尋管線（`src/scrapers/`, `src/services/web_searcher.py`）
 **角色**：GUI 經 subprocess 呼叫的**純爬蟲層**；非爬蟲的 DB/cache 一律委派 `classifier.exe`。
@@ -141,7 +140,7 @@
 8. **`db stats` 保留欄位**：`journal_size`/`needs_compact`/`dirty_videos`/`sync_degraded_total`/`sqlite_read_fallback_total` 等 zero/false 鍵（Python helper 依賴）。
 9. **`§7.1` sibling 規則**：預設 `data/json_db` → sibling `data/db.sqlite`。
 10. **搜尋 method 雙鍵相容**：Python 出 `search_method`，Go `UnmarshalJSON` 接受 `search_method`∥`method`。
-11. **DTO 四處同步**：改 move/scan/history DTO 要同時改 `contracts` + `mover` + `pkg/app` 轉換 + 契約鎖測試。
+11. **DTO 唯一來源**：move/history DTO 只有 `pkg/mover/types.go` 一套來源，不再有 `pkg/contracts` 平行定義。`ScanResult` 例外：CLI 側定義在 `pkg/app/scan_service.go`，wails 側另有一份同名同形狀的獨立定義（`wails-app/backend/app.go`）——兩者不共用型別，改欄位要兩邊一起動。
 12. **跨平台檔名約束**：`*_windows.go` / `*_other.go`（`//go:build !windows`）的 GOOS 分離不可破壞。
 
 ---
@@ -150,9 +149,9 @@
 
 | 對象 | 狀態 | 說明 |
 |---|---|---|
-| `pkg/database/jsondb.go`, `journal.go`（`JSONDatabase` 型別） | 🔒 **保留為測試 fixture** | 生產零呼叫，但 CLAUDE.md 明文保留；共享 fixture `setupTestDB`/`loadedJSONDB`/`seededJSONDB` 被眾多測試依賴。**勿當 runtime store**。 |
+| `pkg/database/jsonfixture/`（`JSONDatabase` 型別） | 🔒 **保留為測試 fixture** | 已於 B3 搬移至獨立 package；生產零呼叫，但 CLAUDE.md 明文保留；共享 fixture 被眾多測試依賴。**勿當 runtime store**。 |
 | Python `JSONDBManager`/`IncrementalJSONDB` | 🔒 **保留為測試 fixture** | 同上（使用者 2026-05-30 決定）；docstring 已標「非 runtime store」。 |
-| `pkg/database/db_helpers.go` | ✅ live | `JSONDatabase` 旁的 package-level helper（merge/backup/欄位更新/主要片商）被 `SQLiteStore` 依賴。 |
+| `pkg/database/jsondb.go` | ✅ live | SQLite runtime 依賴的 package-level JSON 形狀 helper（merge/backup/欄位更新/主要片商）。 |
 | `SQLiteStore.Save()` / `CompactJournal()` | ❌ **已刪** | 真死碼（零呼叫）；`Compact()`/`CompactIfNeeded()` no-op 保留（wails 呼叫）。 |
 | wails `DbListVideos`/`DbUpdateVideo` | ❌ **已刪** | 前端零呼叫；只剩 `DbGetVideo`。 |
 | `pkg/cache` `New`/`CleanupExpired`/`CleanupBySize`/`Exists`/`DefaultPruneConfig` | ❌ **已刪** | live 的 `AutoCleanup`/`Get`/`Set`/`Delete`/`Stats`/`Clear` 保留。 |
@@ -195,14 +194,14 @@ schema 改動必跑四道 drift 鎖：`TestSQLiteSchemaSQL_MatchesCanonicalFile`
 
 1. **雙 binary 假陽性**：`deadcode ./cmd/scanner` 會把 wails-only 函數誤報為死碼。永遠 grep 兩個 module。
 2. **`§7.1` 反直覺**：預設 `data/json_db` 的 SQLite 在 **sibling** `data/db.sqlite`；`NewStore(StoreConfig{})` 空 DataDir 會 fallback 到 `DefaultDataDir` 而非 cwd。
-3. **改 DTO 漏同步**：`contracts`/`mover`/`pkg/app`/契約鎖四處要一起改，漏了不會編譯失敗、會默默丟欄位。
-4. **wails 是獨立 module**：`root go test ./...` 不涵蓋 `wails-app/`；改 bound method 要 `wails build` 重生 bindings。
-5. **Rust CI 三步**：動 `tools-rs/**` 後 `cargo fmt --check` 會抓到**整個 crate**的既有 fmt 違規（不限你改的檔），只跑 `cargo test` 會漏。
-6. **fixture 污染**：別對真 `tests/fixtures/json_db_minimal/` 跑 `migrate-from-json`（會留下 `db.sqlite` 被整合測試 copy 進去而紅）；整合測試自己在 tmp 跑。
-7. **不要把 `JSONDatabase`/`JSONDBManager`/`IncrementalJSONDB` 當 runtime**：它們是刻意保留的測試 fixture；runtime 一律 `*SQLiteStore` / `classifier.exe db`。
-8. **not-found 語意脆弱**：`go_cli._is_not_found_error` 靠 Go stderr 英文 `"not found"` 子字串；Go 改措辭會讓 `db_get/delete_*` 把「資料不存在」誤判成真錯誤。
-9. **搜尋 method 鍵**：Python 出 `search_method`、Go 讀 `search_method`∥`method`、前端讀 `.method`；三方任一改動要全鏈檢查。
-10. **`db stats` zero 欄位是契約**：別當冗餘刪掉，Python helper 依賴。
+3. **wails 是獨立 module**：`root go test ./...` 不涵蓋 `wails-app/`；改 bound method 要 `wails build` 重生 bindings。
+4. **Rust CI 三步**：動 `tools-rs/**` 後 `cargo fmt --check` 會抓到**整個 crate**的既有 fmt 違規（不限你改的檔），只跑 `cargo test` 會漏。
+5. **fixture 污染**：別對真 `tests/fixtures/json_db_minimal/` 跑 `migrate-from-json`（會留下 `db.sqlite` 被整合測試 copy 進去而紅）；整合測試自己在 tmp 跑。
+6. **不要把 `JSONDatabase`/`JSONDBManager`/`IncrementalJSONDB` 當 runtime**：它們是刻意保留的測試 fixture；runtime 一律 `*SQLiteStore` / `classifier.exe db`。
+7. **not-found 走結構化訊號**：exit code 3 為主信號、stdout `error_kind: "not_found"` 為輔助信號，stderr 字串只是過渡 fallback。
+8. **搜尋 method 鍵**：Python 出 `search_method`、Go 讀 `search_method`∥`method`、前端讀 `.method`；三方任一改動要全鏈檢查。
+9. **`db stats` zero 欄位是契約**：別當冗餘刪掉，Python helper 依賴。
+10. **升 schema 到 v4 時，四道 drift 鎖不夠**：其中三道只比對 Go 與 Rust embed 的 SQL **文字**是否相同，第四道（`db_verify_*`）是存在性驗證，**都不保證「全新安裝的 DB」與「舊 DB 遷移過來的 DB」形狀一致**——`db-verify` 檢查的是 `integrity_check`、`user_version`、以及必要 table／view **是否存在**，不比對欄位、索引與 view 的定義內容。兩條路徑分歧是 silent data corruption 的來源。`tools-rs/src/v3_schema.rs` 的 `schema_fingerprint` 與 `fresh_and_migrated_schemas_converge` 就是為此而設；同檔的 `equivalence_test_must_be_extended_when_schema_version_rises` 會在 `V3_SCHEMA_VERSION` 一上升時**立刻變紅**，因為屆時等價測試仍只比較 v3-fresh vs v3 no-op、對新版本零偵測力。**先把等價測試擴充成 `fresh(vN)` vs `migrate(v(N-1)→vN)`，再改版本號**——反過來做會得到一個恆綠、卻宣稱有等價保證的測試，比沒有測試更糟。
 
 ---
 

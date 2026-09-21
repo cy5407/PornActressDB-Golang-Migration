@@ -113,12 +113,13 @@ classifier.exe db migrate-from-json -auto-create-missing-actresses
 
 - `pkg/database/store_factory.go` — `NewStore(StoreConfig)`：runtime 開店唯一入口；含 fail-loud bootstrap
 - `pkg/database/sqlite_store.go` — `*SQLiteStore` 本體 + schema init（`//go:embed sqlite_schema.sql`）
-- `pkg/database/sqlite_runtime.go` — runtime API：`AddVideo` / `UpdateVideo` / `GetActress` / `GetStats` / `Backup*` / `Merge*` / journal-shaped no-ops (`Save` / `Compact` / `CompactJournal` / `CompactIfNeeded`)
+- `pkg/database/sqlite_runtime.go` — runtime API：`AddVideo` / `UpdateVideo` / `GetActress` / `GetStats` / `Backup*` / `Merge*` / journal-shaped no-ops (`Compact` / `CompactIfNeeded`)
 - `pkg/database/sqlite_crud.go` — primitive upsert / read
 - `pkg/database/sqlite_backup.go` — `VACUUM INTO` 為主、`PRAGMA wal_checkpoint + 檔案 copy` 為 fallback；`RestoreSQLiteFile` 採 rename-aside rollback
 - `pkg/database/migrate_from_json.go` / `verify_sync.go` / `export_json.go` — 匯入 / 等價檢查 / 匯出。root `links[]` 在 import 時除了套用 override，還會逐筆寫入 `legacy_video_actress_links`（含 `video_code=""` 的 orphan）；export 從該表照 ordinal 還原 `root.links[]`。
 - `pkg/database/sqlite_schema.sql` — **canonical schema**；Go 與 Rust 共用（見下方）。v3 含 `legacy_video_actress_links`（無 FK 的 root `links[]` ordinal 快照）；此表為 additive 新增，`user_version` 保持 3。
-- `pkg/database/jsondb.go` — 保留為匯入 / 匯出 / 測試 fixture 助手；**不是 runtime store**
+- `pkg/database/jsondb.go` — 留存 SQLite runtime 仍依賴的 JSON 形狀 helper（merge 來源載入、backup 檔案管理、主要片商 tie-break 等），是 live code
+- `pkg/database/jsonfixture/` — `JSONDatabase` 型別與其 journal 方法的家，僅供匯入／匯出／legacy 工具的測試 fixture 使用，不在 runtime 路徑上
 
 ### Go CLI 入口
 
@@ -237,9 +238,16 @@ backup / restore CLI 名稱**固定**為：
 `.github/workflows/sqlite-verify-sync.yml` 是 Phase A 釋出閘 — `pkg/database/**`、`cmd/scanner/**`、`tests/fixtures/json_db_minimal/**` 的改動會觸發 build → `db migrate-from-json` → `db verify-sync`。任何非零 exit 都會擋 PR。本機重現：
 
 ```powershell
+# WARNING: 不要直接對 tests\fixtures\json_db_minimal 跑 migrate-from-json，
+# spec § 7.1 sibling lookup 會在 fixture 旁邊生出 db.sqlite，污染 git 工作樹
+# 並讓整合測試 (tests/integration/test_db_cli_contract.py) 在連跑時行為不穩。
+# 一律先 copy fixture 到 temp dir 再對 temp dir 跑。
 go build -o classifier.exe .\cmd\scanner
-.\classifier.exe db migrate-from-json -data-dir tests\fixtures\json_db_minimal
-.\classifier.exe db verify-sync -data-dir tests\fixtures\json_db_minimal
+$tmp = Join-Path $env:TEMP "json_db_minimal_$([guid]::NewGuid())"
+Copy-Item -Recurse tests\fixtures\json_db_minimal $tmp
+.\classifier.exe db migrate-from-json -data-dir $tmp
+.\classifier.exe db verify-sync -data-dir $tmp
+Remove-Item -Recurse -Force $tmp
 ```
 
 ## 備註

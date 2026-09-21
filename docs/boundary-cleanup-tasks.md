@@ -1,7 +1,7 @@
 # 邊界清理任務清單(契約/介面更乾淨)
 
-> 來源:`docs/ARCHITECTURE.md` §7「10 個未來 AI 易踩的坑」的可行性評估。
-> 產出:2026-05-30 ｜ 狀態:待執行。
+> 來源:`docs/ARCHITECTURE.md` §7「未來 AI 易踩的坑」（原 10 條，B1 完成後縮為 9 條）的可行性評估。
+> 產出:2026-05-30 ｜ 狀態:A 區、B 區已全數完成（2026-08 前），C 區維持文件化不動。
 > 本檔分三區:**A 馬上做**(低風險,可一批並行)、**B 值得做**(中風險真重構,序列)、**C 不硬做**(白話說明為何暫緩)。
 
 ## 怎麼用這份檔
@@ -16,7 +16,7 @@
 
 > 這三個**不碰任何生產邏輯**,只新增腳本或修文件/測試 seed。檔案集互斥,適合一個 workflow 三 agent 並行。
 
-## A1 — combined deadcode 腳本(消除雙 binary 假陽性)
+## A1 — combined deadcode 腳本(消除雙 binary 假陽性) ✅ 已完成
 - **對應坑**:#1。`deadcode ./cmd/scanner` 會把只有 wails 用的函數誤報死碼。
 - **檔案集**:`scripts/deadcode-all.ps1`(新檔)、`scripts/deadcode-all.sh`(新檔)。**不動既有檔。**
 - **做法**:寫腳本同時從 `./cmd/scanner`(root)與 `wails-app/`(`deadcode .`)跑 `deadcode`,各自輸出 unreachable 清單,**取兩邊交集**(只有兩個 binary 都不可達才算真死碼),排除 `*_test.go`。輸出人類可讀清單 + 提示「交集外的是另一 binary 在用,勿刪」。
@@ -24,7 +24,7 @@
 - **驗證**:`pwsh scripts/deadcode-all.ps1`(需 `go install golang.org/x/tools/cmd/deadcode@latest`),確認輸出不含上述三個 wails-live 函數。
 - 🎯 **/goal 句**:`/goal 寫 scripts/deadcode-all.ps1 + .sh,同時從 cmd/scanner 與 wails-app 跑 deadcode 取交集當真死碼清單,排除 *_test.go;驗證輸出不含 database.NewVideo/Mover.BatchMoveDirs/Mover.GetOperation 這三個 wails-live 函數`
 
-## A2 — 本機統一驗證腳本(消除 Rust 三步/跨 module 漏跑)
+## A2 — 本機統一驗證腳本(消除 Rust 三步/跨 module 漏跑) ✅ 已完成
 - **對應坑**:#5(Rust 只跑 cargo test 漏 fmt/clippy)、#4 的痛點(root go test 不涵蓋 wails)。
 - **檔案集**:`scripts/verify.ps1`(新檔)。**不動既有檔。**
 - **做法**:一個腳本依序跑全工具鏈並在任一步紅時非零退出:root `go build/vet/test ./...` → wails `cd wails-app; go build ./...; go test ./backend/...` → Rust **三步**(`cargo fmt --check` + `cargo clippy -- -D warnings` + `cargo test`)→ `python -m pytest tests/ -q`。可加 `-Quick` 旗標只跑 build+lint。
@@ -32,7 +32,7 @@
 - **驗證**:`pwsh scripts/verify.ps1` → exit 0;臨時破壞 fmt 再跑 → 非零,還原。
 - 🎯 **/goal 句**:`/goal 寫 scripts/verify.ps1 一鍵跑 root go(build/vet/test ./...) + wails(build/test ./backend) + Rust 三步(fmt --check/clippy -D warnings/test) + python pytest,任一步紅就非零退出;驗證當前樹 exit 0、且故意弄壞 tools-rs fmt 後會非零`
 
-## A3 — 修 fixture 污染(recipe + 測試 seed)
+## A3 — 修 fixture 污染(recipe + 測試 seed) ✅ 已完成
 - **對應坑**:#6。對真 `tests/fixtures/json_db_minimal/` 跑 `migrate-from-json` 會留下 `db.sqlite` 被整合測試 copy 進去而紅。
 - **檔案集**:`tests/integration/test_db_cli_contract.py`、`docs/contract-deadcode-audit-2026-05-30-tasks.md`(G7 recipe)、`CLAUDE.md`(CI 注意點的本機重現指令)。
 - **做法**:(1) 整合測試的 `_seed_fixture_data_dir`/copytree 改成**只複製 `data.json`** 到 tmp(而非整個 fixture 目錄),或在 copy 後主動刪除任何 `db.sqlite*`。(2) 文件的 G7 本機重現 recipe 改成**先複製 fixture 到 temp dir 再 migrate**,並加註「勿對真 fixture 跑、會污染」。
@@ -48,7 +48,7 @@
 
 > 這三個是真的動生產碼的重構,**不要並行**(彼此或與既有檔有重疊、且需聚焦驗證)。建議各自一個 `/goal` loop,內部可用 workflow 做調查/對抗式驗證。每個都先做「調查 → 計畫 → 編輯 → 驗證」四步。
 
-## B1 — DTO 收斂(消除四處同步)【建議最先做,ROI 最高】
+## B1 — DTO 收斂(消除四處同步)【建議最先做,ROI 最高】 ✅ 已完成
 - **對應坑**:#3。`pkg/contracts` 與 `pkg/mover` 是兩套 byte-identical 平行 DTO,靠 `pkg/app` 手寫轉換橋接;改欄位要動四處且漏了不會編譯失敗。
 - **檔案集**:`pkg/contracts/{scan,move,history}.go`、`pkg/app/{scan,move,history}_service.go`、`cmd/scanner/*.go`(序列化點)、`tests/test_go_cli_contracts.py`(契約鎖)。wails 用 `mover.*` alias,**通常不需動**(但要驗)。
 - **做法(二擇一,預設採 A)**:
@@ -60,7 +60,7 @@
 - 🎯 **/goal 句**:`/goal 收斂 move/scan/history DTO 成一套:刪 pkg/contracts 的這三組 DTO 與 pkg/app 的 *ToContract 轉換,cmd/scanner 直接序列化 mover.* ;DoD=全專案只剩一套對外 DTO、輸出 JSON 形狀逐欄不變、root+wails go test 與 test_go_cli_contracts.py 全綠`
 - 🔧 **/workflow 提示**:先一個唯讀 agent 盤點所有 `contracts.*`/`*ToContract` 使用點與 wails alias 依賴,再序列套用編輯,最後並行驗證 root/wails/python。
 
-## B2 — 結構化 not-found 訊號(消除 stderr 字串依賴)
+## B2 — 結構化 not-found 訊號(消除 stderr 字串依賴) ✅ 已完成
 - **對應坑**:#8。`go_cli._is_not_found_error` 靠 Go stderr 英文 `"not found"` 子字串區分「資料不存在 vs 真錯誤」;Go 改措辭就壞。
 - **檔案集**:`cmd/scanner/db_cmd.go`(`runDBGet`/`runDBDelete`/`runDBActressGet`/`runDBActressDelete` handlers)、`src/services/go_cli.py`(`_is_not_found_error` 與 `db_get/delete_*`)、`tests/test_go_cli_contracts.py`。
 - **做法**:Go 端「資料不存在」改用**結構化訊號**——擇一:(a) 專屬 exit code(如 `3`),(b) stdout `{"error_kind":"not_found"}`。Python `_is_not_found_error` 改判該結構化訊號(保留舊字串比對當 fallback 一版過渡)。
@@ -68,7 +68,7 @@
 - **驗證**:`go test ./cmd/scanner`、`python -m pytest tests/test_go_cli_contracts.py tests/test_coverage_go_cli.py -q`;手動把 Go not-found 訊息改成中文驗證 Python 仍正確分流(驗完還原)。
 - 🎯 **/goal 句**:`/goal 把 db get/delete 的 not-found 從 stderr 字串改成結構化訊號(exit code 3 或 stdout error_kind=not_found),go_cli._is_not_found_error 改判結構化欄位;DoD=db_get/delete_* 對不存在仍回 None/False、且把 Go 訊息改成中文後測試仍綠、新增鎖定測試、go test 與 pytest 全綠`
 
-## B3 — JSONDatabase 移到獨立 fixture package(消除「誤當 runtime」混淆)
+## B3 — JSONDatabase 移到獨立 fixture package(消除「誤當 runtime」混淆) ✅ 已完成
 - **對應坑**:#7。`JSONDatabase`(`jsondb.go`/`journal.go`)是生產死碼、刻意保留為測試 fixture,但結構上與 runtime store 同 package,易被誤用。**這是不做完整移除(避免 ~92 測試重寫)前提下的中間方案。**
 - **檔案集**:`pkg/database/jsondb.go`、`journal.go` → 搬到新 package(如 `pkg/database/jsonfixture/`);所有 import `JSONDatabase`/`NewJSONDatabase`/`setupTestDB`/`loadedJSONDB`/`seededJSONDB` 的 `*_test.go`(改 import 路徑);`db_helpers.go` 內被 SQLiteStore 依賴的 live free-functions **留在 `pkg/database`**(它們不屬 fixture)。
 - **做法**:把 `JSONDatabase` 型別 + 其方法 + journal + 純服務它的型別搬到 `pkg/database/jsonfixture`(或 `internal/jsonfixture`),改用 export 名稱供測試 import;`pkg/database` 的 runtime 檔不再含 `JSONDatabase`。注意 `db_helpers.go` 的 merge/backup/欄位 helper 是 live、**不可搬**。注意 `actress_cleaner.go` 的 `ActressCleanupTarget` 介面讓 cleaner 同時作用於 SQLiteStore 與 fixture——介面要跨 package 仍可用。
@@ -77,6 +77,8 @@
 - **驗證**:`go test ./pkg/database/... -count=1`、`go build ./...`、wails build、四道 schema drift 鎖、CI 釋出閘(在 temp dir)。
 - 🎯 **/goal 句**:`/goal 把 JSONDatabase(jsondb.go+journal.go)搬到獨立 package pkg/database/jsonfixture,測試改 import;db_helpers.go 的 live helper 留在 pkg/database;DoD=runtime 檔 grep 不到 type JSONDatabase、go test ./pkg/database/... 全綠、root+wails build 綠、schema drift 四鎖綠`
 - 🔧 **/workflow 提示**:先唯讀 agent 盤點 fixture vs live 的精確分界(哪些符號搬、哪些留)與所有 test import 點,再序列搬移,最後並行驗證。
+
+> 📌 事後訂正：規格中提到的 `db_helpers.go` 實際不存在（git 歷史查無此檔）；那些 live free-function 一直在 `pkg/database/jsondb.go`，B3 執行時也確實留在 `pkg/database`，結論不受影響。
 
 > **B 區順序建議**:B1(ROI 最高、解四處同步)→ B2(獨立、低耦合)→ B3(搬 package、測試面最大)。三者互不阻塞但都動 Go,逐一做、各自驗證閘綠再進下一個。
 

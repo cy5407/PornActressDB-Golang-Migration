@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Changed"
+  short_description: "依變更路徑選擇並執行最窄的 Go、wails、Rust 與 Python 驗證"
+  default_prompt: "使用 $verify-changed 為目前變更選擇並執行最窄驗證。"

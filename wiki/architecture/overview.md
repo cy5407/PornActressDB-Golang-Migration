@@ -75,8 +75,7 @@
 ├── pkg/                      # Go 套件庫
 │   ├── app/                  # 服務層（ScanService、MoveService、HistoryService）
 │   ├── cache/                # 快取管理（CLI 限定，不出現在 Wails bindings）
-│   ├── contracts/            # 跨子系統介面契約（scan/move/history）
-│   ├── database/             # 增量 JSON DB（journal + index + atomic compact）
+│   ├── database/             # SQLite v3 runtime store + JSON 匯入／匯出
 │   ├── extractor/            # 番號提取器
 │   ├── mover/                # 檔案移動（含回滾歷史 / Recycle Bin）
 │   ├── pathutil/             # 巢狀路徑判定
@@ -108,13 +107,12 @@
 | `cmd/scanner/` | CLI 進入點，6 個子命令分派 |
 | `pkg/app/` | 服務層（業務邏輯抽象） |
 | `pkg/extractor/` | 番號提取（正則） |
-| `pkg/mover/` | 檔案移動（含回滾歷史） |
-| `pkg/database/` | 增量 JSON DB 操作 |
+| `pkg/mover/` | 檔案移動（含回滾歷史），同時是 CLI 對外 move/history JSON DTO 的唯一來源（`types.go`）；scan 的 `ScanResult` 例外，宣告於 `pkg/app/scan_service.go` |
+| `pkg/database/` | SQLite v3 runtime 資料庫操作與 JSON 匯入匯出 |
 | `pkg/cache/` | 快取 get/set/delete（CLI 限定，未透過 Wails 公開） |
 | `pkg/studio/` | 片商識別 |
 | `pkg/pathutil/` | 統一巢狀路徑判定 |
 | `pkg/safefile/` | temp + rename 原子寫入，由 `pkg/database` 與 `pkg/mover` 使用 |
-| `pkg/contracts/` | CLI JSON 契約 DTO 結構（`ScanResult` / `MoveItem` / `MoveResult` / `BatchResult` / `MergeResult` / `OperationLog` 等），鎖定 CLI ↔ Python/Wails 呼叫端的 JSON 介面 |
 
 > **雙 Go module**：`go.mod`（module `actress-classifier`）涵蓋 `cmd/` 與 `pkg/`；`wails-app/go.mod`（module `wails-app`）為桌面端，透過 `replace actress-classifier => ../` 直接 import 上層 pkg/。Wails 相依（`github.com/wailsapp/wails/v2`）只存在 `wails-app` module，避免汙染 CLI 模組樹。
 
@@ -186,6 +184,6 @@ wails build
 
 - [go-bridge.md](go-bridge.md) — Python→Go 委派歷史與現況（go_cli.py）
 - [go-cli.md](go-cli.md) — Go CLI 命令參考
-- [database.md](database.md) — 增量 JSON DB 說明
+- [database.md](database.md) — SQLite v3 資料庫架構說明
 - [search-engine.md](search-engine.md) — 搜尋引擎架構
 - [wails-gui.md](wails-gui.md) — Wails GUI 架構

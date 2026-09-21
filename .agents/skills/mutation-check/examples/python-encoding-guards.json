@@ -1,0 +1,41 @@
+{
+  "_comment": "Real spec from the project this skill was extracted from (2026-08-16 encoding fix). The paths and commands are that project's, not yours — it is here as a worked example of disambiguating `find` text and of mutating a guard in both directions.",
+  "baseline": ".venv/bin/python tests/python/test_encoding_contract.py",
+  "mutations": [
+    {
+      "name": "latin1 back in the priority list (the original defect)",
+      "file": "src/scrapers/encoding_utils.py",
+      "find": "        \"big5\",  # 繁體中文\n    ]",
+      "replace": "        \"big5\",  # 繁體中文\n        \"latin1\",\n    ]",
+      "command": ".venv/bin/python tests/python/test_encoding_contract.py"
+    },
+    {
+      "name": "mojibake fingerprint never fires",
+      "file": "src/scrapers/encoding_utils.py",
+      "find": "        return suspicious / len(text) > 0.01",
+      "replace": "        return False",
+      "command": ".venv/bin/python tests/python/test_encoding_contract.py"
+    },
+    {
+      "name": "mostly-utf8 salvage always declines",
+      "file": "src/scrapers/encoding_utils.py",
+      "find": "        if error_ratio > self.MOSTLY_UTF8_ERROR_RATIO:",
+      "replace": "        if True:",
+      "command": ".venv/bin/python tests/python/test_encoding_contract.py"
+    },
+    {
+      "name": "fingerprint narrowed to replacement chars only",
+      "file": "src/scrapers/encoding_utils.py",
+      "find": "            1 for char in text if \"\" <= char <= \"\" or char == \"�\"",
+      "replace": "            1 for char in text if char == \"�\"",
+      "command": ".venv/bin/python tests/python/test_encoding_contract.py"
+    },
+    {
+      "name": "soup re-decodes the raw bytes again",
+      "file": "src/scrapers/encoding_utils.py",
+      "find": "            soup = BeautifulSoup(decoded_content, parser)\n\n            logger.debug",
+      "replace": "            soup = BeautifulSoup(content_bytes, parser)\n\n            logger.debug",
+      "command": ".venv/bin/python tests/python/test_encoding_contract.py"
+    }
+  ]
+}

@@ -5,6 +5,20 @@
 > 類型：`init` / `feature` / `fix` / `refactor` / `pitfall` / `lint` / `docs` / `ingest`
 > **排序：最新在上**
 
+## [2026-08-16] docs | 對齊 B1/B2/B3 邊界清理後狀態與 SQLite runtime 實作
+
+**涉及檔案**：
+- `wiki/architecture/overview.md` — 移除目錄樹與模組表格中的 `pkg/contracts`（已由 B1 消除），更新 `pkg/database/` 為 SQLite v3 runtime store + JSON 匯入／匯出，`pkg/mover/` 標註為 DTO 唯一來源，相關頁面連結說明更新。
+- `wiki/architecture/wails-gui.md` — bindings 表格移除已於 2026-05-30 刪除的 `DbUpdateVideo` 與 `DbListVideos`。
+- `wiki/architecture/go-cli.md` — 補齊 `db` 子命令命令樹；更正 `backup-create` 為 SQLite + JSON dual snapshot 說明；更正 `clean-actresses` 為逐筆透過 `UpdateVideo` 寫回 SQLite。
+- `wiki/architecture/studio-classification.md` — `GetActressPrimaryStudio` 相關檔案路徑由 `jsondb.go` 更正為 `pkg/database/sqlite_runtime.go`。
+- `wiki/pitfalls/wails-db-json-never-updated.md` — 檔首加註歷史紀錄標籤（runtime 已切換 SQLite-only，`CompactJournal()` 已移除），結尾涉及檔案指向 `pkg/database/jsonfixture/`。
+- `wiki/architecture/overview.md`（訂正）— 獨立 verifier 覆核後修正：`pkg/mover/` 是 move/history DTO 唯一來源，scan 的 `ScanResult` 例外，宣告於 `pkg/app/scan_service.go:16`。
+- `wiki/wiki-data.js` — 由 `PYTHONIOENCODING=utf-8 python3 wiki/gen_data.py` 重新產生。
+
+**摘要**：
+- 對齊專案實際 code 狀態：消除 `pkg/contracts` 殘留描述，更正 `db backup-create` 與 `clean-actresses` 的 SQLite runtime 行為，標記歷史 pitfall。
+
 ## [2026-05-30] docs | 更正 pkg/contracts 描述 + 標示 v2 shadow 退役流程（純註解/文字）
 
 **涉及檔案**：
